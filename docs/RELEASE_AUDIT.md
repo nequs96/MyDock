@@ -2,7 +2,7 @@
 
 ## Build and automated checks
 
-- `./TestMyDock.sh`: 104 tests pass on the macOS 14 host, including the sleep-inclusive Stopwatch clock, persisted timing state, wall-clock change fixtures, defensive elapsed-time display, and opt-in native Dock auto-save isolation. The Swift Testing library supplied with this Command Line Tools installation links for macOS 14; the app itself targets macOS 13.
+- `./TestMyDock.sh`: 105 tests pass on the macOS 14 host, including the sleep-inclusive Stopwatch clock, persisted timing state, wall-clock change fixtures, defensive elapsed-time display, and opt-in native Dock auto-save isolation. The Swift Testing library supplied with this Command Line Tools installation links for macOS 14; the app itself targets macOS 13.
 - `./BuildMyDock.sh`: release arm64 and x86_64 builds combine into `build/MyDock.app`; the bundle has an original icon and a valid ad-hoc signature. Developer ID signing, notarization, and an updater are not configured.
 - Automated Dock tests use isolated preference backends. They do not write the machine's real Dock preferences.
 - A read-only check of this Mac's Dock preferences found 15 pinned tiles, all with types the auto-save reader recognizes. No Dock preference was changed.

@@ -836,6 +836,14 @@ private struct HydrationDayGroup: Identifiable {
     var id: Date { date }
 }
 
+enum HydrationHistoryPolicy {
+    static let recentDayCount = 7
+
+    static func visibleDays<Day>(_ days: [Day], showingOlder: Bool) -> [Day] {
+        showingOlder ? days : Array(days.prefix(recentDayCount))
+    }
+}
+
 private struct HydrationCompactView: View {
     var item: DockItem
     private var entries: [HydrationEntry] { (item.widgetConfiguration ?? WidgetConfiguration()).hydrationEntriesToday() }
@@ -855,12 +863,16 @@ private struct HydrationPopoutView: View {
     @State private var reminderMessage: String?
     @State private var reminderPermissionDenied = false
     @State private var reminderOperationID = UUID()
+    @State private var showingOlderDrinks = false
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var todayEntries: [HydrationEntry] { configuration.hydrationEntriesToday() }
     private var dayGroups: [HydrationDayGroup] {
         let grouped = Dictionary(grouping: configuration.hydrationEntries) { Calendar.current.startOfDay(for: $0.timestamp) }
         return grouped.keys.sorted(by: >).map { HydrationDayGroup(date: $0, entries: (grouped[$0] ?? []).sorted { $0.timestamp > $1.timestamp }) }
+    }
+    private var visibleDayGroups: [HydrationDayGroup] {
+        HydrationHistoryPolicy.visibleDays(dayGroups, showingOlder: showingOlderDrinks)
     }
 
     var body: some View {
@@ -912,7 +924,7 @@ private struct HydrationPopoutView: View {
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(dayGroups) { group in
+                    ForEach(visibleDayGroups) { group in
                         Section {
                             ForEach(group.entries) { entry in
                                 HStack {
@@ -939,6 +951,12 @@ private struct HydrationPopoutView: View {
                 }
             }
             .frame(maxHeight: 180)
+            if dayGroups.count > HydrationHistoryPolicy.recentDayCount {
+                Button(showingOlderDrinks ? "Show recent drinks" : "Show older drinks") {
+                    showingOlderDrinks.toggle()
+                }
+                .font(.caption)
+            }
         }
         .onChange(of: configuration.hydrationReminderIntervalMinutes) { minutes in
             if configuration.hydrationRemindersEnabled { setReminders(true, interval: minutes) }

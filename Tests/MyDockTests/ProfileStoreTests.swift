@@ -305,6 +305,13 @@ struct ProfileStoreTests {
         #expect(!stopwatchText(.infinity).isEmpty)
     }
 
+    @Test func hydrationHistoryRevealsOlderDaysOnlyWhenRequested() {
+        let days = Array(0..<10)
+        #expect(HydrationHistoryPolicy.visibleDays(days, showingOlder: false) == Array(0..<7))
+        #expect(HydrationHistoryPolicy.visibleDays(days, showingOlder: true) == days)
+        #expect(HydrationHistoryPolicy.visibleDays([1, 2], showingOlder: false) == [1, 2])
+    }
+
     @Test func timeProgressUsesLocalDayBoundariesAcrossDST() {
         var calendar = Calendar(identifier: .gregorian)
         guard let newYork = TimeZone(identifier: "America/New_York") else {
