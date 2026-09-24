@@ -46,8 +46,11 @@ final class UserDefaultsDockPreferencesBackend: DockPreferencesBackend {
     private let key = "persistent-apps"
 
     func readCurrentTiles() throws -> [[String: Any]] {
-        guard let defaults = UserDefaults(suiteName: domain),
-              let tiles = defaults.array(forKey: key) as? [[String: Any]] else {
+        guard let defaults = UserDefaults(suiteName: domain) else {
+            throw NativeDockError.preferencesUnavailable
+        }
+        _ = defaults.synchronize()
+        guard let tiles = defaults.array(forKey: key) as? [[String: Any]] else {
             throw NativeDockError.preferencesUnavailable
         }
         return tiles
@@ -138,6 +141,8 @@ final class NativeDockController {
     private let freezeProvider: DockSwitchFreezeProviding
     private let gate = DockSystemOperationGate.shared
     private let logger = Logger(subsystem: Product.bundleIdentifier, category: "native-dock")
+    private(set) var appliedGeneration: UInt64 = 0
+    private(set) var lastAppliedSignatures: [String]?
 
     init(backend: DockPreferencesBackend = UserDefaultsDockPreferencesBackend(),
          relauncher: DockRelaunching = ProcessDockRelauncher(),
@@ -179,6 +184,8 @@ final class NativeDockController {
                 try await relauncher.restartDock()
                 try await verify(snapshot: snapshot)
                 try journal.clear()
+                lastAppliedSignatures = NativeDockSerializer.signatures(from: snapshot)
+                appliedGeneration &+= 1
                 logger.notice("Recovered an interrupted native Dock transaction")
             }
             await gate.release()
@@ -196,6 +203,8 @@ final class NativeDockController {
             try await relauncher.restartDock()
             try await verify(expectedSignatures: NativeDockSerializer.signatures(from: nextTiles))
             try journal.clear()
+            lastAppliedSignatures = NativeDockSerializer.signatures(from: nextTiles)
+            appliedGeneration &+= 1
             if let freezeSession { freezeProvider.end(freezeSession) }
             logger.notice("Applied native Dock profile \(profileID.uuidString, privacy: .public)")
         } catch {
@@ -267,10 +276,30 @@ enum NativeDockSerializer {
     }
 
     static func signatures(from tiles: [[String: Any]]) -> [String] {
-        items(from: tiles).map { item in
-            if item.type == .spacer { return "spacer:\(item.spacerKind?.rawValue ?? "unknown")" }
-            return "application:\(item.url?.standardizedFileURL.path ?? item.title)"
+        signatures(from: items(from: tiles))
+    }
+
+    static func signatures(from items: [DockItem]) -> [String] {
+        items.map(signature(for:))
+    }
+
+    static func preservingIDs(in imported: [DockItem], from previous: [DockItem]) -> [DockItem] {
+        var availableIDs: [String: ArraySlice<UUID>] = [:]
+        for item in previous { availableIDs[signature(for: item), default: []].append(item.id) }
+        return imported.map { importedItem in
+            var result = importedItem
+            let signature = signature(for: importedItem)
+            if var ids = availableIDs[signature], let retainedID = ids.popFirst() {
+                result.id = retainedID
+                availableIDs[signature] = ids
+            }
+            return result
         }
+    }
+
+    private static func signature(for item: DockItem) -> String {
+        if item.type == .spacer { return "spacer:\(item.spacerKind?.rawValue ?? "unknown")" }
+        return "application:\(item.url?.standardizedFileURL.path ?? item.title)"
     }
 
     static func plistArraysEqual(_ lhs: [[String: Any]], _ rhs: [[String: Any]]) -> Bool {

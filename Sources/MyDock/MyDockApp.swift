@@ -40,6 +40,9 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
         stateObservation = store.$state.receive(on: RunLoop.main).sink { [weak self] state in
             self?.dockController?.update(state: state)
             self?.rebuildMenu()
+            NativeDockAutoSaveMonitor.shared.configure(
+                enabled: state.settings.onboardingComplete && state.settings.automaticallySaveNativeDockChanges,
+                profileID: state.settings.activeNativeProfileID)
             NSApplication.shared.setActivationPolicy(state.settings.onboardingComplete ? .accessory : .regular)
             let activeCustomProfileExists = state.settings.activeCustomProfileID.map { id in
                 state.profiles.contains { $0.id == id && $0.kind == .custom }

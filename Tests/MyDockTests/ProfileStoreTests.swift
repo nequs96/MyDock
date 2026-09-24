@@ -1140,6 +1140,48 @@ struct ProfileStoreTests {
         #expect(NativeDockSerializer.signatures(from: tiles).count == 3)
     }
 
+    @Test func nativeDockAutoSaveTracksOnlyExternalSupportedChanges() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
+        let profileID = store.createProfile(kind: .native, name: "Work")
+        let appURL = URL(fileURLWithPath: "/System/Applications/Calculator.app")
+        let pinnedApp = DockItem(type: .application, title: "Calculator", url: appURL)
+        store.replaceItems([pinnedApp], in: profileID)
+        store.updateSettings { $0.automaticallySaveNativeDockChanges = true }
+
+        let backend = FakeDockPreferencesBackend(tiles: [NativeDockTestFixtures.applicationTile(appURL)])
+        let relauncher = FakeDockRelauncher()
+        let controller = NativeDockController(backend: backend, relauncher: relauncher,
+                                              journal: FakeDockTransactionJournal())
+        let monitor = NativeDockAutoSaveMonitor(store: store, controller: controller,
+                                                 backend: backend, pollingInterval: nil)
+        monitor.configure(enabled: true, profileID: profileID)
+        await monitor.refreshNow()
+
+        backend.tiles = [["tile-type": "small-spacer-tile"], NativeDockTestFixtures.applicationTile(appURL)]
+        await monitor.refreshNow()
+        let changed = store.nativeProfiles.first { $0.id == profileID }?.items
+        #expect(changed?.map(\.spacerKind) == [.small, nil])
+        #expect(changed?.last?.id == pinnedApp.id)
+        #expect(backend.writeCount == 0)
+        #expect(relauncher.restartCount == 0)
+
+        try await controller.apply(DockProfile(name: "Another", kind: .native, items: [.spacer(.regular)]))
+        await monitor.refreshNow()
+        #expect(store.nativeProfiles.first { $0.id == profileID }?.items.map(\.spacerKind) == [.small, nil])
+
+        backend.tiles = [["tile-type": "unknown-tile"]]
+        await monitor.refreshNow()
+        #expect(monitor.errorMessage != nil)
+        #expect(store.nativeProfiles.first { $0.id == profileID }?.items.map(\.spacerKind) == [.small, nil])
+
+        monitor.configure(enabled: false, profileID: nil)
+        backend.tiles = [["tile-type": "spacer-tile"]]
+        await monitor.refreshNow()
+        #expect(store.nativeProfiles.first { $0.id == profileID }?.items.map(\.spacerKind) == [.small, nil])
+    }
+
     @Test func nativeDockApplyUsesFixtureBackendAndClearsJournal() async throws {
         let appURL = URL(fileURLWithPath: "/System/Applications/Calculator.app")
         let original = [NativeDockTestFixtures.applicationTile(appURL), ["tile-type": "spacer-tile"]]
@@ -1752,6 +1794,7 @@ struct ProfileStoreTests {
         #expect(!restoredLegacy.customDockDesktopMode)
         #expect(restoredLegacy.customDockMaterial == .frosted)
         #expect(!restoredLegacy.smoothNativeDockSwitches)
+        #expect(!restoredLegacy.automaticallySaveNativeDockChanges)
         #expect(!restoredLegacy.showWindowPreviews)
         #expect(!restoredLegacy.showRunningApps)
 

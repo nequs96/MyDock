@@ -2,9 +2,10 @@
 
 ## Build and automated checks
 
-- `./TestMyDock.sh`: 103 tests pass on the macOS 14 host, including the sleep-inclusive Stopwatch clock, persisted timing state, wall-clock change fixtures, and defensive elapsed-time display. The Swift Testing library supplied with this Command Line Tools installation links for macOS 14; the app itself targets macOS 13.
+- `./TestMyDock.sh`: 104 tests pass on the macOS 14 host, including the sleep-inclusive Stopwatch clock, persisted timing state, wall-clock change fixtures, defensive elapsed-time display, and opt-in native Dock auto-save isolation. The Swift Testing library supplied with this Command Line Tools installation links for macOS 14; the app itself targets macOS 13.
 - `./BuildMyDock.sh`: release arm64 and x86_64 builds combine into `build/MyDock.app`; the bundle has an original icon and a valid ad-hoc signature. Developer ID signing, notarization, and an updater are not configured.
 - Automated Dock tests use isolated preference backends. They do not write the machine's real Dock preferences.
+- A read-only check of this Mac's Dock preferences found 15 pinned tiles, all with types the auto-save reader recognizes. No Dock preference was changed.
 - The Music artwork and Spotify metadata AppleScript snippets compile with `osacompile`; no Apple Event was sent to a player during this audit.
 
 ## Source and data review
@@ -15,6 +16,7 @@
 - Storage scans skip hidden files, package descendants, and symlinks; they run in a detached task after a user action, support cancellation, disclose skipped/capped results, and never delete files. Home and Library totals are separate because the locations overlap.
 - Site icons are fetched only on an explicit action with bounded HTTPS requests. Spotify artwork uses a bounded credential-free HTTPS request to `i.scdn.co`; window previews and player artwork stay in memory.
 - The Custom Dock's system, network, window, and Now Playing monitors stop or pause their recurring work while the Dock is hidden. No idle CPU, multi-display, or long-running memory measurement could be made while the desktop was locked.
+- Native Dock auto-save stays off by default. When enabled, it reads pinned apps and spacers every five seconds, observes an initial baseline, ignores MyDock's own successful applies, and saves external changes only to the selected profile. Unsupported Dock tiles pause automatic saving instead of being silently dropped. Its fixture test never touches the real Dock.
 
 ## Acceptance still required
 

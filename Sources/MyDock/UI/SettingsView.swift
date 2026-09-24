@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var permissionRows: [PermissionOverviewRow] = []
     @State private var screenCaptureMessage: String?
     @State private var windowPreviewMessage: String?
+    @ObservedObject private var nativeDockAutoSave = NativeDockAutoSaveMonitor.shared
 
     var body: some View {
         TabView {
@@ -78,6 +79,20 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Section("Native Dock switching") {
+                    Toggle("Automatically save Dock changes", isOn: Binding(
+                        get: { store.state.settings.automaticallySaveNativeDockChanges },
+                        set: { enabled in store.updateSettings { $0.automaticallySaveNativeDockChanges = enabled } }
+                    ))
+                    Text("When enabled, changes you make directly in Apple's Dock update the selected macOS Dock profile. MyDock checks pinned apps and spacers every five seconds; turning this off stops the check.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    if store.state.settings.automaticallySaveNativeDockChanges,
+                       store.state.settings.activeNativeProfileID == nil {
+                        Text("Select a macOS Dock profile to start automatic saving.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let message = nativeDockAutoSave.errorMessage, store.state.settings.automaticallySaveNativeDockChanges {
+                        Text(message).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    }
                     Toggle("Freeze desktop during Dock restart", isOn: Binding(
                         get: { store.state.settings.smoothNativeDockSwitches },
                         set: { enabled in

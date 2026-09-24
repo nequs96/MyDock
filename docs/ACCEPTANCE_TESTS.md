@@ -1,6 +1,6 @@
 # MyDock macOS acceptance tests
 
-Status: automated fixture and host-reader tests pass (99 tests); manual desktop acceptance is partial. The rebuilt release app's Settings/Permissions path and Accessibility System Settings deep link were verified. The earlier manager build's explicit selection mode, two-item selection, group-delete count, and clear-selection flow were verified without deleting saved items. The latest manager draft/save/discard and group-move UI compiled and passed model/store tests but could not be clicked through after the Mac locked. Custom Dock gestures, real Dock changes, notifications, and live market data have not been manually exercised. Native Dock automated tests use fakes and do not write the developer machine's preferences. EventKit tests cover configuration and ordering only; they do not read personal calendars or reminders.
+Status: automated fixture and host-reader tests pass (104 tests); manual desktop acceptance is partial. The rebuilt release app's Settings/Permissions path and Accessibility System Settings deep link were verified. The earlier manager build's explicit selection mode, two-item selection, group-delete count, and clear-selection flow were verified without deleting saved items. The latest manager draft/save/discard and group-move UI compiled and passed model/store tests but could not be clicked through after the Mac locked. Custom Dock gestures, real Dock changes, notifications, and live market data have not been manually exercised. Native Dock automated tests use fakes and do not write the developer machine's preferences. EventKit tests cover configuration and ordering only; they do not read personal calendars or reminders.
 
 ## Core vertical slice
 
@@ -33,7 +33,8 @@ Status: automated fixture and host-reader tests pass (99 tests); manual desktop 
 2. Apply to an isolated test preference store and verify exact round-trip order/kinds.
 3. Simulate Dock restart failure and interrupted transaction; confirm rollback and recovery.
 4. Rapidly request A → B → C; confirm final state is C and no older request overwrites it.
-5. Exercise real Dock mutation only after separate user approval, using the snapshot/restore procedure in [REAL_DOCK_TEST_PLAN.md](REAL_DOCK_TEST_PLAN.md).
+5. In the isolated backend, enable Automatically save Dock changes and confirm an external pinned-app or spacer edit updates only the selected profile without writing Dock preferences. Confirm an app-driven switch, unsupported tile, and disabled setting do not overwrite that profile. On the unlocked desktop, check the same setting with a reversible manual Dock edit.
+6. Exercise real Dock mutation only after separate user approval, using the snapshot/restore procedure in [REAL_DOCK_TEST_PLAN.md](REAL_DOCK_TEST_PLAN.md).
 
 ## Display and window behavior
 
