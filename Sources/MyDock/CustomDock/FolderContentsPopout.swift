@@ -1,0 +1,108 @@
+import AppKit
+import SwiftUI
+
+struct FolderContentsPopout: View {
+    var folderURL: URL
+    var onClose: () -> Void
+
+    @State private var directoryStack: [URL]
+    @State private var entries: [FolderContentsEntry] = []
+    @State private var errorMessage: String?
+
+    init(folderURL: URL, onClose: @escaping () -> Void) {
+        self.folderURL = folderURL
+        self.onClose = onClose
+        _directoryStack = State(initialValue: [folderURL])
+    }
+
+    private var currentURL: URL { directoryStack.last ?? folderURL }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                if directoryStack.count > 1 {
+                    Button { directoryStack.removeLast() } label: {
+                        Image(systemName: "chevron.left").frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Back")
+                }
+                Image(systemName: "folder.fill").foregroundStyle(.tint)
+                Text(currentURL.lastPathComponent).font(.headline).lineLimit(1)
+                Spacer(minLength: 4)
+                Button {
+                    NSWorkspace.shared.open(currentURL)
+                } label: { Image(systemName: "arrow.up.forward.app") }
+                .buttonStyle(.plain).help("Open in Finder")
+                Button(action: onClose) { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).help("Close folder")
+            }
+            .padding(12)
+            Divider()
+            if let errorMessage {
+                emptyState(title: "Folder unavailable", symbol: "folder.badge.questionmark", message: errorMessage)
+            } else if entries.isEmpty {
+                emptyState(title: "Empty folder", symbol: "folder", message: "This folder has no visible items.")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(entries) { entry in
+                            Button {
+                                if entry.isDirectory {
+                                    directoryStack.append(entry.url)
+                                } else {
+                                    NSWorkspace.shared.open(entry.url)
+                                }
+                            } label: {
+                                HStack(spacing: 9) {
+                                    Image(nsImage: NSWorkspace.shared.icon(forFile: entry.url.path))
+                                        .resizable().scaledToFit().frame(width: 22, height: 22)
+                                    Text(entry.name).lineLimit(1)
+                                    Spacer(minLength: 6)
+                                    if entry.isDirectory { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary) }
+                                }
+                                .contentShape(Rectangle())
+                                .padding(.horizontal, 9).padding(.vertical, 5)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Open in Finder") { NSWorkspace.shared.open(entry.url) }
+                                Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([entry.url]) }
+                            }
+                        }
+                    }
+                    .padding(8)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+        .frame(width: 330, height: 360)
+        .task(id: currentURL) { await loadEntries(at: currentURL) }
+        .onExitCommand(perform: onClose)
+    }
+
+    private func emptyState(title: String, symbol: String, message: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: symbol).font(.title).foregroundStyle(.secondary)
+            Text(title).font(.headline)
+            Text(message).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(20)
+    }
+
+    private func loadEntries(at url: URL) async {
+        do {
+            let loadedEntries = try await Task.detached(priority: .userInitiated) {
+                try FolderContentsReader.entries(at: url)
+            }.value
+            guard currentURL == url else { return }
+            entries = loadedEntries
+            errorMessage = nil
+        } catch {
+            guard currentURL == url else { return }
+            entries = []
+            errorMessage = error.localizedDescription
+        }
+    }
+}

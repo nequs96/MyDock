@@ -1,0 +1,26 @@
+# Installing a local MyDock build
+
+MyDock currently ships as an ad-hoc signed development bundle. It is not Developer ID signed or notarized, and there is no updater.
+
+## Build and launch
+
+On macOS 13 or later with Swift 6 and Apple's Command Line Tools available. The build script compiles arm64 and x86_64 slices and combines them into a universal app bundle:
+
+```sh
+./BuildMyDock.sh
+open build/MyDock.app
+```
+
+The built app is `build/MyDock.app` in the repository, with a minimum system version of macOS 13. To install it for the current user, copy that bundle to `~/Applications`; to install it for all users, copy it to `/Applications` using Finder. Launch it from Applications or with `open ~/Applications/MyDock.app`.
+
+The local bundle is ad-hoc signed and not notarized. If Gatekeeper blocks this locally built app, use Finder's Open action and approve it in Privacy & Security. Do not remove quarantine from an app build you did not create or inspect.
+
+## Updates and removal
+
+Rebuild and replace the existing app bundle to update. Profile data is stored separately in `~/Library/Application Support/MyDock/state.json`; removing the app does not delete that data. To remove saved profiles too, quit MyDock and delete the `MyDock` folder from Application Support.
+
+## Signing for wider distribution
+
+For distribution outside this machine, sign the app with an Apple Developer ID certificate and notarize it. The ad-hoc signature produced by the build script is only for local development. The project does not currently include entitlements, hardened-runtime notarization configuration, or a Sparkle updater.
+
+See [permissions and data handling](PERMISSIONS.md) before enabling features that require additional system access.
