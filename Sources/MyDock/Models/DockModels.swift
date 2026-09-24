@@ -324,6 +324,7 @@ struct WidgetConfiguration: Codable, Hashable {
     var aiActivitySnapshot: AIActivitySnapshot?
     var stopwatchElapsedBeforeStart: TimeInterval
     var stopwatchStartedAt: Date?
+    var stopwatchClockStart: StopwatchClockSample?
     var countdownDurationSeconds: Int
     var countdownElapsedBeforeStart: TimeInterval
     var countdownStartedAt: Date?
@@ -366,7 +367,7 @@ struct WidgetConfiguration: Codable, Hashable {
         case shopifyDisplayName, shopifyColor, shopifyStoreID, shopifyMetric, shopifyPeriod, shopifyShowsChart, shopifySnapshot
         case aiLimitsLayout, aiLimitsRepresentation, aiLimitsVisibleProviders, aiLimitsProviderOrder, aiLimitsCompactProvider, aiLimitsSnapshot
         case aiActivityProvider, aiActivityRange, aiActivityChartStyle, aiActivitySnapshot
-        case stopwatchElapsedBeforeStart, stopwatchStartedAt
+        case stopwatchElapsedBeforeStart, stopwatchStartedAt, stopwatchClockStart
         case countdownDurationSeconds, countdownElapsedBeforeStart, countdownStartedAt, timeProgressPeriod
         case hydrationSaveHistory, hydrationTrackAmounts, hydrationRemindersEnabled, hydrationDefaultAmountML
         case hydrationReminderIntervalMinutes, hydrationEntries, hydrationLastRemovedEntry
@@ -427,6 +428,7 @@ struct WidgetConfiguration: Codable, Hashable {
         aiActivitySnapshot = nil
         stopwatchElapsedBeforeStart = 0
         stopwatchStartedAt = nil
+        stopwatchClockStart = nil
         countdownDurationSeconds = 5 * 60
         countdownElapsedBeforeStart = 0
         countdownStartedAt = nil
@@ -512,6 +514,7 @@ struct WidgetConfiguration: Codable, Hashable {
         aiActivitySnapshot = try values.decodeIfPresent(AIActivitySnapshot.self, forKey: .aiActivitySnapshot)
         stopwatchElapsedBeforeStart = try values.decodeIfPresent(TimeInterval.self, forKey: .stopwatchElapsedBeforeStart) ?? 0
         stopwatchStartedAt = try values.decodeIfPresent(Date.self, forKey: .stopwatchStartedAt)
+        stopwatchClockStart = try values.decodeIfPresent(StopwatchClockSample.self, forKey: .stopwatchClockStart)
         countdownDurationSeconds = try values.decodeIfPresent(Int.self, forKey: .countdownDurationSeconds) ?? 5 * 60
         countdownElapsedBeforeStart = try values.decodeIfPresent(TimeInterval.self, forKey: .countdownElapsedBeforeStart) ?? 0
         countdownStartedAt = try values.decodeIfPresent(Date.self, forKey: .countdownStartedAt)
@@ -567,23 +570,32 @@ struct WidgetConfiguration: Codable, Hashable {
         focusStartedAt = nil
     }
 
-    func stopwatchElapsed(at date: Date = .now) -> TimeInterval {
-        stopwatchElapsedBeforeStart + (stopwatchStartedAt.map { max(0, date.timeIntervalSince($0)) } ?? 0)
+    func stopwatchElapsed(at date: Date = .now, clock: StopwatchClockSample? = StopwatchClock.sample()) -> TimeInterval {
+        guard let stopwatchStartedAt else { return stopwatchElapsedBeforeStart }
+        if let stopwatchClockStart, let clock, let elapsed = clock.elapsed(since: stopwatchClockStart) {
+            return stopwatchElapsedBeforeStart + elapsed
+        }
+        // Older saved profiles and a new boot have no comparable monotonic anchor.
+        return stopwatchElapsedBeforeStart + max(0, date.timeIntervalSince(stopwatchStartedAt))
     }
 
-    mutating func startStopwatch(at date: Date = .now) {
-        if stopwatchStartedAt == nil { stopwatchStartedAt = date }
+    mutating func startStopwatch(at date: Date = .now, clock: StopwatchClockSample? = StopwatchClock.sample()) {
+        guard stopwatchStartedAt == nil else { return }
+        stopwatchStartedAt = date
+        stopwatchClockStart = clock
     }
 
-    mutating func pauseStopwatch(at date: Date = .now) {
+    mutating func pauseStopwatch(at date: Date = .now, clock: StopwatchClockSample? = StopwatchClock.sample()) {
         guard stopwatchStartedAt != nil else { return }
-        stopwatchElapsedBeforeStart = stopwatchElapsed(at: date)
+        stopwatchElapsedBeforeStart = stopwatchElapsed(at: date, clock: clock)
         stopwatchStartedAt = nil
+        stopwatchClockStart = nil
     }
 
     mutating func resetStopwatch() {
         stopwatchElapsedBeforeStart = 0
         stopwatchStartedAt = nil
+        stopwatchClockStart = nil
     }
 
     func countdownRemaining(at date: Date = .now) -> TimeInterval {

@@ -2,7 +2,7 @@
 
 ## Build and automated checks
 
-- `./TestMyDock.sh`: 99 tests pass on the macOS 14 host. The Swift Testing library supplied with this Command Line Tools installation links for macOS 14; the app itself targets macOS 13.
+- `./TestMyDock.sh`: 103 tests pass on the macOS 14 host, including the sleep-inclusive Stopwatch clock, persisted timing state, wall-clock change fixtures, and defensive elapsed-time display. The Swift Testing library supplied with this Command Line Tools installation links for macOS 14; the app itself targets macOS 13.
 - `./BuildMyDock.sh`: release arm64 and x86_64 builds combine into `build/MyDock.app`; the bundle has an original icon and a valid ad-hoc signature. Developer ID signing, notarization, and an updater are not configured.
 - Automated Dock tests use isolated preference backends. They do not write the machine's real Dock preferences.
 - The Music artwork and Spotify metadata AppleScript snippets compile with `osacompile`; no Apple Event was sent to a player during this audit.

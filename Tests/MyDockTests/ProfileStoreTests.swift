@@ -235,10 +235,10 @@ struct ProfileStoreTests {
         #expect(timer.focusRemaining(at: start.addingTimeInterval(500)) == 120)
 
         var stopwatch = WidgetConfiguration()
-        stopwatch.startStopwatch(at: start)
-        #expect(stopwatch.stopwatchElapsed(at: start.addingTimeInterval(12)) == 12)
-        stopwatch.pauseStopwatch(at: start.addingTimeInterval(12))
-        #expect(stopwatch.stopwatchElapsed(at: start.addingTimeInterval(500)) == 12)
+        stopwatch.startStopwatch(at: start, clock: nil)
+        #expect(stopwatch.stopwatchElapsed(at: start.addingTimeInterval(12), clock: nil) == 12)
+        stopwatch.pauseStopwatch(at: start.addingTimeInterval(12), clock: nil)
+        #expect(stopwatch.stopwatchElapsed(at: start.addingTimeInterval(500), clock: nil) == 12)
 
         var countdown = WidgetConfiguration()
         countdown.countdownDurationSeconds = 90
@@ -246,6 +246,63 @@ struct ProfileStoreTests {
         #expect(countdown.countdownRemaining(at: start.addingTimeInterval(30)) == 60)
         countdown.pauseCountdown(at: start.addingTimeInterval(30))
         #expect(countdown.countdownRemaining(at: start.addingTimeInterval(500)) == 60)
+    }
+
+    @Test func stopwatchUsesPersistedMonotonicClockAcrossWallClockChanges() throws {
+        let wallStart = Date(timeIntervalSince1970: 1_000)
+        let first = StopwatchClockSample(continuousSeconds: 100, bootSessionID: "boot-A")
+        var stopwatch = WidgetConfiguration()
+        stopwatch.startStopwatch(at: wallStart, clock: first)
+
+        let restored = try JSONDecoder().decode(WidgetConfiguration.self, from: JSONEncoder().encode(stopwatch))
+        let later = StopwatchClockSample(continuousSeconds: 112, bootSessionID: "boot-A")
+        #expect(restored.stopwatchElapsed(at: wallStart.addingTimeInterval(-3_600), clock: later) == 12)
+        #expect(restored.stopwatchElapsed(at: wallStart.addingTimeInterval(86_400), clock: later) == 12)
+
+        stopwatch.pauseStopwatch(at: wallStart.addingTimeInterval(-3_600), clock: later)
+        #expect(stopwatch.stopwatchElapsed(at: wallStart.addingTimeInterval(86_400), clock: nil) == 12)
+        #expect(stopwatch.stopwatchClockStart == nil)
+
+        stopwatch.startStopwatch(at: wallStart.addingTimeInterval(50),
+                                 clock: StopwatchClockSample(continuousSeconds: 200, bootSessionID: "boot-A"))
+        #expect(stopwatch.stopwatchElapsed(at: wallStart.addingTimeInterval(-3_600),
+                                          clock: StopwatchClockSample(continuousSeconds: 205, bootSessionID: "boot-A")) == 17)
+        stopwatch.resetStopwatch()
+        #expect(stopwatch.stopwatchElapsed(at: wallStart, clock: later) == 0)
+        #expect(stopwatch.stopwatchClockStart == nil)
+    }
+
+    @Test func stopwatchFallsBackToDateAfterRebootOrLegacyDecode() throws {
+        let start = Date(timeIntervalSince1970: 1_000)
+        var stopwatch = WidgetConfiguration()
+        stopwatch.startStopwatch(at: start,
+                                 clock: StopwatchClockSample(continuousSeconds: 100, bootSessionID: "boot-A"))
+        #expect(stopwatch.stopwatchElapsed(at: start.addingTimeInterval(20),
+                                          clock: StopwatchClockSample(continuousSeconds: 5, bootSessionID: "boot-B")) == 20)
+
+        var encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(stopwatch)) as! [String: Any]
+        encoded.removeValue(forKey: "stopwatchClockStart")
+        let legacy = try JSONDecoder().decode(WidgetConfiguration.self, from: JSONSerialization.data(withJSONObject: encoded))
+        #expect(legacy.stopwatchElapsed(at: start.addingTimeInterval(30),
+                                        clock: StopwatchClockSample(continuousSeconds: 130, bootSessionID: "boot-A")) == 30)
+    }
+
+    @Test func liveStopwatchClockReadsBootScopedContinuousTime() {
+        guard let first = StopwatchClock.sample(), let second = StopwatchClock.sample() else {
+            Issue.record("The IOKit boot-session clock is unavailable")
+            return
+        }
+        #expect(UUID(uuidString: first.bootSessionID) != nil)
+        #expect(second.bootSessionID == first.bootSessionID)
+        #expect(second.continuousSeconds >= first.continuousSeconds)
+    }
+
+    @Test func stopwatchDisplayHandlesCorruptOrExtremeElapsedValues() {
+        #expect(stopwatchText(3_661) == "1:01:01")
+        #expect(stopwatchText(-50) == "00:00")
+        #expect(stopwatchText(.nan) == "00:00")
+        #expect(!stopwatchText(1e100).isEmpty)
+        #expect(!stopwatchText(.infinity).isEmpty)
     }
 
     @Test func timeProgressUsesLocalDayBoundariesAcrossDST() {
@@ -1007,6 +1064,7 @@ struct ProfileStoreTests {
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("folder", isDirectory: true), withIntermediateDirectories: false)
 
         #expect(try TrashContentsReader.itemCount(at: directory) == 3)
+        #expect(try TrashContentsReader.itemCount(at: directory.appendingPathComponent("missing")) == 0)
         #expect(WidgetRegistry.all.contains(where: { $0.name == "Trash" }))
     }
 

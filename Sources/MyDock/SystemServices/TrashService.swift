@@ -5,7 +5,13 @@ import Foundation
 
 enum TrashContentsReader {
     static func itemCount(at trashURL: URL, fileManager: FileManager = .default) throws -> Int {
-        try fileManager.contentsOfDirectory(at: trashURL, includingPropertiesForKeys: nil, options: []).count
+        do {
+            return try fileManager.contentsOfDirectory(at: trashURL, includingPropertiesForKeys: nil, options: []).count
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileReadNoSuchFileError { return 0 }
+            throw error
+        }
     }
 }
 

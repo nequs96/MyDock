@@ -853,6 +853,7 @@ private struct HydrationPopoutView: View {
     var item: DockItem
     var profileID: UUID
     @State private var reminderMessage: String?
+    @State private var reminderPermissionDenied = false
     @State private var reminderOperationID = UUID()
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
@@ -886,6 +887,13 @@ private struct HydrationPopoutView: View {
             .disabled(!configuration.hydrationRemindersEnabled)
             if let reminderMessage {
                 Text(reminderMessage).font(.caption).foregroundStyle(.secondary)
+            }
+            if reminderPermissionDenied {
+                Button("Open Notification Settings") {
+                    guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
+                    NSWorkspace.shared.open(url)
+                }
+                .font(.caption)
             }
             Stepper(value: binding(\.hydrationDefaultAmountML), in: 50...1_000, step: 50) {
                 Text("Drink size: \(configuration.hydrationDefaultAmountML) mL").font(.caption)
@@ -958,6 +966,7 @@ private struct HydrationPopoutView: View {
             HydrationReminderService.cancel(itemID: item.id)
             update { $0.hydrationRemindersEnabled = false }
             reminderMessage = nil
+            reminderPermissionDenied = false
             return
         }
         Task { @MainActor in
@@ -969,10 +978,12 @@ private struct HydrationPopoutView: View {
                 }
                 update { $0.hydrationRemindersEnabled = true }
                 reminderMessage = "Reminder scheduled every \(min(max(interval, 30), 240)) minutes."
+                reminderPermissionDenied = false
             } catch {
                 guard reminderOperationID == operationID else { return }
                 update { $0.hydrationRemindersEnabled = false }
                 reminderMessage = error.localizedDescription
+                reminderPermissionDenied = error is HydrationReminderError
             }
         }
     }
@@ -1228,13 +1239,14 @@ private func timerText(_ interval: TimeInterval) -> String {
     return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
 }
 
-private func stopwatchText(_ interval: TimeInterval) -> String {
-    let seconds = max(0, Int(interval.rounded(.down)))
+func stopwatchText(_ interval: TimeInterval) -> String {
+    let safeInterval = interval.isNaN ? 0 : min(max(0, interval), TimeInterval(Int.max / 4))
+    let seconds = Int(safeInterval.rounded(.down))
     let hours = seconds / 3_600
     let minutes = (seconds % 3_600) / 60
     let remainingSeconds = seconds % 60
     return hours > 0
-        ? String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
+        ? "\(hours):\(String(format: "%02d", minutes)):\(String(format: "%02d", remainingSeconds))"
         : String(format: "%02d:%02d", minutes, remainingSeconds)
 }
 

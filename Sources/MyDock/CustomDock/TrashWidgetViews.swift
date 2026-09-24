@@ -15,14 +15,14 @@ private struct TrashCompactWidgetView: View {
 
     var body: some View {
         VStack(spacing: 2) {
-            Image(systemName: status.itemCount == 0 ? "trash" : "trash.fill")
+            Image(systemName: status.errorMessage != nil ? "exclamationmark.triangle" : status.itemCount == 0 ? "trash" : "trash.fill")
                 .font(.system(size: 23, weight: .regular))
-            Text(status.itemCount == 0 ? "Empty" : "\(status.itemCount)")
+            Text(status.errorMessage != nil ? "Unavailable" : status.itemCount == 0 ? "Empty" : "\(status.itemCount)")
                 .font(.system(size: 8, weight: .medium, design: .rounded).monospacedDigit())
                 .lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(width: 54, height: 54)
-        .help(status.itemCount == 0 ? "Trash is empty" : "\(status.itemCount) items in Trash")
+        .help(status.errorMessage ?? (status.itemCount == 0 ? "Trash is empty" : "\(status.itemCount) items in Trash"))
     }
 }
 
@@ -34,10 +34,10 @@ private struct TrashPopoutWidgetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                Image(systemName: status.itemCount == 0 ? "trash" : "trash.fill")
+                Image(systemName: status.errorMessage != nil ? "exclamationmark.triangle" : status.itemCount == 0 ? "trash" : "trash.fill")
                     .font(.system(size: 36)).foregroundColor(status.itemCount == 0 ? Color.secondary : Color.orange)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(status.itemCount == 0 ? "Trash is Empty" : "\(status.itemCount) Items")
+                    Text(status.errorMessage != nil ? "Trash Unavailable" : status.itemCount == 0 ? "Trash is Empty" : "\(status.itemCount) Items")
                         .font(.title3.weight(.semibold))
                     Text("Items in your home-folder Trash")
                         .font(.caption).foregroundStyle(.secondary)
@@ -56,7 +56,7 @@ private struct TrashPopoutWidgetView: View {
                 Spacer()
                 Button("Empty Trash…", role: .destructive) { confirmingEmpty = true }
                     .buttonStyle(.borderedProminent)
-                    .disabled(status.itemCount == 0)
+                    .disabled(status.itemCount == 0 || status.errorMessage != nil)
             }
         }
         .padding(.bottom, 4)
