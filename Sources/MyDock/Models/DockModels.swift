@@ -872,13 +872,14 @@ struct AppSettings: Codable, Equatable {
     var clickFocusedAppToMinimize = false
     var magnificationEnabled = false
     var automaticallySaveNativeDockChanges = false
+    var showActiveProfileNameInMenuBar = false
     var onboardingComplete = false
 
     private enum CodingKeys: String, CodingKey {
         case setupMode, activeNativeProfileID, activeCustomProfileID, customDockPosition, customDockSize
         case customDockDisplayID, automaticallyHideCustomDock, hideCustomDockWhenSystemDockAppears, customDockDesktopMode, customDockMaterial, smoothNativeDockSwitches, showRunningApps
         case showMinimizedWindows, showWindowPreviews, showTrash, showAppBadges, clickFocusedAppToMinimize, magnificationEnabled
-        case automaticallySaveNativeDockChanges, onboardingComplete
+        case automaticallySaveNativeDockChanges, showActiveProfileNameInMenuBar, onboardingComplete
     }
 
     init() {}
@@ -904,6 +905,7 @@ struct AppSettings: Codable, Equatable {
         clickFocusedAppToMinimize = try values.decodeIfPresent(Bool.self, forKey: .clickFocusedAppToMinimize) ?? false
         magnificationEnabled = try values.decodeIfPresent(Bool.self, forKey: .magnificationEnabled) ?? false
         automaticallySaveNativeDockChanges = try values.decodeIfPresent(Bool.self, forKey: .automaticallySaveNativeDockChanges) ?? false
+        showActiveProfileNameInMenuBar = try values.decodeIfPresent(Bool.self, forKey: .showActiveProfileNameInMenuBar) ?? false
         onboardingComplete = try values.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? false
     }
 }

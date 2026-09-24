@@ -2,7 +2,7 @@
 
 ## Build and automated checks
 
-- `./TestMyDock.sh`: 105 tests pass on the macOS 14 host, including the sleep-inclusive Stopwatch clock, persisted timing state, wall-clock change fixtures, defensive elapsed-time display, and opt-in native Dock auto-save isolation. The Swift Testing library supplied with this Command Line Tools installation links for macOS 14; the app itself targets macOS 13.
+- `./TestMyDock.sh`: 106 tests pass on the macOS 14 host, including the sleep-inclusive Stopwatch clock, persisted timing state, wall-clock change fixtures, defensive elapsed-time display, and opt-in native Dock auto-save isolation. The Swift Testing library supplied with this Command Line Tools installation links for macOS 14; the app itself targets macOS 13.
 - `./BuildMyDock.sh`: release arm64 and x86_64 builds combine into `build/MyDock.app`; the bundle has an original icon and a valid ad-hoc signature. Developer ID signing, notarization, and an updater are not configured.
 - Automated Dock tests use isolated preference backends. They do not write the machine's real Dock preferences.
 - A read-only check of this Mac's Dock preferences found 15 pinned tiles, all with types the auto-save reader recognizes. No Dock preference was changed.
@@ -17,6 +17,7 @@
 - Site icons are fetched only on an explicit action with bounded HTTPS requests. Spotify artwork uses a bounded credential-free HTTPS request to `i.scdn.co`; window previews and player artwork stay in memory.
 - The Custom Dock's system, network, window, and Now Playing monitors stop or pause their recurring work while the Dock is hidden. No idle CPU, multi-display, or long-running memory measurement could be made while the desktop was locked.
 - Native Dock auto-save stays off by default. When enabled, it reads pinned apps and spacers every five seconds, observes an initial baseline, ignores MyDock's own successful applies, and saves external changes only to the selected profile. Unsupported Dock tiles pause automatic saving instead of being silently dropped. Its fixture test never touches the real Dock.
+- The optional menu-bar profile title is stored in settings, displays the applicable native and/or Custom profile names for each setup mode, truncates long names, and retains full names in the tooltip. Model and migration tests pass; visual layout remains unchecked while the Mac is locked.
 
 ## Acceptance still required
 

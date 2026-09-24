@@ -1802,6 +1802,7 @@ struct ProfileStoreTests {
         #expect(restoredLegacy.customDockMaterial == .frosted)
         #expect(!restoredLegacy.smoothNativeDockSwitches)
         #expect(!restoredLegacy.automaticallySaveNativeDockChanges)
+        #expect(!restoredLegacy.showActiveProfileNameInMenuBar)
         #expect(!restoredLegacy.showWindowPreviews)
         #expect(!restoredLegacy.showRunningApps)
 
@@ -1811,11 +1812,43 @@ struct ProfileStoreTests {
         current.customDockMaterial = .liquidGlass
         current.smoothNativeDockSwitches = true
         current.showWindowPreviews = true
+        current.showActiveProfileNameInMenuBar = true
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).customDockDesktopMode)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).hideCustomDockWhenSystemDockAppears)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).customDockMaterial == .liquidGlass)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).smoothNativeDockSwitches)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).showWindowPreviews)
+        #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).showActiveProfileNameInMenuBar)
+    }
+
+    @Test func menuBarProfileTitleReflectsTheSelectedDockModes() {
+        let native = DockProfile(name: "Work", kind: .native)
+        let custom = DockProfile(name: "Research", kind: .custom)
+        var state = PersistentState()
+        state.profiles = [native, custom]
+        state.settings.activeNativeProfileID = native.id
+        state.settings.activeCustomProfileID = custom.id
+
+        state.settings.setupMode = .nativeOnly
+        #expect(MenuBarProfileTitle.title(in: state) == "Work")
+        state.settings.setupMode = .customMain
+        #expect(MenuBarProfileTitle.title(in: state) == "Research")
+        state.settings.setupMode = .both
+        #expect(MenuBarProfileTitle.title(in: state) == "Work · Research")
+        #expect(MenuBarProfileTitle.toolTip(in: state).contains("macOS Dock: Work; Custom Dock: Research"))
+
+        state.settings.activeCustomProfileID = nil
+        #expect(MenuBarProfileTitle.title(in: state) == "Work")
+        state.settings.activeNativeProfileID = nil
+        #expect(MenuBarProfileTitle.title(in: state) == nil)
+
+        var longName = DockProfile(name: String(repeating: "A", count: 80), kind: .custom)
+        longName.id = custom.id
+        state.profiles = [native, longName]
+        state.settings.activeCustomProfileID = custom.id
+        #expect(MenuBarProfileTitle.title(in: state)?.count == 28)
+        #expect(MenuBarProfileTitle.title(in: state)?.hasSuffix("…") == true)
+        #expect(MenuBarProfileTitle.toolTip(in: state).contains(String(repeating: "A", count: 80)))
     }
 
     @Test func customMainModeRestoresTheOriginalAppleDockAutoHideAfterRestart() async throws {

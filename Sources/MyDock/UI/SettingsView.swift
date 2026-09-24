@@ -24,6 +24,12 @@ struct SettingsView: View {
                     Picker("Mode", selection: Binding(get: { store.state.settings.setupMode }, set: { store.setSetupMode($0) })) {
                         ForEach(SetupMode.allCases) { mode in Text(mode.title).tag(mode) }
                     }
+                    Toggle("Show active profile name in menu bar", isOn: Binding(
+                        get: { store.state.settings.showActiveProfileNameInMenuBar },
+                        set: { enabled in store.updateSettings { $0.showActiveProfileNameInMenuBar = enabled } }
+                    ))
+                    Text("When both Docks are active, their profile names appear together beside the menu-bar icon.")
+                        .font(.caption).foregroundStyle(.secondary)
                     if store.state.settings.setupMode == .customMain {
                         if store.activeCustomProfile == nil {
                             Text("Select or create a Custom Dock profile first. Apple's Dock remains available until a Custom Dock profile is active.")

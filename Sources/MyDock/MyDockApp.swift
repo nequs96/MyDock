@@ -107,12 +107,20 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
     private func installMenuBarItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "dock.rectangle", accessibilityDescription: Product.name)
+        item.button?.imagePosition = .imageLeading
         statusItem = item
         rebuildMenu()
     }
 
     private func rebuildMenu() {
         guard let statusItem else { return }
+        let title = store.state.settings.showActiveProfileNameInMenuBar
+            ? MenuBarProfileTitle.title(in: store.state) : nil
+        statusItem.length = title == nil ? NSStatusItem.squareLength : NSStatusItem.variableLength
+        statusItem.button?.title = title ?? ""
+        let description = MenuBarProfileTitle.toolTip(in: store.state)
+        statusItem.button?.toolTip = description
+        statusItem.button?.setAccessibilityLabel(description)
         let menu = NSMenu()
         if !store.nativeProfiles.isEmpty {
             let heading = NSMenuItem(title: "macOS Dock", action: nil, keyEquivalent: "")

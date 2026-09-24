@@ -1,6 +1,6 @@
 # MyDock macOS acceptance tests
 
-Status: automated fixture and host-reader tests pass (105 tests); manual desktop acceptance is partial. The rebuilt release app's Settings/Permissions path and Accessibility System Settings deep link were verified. The earlier manager build's explicit selection mode, two-item selection, group-delete count, and clear-selection flow were verified without deleting saved items. The latest manager draft/save/discard and group-move UI compiled and passed model/store tests but could not be clicked through after the Mac locked. Custom Dock gestures, real Dock changes, notifications, and live market data have not been manually exercised. Native Dock automated tests use fakes and do not write the developer machine's preferences. EventKit tests cover configuration and ordering only; they do not read personal calendars or reminders.
+Status: automated fixture and host-reader tests pass (106 tests); manual desktop acceptance is partial. The rebuilt release app's Settings/Permissions path and Accessibility System Settings deep link were verified. The earlier manager build's explicit selection mode, two-item selection, group-delete count, and clear-selection flow were verified without deleting saved items. The latest manager draft/save/discard and group-move UI compiled and passed model/store tests but could not be clicked through after the Mac locked. Custom Dock gestures, real Dock changes, notifications, and live market data have not been manually exercised. Native Dock automated tests use fakes and do not write the developer machine's preferences. EventKit tests cover configuration and ordering only; they do not read personal calendars or reminders.
 
 ## Core vertical slice
 
@@ -10,7 +10,7 @@ Status: automated fixture and host-reader tests pass (105 tests); manual desktop
 4. Click the item and confirm the app launches; click again while active and confirm normal activation.
 5. Enable Show running apps, launch and quit an unpinned app, and verify the transient item appears/disappears; choose Keep in Dock and verify it remains pinned.
 6. Change a native and Custom Dock profile color, then quit and relaunch MyDock; confirm profile, ordering, color, and item path restore. Confirm only the Custom Dock surface is tinted.
-7. Add a second profile and switch from menu bar; confirm the first profile remains intact.
+7. Add a second profile and switch from menu bar; confirm the first profile remains intact. Turn on Show active profile name in menu bar, check Native, Custom-main, and Both modes, and verify long names truncate beside the icon while the full names remain in its tooltip. Turn it off and confirm the icon returns to compact size.
 8. Record distinct shortcuts for two profiles, trigger them from another app, and verify conflict feedback and clearing.
 9. Add a folder with nested folders and files; browse, open a file, reveal it in Finder, and close with Escape.
 10. Add a Calendar widget. Confirm Date layout works without prompting; switch to an event layout and grant or deny access. Select calendars, toggle all-day events, refresh, and verify ongoing/soon meetings remain ahead of all-day entries. Confirm Zoom, Google Meet, and Teams Join links open.
