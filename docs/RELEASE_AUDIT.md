@@ -1,8 +1,8 @@
-# MyDock release audit — 24 September 2026
+# MyDock release audit — 25 September 2026
 
 ## Build and automated checks
 
-- `./TestMyDock.sh`: 106 tests pass on the macOS 14 host, including the sleep-inclusive Stopwatch clock, persisted timing state, wall-clock change fixtures, defensive elapsed-time display, and opt-in native Dock auto-save isolation. The Swift Testing library supplied with this Command Line Tools installation links for macOS 14; the app itself targets macOS 13.
+- `./TestMyDock.sh`: 107 tests pass on the macOS 14 host, including the sleep-inclusive Stopwatch clock, persisted timing state, wall-clock change fixtures, defensive elapsed-time display, opt-in native Dock auto-save isolation, and independent AI provider refresh. The Swift Testing library supplied with this Command Line Tools installation links for macOS 14; the app itself targets macOS 13.
 - `./BuildMyDock.sh`: release arm64 and x86_64 builds combine into `build/MyDock.app`; the bundle has an original icon and a valid ad-hoc signature. Developer ID signing, notarization, and an updater are not configured.
 - Automated Dock tests use isolated preference backends. They do not write the machine's real Dock preferences.
 - A read-only check of this Mac's Dock preferences found 15 pinned tiles, all with types the auto-save reader recognizes. No Dock preference was changed.
@@ -19,6 +19,7 @@
 - Native Dock auto-save stays off by default. When enabled, it reads pinned apps and spacers every five seconds, observes an initial baseline, ignores MyDock's own successful applies, and saves external changes only to the selected profile. Unsupported Dock tiles pause automatic saving instead of being silently dropped. Its fixture test never touches the real Dock.
 - The optional menu-bar profile title is stored in settings, displays the applicable native and/or Custom profile names for each setup mode, truncates long names, and retains full names in the tooltip. Model and migration tests pass; visual layout remains unchecked while the Mac is locked.
 - The Custom Dock now offers a right-click Switch Profile submenu on its surface, regular tiles, and minimized-window tiles. Custom selections activate locally; native selections use the same transactional Dock controller as the menu bar. The menu compiles, but pointer behavior and native switching require unlocked desktop acceptance.
+- AI Limits refreshes each visible provider through an independent adapter. A missing or signed-out Codex CLI now produces a Codex setup state while other provider rows remain visible; hidden providers cause no reader work. A fixture verifies failure isolation. Only Codex has a working allowance adapter. Official provider docs distinguish individual allowance from API/team billing: [Gemini CLI shows quota in `/stats model`](https://geminicli.com/docs/get-started/) but [forbids third-party use of its OAuth backend](https://geminicli.com/docs/resources/faq/); [GitHub offers personal Copilot billing usage reports](https://docs.github.com/en/rest/billing/usage) without returning the individual allowance in that response; [Cursor's API is for team administration](https://docs.cursor.com/en/account/teams/admin-api); [xAI's API limits](https://docs.x.ai/developers/rate-limits) are separate from [Grok subscription usage](https://docs.x.ai/grok/faq). These cannot safely supply the missing personal allowance percentages. Live accounts remain unverified.
 
 ## Acceptance still required
 

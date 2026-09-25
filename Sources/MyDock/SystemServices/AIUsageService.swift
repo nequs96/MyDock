@@ -300,6 +300,66 @@ enum CodexAppServerLimitReader {
     }
 }
 
+protocol AILimitProviderAdapter {
+    var provider: AIProvider { get }
+    func read(now: Date) throws -> AIProviderLimitReading
+}
+
+struct CodexLimitAdapter: AILimitProviderAdapter {
+    let provider: AIProvider = .codex
+
+    func read(now: Date) throws -> AIProviderLimitReading {
+        try CodexAppServerLimitReader.read(now: now)
+    }
+}
+
+struct UnavailableLimitAdapter: AILimitProviderAdapter {
+    let provider: AIProvider
+
+    func read(now: Date) throws -> AIProviderLimitReading {
+        let message: String
+        switch provider {
+        case .claude, .grok, .antigravity:
+            message = "No supported provider-reported allowance update is available in this build."
+        case .cursor, .geminiCLI, .copilot:
+            message = "No supported personal quota reader is available in this build."
+        case .codex:
+            message = "Codex limits require the local app-server."
+        }
+        return AIProviderLimitReading(provider: provider, availability: .unavailable,
+                                      plan: nil, windows: [], updatedAt: nil, message: message)
+    }
+}
+
+enum AILimitsCollector {
+    static func collect(providers: [AIProvider], now: Date = .now,
+                        adapters: [any AILimitProviderAdapter] = defaultAdapters()) -> AILimitsSnapshot {
+        let readers = Dictionary(adapters.map { ($0.provider, $0) }, uniquingKeysWith: { first, _ in first })
+        let readings = providers.map { provider -> AIProviderLimitReading in
+            let reader = readers[provider] ?? UnavailableLimitAdapter(provider: provider)
+            do {
+                return try reader.read(now: now)
+            } catch {
+                let needsSetup: Bool
+                if let usageError = error as? AIUsageError {
+                    needsSetup = usageError == .codexCLIUnavailable || usageError == .codexAuthenticationUnavailable
+                } else {
+                    needsSetup = false
+                }
+                return AIProviderLimitReading(provider: provider,
+                                              availability: needsSetup ? .setupRequired : .error,
+                                              plan: nil, windows: [], updatedAt: nil,
+                                              message: error.localizedDescription)
+            }
+        }
+        return AILimitsSnapshot(fetchedAt: now, readings: readings)
+    }
+
+    private static func defaultAdapters() -> [any AILimitProviderAdapter] {
+        [CodexLimitAdapter()] + AIProvider.allCases.filter { $0 != .codex }.map(UnavailableLimitAdapter.init(provider:))
+    }
+}
+
 enum AIActivityReader {
     private struct SessionActivity: Hashable {
         var id: String

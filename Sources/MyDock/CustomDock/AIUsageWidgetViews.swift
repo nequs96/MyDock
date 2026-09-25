@@ -65,7 +65,6 @@ private struct AILimitsPopoutView: View {
     var item: DockItem
     var profileID: UUID
     @State private var isRefreshing = false
-    @State private var errorMessage: String?
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var orderedProviders: [AIProvider] {
@@ -87,7 +86,9 @@ private struct AILimitsPopoutView: View {
             controls
             Divider()
             if visibleReadings.isEmpty {
-                Text("Turn on a provider to show its usage window here.")
+                Text(configuration.aiLimitsVisibleProviders.isEmpty
+                     ? "Turn on a provider to show its usage window here."
+                     : "Refreshing provider limits…")
                     .font(.callout).foregroundStyle(.secondary)
             } else {
                 ForEach(visibleReadings) { reading in providerSection(reading) }
@@ -95,10 +96,6 @@ private struct AILimitsPopoutView: View {
             if let fetchedAt = configuration.aiLimitsSnapshot?.fetchedAt {
                 Label("Updated \(fetchedAt.formatted(date: .omitted, time: .shortened))", systemImage: "clock")
                     .font(.caption2).foregroundStyle(.secondary)
-            }
-            if let errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             Text("A dash means unavailable. MyDock reads Codex's local app-server rate-limit API without starting a task. It does not infer percentages or refresh limits by spending model tokens.")
                 .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
@@ -263,21 +260,12 @@ private struct AILimitsPopoutView: View {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
-        do {
-            let now = Date.now
-            let reading = try await Task.detached(priority: .utility) { try CodexAppServerLimitReader.read(now: now) }.value
-            let readings = orderedProviders.map { provider in
-                if provider == .codex { return reading }
-                let message = provider == .claude || provider == .grok || provider == .antigravity
-                    ? "Waiting for a supported provider-reported limit update."
-                    : "No authenticated quota reader is available in this build."
-                return AIProviderLimitReading(provider: provider, availability: .unavailable, plan: nil,
-                                              windows: [], updatedAt: nil, message: message)
-            }
-            let next = AILimitsSnapshot(fetchedAt: now, readings: readings)
-            update { $0.aiLimitsSnapshot = next }
-            errorMessage = nil
-        } catch { errorMessage = error.localizedDescription }
+        let providers = orderedProviders.filter(configuration.aiLimitsVisibleProviders.contains)
+        let now = Date.now
+        let next = await Task.detached(priority: .utility) {
+            AILimitsCollector.collect(providers: providers, now: now)
+        }.value
+        update { $0.aiLimitsSnapshot = next }
     }
 }
 

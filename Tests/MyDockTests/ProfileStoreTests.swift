@@ -1632,6 +1632,34 @@ struct ProfileStoreTests {
         #expect(unlimited.message != nil)
     }
 
+    @Test func aiLimitsCollectorKeepsOtherProvidersVisibleWhenCodexFails() {
+        struct FailingCodex: AILimitProviderAdapter {
+            let provider: AIProvider = .codex
+            func read(now: Date) throws -> AIProviderLimitReading {
+                throw AIUsageError.codexCLIUnavailable
+            }
+        }
+        struct WorkingClaude: AILimitProviderAdapter {
+            let provider: AIProvider = .claude
+            func read(now: Date) throws -> AIProviderLimitReading {
+                AIProviderLimitReading(provider: provider, availability: .available, plan: nil,
+                                       windows: [AILimitWindow(name: "Weekly", usedPercent: 24,
+                                                               resetsAt: nil, durationMinutes: 10_080)],
+                                       updatedAt: now, message: nil)
+            }
+        }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let snapshot = AILimitsCollector.collect(providers: [.codex, .claude, .cursor], now: now,
+                                                 adapters: [FailingCodex(), WorkingClaude()])
+        #expect(snapshot.fetchedAt == now)
+        #expect(snapshot.readings.map(\.provider) == [.codex, .claude, .cursor])
+        #expect(snapshot.reading(for: .codex)?.availability == .setupRequired)
+        #expect(snapshot.reading(for: .codex)?.windows.isEmpty == true)
+        #expect(snapshot.reading(for: .claude)?.windows.first?.remainingPercent == 76)
+        #expect(snapshot.reading(for: .cursor)?.availability == .unavailable)
+        #expect(snapshot.reading(for: .grok) == nil)
+    }
+
     @Test func codexActivityCountsUsageDeltasAndActiveSessionDaysWithoutRetainingTranscript() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let sessionDirectory = home.appendingPathComponent(".codex/sessions/2026/09/24", isDirectory: true)
