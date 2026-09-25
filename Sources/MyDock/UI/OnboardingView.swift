@@ -194,8 +194,13 @@ struct OnboardingView: View {
             Label(setupMode.title, systemImage: "checkmark.circle")
             if setupMode != .nativeOnly {
                 Label("Custom Dock at the \(dockPosition.title.lowercased()) edge", systemImage: "rectangle.bottomthird.inset.filled")
-                Text("Starter widgets: \(starterWidgets.sorted().joined(separator: ", ").isEmpty ? "None selected" : starterWidgets.sorted().joined(separator: ", "))")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                if store.customProfiles.isEmpty {
+                    Text("Starter widgets: \(starterWidgets.sorted().joined(separator: ", ").isEmpty ? "None selected" : starterWidgets.sorted().joined(separator: ", "))")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    Text("Your existing Custom Dock profile will be kept.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
             }
             Divider()
             Text("Permissions are optional and requested only when you use a feature that needs them.")
@@ -217,7 +222,8 @@ struct OnboardingView: View {
 
     private var previewSummary: String {
         let screen = displayOptions.first(where: { $0.id == displayID })?.title ?? "Main display"
-        return "\(dockPosition.title) · \(screen) · \(starterWidgets.count) starter widget(s)"
+        let profileSummary = store.customProfiles.isEmpty ? "\(starterWidgets.count) starter widget(s)" : "existing profile"
+        return "\(dockPosition.title) · \(screen) · \(profileSummary)"
     }
 
     private func description(for mode: SetupMode) -> String {

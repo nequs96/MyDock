@@ -18,7 +18,7 @@ enum DockSurfaceMetrics {
     static func contentLength(items: [DockItem], settings: AppSettings, scale: CGFloat) -> CGFloat {
         var lengths = items.map { itemLength($0, settings: settings, scale: scale) }
         if settings.showTrash && !items.contains(where: { $0.widgetKind == "Trash" }) {
-            lengths.append(54 * scale)
+            lengths.append(itemLength(.widget("Trash"), settings: settings, scale: scale))
         }
         return length(lengths, spacing: CGFloat(settings.customDockItemSpacing), scale: scale) + 22 * scale
     }
@@ -682,7 +682,9 @@ struct CustomDockView: View {
             isEnabled: store.state.settings.showTrash,
             hasProfileTrashWidget: profile.items.contains(where: { $0.widgetKind == "Trash" })
         ) {
-            lengths.append(54 * size)
+            lengths.append(DockSurfaceMetrics.itemLength(systemTrashItem,
+                                                         settings: store.state.settings,
+                                                         scale: size))
         }
         let apps = store.state.settings.showRunningApps ? runningApps.count : 0
         let windows = store.state.settings.showMinimizedWindows ? windowMonitor.windows.filter(\.isMinimized).count : 0

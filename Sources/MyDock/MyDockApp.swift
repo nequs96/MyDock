@@ -60,7 +60,9 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
                                LinearGradient(colors: [DockDesign.accent.opacity(0.16), .white],
                                               startPoint: .topLeading, endPoint: .bottomTrailing)
                                CustomDockView(store: store, profile: profile)
-                                   .frame(width: 560, height: 76)
+                                   .frame(width: DockSurfaceMetrics.contentLength(items: profile.items,
+                                                                                  settings: store.state.settings,
+                                                                                  scale: 1), height: 76)
                            },
                            size: NSSize(width: 620, height: 220))
             }

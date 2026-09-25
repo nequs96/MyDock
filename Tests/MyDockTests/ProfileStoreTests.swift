@@ -1926,6 +1926,12 @@ struct ProfileStoreTests {
         #expect(scaled == CGFloat(425))
         settings.customDockPosition = .left
         #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == CGFloat(168))
+        settings.customDockPosition = .bottom
+        settings.showTrash = true
+        #expect(DockSurfaceMetrics.contentLength(items: [], settings: settings, scale: 1) == CGFloat(136))
+        #expect(DockSurfaceMetrics.contentLength(items: [.widget("Trash")], settings: settings, scale: 1) == CGFloat(136))
+        settings.customDockWidgetStyle = .compact
+        #expect(DockSurfaceMetrics.contentLength(items: [], settings: settings, scale: 1) == CGFloat(78))
     }
 
     @Test func menuBarProfileTitleReflectsTheSelectedDockModes() {

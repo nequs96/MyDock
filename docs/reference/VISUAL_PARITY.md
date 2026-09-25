@@ -26,6 +26,6 @@ These are implementation values and observations from a safe live preview build:
 
 ## Comparison status
 
-The DEBUG-only `MYDOCK_VISUAL_PREVIEW=1` mode was launched with a temporary store. Live screenshots were inspected for the Custom Dock, Manager, Settings, onboarding steps 1–3, and widget library. The screenshots showed consistent cards, header hierarchy, colors, and readable controls at their default window sizes. The preview does not touch the user's configured Apple Dock.
+The DEBUG-only `MYDOCK_VISUAL_PREVIEW=1` mode uses a temporary store and returns before creating the Custom Dock window controller. Live screenshots through the computer-use bridge were inspected for the Custom Dock, Manager, Settings, widget library, and onboarding steps 1–3. They showed consistent card treatment, header hierarchy, colors, and readable controls at their default window sizes. Older generated images omitted controls and were discarded; they are not used as parity evidence.
 
 The overflow jump buttons previously covered the first and last tiles. Scroll content now adds 25 pt edge padding while overflowing. Live reinspection of that final correction, dark-mode contrast, multiple-display placement, and every widget popout remains outstanding. These require dedicated manual checks; the current evidence does not justify claiming universal pixel parity or that every visual bug is gone.
