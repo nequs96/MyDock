@@ -18,6 +18,7 @@
 - The Custom Dock's system, network, window, and Now Playing monitors stop or pause their recurring work while the Dock is hidden. No idle CPU, multi-display, or long-running memory measurement could be made while the desktop was locked.
 - Native Dock auto-save stays off by default. When enabled, it reads pinned apps and spacers every five seconds, observes an initial baseline, ignores MyDock's own successful applies, and saves external changes only to the selected profile. Unsupported Dock tiles pause automatic saving instead of being silently dropped. Its fixture test never touches the real Dock.
 - The optional menu-bar profile title is stored in settings, displays the applicable native and/or Custom profile names for each setup mode, truncates long names, and retains full names in the tooltip. Model and migration tests pass; visual layout remains unchecked while the Mac is locked.
+- The Custom Dock now offers a right-click Switch Profile submenu on its surface, regular tiles, and minimized-window tiles. Custom selections activate locally; native selections use the same transactional Dock controller as the menu bar. The menu compiles, but pointer behavior and native switching require unlocked desktop acceptance.
 
 ## Acceptance still required
 

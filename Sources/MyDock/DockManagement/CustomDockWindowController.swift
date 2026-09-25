@@ -509,6 +509,53 @@ struct CustomDockView: View {
     @ObservedObject private var windowMonitor = WindowAccessibilityMonitor.shared
     @ObservedObject private var nowPlayingMonitor = NowPlayingMonitor.shared
 
+    @ViewBuilder private var switchProfileMenu: some View {
+        Menu("Switch Profile") {
+            if !store.nativeProfiles.isEmpty {
+                Menu("macOS Dock") {
+                    ForEach(store.nativeProfiles) { candidate in
+                        profileMenuButton(candidate, isActive: store.state.settings.activeNativeProfileID == candidate.id)
+                    }
+                }
+            }
+            if !store.customProfiles.isEmpty {
+                Menu("Custom Dock") {
+                    ForEach(store.customProfiles) { candidate in
+                        profileMenuButton(candidate, isActive: store.state.settings.activeCustomProfileID == candidate.id)
+                    }
+                }
+            }
+        }
+    }
+
+    private func profileMenuButton(_ candidate: DockProfile, isActive: Bool) -> some View {
+        Button {
+            activateProfileFromContextMenu(candidate)
+        } label: {
+            if isActive { Label(candidate.name, systemImage: "checkmark") }
+            else { Text(candidate.name) }
+        }
+    }
+
+    private func activateProfileFromContextMenu(_ candidate: DockProfile) {
+        guard let current = store.state.profiles.first(where: { $0.id == candidate.id && $0.kind == candidate.kind }) else { return }
+        if current.kind == .custom {
+            store.activate(current.id)
+            return
+        }
+        Task { @MainActor in
+            do {
+                try await NativeDockController.shared.apply(current)
+                store.activate(current.id)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Could not switch the macOS Dock"
+                alert.informativeText = error.localizedDescription
+                alert.runModal()
+            }
+        }
+    }
+
     var body: some View {
         let horizontal = store.state.settings.customDockPosition == .bottom
         let size = CGFloat(min(max(store.state.settings.customDockSize, 0.65), 1.5))
@@ -566,6 +613,7 @@ struct CustomDockView: View {
         }
         .shadow(color: .black.opacity(0.2), radius: 18, y: 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contextMenu { switchProfileMenu }
         .overlay(alignment: horizontal ? .topTrailing : .bottomTrailing) {
             resizeGrip(horizontal: horizontal).padding(5)
         }
@@ -754,7 +802,8 @@ struct CustomDockView: View {
             ForEach(minimizedWindows) { window in
                 WindowDockTile(window: window,
                                size: 48 * size,
-                               preview: windowMonitor.preview(for: window)).id(window.id)
+                               preview: windowMonitor.preview(for: window),
+                               switchProfileMenu: AnyView(switchProfileMenu)).id(window.id)
             }
         }
     }
@@ -824,6 +873,8 @@ struct CustomDockView: View {
         })
         .animation(accessibility.reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.72), value: hoveredItemID)
         .contextMenu {
+            switchProfileMenu
+            Divider()
             if item.type == .widget {
                 Button("Configure Widget…") { popouts.open(item.id) }
             } else if item.type == .folder {
@@ -972,6 +1023,7 @@ private struct WindowDockTile: View {
     var window: DockWindowDescriptor
     var size: CGFloat
     var preview: NSImage?
+    var switchProfileMenu: AnyView
 
     private var icon: NSImage {
         if let application = NSRunningApplication(processIdentifier: window.processID),
@@ -1005,6 +1057,8 @@ private struct WindowDockTile: View {
         .accessibilityLabel("\(window.isMinimized ? "Minimized window" : "Window"): \(window.title), \(window.applicationName)")
         .contextMenu {
             Button("Restore Window") { WindowAccessibilityService.activate(window) }
+            Divider()
+            switchProfileMenu
         }
     }
 }
