@@ -1,6 +1,6 @@
 # MyDock parity matrix
 
-Status against the public Dockset v0.2.6 documentation, researched September 24, 2026. Feature-level details and narrower statuses are in [FEATURE_MATRIX.md](reference/FEATURE_MATRIX.md). Automated status reflects the current test suite; manual UI and real-Dock acceptance are partial.
+Status against the public Dockset v0.2.6 documentation, researched September 25, 2026. Feature-level details and narrower statuses are in [FEATURE_MATRIX.md](reference/FEATURE_MATRIX.md). Automated status reflects the current test suite; manual UI and real-Dock acceptance are partial.
 
 | Feature | Reference behavior | Implemented | Automated tested | Manual tested | Visual checked | Known difference | Reason / next action |
 |---|---|---:|---:|---:|---:|---|---|
@@ -45,4 +45,4 @@ Status against the public Dockset v0.2.6 documentation, researched September 24,
 - Dock profile draft discard behavior and explicit save persistence.
 - Per-core CPU delta math and live host processor/thermal/load snapshot.
 
-Additional passing fixtures cover Shopify client-credentials authentication, GraphQL pagination/order caps, store-timezone periods, currency, returns/test/canceled order treatment and backup exclusion; AI Codex quota windows, Codex/Claude local activity counters, estimated Grok session summaries, DST ranges and content exclusion; Focus-off no-op behavior; and Custom-main Dock auto-hide recovery/rollback with fake preferences. These tests use temporary files or fake adapters. They do not alter the real Dock preferences, inspect production UI, or establish visual parity.
+Additional passing fixtures cover Shopify client-credentials authentication, GraphQL pagination/order caps, store-timezone periods, currency, returns/test/canceled order treatment and backup exclusion; AI Codex quota windows (including fractional percentages), independent provider failure handling, Codex/Claude local activity counters, estimated Grok session summaries, DST ranges and content exclusion; Focus-off no-op behavior; and Custom-main Dock auto-hide recovery/rollback with fake preferences. These tests use temporary files or fake adapters. They do not alter the real Dock preferences, inspect production UI, or establish visual parity.

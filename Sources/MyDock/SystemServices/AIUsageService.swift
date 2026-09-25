@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 enum AIProvider: String, Codable, CaseIterable, Identifiable {
@@ -214,10 +215,13 @@ enum CodexRateLimitParser {
     }
 
     private static func window(name: String, raw: [String: Any]) -> AILimitWindow {
-        let used = raw["usedPercent"] as? Int
+        let used = (raw["usedPercent"] as? NSNumber).flatMap { value -> Int? in
+            guard CFGetTypeID(value) != CFBooleanGetTypeID(), value.doubleValue.isFinite else { return nil }
+            return Int(min(100, max(0, value.doubleValue)).rounded())
+        }
         let reset = (raw["resetsAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
         let duration = raw["windowDurationMins"] as? Int
-        return AILimitWindow(name: name, usedPercent: used.map { max(0, min(100, $0)) }, resetsAt: reset, durationMinutes: duration)
+        return AILimitWindow(name: name, usedPercent: used, resetsAt: reset, durationMinutes: duration)
     }
 
     private static func windowTitle(_ minutes: Int?) -> String {

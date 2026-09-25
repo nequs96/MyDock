@@ -1630,6 +1630,11 @@ struct ProfileStoreTests {
         #expect(unlimited.windows.first?.usedPercent == nil)
         #expect(unlimited.windows.first?.remainingPercent == nil)
         #expect(unlimited.message != nil)
+
+        let fractional = try CodexRateLimitParser.reading(from: Data(#"{"result":{"rateLimits":{"primary":{"usedPercent":37.6},"secondary":{"usedPercent":true}}}}"#.utf8), now: now)
+        #expect(fractional.availability == .available)
+        #expect(fractional.windows.first?.usedPercent == 38)
+        #expect(fractional.windows.last?.usedPercent == nil)
     }
 
     @Test func aiLimitsCollectorKeepsOtherProvidersVisibleWhenCodexFails() {
