@@ -53,9 +53,39 @@ struct WidgetCompactView: View {
     var item: DockItem
     var profileID: UUID
 
+    private var usesCard: Bool {
+        store.state.settings.customDockPosition == .bottom && store.state.settings.customDockWidgetStyle == .cards
+    }
+
     var body: some View {
-        WidgetProviderRegistry.provider(for: item.widgetKind)
-            .compactView(store: store, item: item, profileID: profileID)
+        Group {
+            if usesCard {
+                HStack(spacing: 2) {
+                    WidgetProviderRegistry.provider(for: item.widgetKind)
+                        .compactView(store: store, item: item, profileID: profileID)
+                        .frame(width: 54, height: 54)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Circle()
+                            .fill(WidgetRegistry.all.first(where: { $0.name == item.widgetKind })?.category.displayColor ?? DockDesign.accent)
+                            .frame(width: 5, height: 5)
+                        Text(item.title)
+                            .font(.system(size: 9, weight: .medium))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, 5)
+                }
+                .frame(width: 112, height: 54)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
+                .accessibilityElement(children: .combine)
+            } else {
+                WidgetProviderRegistry.provider(for: item.widgetKind)
+                    .compactView(store: store, item: item, profileID: profileID)
+            }
+        }
     }
 }
 
@@ -65,14 +95,9 @@ struct WidgetPopout: View {
     var profileID: UUID
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: WidgetRegistry.all.first(where: { $0.name == item.widgetKind })?.symbol ?? "square.grid.2x2")
-                Text(item.title).font(.headline)
-            }
-            WidgetProviderRegistry.provider(for: item.widgetKind)
-                .popoutView(store: store, item: item, profileID: profileID)
-        }
+        WidgetProviderRegistry.provider(for: item.widgetKind)
+            .popoutView(store: store, item: item, profileID: profileID)
+            .tint(DockDesign.accent)
     }
 }
 

@@ -24,6 +24,10 @@ struct DockManagerView: View {
     @State private var faviconFetchTask: Task<Void, Never>?
     @State private var editingLinkItemID: UUID?
     @State private var searchText = ""
+    @State private var selectedWidgetCategory: WidgetCategory?
+    @State private var previewItemToReveal: UUID?
+    @State private var highlightedPreviewItemID: UUID?
+    @State private var previewHighlightTask: Task<Void, Never>?
     @State private var dockOperationMessage: String?
     @State private var shortcutProfileID: UUID?
     @State private var showingShortcutEditor = false
@@ -47,16 +51,17 @@ struct DockManagerView: View {
             List(selection: Binding(get: { selectedProfileID }, set: { requestProfileSelection($0) })) {
                 Section("macOS Dock") {
                     ForEach(store.nativeProfiles) { profile in
-                        Label(profile.name, systemImage: "dock.rectangle").tag(profile.id)
+                        profileRow(profile).tag(profile.id)
                     }
                 }
                 Section("Custom Dock") {
                     ForEach(store.customProfiles) { profile in
-                        Label(profile.name, systemImage: "rectangle.bottomthird.inset.filled").tag(profile.id)
+                        profileRow(profile).tag(profile.id)
                     }
                 }
             }
-            .navigationTitle("Saved Docks")
+            .navigationTitle("Your Docks")
+            .navigationSplitViewColumnWidth(min: 200, ideal: 225, max: 260)
             .toolbar {
                 ToolbarItem {
                     Menu {
@@ -76,7 +81,9 @@ struct DockManagerView: View {
                 EmptyStateView(title: "Choose a Dock", symbol: "dock.rectangle", detail: "Create a macOS Dock profile or a Custom Dock to get started.")
             }
         }
-        .frame(minWidth: 800, minHeight: 520)
+        .frame(minWidth: 860, minHeight: 560)
+        .background(DockDesign.page)
+        .tint(DockDesign.accent)
         .onAppear {
             if selectedProfileID == nil {
                 switchToProfile(store.state.settings.activeCustomProfileID ?? store.state.settings.activeNativeProfileID ?? store.state.profiles.first?.id)
@@ -84,10 +91,20 @@ struct DockManagerView: View {
                 loadDraftSession()
             }
         }
+        .onDisappear {
+            previewHighlightTask?.cancel()
+            previewHighlightTask = nil
+            highlightedPreviewItemID = nil
+            previewItemToReveal = nil
+        }
         .onChange(of: selectedProfileID) { _ in
             selectedItemIDs.removeAll()
             selectionAnchorID = nil
             isSelectingItems = false
+            highlightedPreviewItemID = nil
+            previewItemToReveal = nil
+            previewHighlightTask?.cancel()
+            previewHighlightTask = nil
         }
         .onReceive(store.$state) { state in
             guard draftSession?.isDirty != true,
@@ -123,14 +140,38 @@ struct DockManagerView: View {
         }
     }
 
+    private func profileRow(_ profile: DockProfile) -> some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill((DockProfileColor(rawValue: profile.color) ?? .blue).displayColor)
+                .frame(width: 10, height: 10)
+            Text(profile.name).lineLimit(1)
+            Spacer(minLength: 0)
+            if profile.id == store.state.settings.activeNativeProfileID ||
+                profile.id == store.state.settings.activeCustomProfileID {
+                Image(systemName: "checkmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(DockDesign.accent)
+                    .accessibilityLabel("Active profile")
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
     private func editor(for profile: DockProfile) -> some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                TextField("Dock name", text: Binding(get: { profile.name }, set: { name in
-                    updateDraft { $0.name = name }
-                }))
-                    .font(.title2.weight(.semibold)).textFieldStyle(.plain).frame(maxWidth: 300)
-                Text(profile.kind.title).font(.caption).foregroundStyle(.secondary)
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(profile.kind == .native ? "MACOS DOCK" : "CUSTOM DOCK")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .tracking(1.4).foregroundStyle(DockDesign.accent)
+                    TextField("Dock name", text: Binding(get: { profile.name }, set: { name in
+                        updateDraft { $0.name = name }
+                    }))
+                        .font(.system(size: 29, weight: .medium, design: .serif))
+                        .textFieldStyle(.plain)
+                        .frame(maxWidth: 360)
+                }
                 Spacer()
                 if !store.state.settings.onboardingComplete {
                     Button("Continue Setup…", action: onContinueSetup).buttonStyle(.borderedProminent)
@@ -164,11 +205,13 @@ struct DockManagerView: View {
                 Button("Use This Profile") { useProfile(profile) }.buttonStyle(.borderedProminent)
                     .disabled(!draftCanBeSaved)
             }
-            .padding(22)
+            .padding(.horizontal, 24).padding(.vertical, 20)
             Divider()
             HStack(spacing: 8) {
-                Text("Preview").font(.headline)
-                Spacer()
+                Text("Preview").font(.system(size: 16, weight: .semibold, design: .rounded))
+                Text("\(profile.items.count) items").font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+                addMenu(for: profile)
                 Button(isSelectingItems ? "Done Selecting" : "Select Items") {
                     isSelectingItems.toggle()
                     if !isSelectingItems {
@@ -177,8 +220,22 @@ struct DockManagerView: View {
                     }
                 }
                 .buttonStyle(.bordered)
-                addMenu(for: profile)
-                if !selectedItemIDs.isEmpty {
+                if hasUnsavedProfileChanges {
+                    Button("Discard") { discardDraft() }.buttonStyle(.bordered)
+                }
+                Button("Save") { _ = saveDraft() }
+                    .buttonStyle(.bordered).disabled(!hasUnsavedProfileChanges || !draftCanBeSaved)
+                if profile.kind == .native {
+                    Button("Apply") { applyNativeProfile(profile) }
+                        .buttonStyle(.borderedProminent).disabled(!draftCanBeSaved)
+                }
+            }
+            .padding(.horizontal, 24).padding(.vertical, 14)
+            if !selectedItemIDs.isEmpty {
+                HStack(spacing: 8) {
+                    Text("\(selectedItemIDs.count) selected")
+                        .font(.caption.weight(.semibold))
+                    Spacer()
                     Button("Clear Selection") {
                         selectedItemIDs.removeAll()
                         selectionAnchorID = nil
@@ -193,57 +250,68 @@ struct DockManagerView: View {
                         removeSelectedItems(from: profile)
                     }.buttonStyle(.bordered)
                 }
-                if hasUnsavedProfileChanges {
-                    Button("Discard Changes") { discardDraft() }.buttonStyle(.bordered)
-                }
-                Button("Save Changes") { _ = saveDraft() }
-                    .buttonStyle(.bordered).disabled(!hasUnsavedProfileChanges || !draftCanBeSaved)
-                if profile.kind == .native {
-                    Button("Apply Changes") { applyNativeProfile(profile) }
-                        .buttonStyle(.borderedProminent).disabled(!draftCanBeSaved)
-                }
+                .padding(.horizontal, 24).padding(.vertical, 8)
+                .background(DockDesign.accent.opacity(0.08))
             }
-            .padding(.horizontal, 22).padding(.vertical, 14)
-            ScrollView(.horizontal) {
-                HStack(spacing: 10) {
-                    ForEach(profile.items) { item in
-                DockManagerItemView(item: item, isSelected: selectedItemIDs.contains(item.id),
-                                            isSelectionMode: isSelectingItems,
-                                            remove: { removeItem(item.id, from: profile.id) },
-                                            editLink: { prepareLinkEditor(for: item) },
-                                            updateFolderIcon: { color, letter, number in
-                                                updateDraft { draft in
-                                                    guard let index = draft.items.firstIndex(where: { $0.id == item.id }) else { return }
-                                                    draft.items[index].folderIconColor = color
-                                                    draft.items[index].folderIconLetter = letter
-                                                    draft.items[index].folderIconNumber = number
-                                                }
-                                            },
-                                            select: { commandPressed, shiftPressed in
-                                                selectItem(item.id, commandPressed: commandPressed, shiftPressed: shiftPressed)
-                                            })
-                        .draggable(item.id.uuidString)
-                        .dropDestination(for: String.self) { values, _ in
-                            guard let raw = values.first, let draggedID = UUID(uuidString: raw) else { return false }
-                            updateDraft { draft in
-                                guard draggedID != item.id,
-                                      let sourceIndex = draft.items.firstIndex(where: { $0.id == draggedID }),
-                                      let targetIndex = draft.items.firstIndex(where: { $0.id == item.id }) else { return }
-                                let movedItem = draft.items.remove(at: sourceIndex)
-                                let adjustedTarget = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
-                                draft.items.insert(movedItem, at: adjustedTarget)
+            Divider()
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) {
+                    HStack(spacing: 10) {
+                        ForEach(profile.items) { item in
+                            DockManagerItemView(item: item,
+                                                isSelected: selectedItemIDs.contains(item.id),
+                                                isHighlighted: highlightedPreviewItemID == item.id,
+                                                isSelectionMode: isSelectingItems,
+                                                remove: { removeItem(item.id, from: profile.id) },
+                                                editLink: { prepareLinkEditor(for: item) },
+                                                updateFolderIcon: { color, letter, number in
+                                                    updateDraft { draft in
+                                                        guard let index = draft.items.firstIndex(where: { $0.id == item.id }) else { return }
+                                                        draft.items[index].folderIconColor = color
+                                                        draft.items[index].folderIconLetter = letter
+                                                        draft.items[index].folderIconNumber = number
+                                                    }
+                                                },
+                                                select: { commandPressed, shiftPressed in
+                                                    selectItem(item.id, commandPressed: commandPressed, shiftPressed: shiftPressed)
+                                                })
+                            .draggable(item.id.uuidString)
+                            .dropDestination(for: String.self) { values, _ in
+                                guard let raw = values.first, let draggedID = UUID(uuidString: raw) else { return false }
+                                updateDraft { draft in
+                                    guard draggedID != item.id,
+                                          let sourceIndex = draft.items.firstIndex(where: { $0.id == draggedID }),
+                                          let targetIndex = draft.items.firstIndex(where: { $0.id == item.id }) else { return }
+                                    let movedItem = draft.items.remove(at: sourceIndex)
+                                    let adjustedTarget = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
+                                    draft.items.insert(movedItem, at: adjustedTarget)
+                                }
+                                return true
                             }
-                            return true
+                            .id(item.id)
+                        }
+                        if profile.items.isEmpty {
+                            EmptyStateView(title: "No items yet", symbol: "plus.app", detail: "Use Add to put apps, files, spacers, or widgets in this Dock.")
+                                .frame(width: 320, height: 180)
                         }
                     }
-                    if profile.items.isEmpty {
-                        EmptyStateView(title: "No items yet", symbol: "plus.app", detail: "Use Add to put apps, files, spacers, or widgets in this Dock.")
-                            .frame(width: 320, height: 180)
+                    .padding(24)
+                }
+                .onChange(of: previewItemToReveal) { itemID in
+                    guard let itemID else { return }
+                    Task { @MainActor in
+                        await Task.yield()
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            proxy.scrollTo(itemID, anchor: .trailing)
+                        }
                     }
                 }
-                .padding(24)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                LinearGradient(colors: [DockDesign.accent.opacity(0.08), DockDesign.page],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
             Spacer(minLength: 0)
             HStack {
                 Label(managerInteractionHint,
@@ -251,7 +319,7 @@ struct DockManagerView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Text("\(profile.items.count) items").font(.caption).foregroundStyle(.secondary)
-            }.padding(16).background(.bar)
+            }.padding(.horizontal, 24).padding(.vertical, 12).background(DockDesign.card)
         }
     }
 
@@ -334,6 +402,16 @@ struct DockManagerView: View {
             return
         }
         updateDraft { $0.items.append(item) }
+        guard item.type == .widget else { return }
+        previewHighlightTask?.cancel()
+        previewItemToReveal = item.id
+        highlightedPreviewItemID = item.id
+        previewHighlightTask = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(1.4)) } catch { return }
+            if highlightedPreviewItemID == item.id { highlightedPreviewItemID = nil }
+            if previewItemToReveal == item.id { previewItemToReveal = nil }
+            previewHighlightTask = nil
+        }
     }
 
     private func canMoveSelection(_ direction: DockItemMoveDirection, in profile: DockProfile) -> Bool {
@@ -371,22 +449,74 @@ struct DockManagerView: View {
 
     private var widgetPicker: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack { Text("Widget Library").font(.title2.bold()); Spacer(); Button("Done") { showingWidgetPicker = false } }
-            TextField("Search widgets", text: $searchText).textFieldStyle(.roundedBorder)
-            List(WidgetRegistry.all.filter { searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText) }) { widget in
-                Button {
-                    appendDraftItem(.widget(widget.name), to: selectedProfileID)
-                    showingWidgetPicker = false
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: widget.symbol).font(.title2).frame(width: 34)
-                        VStack(alignment: .leading) { Text(widget.name); Text(widget.description).font(.caption).foregroundStyle(.secondary) }
-                        Spacer(); Text(widget.category.rawValue).font(.caption2).foregroundStyle(.secondary)
-                    }.contentShape(Rectangle())
-                }.buttonStyle(.plain)
+            HStack(alignment: .top) {
+                DockScreenHeader(eyebrow: "CUSTOM DOCK", title: "Widget library",
+                                 subtitle: "Choose useful things to keep close.")
+                Button("Done") { showingWidgetPicker = false }
             }
+            TextField("Search widgets", text: $searchText).textFieldStyle(.roundedBorder)
+            ScrollView(.horizontal) {
+                HStack(spacing: 7) {
+                    categoryButton(nil, title: "All")
+                    ForEach(WidgetCategory.allCases, id: \.self) { category in
+                        categoryButton(category, title: category.rawValue)
+                    }
+                }
+            }.scrollIndicators(.hidden)
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(filteredWidgets) { widget in
+                        Button {
+                            appendDraftItem(.widget(widget.name), to: selectedProfileID)
+                            showingWidgetPicker = false
+                        } label: {
+                            HStack(spacing: 13) {
+                                Image(systemName: widget.symbol)
+                                    .font(.system(size: 19, weight: .medium))
+                                    .foregroundStyle(widget.category.displayColor)
+                                    .frame(width: 40, height: 40)
+                                    .background(widget.category.displayColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 11))
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(widget.name).font(.subheadline.weight(.semibold))
+                                    Text(widget.description).font(.caption).foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                                Spacer(minLength: 4)
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.title3).foregroundStyle(DockDesign.accent)
+                            }
+                            .padding(11)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(DockDesign.card, in: RoundedRectangle(cornerRadius: 14))
+                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(DockDesign.hairline))
+                            .contentShape(RoundedRectangle(cornerRadius: 14))
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }.scrollIndicators(.hidden)
         }
-        .padding(20).frame(width: 500, height: 520)
+        .padding(24).frame(width: 540, height: 580)
+        .background(DockDesign.page)
+        .tint(DockDesign.accent)
+    }
+
+    private var filteredWidgets: [WidgetDefinition] {
+        WidgetRegistry.all.filter { widget in
+            (selectedWidgetCategory == nil || widget.category == selectedWidgetCategory) &&
+            (searchText.isEmpty || widget.name.localizedCaseInsensitiveContains(searchText) ||
+             widget.description.localizedCaseInsensitiveContains(searchText))
+        }
+    }
+
+    private func categoryButton(_ category: WidgetCategory?, title: String) -> some View {
+        Button(title) { selectedWidgetCategory = category }
+            .buttonStyle(.plain)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 11).padding(.vertical, 7)
+            .background(selectedWidgetCategory == category ? DockDesign.accent : DockDesign.card,
+                        in: Capsule())
+            .foregroundStyle(selectedWidgetCategory == category ? .white : .primary)
+            .overlay(Capsule().stroke(selectedWidgetCategory == category ? .clear : DockDesign.hairline))
     }
 
     private var linkEditor: some View {
@@ -616,6 +746,7 @@ struct DockManagerView: View {
 private struct DockManagerItemView: View {
     var item: DockItem
     var isSelected: Bool
+    var isHighlighted: Bool
     var isSelectionMode: Bool
     var remove: () -> Void
     var editLink: () -> Void
@@ -630,6 +761,13 @@ private struct DockManagerItemView: View {
         VStack(spacing: 8) {
             if item.type == .spacer {
                 RoundedRectangle(cornerRadius: 3).fill(.secondary.opacity(0.35)).frame(width: item.spacerKind == .small ? 12 : 25, height: 70)
+            } else if item.type == .widget {
+                let tint = WidgetRegistry.all.first(where: { $0.name == item.widgetKind })?.category.displayColor ?? DockDesign.accent
+                Image(systemName: WidgetRegistry.all.first(where: { $0.name == item.widgetKind })?.symbol ?? "square.grid.2x2")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(tint)
+                    .frame(width: 58, height: 58)
+                    .background(tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 13))
             } else if item.type == .folder && item.hasCustomFolderIcon {
                 DockFolderIconView(item: item, size: 58)
             } else {
@@ -638,9 +776,15 @@ private struct DockManagerItemView: View {
             Text(item.title).font(.caption).lineLimit(1).frame(width: 86)
         }
         .padding(10)
-        .background(isSelected ? Color.accentColor.opacity(0.2) : Color(nsColor: .quaternaryLabelColor).opacity(0.1),
-                    in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(isSelected ? Color.accentColor : .clear, lineWidth: 2))
+        .background(isSelected ? DockDesign.accent.opacity(0.12) : DockDesign.card,
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .stroke(isSelected || isHighlighted ? DockDesign.accent : DockDesign.hairline,
+                    lineWidth: isSelected || isHighlighted ? 2 : 1))
+        .shadow(color: isHighlighted ? DockDesign.accent.opacity(0.24) : .black.opacity(isSelected ? 0.09 : 0.04),
+                radius: isHighlighted ? 12 : 6, y: 3)
+        .scaleEffect(isHighlighted ? 1.04 : 1)
+        .animation(.easeInOut(duration: 0.2), value: isHighlighted)
         .overlay(alignment: .bottomTrailing) {
             if AppLauncher.isMissingTarget(item) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -654,12 +798,12 @@ private struct DockManagerItemView: View {
         .overlay(alignment: .topTrailing) {
             if isSelectionMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3).foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .font(.title3).foregroundStyle(isSelected ? DockDesign.accent : Color.secondary)
                     .padding(5)
                     .accessibilityHidden(true)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .contentShape(RoundedRectangle(cornerRadius: 16))
         .onTapGesture {
             let modifiers = NSApplication.shared.currentEvent?.modifierFlags ?? []
             select(modifiers.contains(.command), modifiers.contains(.shift))

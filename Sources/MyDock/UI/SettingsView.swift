@@ -18,9 +18,15 @@ struct SettingsView: View {
     @ObservedObject private var nativeDockAutoSave = NativeDockAutoSaveMonitor.shared
 
     var body: some View {
-        TabView {
-            Form {
-                Section("Dock setup") {
+        VStack(spacing: 0) {
+            DockScreenHeader(eyebrow: "MYDOCK", title: "Make it yours.",
+                             subtitle: "Choose how your Dock looks, moves, and fits your Mac.")
+                .padding(.horizontal, 28).padding(.top, 22).padding(.bottom, 12)
+            Divider()
+            TabView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                DockSettingSection(title: "Dock setup") {
                     Picker("Mode", selection: Binding(get: { store.state.settings.setupMode }, set: { store.setSetupMode($0) })) {
                         ForEach(SetupMode.allCases) { mode in Text(mode.title).tag(mode) }
                     }
@@ -80,11 +86,11 @@ struct SettingsView: View {
                         }), in: 0.65...1.5, step: 0.05)
                     }
                 }
-                Section("Focus filters") {
+                DockSettingSection(title: "Focus filters") {
                     Text("In System Settings → Focus, choose a Focus, select Add Filter, then choose MyDock and a saved Dock profile. When that Focus turns off, MyDock leaves the last applied Dock selected.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                Section("Native Dock switching") {
+                DockSettingSection(title: "Native Dock switching") {
                     Toggle("Automatically save Dock changes", isOn: Binding(
                         get: { store.state.settings.automaticallySaveNativeDockChanges },
                         set: { enabled in store.updateSettings { $0.automaticallySaveNativeDockChanges = enabled } }
@@ -126,7 +132,7 @@ struct SettingsView: View {
                         Text(screenCaptureMessage).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Section("Custom Dock") {
+                DockSettingSection(title: "Custom Dock appearance") {
                     Text("Auto-hide, the reveal handle, desktop-widget placement, and an optional Trash item are available. Minimized-window actions and focused-app minimize require Accessibility access; window names stay on this Mac.")
                         .font(.caption).foregroundStyle(.secondary)
                     Picker("Appearance", selection: Binding(get: { store.state.settings.customDockMaterial }, set: { value in
@@ -134,10 +140,20 @@ struct SettingsView: View {
                     })) {
                         ForEach(CustomDockMaterial.allCases) { material in Text(material.title).tag(material) }
                     }
+                    Picker("Widget tiles", selection: Binding(get: { store.state.settings.customDockWidgetStyle }, set: { value in
+                        store.updateSettings { $0.customDockWidgetStyle = value }
+                    })) {
+                        ForEach(CustomDockWidgetStyle.allCases) { style in Text(style.title).tag(style) }
+                    }
+                    Text("Information cards appear in a bottom Dock. Side Docks use compact tiles to fit their edge.")
+                        .font(.caption).foregroundStyle(.secondary)
                     if store.state.settings.customDockMaterial == .liquidGlass && !supportsLiquidGlass {
                         Text("Liquid Glass uses the standard frosted material on macOS versions before 26.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
+                    visualStyleControls
+                }
+                DockSettingSection(title: "Custom Dock behavior") {
                     Toggle("Use as desktop widget (behind windows)", isOn: Binding(get: { store.state.settings.customDockDesktopMode }, set: { value in store.updateSettings { $0.customDockDesktopMode = value } }))
                     Toggle("Automatically hide", isOn: Binding(get: { store.state.settings.automaticallyHideCustomDock }, set: { value in store.updateSettings { $0.automaticallyHideCustomDock = value } }))
                         .disabled(store.state.settings.customDockDesktopMode)
@@ -186,9 +202,11 @@ struct SettingsView: View {
                     }
                     Toggle("Magnification", isOn: Binding(get: { store.state.settings.magnificationEnabled }, set: { value in store.updateSettings { $0.magnificationEnabled = value } }))
                 }
-            }.padding(20).tabItem { Label("Dock", systemImage: "dock.rectangle") }
-            Form {
-                Section("Saved Docks") {
+                }.padding(24).frame(maxWidth: 780).frame(maxWidth: .infinity)
+            }.tabItem { Label("Dock", systemImage: "dock.rectangle") }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                DockSettingSection(title: "Saved Docks") {
                     Text("Backups include saved profiles and widget settings. They do not include credentials, permissions, active selection, or global shortcuts.")
                     HStack {
                         Button("Back Up…") { exportBackup() }
@@ -206,9 +224,11 @@ struct SettingsView: View {
                         Text("\(store.customProfiles.count)").foregroundStyle(.secondary)
                     }
                 }
-            }.padding(20).tabItem { Label("General", systemImage: "gearshape") }
-            Form {
-                Section("Permission status") {
+                }.padding(24).frame(maxWidth: 780).frame(maxWidth: .infinity)
+            }.tabItem { Label("General", systemImage: "gearshape") }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                DockSettingSection(title: "Permission status") {
                     Text("MyDock asks only when you use a feature that needs access. Automation approval is managed separately for each app MyDock controls.")
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach(permissionRows) { row in
@@ -230,19 +250,20 @@ struct SettingsView: View {
                         Text("Refresh after changing a permission.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                }.padding(24).frame(maxWidth: 780).frame(maxWidth: .infinity)
             }
-            .padding(20)
             .tabItem { Label("Permissions", systemImage: "hand.raised") }
             .task { await refreshPermissionStatuses() }
-            Form {
-                Section("Stripe") {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                DockSettingSection(title: "Stripe") {
                     Text("Add Stripe from the widget picker, then open it to name and connect accounts. MyDock uses a restricted key with read access only to Balance and Subscriptions; it never asks for write access. Credentials stay in Keychain and are excluded from profile backups.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     if let url = URL(string: "https://dockset.app/manual/stripe") {
                         Link("Stripe setup and metric definitions", destination: url)
                     }
                 }
-                Section("Market data") {
+                DockSettingSection(title: "Market data") {
                     Text("Stock and Watchlist use Alpha Vantage's end-of-day market data. Create a personal API key on their website; free-tier request limits apply. The key is stored in this Mac's Keychain and is never included in backups.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     SecureField(marketAPIKeySaved ? "Key saved in Keychain" : "Alpha Vantage API key", text: $marketAPIKeyDraft)
@@ -261,14 +282,56 @@ struct SettingsView: View {
                         Text(marketAPIKeyMessage).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                 }
+                }.padding(24).frame(maxWidth: 780).frame(maxWidth: .infinity)
             }
-            .padding(20)
             .tabItem { Label("Integrations", systemImage: "puzzlepiece.extension") }
             .onAppear {
                 updateMarketAPIKeyState()
             }
+            }
         }
-        .frame(width: 640, height: 560)
+        .frame(minWidth: 760, minHeight: 600)
+        .background(DockDesign.page)
+        .tint(DockDesign.accent)
+    }
+
+    private var visualStyleControls: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            Divider()
+            HStack {
+                Text("Item spacing")
+                Spacer()
+                Text("\(Int(store.state.settings.customDockItemSpacing)) pt").foregroundStyle(.secondary)
+            }
+            Slider(value: Binding(get: { store.state.settings.customDockItemSpacing }, set: { value in
+                store.updateSettings { $0.customDockItemSpacing = value }
+            }), in: 4...18, step: 1)
+            HStack {
+                Text("Corner roundness")
+                Spacer()
+                Text("\(Int(store.state.settings.customDockCornerRadius)) pt").foregroundStyle(.secondary)
+            }
+            Slider(value: Binding(get: { store.state.settings.customDockCornerRadius }, set: { value in
+                store.updateSettings { $0.customDockCornerRadius = value }
+            }), in: 12...32, step: 1)
+            HStack {
+                Text("Profile tint")
+                Spacer()
+                Text("\(Int((store.state.settings.customDockTintStrength * 100).rounded()))%").foregroundStyle(.secondary)
+            }
+            Slider(value: Binding(get: { store.state.settings.customDockTintStrength }, set: { value in
+                store.updateSettings { $0.customDockTintStrength = value }
+            }), in: 0...0.3, step: 0.01)
+            Button("Restore appearance defaults") {
+                store.updateSettings {
+                    $0.customDockItemSpacing = 8
+                    $0.customDockCornerRadius = 24
+                    $0.customDockTintStrength = 0.08
+                    $0.customDockWidgetStyle = .cards
+                }
+            }
+            .font(.caption)
+        }
     }
 
     private func exportBackup() {

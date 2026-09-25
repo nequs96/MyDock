@@ -5,15 +5,21 @@ struct AboutView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Image(systemName: "dock.rectangle").font(.system(size: 46)).foregroundStyle(.tint)
-            Text(Product.name).font(.title.bold())
-            Text("Your Dock, arranged your way.").foregroundStyle(.secondary)
-            Text("Clean-room implementation based on publicly documented Dockset behavior.").font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            if let referenceURL = URL(string: "https://dockset.app/manual") {
-                Link("Dockset public manual", destination: referenceURL)
-            }
-            Button("Replay Setup…", action: onReplaySetup)
+            Image(systemName: "dock.rectangle")
+                .font(.system(size: 38, weight: .light))
+                .foregroundStyle(.white)
+                .frame(width: 76, height: 76)
+                .background(DockDesign.accent.gradient, in: RoundedRectangle(cornerRadius: 21))
+            Text(Product.name).font(.system(size: 32, weight: .medium, design: .serif))
+            Text("Your Dock, arranged your way.")
+                .font(.subheadline).foregroundStyle(.secondary)
+            Text("Version \(Product.marketingVersion) · macOS 13 or later")
+                .font(.caption).foregroundStyle(.tertiary)
+            Button("Replay setup…", action: onReplaySetup).buttonStyle(.borderedProminent)
         }
-        .padding(30).frame(width: 380, height: 310)
+        .padding(36).frame(minWidth: 400, minHeight: 340)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DockDesign.page)
+        .tint(DockDesign.accent)
     }
 }

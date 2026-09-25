@@ -1665,6 +1665,43 @@ struct ProfileStoreTests {
         #expect(snapshot.reading(for: .grok) == nil)
     }
 
+    @Test func claudeStatusLineLimitsAreReadLocallyAndExpiredSamplesAreHidden() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let sample = #"{"updated_at":1800000000,"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1800003600},"seven_day":{"used_percentage":41.2,"resets_at":1800600000},"spend_limit":{"used_percentage":125.3,"resets_at":1802000000}}}"#
+        let reading = try ClaudeStatusLineLimitParser.reading(from: Data(sample.utf8), now: now)
+        #expect(reading.provider == .claude)
+        #expect(reading.availability == .available)
+        #expect(reading.windows.map(\.usedPercent) == [24, 41, 125])
+        #expect(reading.windows.map(\.durationMinutes) == [300, 10_080, nil])
+        #expect(reading.windows[0].remainingPercent == 76)
+        #expect(reading.windows[0].resetsAt == Date(timeIntervalSince1970: 1_800_003_600))
+
+        let stale = try ClaudeStatusLineLimitParser.reading(from: Data(sample.utf8),
+                                                             now: now.addingTimeInterval(31 * 60))
+        #expect(stale.availability == .unavailable)
+        #expect(stale.windows.isEmpty)
+        #expect(stale.updatedAt == now)
+    }
+
+    @Test func claudeStatusLineLimitAdapterReadsOnlyItsBoundedRegularFile() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let directory = home.appendingPathComponent(".claude", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let sample = #"{"updated_at":1800000000,"rate_limits":{"five_hour":{"used_percentage":23.5}}}"#
+        try Data(sample.utf8).write(to: directory.appendingPathComponent("mydock-rate-limits.json"))
+
+        let reading = try ClaudeStatusLineLimitAdapter(homeDirectory: home).read(now: now)
+        #expect(reading.availability == .available)
+        #expect(reading.windows.first?.usedPercent == 24)
+
+        let commandValue = try #require(AIProvider.claude.statusLineSetupCommand)
+        let shellCommand = try JSONDecoder().decode(String.self, from: Data(commandValue.utf8))
+        #expect(shellCommand.contains("mydock-rate-limits.json"))
+        #expect(shellCommand.contains("rate_limits"))
+    }
+
     @Test func codexActivityCountsUsageDeltasAndActiveSessionDaysWithoutRetainingTranscript() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let sessionDirectory = home.appendingPathComponent(".codex/sessions/2026/09/24", isDirectory: true)
@@ -1833,6 +1870,10 @@ struct ProfileStoreTests {
         #expect(!restoredLegacy.hideCustomDockWhenSystemDockAppears)
         #expect(!restoredLegacy.customDockDesktopMode)
         #expect(restoredLegacy.customDockMaterial == .frosted)
+        #expect(restoredLegacy.customDockItemSpacing == 8)
+        #expect(restoredLegacy.customDockCornerRadius == 24)
+        #expect(restoredLegacy.customDockTintStrength == 0.08)
+        #expect(restoredLegacy.customDockWidgetStyle == .cards)
         #expect(!restoredLegacy.smoothNativeDockSwitches)
         #expect(!restoredLegacy.automaticallySaveNativeDockChanges)
         #expect(!restoredLegacy.showActiveProfileNameInMenuBar)
@@ -1846,12 +1887,44 @@ struct ProfileStoreTests {
         current.smoothNativeDockSwitches = true
         current.showWindowPreviews = true
         current.showActiveProfileNameInMenuBar = true
+        current.customDockItemSpacing = 14
+        current.customDockCornerRadius = 30
+        current.customDockTintStrength = 0.21
+        current.customDockWidgetStyle = .compact
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).customDockDesktopMode)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).hideCustomDockWhenSystemDockAppears)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).customDockMaterial == .liquidGlass)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).smoothNativeDockSwitches)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).showWindowPreviews)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).showActiveProfileNameInMenuBar)
+        let restoredCurrent = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current))
+        #expect(restoredCurrent.customDockItemSpacing == 14)
+        #expect(restoredCurrent.customDockCornerRadius == 30)
+        #expect(restoredCurrent.customDockTintStrength == 0.21)
+        #expect(restoredCurrent.customDockWidgetStyle == .compact)
+
+        let unbounded = #"{"customDockItemSpacing":50,"customDockCornerRadius":3,"customDockTintStrength":2}"#
+        let restoredUnbounded = try JSONDecoder().decode(AppSettings.self, from: Data(unbounded.utf8))
+        #expect(restoredUnbounded.customDockItemSpacing == 18)
+        #expect(restoredUnbounded.customDockCornerRadius == 12)
+        #expect(restoredUnbounded.customDockTintStrength == 0.3)
+    }
+
+    @Test func dockSurfaceMetricsMatchRenderedTileGeometry() {
+        let items = [DockItem.widget("Clock"), DockItem.spacer(.small), DockItem.widget("Battery")]
+        var settings = AppSettings()
+        settings.customDockWidgetStyle = .compact
+        let normal = DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1)
+        #expect(normal == CGFloat(156))
+        settings.customDockWidgetStyle = .cards
+        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == CGFloat(272))
+        settings.customDockItemSpacing = 14
+        let spaced = DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1)
+        let scaled = DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1.5)
+        #expect(spaced == CGFloat(284))
+        #expect(scaled == CGFloat(425))
+        settings.customDockPosition = .left
+        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == CGFloat(168))
     }
 
     @Test func menuBarProfileTitleReflectsTheSelectedDockModes() {

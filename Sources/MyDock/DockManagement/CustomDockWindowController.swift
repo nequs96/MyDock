@@ -2,6 +2,28 @@ import AppKit
 import Combine
 import SwiftUI
 
+enum DockSurfaceMetrics {
+    static func itemLength(_ item: DockItem, settings: AppSettings, scale: CGFloat) -> CGFloat {
+        if item.type == .spacer { return CGFloat(item.spacerKind == .small ? 8 : 18) * scale }
+        if item.type == .widget && settings.customDockPosition == .bottom && settings.customDockWidgetStyle == .cards {
+            return 112 * scale
+        }
+        return 54 * scale
+    }
+
+    static func length(_ itemLengths: [CGFloat], spacing: CGFloat, scale: CGFloat) -> CGFloat {
+        itemLengths.reduce(0, +) + CGFloat(max(itemLengths.count - 1, 0)) * spacing * scale + 2
+    }
+
+    static func contentLength(items: [DockItem], settings: AppSettings, scale: CGFloat) -> CGFloat {
+        var lengths = items.map { itemLength($0, settings: settings, scale: scale) }
+        if settings.showTrash && !items.contains(where: { $0.widgetKind == "Trash" }) {
+            lengths.append(54 * scale)
+        }
+        return length(lengths, spacing: CGFloat(settings.customDockItemSpacing), scale: scale) + 22 * scale
+    }
+}
+
 @MainActor
 final class CustomDockWindowController {
     private var panel: NSPanel?
@@ -64,7 +86,7 @@ final class CustomDockWindowController {
         let root = CustomDockView(store: store, profile: profile)
         if let panel, let hosting = panel.contentView as? NSHostingView<CustomDockView> {
             hosting.rootView = root
-            expandedFrame = place(panel, on: screen, itemCount: profile.items.count, settings: state.settings)
+            expandedFrame = place(panel, on: screen, profile: profile, settings: state.settings)
         } else {
             let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 84),
                                 styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -78,7 +100,7 @@ final class CustomDockWindowController {
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
             panel.contentView = NSHostingView(rootView: root)
             self.panel = panel
-            expandedFrame = place(panel, on: screen, itemCount: profile.items.count, settings: state.settings)
+            expandedFrame = place(panel, on: screen, profile: profile, settings: state.settings)
         }
         updateRevealPanel(on: screen)
         configureWindowMode(desktop: state.settings.customDockDesktopMode)
@@ -106,25 +128,25 @@ final class CustomDockWindowController {
         } ?? NSScreen.main ?? NSScreen.screens.first
     }
 
-    private func place(_ panel: NSPanel, on screen: NSScreen, itemCount: Int, settings: AppSettings) -> NSRect {
+    private func place(_ panel: NSPanel, on screen: NSScreen, profile: DockProfile, settings: AppSettings) -> NSRect {
         let visible = screen.visibleFrame
         let scale = CGFloat(min(max(settings.customDockSize, 0.65), 1.5))
-        let iconLength = 48 * scale
-        let itemLength = CGFloat(max(itemCount, 1)) * (iconLength + 8 * scale) + 22 * scale
+        let tileLength = 54 * scale
+        let itemLength = DockSurfaceMetrics.contentLength(items: profile.items, settings: settings, scale: scale)
         let maxLength = settings.customDockPosition == .bottom ? visible.width - 40 : visible.height - 60
         let length = min(max(itemLength, 100), max(maxLength, 100))
         let frame: NSRect
         switch settings.customDockPosition {
         case .bottom:
             let width = length
-            let height = iconLength + 22 * scale
+            let height = tileLength + 22 * scale
             frame = NSRect(x: visible.midX - width / 2, y: visible.minY + 10, width: width, height: height)
         case .left:
-            let width = iconLength + 22 * scale
+            let width = tileLength + 22 * scale
             let height = length
             frame = NSRect(x: visible.minX + 10, y: visible.midY - height / 2, width: width, height: height)
         case .right:
-            let width = iconLength + 22 * scale
+            let width = tileLength + 22 * scale
             let height = length
             frame = NSRect(x: visible.maxX - width - 10, y: visible.midY - height / 2, width: width, height: height)
         }
@@ -568,15 +590,15 @@ struct CustomDockView: View {
                 Group {
                     if horizontal {
                         ScrollView(.horizontal) {
-                            LazyHStack(spacing: 8 * size) { itemViews(horizontal: true, size: size) }
-                                .padding(.horizontal, 1)
+                            LazyHStack(spacing: CGFloat(store.state.settings.customDockItemSpacing) * size) { itemViews(horizontal: true, size: size) }
+                                .padding(.horizontal, needsJumpControls ? 25 * size : 1)
                         }
                         .scrollIndicators(.hidden)
                         .modifier(SizeBasedScrollBounce())
                     } else {
                         ScrollView(.vertical) {
-                            LazyVStack(spacing: 8 * size) { itemViews(horizontal: false, size: size) }
-                                .padding(.vertical, 1)
+                            LazyVStack(spacing: CGFloat(store.state.settings.customDockItemSpacing) * size) { itemViews(horizontal: false, size: size) }
+                                .padding(.vertical, needsJumpControls ? 25 * size : 1)
                         }
                         .scrollIndicators(.hidden)
                         .modifier(SizeBasedScrollBounce())
@@ -600,18 +622,18 @@ struct CustomDockView: View {
         .background {
             ZStack {
                 dockSurface
-                if !accessibility.reduceTransparency && store.state.settings.customDockMaterial == .frosted {
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(profileColor.opacity(0.2))
+                if !accessibility.reduceTransparency {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(profileColor.opacity(store.state.settings.customDockTintStrength))
                 }
             }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(accessibility.increaseContrast ? Color.primary.opacity(0.8) : Color.primary.opacity(0.22),
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(accessibility.increaseContrast ? Color.primary.opacity(0.8) : Color.primary.opacity(0.14),
                         lineWidth: accessibility.increaseContrast ? 2 : 1)
         }
-        .shadow(color: .black.opacity(0.2), radius: 18, y: 8)
+        .shadow(color: .black.opacity(0.14), radius: 16, y: 7)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contextMenu { switchProfileMenu }
         .overlay(alignment: horizontal ? .topTrailing : .bottomTrailing) {
@@ -655,9 +677,7 @@ struct CustomDockView: View {
     }
 
     private func estimatedContentLength(size: CGFloat) -> CGFloat {
-        var lengths = visibleProfileItems.map { item -> CGFloat in
-            item.type == .spacer ? (item.spacerKind == .small ? 8 : 18) * size : 54 * size
-        }
+        var lengths = visibleProfileItems.map { DockSurfaceMetrics.itemLength($0, settings: store.state.settings, scale: size) }
         if CustomDockVisibilityPolicy.showsSystemTrash(
             isEnabled: store.state.settings.showTrash,
             hasProfileTrashWidget: profile.items.contains(where: { $0.widgetKind == "Trash" })
@@ -674,8 +694,7 @@ struct CustomDockView: View {
             lengths.append(5 * size)
             lengths.append(contentsOf: repeatElement(48 * size + 6, count: windows))
         }
-        let spacing = CGFloat(max(0, lengths.count - 1)) * 8 * size
-        return lengths.reduce(0, +) + spacing + 2
+        return DockSurfaceMetrics.length(lengths, spacing: CGFloat(store.state.settings.customDockItemSpacing), scale: size)
     }
 
     private func overflowJumpButton(proxy: ScrollViewProxy, horizontal: Bool, toEnd: Bool) -> some View {
@@ -732,7 +751,7 @@ struct CustomDockView: View {
     }
 
     @ViewBuilder private var dockSurface: some View {
-        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         if accessibility.reduceTransparency {
             shape.fill(Color(nsColor: .windowBackgroundColor))
         } else {
@@ -750,6 +769,8 @@ struct CustomDockView: View {
             }
         }
     }
+
+    private var cornerRadius: CGFloat { CGFloat(store.state.settings.customDockCornerRadius) }
 
     private var profileColor: Color {
         switch DockProfileColor(rawValue: profile.color) ?? .blue {
@@ -809,6 +830,7 @@ struct CustomDockView: View {
     }
 
     @ViewBuilder private func itemView(_ item: DockItem, horizontal: Bool, size: CGFloat, pinned: Bool) -> some View {
+        let tileWidth = DockSurfaceMetrics.itemLength(item, settings: store.state.settings, scale: size)
         Button {
             if item.type == .widget || item.type == .folder {
                 if longPressTriggeredItemID == item.id {
@@ -825,17 +847,24 @@ struct CustomDockView: View {
             Group {
                 if item.type == .widget {
                     WidgetCompactView(store: store, item: item, profileID: profile.id)
-                } else if item.type == .folder && item.hasCustomFolderIcon {
-                    DockFolderIconView(item: item, size: 48 * size)
-                } else if item.type == .file, item.url != nil {
-                    DockFileThumbnailView(item: item, size: 48 * size)
+                        .scaleEffect(size)
+                        .frame(width: tileWidth, height: 54 * size)
                 } else {
-                    Image(nsImage: AppLauncher.icon(for: item, size: 48 * size))
-                        .resizable().scaledToFit().frame(width: 48 * size, height: 48 * size)
+                    Group {
+                        if item.type == .folder && item.hasCustomFolderIcon {
+                            DockFolderIconView(item: item, size: 48 * size)
+                        } else if item.type == .file, item.url != nil {
+                            DockFileThumbnailView(item: item, size: 48 * size)
+                        } else {
+                            Image(nsImage: AppLauncher.icon(for: item, size: 48 * size))
+                                .resizable().scaledToFit().frame(width: 48 * size, height: 48 * size)
+                        }
+                    }
+                    .frame(width: 48 * size, height: 48 * size)
+                    .padding(3 * size)
                 }
             }
-            .frame(width: 48 * size, height: 48 * size)
-            .padding(3 * size)
+            .frame(width: tileWidth, height: 54 * size)
             .background(popouts.tabIDs.contains(item.id) ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 13 * size))
             .overlay(alignment: .bottomTrailing) {
                 if AppLauncher.isMissingTarget(item) {

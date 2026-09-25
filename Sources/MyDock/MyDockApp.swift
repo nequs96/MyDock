@@ -30,9 +30,43 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
     private var windows: [String: NSWindow] = [:]
     private var pendingCustomMainMode: Bool?
     private var customMainModeTask: Task<Void, Never>?
+    #if DEBUG
+    private let visualPreview = ProcessInfo.processInfo.environment["MYDOCK_VISUAL_PREVIEW"] == "1"
+    private lazy var previewStore = ProfileStore(fileURL: FileManager.default.temporaryDirectory
+        .appendingPathComponent("MyDock-VisualPreview-\(ProcessInfo.processInfo.processIdentifier).json"))
+    private var store: ProfileStore { visualPreview ? previewStore : ProfileStore.shared }
+    #else
     private let store = ProfileStore.shared
+    #endif
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        if visualPreview {
+            if ProcessInfo.processInfo.environment["MYDOCK_VISUAL_DARK"] == "1" {
+                NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+            }
+            store.updateSettings { $0.showRunningApps = false }
+            let id = store.createProfile(kind: .custom, name: "Everyday")
+            store.add(.widget("Clock"), to: id)
+            store.add(.widget("Weather"), to: id)
+            store.add(.widget("Focus Timer"), to: id)
+            store.add(.widget("Sticky Note"), to: id)
+            NSApplication.shared.setActivationPolicy(.regular)
+            showManager(nil)
+            openSettings(nil)
+            if let profile = store.state.profiles.first(where: { $0.id == id }) {
+                showWindow(id: "visual-preview", title: "Custom Dock Preview",
+                           root: ZStack {
+                               LinearGradient(colors: [DockDesign.accent.opacity(0.16), .white],
+                                              startPoint: .topLeading, endPoint: .bottomTrailing)
+                               CustomDockView(store: store, profile: profile)
+                                   .frame(width: 560, height: 76)
+                           },
+                           size: NSSize(width: 620, height: 220))
+            }
+            return
+        }
+        #endif
         NSApplication.shared.setActivationPolicy(store.state.settings.onboardingComplete ? .accessory : .regular)
         dockController = CustomDockWindowController(store: store)
         dockController?.update(state: store.state)
@@ -186,24 +220,24 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openManager(_ sender: Any?) { showManager(sender) }
     @objc private func openSettings(_ sender: Any?) {
-        showWindow(id: "settings", title: "Settings", root: SettingsView(store: store), size: NSSize(width: 700, height: 620))
+        showWindow(id: "settings", title: "Settings", root: SettingsView(store: store), size: NSSize(width: 860, height: 700))
     }
     func showSettingsFromAppMenu() { openSettings(nil) }
     func showManagerFromAppMenu() { showManager(nil) }
     @objc private func openAbout(_ sender: Any?) {
-        showWindow(id: "about", title: "About \(Product.name)", root: AboutView(onReplaySetup: { [weak self] in self?.showOnboarding() }), size: NSSize(width: 380, height: 310))
+        showWindow(id: "about", title: "About \(Product.name)", root: AboutView(onReplaySetup: { [weak self] in self?.showOnboarding() }), size: NSSize(width: 420, height: 360))
     }
     @objc private func quit(_ sender: Any?) { NSApplication.shared.terminate(nil) }
 
     private func showManager(_ sender: Any?) {
-        showWindow(id: "manager", title: "Manage Docks", root: DockManagerView(store: store, onContinueSetup: { [weak self] in self?.showOnboarding() }), size: NSSize(width: 960, height: 600))
+        showWindow(id: "manager", title: "Manage Docks", root: DockManagerView(store: store, onContinueSetup: { [weak self] in self?.showOnboarding() }), size: NSSize(width: 1060, height: 650))
     }
 
     private func showOnboarding() {
         showWindow(id: "onboarding", title: "Set up MyDock", root: OnboardingView(store: store) { [weak self] in
             self?.windows["onboarding"]?.close()
             self?.showManager(nil)
-        }, size: NSSize(width: 680, height: 500))
+        }, size: NSSize(width: 760, height: 600))
     }
 
     private func showWindow<Content: View>(id: String, title: String, root: Content, size: NSSize) {

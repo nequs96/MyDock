@@ -31,6 +31,14 @@ enum CustomDockMaterial: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum CustomDockWidgetStyle: String, Codable, CaseIterable, Identifiable {
+    case cards
+    case compact
+
+    var id: String { rawValue }
+    var title: String { self == .cards ? "Information cards" : "Compact tiles" }
+}
+
 enum DockProfileKind: String, Codable, CaseIterable, Identifiable {
     case native
     case custom
@@ -858,6 +866,10 @@ struct AppSettings: Codable, Equatable {
     var activeCustomProfileID: UUID?
     var customDockPosition: DockPosition = .bottom
     var customDockSize: Double = 1
+    var customDockItemSpacing: Double = 8
+    var customDockCornerRadius: Double = 24
+    var customDockTintStrength: Double = 0.08
+    var customDockWidgetStyle: CustomDockWidgetStyle = .cards
     var customDockDisplayID: UInt32?
     var automaticallyHideCustomDock = false
     var hideCustomDockWhenSystemDockAppears = false
@@ -877,6 +889,7 @@ struct AppSettings: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case setupMode, activeNativeProfileID, activeCustomProfileID, customDockPosition, customDockSize
+        case customDockItemSpacing, customDockCornerRadius, customDockTintStrength, customDockWidgetStyle
         case customDockDisplayID, automaticallyHideCustomDock, hideCustomDockWhenSystemDockAppears, customDockDesktopMode, customDockMaterial, smoothNativeDockSwitches, showRunningApps
         case showMinimizedWindows, showWindowPreviews, showTrash, showAppBadges, clickFocusedAppToMinimize, magnificationEnabled
         case automaticallySaveNativeDockChanges, showActiveProfileNameInMenuBar, onboardingComplete
@@ -891,6 +904,10 @@ struct AppSettings: Codable, Equatable {
         activeCustomProfileID = try values.decodeIfPresent(UUID.self, forKey: .activeCustomProfileID)
         customDockPosition = try values.decodeIfPresent(DockPosition.self, forKey: .customDockPosition) ?? .bottom
         customDockSize = min(max(try values.decodeIfPresent(Double.self, forKey: .customDockSize) ?? 1, 0.65), 1.5)
+        customDockItemSpacing = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockItemSpacing), default: 8, range: 4...18)
+        customDockCornerRadius = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockCornerRadius), default: 24, range: 12...32)
+        customDockTintStrength = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockTintStrength), default: 0.08, range: 0...0.3)
+        customDockWidgetStyle = try values.decodeIfPresent(CustomDockWidgetStyle.self, forKey: .customDockWidgetStyle) ?? .cards
         customDockDisplayID = try values.decodeIfPresent(UInt32.self, forKey: .customDockDisplayID)
         automaticallyHideCustomDock = try values.decodeIfPresent(Bool.self, forKey: .automaticallyHideCustomDock) ?? false
         hideCustomDockWhenSystemDockAppears = try values.decodeIfPresent(Bool.self, forKey: .hideCustomDockWhenSystemDockAppears) ?? false
@@ -907,6 +924,11 @@ struct AppSettings: Codable, Equatable {
         automaticallySaveNativeDockChanges = try values.decodeIfPresent(Bool.self, forKey: .automaticallySaveNativeDockChanges) ?? false
         showActiveProfileNameInMenuBar = try values.decodeIfPresent(Bool.self, forKey: .showActiveProfileNameInMenuBar) ?? false
         onboardingComplete = try values.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? false
+    }
+
+    private static func bounded(_ value: Double?, default fallback: Double, range: ClosedRange<Double>) -> Double {
+        guard let value, value.isFinite else { return fallback }
+        return min(max(value, range.lowerBound), range.upperBound)
     }
 }
 

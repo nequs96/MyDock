@@ -22,25 +22,29 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Set up MyDock").font(.largeTitle.bold())
-                    Text("Step \(step + 1) of 4").font(.subheadline).foregroundStyle(.secondary)
+            DockScreenHeader(eyebrow: "STEP \(step + 1) OF 4", title: "Your Dock, your way.",
+                             subtitle: "A few choices will make MyDock feel at home on your Mac.")
+            HStack(spacing: 7) {
+                ForEach(0..<4) { index in
+                    Capsule()
+                        .fill(index <= step ? DockDesign.accent : Color.secondary.opacity(0.15))
+                        .frame(height: 4)
                 }
-                Spacer()
-                Image(systemName: "dock.rectangle").font(.system(size: 34)).foregroundStyle(.tint)
             }
-            .padding(.bottom, 22)
+            .padding(.top, 16).padding(.bottom, 24)
 
-            Group {
-                switch step {
-                case 0: modeStep
-                case 1: profilesStep
-                case 2: placementStep
-                default: reviewStep
+            ScrollView {
+                Group {
+                    switch step {
+                    case 0: modeStep
+                    case 1: profilesStep
+                    case 2: placementStep
+                    default: reviewStep
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider().padding(.top, 14)
             HStack {
@@ -57,8 +61,10 @@ struct OnboardingView: View {
             }
             .padding(.top, 14)
         }
-        .padding(28)
-        .frame(width: 680, height: 500)
+        .padding(30)
+        .frame(minWidth: 720, minHeight: 560)
+        .background(DockDesign.page)
+        .tint(DockDesign.accent)
     }
 
     private var modeStep: some View {
@@ -75,8 +81,11 @@ struct OnboardingView: View {
                         }
                         Spacer()
                     }
-                    .padding(14).contentShape(Rectangle())
-                    .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(16).contentShape(Rectangle())
+                    .background(DockDesign.card, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous)
+                        .stroke(setupMode == mode ? DockDesign.accent : DockDesign.hairline,
+                                lineWidth: setupMode == mode ? 2 : 1))
                 }
                 .buttonStyle(.plain)
             }
@@ -103,7 +112,10 @@ struct OnboardingView: View {
                             } label: {
                                 Label(name, systemImage: selected ? "checkmark.circle.fill" : "circle")
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(10).background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                                    .padding(10)
+                                    .background(DockDesign.card, in: RoundedRectangle(cornerRadius: 10))
+                                    .overlay(RoundedRectangle(cornerRadius: 10)
+                                        .stroke(selected ? DockDesign.accent : DockDesign.hairline))
                             }
                             .buttonStyle(.plain)
                         }
@@ -134,19 +146,45 @@ struct OnboardingView: View {
                     Text("Main display").tag(Optional<UInt32>.none)
                     ForEach(displayOptions) { option in Text(option.title).tag(Optional(option.id)) }
                 }
-                HStack(spacing: 10) {
-                    Image(systemName: "rectangle.bottomthird.inset.filled").font(.title)
-                    VStack(alignment: .leading) {
-                        Text("Preview")
-                        Text(previewSummary).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+                placementPreview
                 Text("Placement, display, size, and auto-hide can be changed later in Settings.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+        }
+    }
+
+    private var placementPreview: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Placement preview").font(.headline)
+            ZStack(alignment: dockPosition == .bottom ? .bottom : (dockPosition == .left ? .leading : .trailing)) {
+                RoundedRectangle(cornerRadius: 16).fill(DockDesign.accent.opacity(0.1))
+                Group {
+                    if dockPosition == .bottom {
+                        HStack(spacing: 10) { previewIcons }
+                    } else {
+                        VStack(spacing: 6) { previewIcons }
+                    }
+                }
+                .padding(9)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .padding(14)
+            }
+            .frame(height: 186)
+            Text(previewSummary).font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(17)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DockDesign.card, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(DockDesign.hairline))
+    }
+
+    @ViewBuilder private var previewIcons: some View {
+        ForEach(["folder", "globe", "timer", "calendar"], id: \.self) { symbol in
+            Image(systemName: symbol)
+                .font(.system(size: 15))
+                .frame(width: 27, height: 27)
+                .background(DockDesign.card, in: RoundedRectangle(cornerRadius: 8))
         }
     }
 

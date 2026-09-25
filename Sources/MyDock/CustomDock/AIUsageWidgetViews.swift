@@ -1,3 +1,4 @@
+import AppKit
 import Charts
 import SwiftUI
 
@@ -65,6 +66,7 @@ private struct AILimitsPopoutView: View {
     var item: DockItem
     var profileID: UUID
     @State private var isRefreshing = false
+    @State private var copiedClaudeStatusLineCommand = false
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var orderedProviders: [AIProvider] {
@@ -162,10 +164,10 @@ private struct AILimitsPopoutView: View {
                 if reading.availability == .available { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
                 else { Text("—").foregroundStyle(.secondary) }
             }
-            if reading.windows.isEmpty {
-                Text(reading.message ?? reading.provider.setupInstructions)
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            } else {
+            if reading.windows.isEmpty, let message = reading.message {
+                Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if !reading.windows.isEmpty {
                 ForEach(reading.windows) { window in
                     limitWindow(window, provider: reading.provider)
                 }
@@ -173,6 +175,24 @@ private struct AILimitsPopoutView: View {
             if reading.availability != .available {
                 Text(reading.provider.setupInstructions)
                     .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                if let command = reading.provider.statusLineSetupCommand {
+                    HStack {
+                        Button("Copy statusLine value") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(command, forType: .string)
+                            copiedClaudeStatusLineCommand = true
+                        }
+                        if copiedClaudeStatusLineCommand {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        }
+                        if let url = URL(string: "https://code.claude.com/docs/en/statusline") {
+                            Link("Status line docs", destination: url)
+                        }
+                    }
+                    .font(.caption2)
+                    Text("If Claude Code already has a statusLine, merge this file-writing step into its command to preserve the current terminal display.")
+                        .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                }
             }
             if let updatedAt = reading.updatedAt {
                 Text("Provider update \(updatedAt.formatted(date: .omitted, time: .shortened))")
@@ -186,6 +206,7 @@ private struct AILimitsPopoutView: View {
     @ViewBuilder
     private func limitWindow(_ window: AILimitWindow, provider: AIProvider) -> some View {
         let percent: Int? = configuration.aiLimitsRepresentation == .remaining ? window.remainingPercent : window.usedPercent
+        let visualPercent = percent.map { min(100, max(0, $0)) }
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text(window.name).font(.caption.weight(.medium))
@@ -203,13 +224,13 @@ private struct AILimitsPopoutView: View {
                     HStack { Text(configuration.aiLimitsRepresentation.title); Spacer(); Text("\(percent)%").monospacedDigit() }
                         .font(.caption2).foregroundStyle(.secondary)
                 case .bars:
-                    ProgressView(value: Double(percent), total: 100)
-                        .tint(percent > 90 ? .orange : .cyan)
+                    ProgressView(value: Double(visualPercent ?? 0), total: 100)
+                        .tint((visualPercent ?? 0) > 90 ? .orange : .cyan)
                 case .rings:
                     HStack(spacing: 8) {
                         ZStack {
                             Circle().stroke(.quaternary, lineWidth: 4)
-                            Circle().trim(from: 0, to: Double(percent) / 100).stroke(percent > 90 ? .orange : .cyan,
+                            Circle().trim(from: 0, to: Double(visualPercent ?? 0) / 100).stroke((visualPercent ?? 0) > 90 ? .orange : .cyan,
                                                                                    style: StrokeStyle(lineWidth: 4, lineCap: .round))
                                 .rotationEffect(.degrees(-90))
                             Text("\(percent)").font(.system(size: 8, weight: .semibold, design: .rounded).monospacedDigit())

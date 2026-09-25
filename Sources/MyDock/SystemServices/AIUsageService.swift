@@ -26,13 +26,20 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable {
     var setupInstructions: String {
         switch self {
         case .codex: "Sign in to Codex with your ChatGPT account or install Codex CLI and run codex login. MyDock asks the local app-server for read-only account limits; it never starts a task."
-        case .claude: "Install Claude Code and sign in. Limits require a current Claude Code status-line update or the Claude Desktop account reader; activity is read from local Claude Code session usage records."
-        case .grok: "Install Grok CLI and run grok login. Limits are reported by the installed CLI; activity is a local session estimate from ~/.grok/sessions."
-        case .cursor: "Sign in to Cursor. Account-wide request and cost history requires Cursor's authenticated usage data; no API key or private endpoint is used by this build."
-        case .geminiCLI: "Sign in to Gemini CLI with a supported Google account. API-key and Vertex AI configurations do not expose subscription limits."
-        case .copilot: "Install GitHub CLI and run gh auth login with the account that has Copilot. Only provider-reported quotas are shown; unlimited or absent values remain unavailable."
-        case .antigravity: "Sign in with agy, enable its status line, reopen the CLI, and run /usage. MyDock does not change CLI settings automatically."
+        case .claude: "Claude Code sends subscription rate-limit windows to its configured status line. Copy the JSON value into ~/.claude/settings.json under statusLine.command; it saves only quota percentages and reset times to ~/.claude/mydock-rate-limits.json. The command requires jq. Claude Code activity is read from local session usage records."
+        case .grok: "Grok subscription allowance is visible in Grok settings, but this build has no supported local quota reader. Activity is a local estimate from ~/.grok/sessions."
+        case .cursor: "Cursor shows personal usage in its dashboard, but MyDock has no documented personal allowance or local activity reader. Its team APIs do not provide individual plan allowance."
+        case .geminiCLI: "Gemini CLI shows session quota in /stats model. MyDock has no supported reader for that session output; Google documents no third-party reader for its OAuth subscription quota."
+        case .copilot: "MyDock has no supported individual Copilot allowance reader. GitHub's personal billing API reports usage but does not provide the included plan allowance needed for a remaining percentage."
+        case .antigravity: "Antigravity CLI provides /usage in its own interface. MyDock does not yet read a supported local allowance source."
         }
+    }
+
+    var statusLineSetupCommand: String? {
+        guard self == .claude else { return nil }
+        let shell = "umask 077; tmp=$(mktemp \"$HOME/.claude/mydock-rate-limits.XXXXXX\") || exit 0; if jq -ce 'select(.rate_limits != null) | {updated_at: now, rate_limits: .rate_limits}' > \"$tmp\"; then mv \"$tmp\" \"$HOME/.claude/mydock-rate-limits.json\" && printf 'Claude limits synced to MyDock'; else rm -f \"$tmp\"; fi"
+        guard let encoded = try? JSONEncoder().encode(shell) else { return nil }
+        return String(decoding: encoded, as: UTF8.self)
     }
 }
 
@@ -172,6 +179,7 @@ enum AIUsageError: LocalizedError, Equatable {
     case codexAppServerTimedOut
     case codexAuthenticationUnavailable
     case codexResponseInvalid
+    case claudeLimitResponseInvalid
 
     var errorDescription: String? {
         switch self {
@@ -179,6 +187,7 @@ enum AIUsageError: LocalizedError, Equatable {
         case .codexAppServerTimedOut: "Codex app-server did not answer its read-only limits request in time."
         case .codexAuthenticationUnavailable: "Codex could not read account limits. Sign in with your ChatGPT account in Codex and try again."
         case .codexResponseInvalid: "Codex returned a rate-limit response MyDock could not parse."
+        case .claudeLimitResponseInvalid: "Claude Code's saved status-line limits could not be read."
         }
     }
 }
@@ -323,15 +332,80 @@ struct UnavailableLimitAdapter: AILimitProviderAdapter {
     func read(now: Date) throws -> AIProviderLimitReading {
         let message: String
         switch provider {
-        case .claude, .grok, .antigravity:
-            message = "No supported provider-reported allowance update is available in this build."
-        case .cursor, .geminiCLI, .copilot:
-            message = "No supported personal quota reader is available in this build."
+        case .grok, .cursor, .geminiCLI, .copilot, .antigravity:
+            message = "No supported personal allowance reader is available in this build."
+        case .claude:
+            message = "No Claude Code status-line snapshot has been received yet."
         case .codex:
             message = "Codex limits require the local app-server."
         }
         return AIProviderLimitReading(provider: provider, availability: .unavailable,
                                       plan: nil, windows: [], updatedAt: nil, message: message)
+    }
+}
+
+enum ClaudeStatusLineLimitParser {
+    static func reading(from data: Data, now: Date = .now, maximumAge: TimeInterval = 30 * 60) throws -> AIProviderLimitReading {
+        guard data.count <= 64_000,
+              let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let updatedNumber = root["updated_at"] as? NSNumber,
+              CFGetTypeID(updatedNumber) != CFBooleanGetTypeID(),
+              updatedNumber.doubleValue.isFinite, updatedNumber.doubleValue > 0,
+              updatedNumber.doubleValue <= now.timeIntervalSince1970 + 60,
+              let limits = root["rate_limits"] as? [String: Any] else {
+            throw AIUsageError.claudeLimitResponseInvalid
+        }
+        let timestamp = updatedNumber.doubleValue
+        let updatedAt = Date(timeIntervalSince1970: timestamp)
+        guard now.timeIntervalSince(updatedAt) <= maximumAge else {
+            return AIProviderLimitReading(provider: .claude, availability: .unavailable, plan: nil,
+                                          windows: [], updatedAt: updatedAt,
+                                          message: "Claude Code status-line data is stale. Use Claude Code to refresh it.")
+        }
+        let definitions: [(String, String, Int?)] = [
+            ("five_hour", "5 hours", 300),
+            ("seven_day", "7 days", 10_080),
+            ("spend_limit", "Spend limit", nil)
+        ]
+        let windows = definitions.compactMap { key, title, duration -> AILimitWindow? in
+            guard let value = limits[key] as? [String: Any] else { return nil }
+            let percent = (value["used_percentage"] as? NSNumber).flatMap { number -> Int? in
+                guard CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite,
+                      number.doubleValue >= 0, number.doubleValue < Double(Int.max) else { return nil }
+                return Int(number.doubleValue.rounded())
+            }
+            let reset = (value["resets_at"] as? NSNumber).flatMap { number -> Date? in
+                guard CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite,
+                      number.doubleValue > 0, number.doubleValue < 4_102_444_800 else { return nil }
+                return Date(timeIntervalSince1970: number.doubleValue)
+            }
+            return AILimitWindow(name: title, usedPercent: percent, resetsAt: reset, durationMinutes: duration)
+        }
+        let available = windows.contains { $0.usedPercent != nil }
+        return AIProviderLimitReading(provider: .claude,
+                                      availability: available ? .available : .unavailable,
+                                      plan: nil, windows: windows, updatedAt: updatedAt,
+                                      message: available ? nil : "Claude Code did not report percentage-based limits in its latest status line.")
+    }
+}
+
+struct ClaudeStatusLineLimitAdapter: AILimitProviderAdapter {
+    let provider: AIProvider = .claude
+    var homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+
+    func read(now: Date) throws -> AIProviderLimitReading {
+        let url = homeDirectory.appendingPathComponent(".claude/mydock-rate-limits.json")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return AIProviderLimitReading(provider: .claude, availability: .setupRequired, plan: nil,
+                                          windows: [], updatedAt: nil,
+                                          message: "No Claude Code status-line snapshot has been received yet.")
+        }
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true,
+              let size = values.fileSize, size <= 64_000 else {
+            throw AIUsageError.claudeLimitResponseInvalid
+        }
+        return try ClaudeStatusLineLimitParser.reading(from: Data(contentsOf: url), now: now)
     }
 }
 
@@ -360,7 +434,13 @@ enum AILimitsCollector {
     }
 
     private static func defaultAdapters() -> [any AILimitProviderAdapter] {
-        [CodexLimitAdapter()] + AIProvider.allCases.filter { $0 != .codex }.map(UnavailableLimitAdapter.init(provider:))
+        AIProvider.allCases.map { provider in
+            switch provider {
+            case .codex: CodexLimitAdapter() as any AILimitProviderAdapter
+            case .claude: ClaudeStatusLineLimitAdapter() as any AILimitProviderAdapter
+            default: UnavailableLimitAdapter(provider: provider) as any AILimitProviderAdapter
+            }
+        }
     }
 }
 
