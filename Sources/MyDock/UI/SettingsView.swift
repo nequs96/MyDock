@@ -259,9 +259,6 @@ struct SettingsView: View {
                 DockSettingSection(title: "Stripe") {
                     Text("Add Stripe from the widget picker, then open it to name and connect accounts. MyDock uses a restricted key with read access only to Balance and Subscriptions; it never asks for write access. Credentials stay in Keychain and are excluded from profile backups.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    if let url = URL(string: "https://dockset.app/manual/stripe") {
-                        Link("Stripe setup and metric definitions", destination: url)
-                    }
                 }
                 DockSettingSection(title: "Market data") {
                     Text("Stock and Watchlist use Alpha Vantage's end-of-day market data. Create a personal API key on their website; free-tier request limits apply. The key is stored in this Mac's Keychain and is never included in backups.")

@@ -1903,8 +1903,9 @@ struct ProfileStoreTests {
         #expect(restoredCurrent.customDockTintStrength == 0.21)
         #expect(restoredCurrent.customDockWidgetStyle == .compact)
 
-        let unbounded = #"{"customDockItemSpacing":50,"customDockCornerRadius":3,"customDockTintStrength":2}"#
+        let unbounded = #"{"customDockSize":999,"customDockItemSpacing":50,"customDockCornerRadius":3,"customDockTintStrength":2}"#
         let restoredUnbounded = try JSONDecoder().decode(AppSettings.self, from: Data(unbounded.utf8))
+        #expect(restoredUnbounded.customDockSize == 1.5)
         #expect(restoredUnbounded.customDockItemSpacing == 18)
         #expect(restoredUnbounded.customDockCornerRadius == 12)
         #expect(restoredUnbounded.customDockTintStrength == 0.3)

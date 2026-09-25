@@ -4,6 +4,7 @@
 
 - `./TestMyDock.sh`: 110 tests pass on the macOS 14 host, including the sleep-inclusive Stopwatch clock, persisted timing state, wall-clock change fixtures, defensive elapsed-time display, opt-in native Dock auto-save isolation, independent AI provider refresh, Claude Code status-line snapshot parsing, and Dock surface geometry. The Swift Testing library supplied with this Command Line Tools installation links for macOS 14; the app itself targets macOS 13.
 - `./BuildMyDock.sh`: release arm64 and x86_64 builds combine into `build/MyDock.app`; the bundle has an original icon and a valid ad-hoc signature. Developer ID signing, notarization, and an updater are not configured.
+- A DEBUG-only isolated preview was opened and visually inspected for the Custom Dock, Manager, Settings, widget library, and onboarding steps 1–3. It uses a temporary profile store and returns before the real Dock controller starts. The Mac locked before the final overflow and dark-appearance recheck. Details are in [VISUAL_PARITY.md](reference/VISUAL_PARITY.md).
 - Automated Dock tests use isolated preference backends. They do not write the machine's real Dock preferences.
 - A read-only check of this Mac's Dock preferences found 15 pinned tiles, all with types the auto-save reader recognizes. No Dock preference was changed.
 - The Music artwork and Spotify metadata AppleScript snippets compile with `osacompile`; no Apple Event was sent to a player during this audit.
@@ -25,7 +26,7 @@
 
 ## Acceptance still required
 
-1. Unlock the Mac and run [the desktop acceptance checks](ACCEPTANCE_TESTS.md), including first-run UI, permissions, multiple displays/Spaces/fullscreen, popout geometry, VoiceOver, visual comparison, and idle/active performance.
+1. Unlock the Mac and run [the desktop acceptance checks](ACCEPTANCE_TESTS.md), including the final overflow and dark-appearance recheck, the remaining first-run step, permissions, multiple displays/Spaces/fullscreen, popout geometry, VoiceOver, and idle/active performance.
 2. Run [the real Dock snapshot/restore plan](REAL_DOCK_TEST_PLAN.md) only after separate user approval. The fixture suite establishes rollback policy but cannot prove behavior against this Mac's Dock preferences.
 3. Connect the user's optional market, Stripe, Paddle, Shopify, and AI provider accounts to verify live data paths. Verify Music, Spotify, Calendar, and Reminders after the desktop is unlocked and their contextual permissions can be granted or denied. No sample values are shown as real data.
 4. Confirm Focus Filter discovery/invocation with a full Xcode toolchain or on the unlocked desktop. This Command Line Tools installation does not provide the App Intents metadata processor.

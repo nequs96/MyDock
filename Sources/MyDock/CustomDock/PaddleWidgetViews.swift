@@ -194,8 +194,6 @@ private struct PaddlePopoutView: View {
                 if !configuration.paddleAccountID.isEmpty {
                     Button("Disconnect", role: .destructive) { isDisconnectConfirmationPresented = true }
                 }
-                Spacer()
-                if let url = URL(string: "https://dockset.app/manual/paddle") { Link("Setup and permissions", destination: url) }
             }
             Text("Grant only Metrics → Read (metrics.read). Live and sandbox keys use their matching API environment.")
                 .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

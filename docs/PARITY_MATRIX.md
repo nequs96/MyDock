@@ -2,6 +2,8 @@
 
 Status against the public Dockset v0.2.6 documentation, researched September 25, 2026. Feature-level details and narrower statuses are in [FEATURE_MATRIX.md](reference/FEATURE_MATRIX.md). Automated status reflects the current test suite; manual UI and real-Dock acceptance are partial.
 
+The Visual checked column means full desktop acceptance, which remains incomplete. A safe DEBUG preview was visually inspected for the Custom Dock, Manager, Settings, onboarding steps 1–3, and widget library; see [visual parity notes](reference/VISUAL_PARITY.md).
+
 | Feature | Reference behavior | Implemented | Automated tested | Manual tested | Visual checked | Known difference | Reason / next action |
 |---|---|---:|---:|---:|---:|---|---|
 | Setup modes and onboarding | Three modes; import/start empty; preview; replayable tour. | Partial | Partial | No | No | A four-step wizard selects mode, profile source, starter widgets, placement, and optional permissions; Custom-main hides Apple's Dock only with an active Custom profile and journals/restores the prior auto-hide setting. Manual flow and preview are unverified. | Verify setup and Dock auto-hide/recovery on the desktop. |

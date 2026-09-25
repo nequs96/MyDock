@@ -903,7 +903,7 @@ struct AppSettings: Codable, Equatable {
         activeNativeProfileID = try values.decodeIfPresent(UUID.self, forKey: .activeNativeProfileID)
         activeCustomProfileID = try values.decodeIfPresent(UUID.self, forKey: .activeCustomProfileID)
         customDockPosition = try values.decodeIfPresent(DockPosition.self, forKey: .customDockPosition) ?? .bottom
-        customDockSize = min(max(try values.decodeIfPresent(Double.self, forKey: .customDockSize) ?? 1, 0.65), 1.5)
+        customDockSize = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockSize), default: 1, range: 0.65...1.5)
         customDockItemSpacing = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockItemSpacing), default: 8, range: 4...18)
         customDockCornerRadius = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockCornerRadius), default: 24, range: 12...32)
         customDockTintStrength = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockTintStrength), default: 0.08, range: 0...0.3)

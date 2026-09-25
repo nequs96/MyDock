@@ -198,10 +198,6 @@ private struct ShopifyPopoutView: View {
                 if !configuration.shopifyStoreID.isEmpty {
                     Button("Disconnect", role: .destructive) { isDisconnectConfirmationPresented = true }
                 }
-                Spacer()
-                if let setupURL = URL(string: "https://dockset.app/manual/shopify") {
-                    Link("Setup and permissions", destination: setupURL)
-                }
             }
             Text("Create and install a Dev Dashboard app on a store in the same organization, with read_orders only. Shopify's client credentials grant works only for stores in that organization.")
                 .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
