@@ -104,7 +104,7 @@ struct WidgetPopout: View {
 private struct ClockWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
         AnyView(TimelineView(.periodic(from: .now, by: 30)) { context in
-            Text(context.date.formatted(date: .omitted, time: .shortened))
+            Text(LocalClockFormatter.time(for: context.date))
                 .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
                 .lineLimit(1).minimumScaleFactor(0.7)
         })
@@ -113,9 +113,9 @@ private struct ClockWidgetProvider: DockWidgetProvider {
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
         AnyView(TimelineView(.periodic(from: .now, by: 1)) { context in
             VStack(alignment: .leading, spacing: 4) {
-                Text(context.date.formatted(date: .omitted, time: .shortened))
+                Text(LocalClockFormatter.time(for: context.date))
                     .font(.system(size: 34, weight: .medium, design: .rounded).monospacedDigit())
-                Text(context.date.formatted(date: .complete, time: .omitted)).foregroundStyle(.secondary)
+                Text(LocalClockFormatter.date(for: context.date)).foregroundStyle(.secondary)
             }
         })
     }

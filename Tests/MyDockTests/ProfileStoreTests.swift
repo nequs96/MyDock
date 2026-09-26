@@ -395,6 +395,29 @@ struct ProfileStoreTests {
         #expect(WorldClockCityCatalog.dayOffset(from: warsaw, to: tokyo, at: instant) == 0)
     }
 
+    @Test func localClockFormattingFollowsLocaleAndTimeZone() throws {
+        let instant = try #require(ISO8601DateFormatter().date(from: "2026-01-15T12:05:00Z"))
+        let utc = try #require(TimeZone(secondsFromGMT: 0))
+        let warsaw = try #require(TimeZone(identifier: "Europe/Warsaw"))
+        let twentyFourHour = LocalClockFormatter.time(for: instant,
+                                                       locale: Locale(identifier: "en_GB"),
+                                                       timeZone: warsaw)
+        let twelveHour = LocalClockFormatter.time(for: instant,
+                                                   locale: Locale(identifier: "en_US"),
+                                                   timeZone: warsaw)
+
+        #expect(twentyFourHour.contains("13:05"))
+        #expect(twelveHour.contains("1:05"))
+        #expect(twelveHour.localizedCaseInsensitiveContains("pm"))
+        #expect(LocalClockFormatter.time(for: instant, locale: Locale(identifier: "en_GB"), timeZone: utc).contains("12:05"))
+
+        let localDate = LocalClockFormatter.date(for: instant,
+                                                 locale: Locale(identifier: "en_GB"),
+                                                 timeZone: warsaw)
+        #expect(localDate.contains("Thursday"))
+        #expect(localDate.contains("2026"))
+    }
+
     @Test func marketSeriesParserBuildsOrderedDailySnapshotAndChange() throws {
         let payload = #"{"Meta Data":{"2. Symbol":"AAPL"},"Time Series (Daily)":{"2026-09-22":{"1. open":"101.00","2. high":"104.00","3. low":"100.00","4. close":"103.50","5. volume":"1250000"},"2026-09-23":{"1. open":"103.50","2. high":"106.00","3. low":"102.00","4. close":"105.00","5. volume":"1500000"}}}"#
         let fetchedAt = Date(timeIntervalSince1970: 1_800_000_000)
