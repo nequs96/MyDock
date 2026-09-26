@@ -13,6 +13,8 @@ open build/MyDock.app
 
 The built app is `build/MyDock.app` in the repository, with a minimum system version of macOS 13. To install it for the current user, copy that bundle to `~/Applications`; to install it for all users, copy it to `/Applications` using Finder. Launch it from Applications or with `open ~/Applications/MyDock.app`.
 
+The verified September 26 release is also saved as `build/MyDock-Release.app` and `build/MyDock-Release.zip`. It was built in a separate directory because an older `build/MyDock.app` process was still running. Quit that older process before opening the new release; do not run two MyDock instances against the same saved profiles and Dock settings.
+
 The local bundle is ad-hoc signed and not notarized. If Gatekeeper blocks this locally built app, use Finder's Open action and approve it in Privacy & Security. Do not remove quarantine from an app build you did not create or inspect.
 
 ## Updates and removal
