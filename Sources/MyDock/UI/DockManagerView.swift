@@ -758,7 +758,11 @@ private struct DockManagerItemView: View {
     @State private var folderNumberDraft = ""
 
     var body: some View {
-        VStack(spacing: 8) {
+        Button {
+            let modifiers = NSApplication.shared.currentEvent?.modifierFlags ?? []
+            select(modifiers.contains(.command), modifiers.contains(.shift))
+        } label: {
+            VStack(spacing: 8) {
             if item.type == .spacer {
                 RoundedRectangle(cornerRadius: 3).fill(.secondary.opacity(0.35)).frame(width: item.spacerKind == .small ? 12 : 25, height: 70)
             } else if item.type == .widget {
@@ -803,11 +807,10 @@ private struct DockManagerItemView: View {
                     .accessibilityHidden(true)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 16))
-        .onTapGesture {
-            let modifiers = NSApplication.shared.currentEvent?.modifierFlags ?? []
-            select(modifiers.contains(.command), modifiers.contains(.shift))
+            .contentShape(RoundedRectangle(cornerRadius: 16))
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(item.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityHint(AppLauncher.isMissingTarget(item)
             ? "Saved location is unavailable. Re-add the item from its current location."
