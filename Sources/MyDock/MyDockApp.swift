@@ -56,15 +56,8 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
             openSettings(nil)
             if let profile = store.state.profiles.first(where: { $0.id == id }) {
                 showWindow(id: "visual-preview", title: "Custom Dock Preview",
-                           root: ZStack {
-                               LinearGradient(colors: [DockDesign.accent.opacity(0.16), .white],
-                                              startPoint: .topLeading, endPoint: .bottomTrailing)
-                               CustomDockView(store: store, profile: profile)
-                                   .frame(width: DockSurfaceMetrics.contentLength(items: profile.items,
-                                                                                  settings: store.state.settings,
-                                                                                  scale: 1), height: 76)
-                           },
-                           size: NSSize(width: 620, height: 220))
+                           root: VisualDockPreviewSurface(store: store, profile: profile),
+                           size: NSSize(width: 620, height: 420))
             }
             return
         }
@@ -261,3 +254,24 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 }
+
+#if DEBUG
+private struct VisualDockPreviewSurface: View {
+    @ObservedObject var store: ProfileStore
+    let profile: DockProfile
+
+    var body: some View {
+        let settings = store.state.settings
+        let scale = CGFloat(settings.customDockSize)
+        let length = DockSurfaceMetrics.contentLength(items: profile.items, settings: settings, scale: scale)
+        let horizontal = settings.customDockPosition == .bottom
+        ZStack {
+            LinearGradient(colors: [DockDesign.accent.opacity(0.16), DockDesign.page],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            CustomDockView(store: store, profile: profile)
+                .frame(width: horizontal ? length : 76 * scale,
+                       height: horizontal ? 76 * scale : length)
+        }
+    }
+}
+#endif

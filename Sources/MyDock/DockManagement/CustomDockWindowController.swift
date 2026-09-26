@@ -589,34 +589,30 @@ struct CustomDockView: View {
             ScrollViewReader { proxy in
                 Group {
                     if horizontal {
-                        ScrollView(.horizontal) {
-                            LazyHStack(spacing: CGFloat(store.state.settings.customDockItemSpacing) * size) { itemViews(horizontal: true, size: size) }
-                                .padding(.horizontal, needsJumpControls ? 25 * size : 1)
+                        HStack(spacing: needsJumpControls ? 4 * size : 0) {
+                            if needsJumpControls { overflowJumpButton(proxy: proxy, horizontal: true, toEnd: false, size: size) }
+                            ScrollView(.horizontal) {
+                                LazyHStack(spacing: CGFloat(store.state.settings.customDockItemSpacing) * size) { itemViews(horizontal: true, size: size) }
+                                    .padding(.horizontal, 1)
+                            }
+                            .scrollIndicators(.hidden)
+                            .modifier(SizeBasedScrollBounce())
+                            if needsJumpControls { overflowJumpButton(proxy: proxy, horizontal: true, toEnd: true, size: size) }
                         }
-                        .scrollIndicators(.hidden)
-                        .modifier(SizeBasedScrollBounce())
                     } else {
-                        ScrollView(.vertical) {
-                            LazyVStack(spacing: CGFloat(store.state.settings.customDockItemSpacing) * size) { itemViews(horizontal: false, size: size) }
-                                .padding(.vertical, needsJumpControls ? 25 * size : 1)
+                        VStack(spacing: needsJumpControls ? 4 * size : 0) {
+                            if needsJumpControls { overflowJumpButton(proxy: proxy, horizontal: false, toEnd: false, size: size) }
+                            ScrollView(.vertical) {
+                                LazyVStack(spacing: CGFloat(store.state.settings.customDockItemSpacing) * size) { itemViews(horizontal: false, size: size) }
+                                    .padding(.vertical, 1)
+                            }
+                            .scrollIndicators(.hidden)
+                            .modifier(SizeBasedScrollBounce())
+                            if needsJumpControls { overflowJumpButton(proxy: proxy, horizontal: false, toEnd: true, size: size) }
                         }
-                        .scrollIndicators(.hidden)
-                        .modifier(SizeBasedScrollBounce())
                     }
                 }
                 .padding(11 * size)
-                .overlay(alignment: horizontal ? .leading : .top) {
-                    if needsJumpControls {
-                        overflowJumpButton(proxy: proxy, horizontal: horizontal, toEnd: false)
-                            .padding(horizontal ? .leading : .top, 2 * size)
-                    }
-                }
-                .overlay(alignment: horizontal ? .trailing : .bottom) {
-                    if needsJumpControls {
-                        overflowJumpButton(proxy: proxy, horizontal: horizontal, toEnd: true)
-                            .padding(horizontal ? .trailing : .bottom, 2 * size)
-                    }
-                }
             }
         }
         .background {
@@ -699,7 +695,7 @@ struct CustomDockView: View {
         return DockSurfaceMetrics.length(lengths, spacing: CGFloat(store.state.settings.customDockItemSpacing), scale: size)
     }
 
-    private func overflowJumpButton(proxy: ScrollViewProxy, horizontal: Bool, toEnd: Bool) -> some View {
+    private func overflowJumpButton(proxy: ScrollViewProxy, horizontal: Bool, toEnd: Bool, size: CGFloat) -> some View {
         let symbol = horizontal
             ? (toEnd ? "chevron.right" : "chevron.left")
             : (toEnd ? "chevron.down" : "chevron.up")
@@ -742,8 +738,8 @@ struct CustomDockView: View {
             }
         } label: {
             Image(systemName: symbol)
-                .font(.system(size: 11, weight: .bold))
-                .frame(width: 22, height: 26)
+                .font(.system(size: 11 * size, weight: .bold))
+                .frame(width: 22 * size, height: 26 * size)
                 .background(.regularMaterial, in: Capsule())
                 .overlay(Capsule().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
         }
@@ -968,9 +964,9 @@ struct CustomDockView: View {
 
     private var popoutArrowEdge: Edge {
         switch store.state.settings.customDockPosition {
-        case .bottom: .bottom
-        case .left: .leading
-        case .right: .trailing
+        case .bottom: .top
+        case .left: .trailing
+        case .right: .leading
         }
     }
 
