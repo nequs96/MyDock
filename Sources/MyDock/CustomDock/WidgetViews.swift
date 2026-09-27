@@ -1396,7 +1396,7 @@ private func timerText(_ interval: TimeInterval) -> String {
     return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
 }
 
-private func targetCountdownText(_ interval: TimeInterval, compact: Bool) -> String {
+func targetCountdownText(_ interval: TimeInterval, compact: Bool) -> String {
     let safeInterval = interval.isFinite ? min(max(0, interval), TimeInterval(Int.max / 4)) : 0
     let seconds = Int(safeInterval.rounded(.up))
     let days = seconds / 86_400

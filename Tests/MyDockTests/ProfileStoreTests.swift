@@ -273,6 +273,13 @@ struct ProfileStoreTests {
         #expect(countdown.countdownRemaining(at: now) == 300)
     }
 
+    @Test func countdownTargetTextKeepsLongDeadlinesReadable() {
+        #expect(targetCountdownText(90_061, compact: true) == "1d")
+        #expect(targetCountdownText(90_061, compact: false) == "1d 01:01:01")
+        #expect(targetCountdownText(3_661, compact: true) == "1h 1m")
+        #expect(targetCountdownText(61, compact: false) == "1:01")
+    }
+
     @Test func stopwatchUsesPersistedMonotonicClockAcrossWallClockChanges() throws {
         let wallStart = Date(timeIntervalSince1970: 1_000)
         let first = StopwatchClockSample(continuousSeconds: 100, bootSessionID: "boot-A")
