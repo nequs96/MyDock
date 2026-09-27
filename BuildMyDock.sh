@@ -6,6 +6,38 @@ cd "$ROOT_DIR"
 PRODUCT_NAME=$(sed -n 's/.*static let name = "\(.*\)".*/\1/p' Sources/MyDock/Core/Product.swift)
 BUNDLE_IDENTIFIER=$(sed -n 's/.*static let bundleIdentifier = "\(.*\)".*/\1/p' Sources/MyDock/Core/Product.swift)
 PRODUCT_VERSION=$(sed -n 's/.*static let marketingVersion = "\(.*\)".*/\1/p' Sources/MyDock/Core/Product.swift)
+if [ "$#" -eq 0 ]; then
+  OUTPUT_APP=build/MyDock.app
+elif [ "$#" -eq 2 ] && [ "$1" = --output ]; then
+  OUTPUT_APP=$2
+else
+  printf 'Usage: %s [--output path/to/MyDock.app]\n' "$0" >&2
+  exit 2
+fi
+case "$OUTPUT_APP" in
+  /*) APP=$OUTPUT_APP ;;
+  *) APP=$ROOT_DIR/$OUTPUT_APP ;;
+esac
+mkdir -p "$(dirname "$APP")"
+APP=$(CDPATH= cd -- "$(dirname "$APP")" && pwd -P)/$(basename "$APP")
+
+ensure_output_is_not_running() {
+  if ! command -v pgrep >/dev/null 2>&1 || ! command -v lsof >/dev/null 2>&1; then
+    printf 'Cannot check whether %s is running; refusing to overwrite it.\n' "$APP" >&2
+    exit 1
+  fi
+  RUNNING_PIDS=$(pgrep -x "$PRODUCT_NAME" || true)
+  for RUNNING_PID in $RUNNING_PIDS; do
+    if lsof -nP -a -p "$RUNNING_PID" -d txt -Fn 2>/dev/null |
+       grep -Fqx "n$APP/Contents/MacOS/$PRODUCT_NAME"; then
+      printf 'Refusing to overwrite a running app: %s\n' "$APP" >&2
+      printf 'Use --output to build another bundle while this copy is open.\n' >&2
+      exit 1
+    fi
+  done
+}
+
+ensure_output_is_not_running
 mkdir -p .build/module-cache .build/swiftpm-module-cache .build/swiftpm-release-arm64 .build/swiftpm-release-x86_64
 SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/swiftpm-module-cache" \
 CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" \
@@ -22,7 +54,7 @@ lipo -create \
   "$ROOT_DIR/.build/swiftpm-release-arm64/arm64-apple-macosx/release/MyDock" \
   "$ROOT_DIR/.build/swiftpm-release-x86_64/x86_64-apple-macosx/release/MyDock" \
   -output "$UNIVERSAL_BINARY"
-APP="$ROOT_DIR/build/MyDock.app"
+ensure_output_is_not_running
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$UNIVERSAL_BINARY" "$APP/Contents/MacOS/MyDock"
 swift "$ROOT_DIR/Tools/GenerateAppIcon.swift" "$ROOT_DIR/.build/AppIcon.iconset"
