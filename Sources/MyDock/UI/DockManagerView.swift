@@ -171,6 +171,7 @@ struct DockManagerView: View {
                         .font(.system(size: 29, weight: .medium, design: .serif))
                         .textFieldStyle(.plain)
                         .frame(maxWidth: 360)
+                        .frame(height: 40, alignment: .leading)
                 }
                 Spacer()
                 if !store.state.settings.onboardingComplete {

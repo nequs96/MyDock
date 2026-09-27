@@ -34,6 +34,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
     private var abortingDuplicateLaunch = false
     #if DEBUG
     private let visualPreview = ProcessInfo.processInfo.environment["MYDOCK_VISUAL_PREVIEW"] == "1"
+        || Bundle.main.bundleIdentifier == Product.bundleIdentifier + "VisualPreview"
     private lazy var previewStore = ProfileStore(fileURL: FileManager.default.temporaryDirectory
         .appendingPathComponent("MyDock-VisualPreview-\(ProcessInfo.processInfo.processIdentifier).json"))
     private var store: ProfileStore { visualPreview ? previewStore : ProfileStore.shared }
