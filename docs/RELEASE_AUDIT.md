@@ -9,7 +9,7 @@
 - Production startup now checks for an older running MyDock copy and takes an exclusive lock before loading profiles or starting Dock management. A duplicate exits without attempting Apple Dock restoration. The lock behavior passed its fixture test; a live duplicate launch was avoided while an older copy remains active.
 - A read-only check of this Mac's Dock preferences found 15 pinned tiles, all with types the auto-save reader recognizes. No Dock preference was changed.
 - The Music artwork and Spotify metadata AppleScript snippets compile with `osacompile`; no Apple Event was sent to a player during this audit.
-- A live London city search and current forecast succeeded through the Weather widget in the isolated per-process preview. It did not request Location permission; the selected city remains in that temporary preview store only.
+- A live London city search and forecast succeeded through the Weather widget in the isolated per-process preview. Celsius/Fahrenheit conversion and Current/Conditions/Hourly layouts updated live. No Location permission was requested; the selected city remains in that temporary preview store only.
 
 ## Source and data review
 
