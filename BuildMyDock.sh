@@ -37,18 +37,36 @@ ensure_output_is_not_running() {
   done
 }
 
+source_fingerprint() {
+  {
+    find Sources/MyDock Resources Tools -type f -exec shasum -a 256 {} + | LC_ALL=C sort
+    shasum -a 256 Package.swift BuildMyDock.sh
+  } | shasum -a 256 | cut -d ' ' -f 1
+}
+
+assert_sources_unchanged() {
+  CURRENT_FINGERPRINT=$(source_fingerprint)
+  if [ "$CURRENT_FINGERPRINT" != "$SOURCE_FINGERPRINT" ]; then
+    printf 'Source files changed during the build; the release bundle was not updated.\n' >&2
+    exit 1
+  fi
+}
+
 ensure_output_is_not_running
+SOURCE_FINGERPRINT=$(source_fingerprint)
 mkdir -p .build/module-cache .build/swiftpm-module-cache .build/swiftpm-release-arm64 .build/swiftpm-release-x86_64
 SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/swiftpm-module-cache" \
 CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" \
 swift build --disable-sandbox -c release --scratch-path .build/swiftpm-release-arm64 \
   --triple arm64-apple-macosx13.0 \
   -Xswiftc -module-cache-path -Xswiftc "$PWD/.build/module-cache"
+assert_sources_unchanged
 SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/swiftpm-module-cache" \
 CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" \
 swift build --disable-sandbox -c release --scratch-path .build/swiftpm-release-x86_64 \
   --triple x86_64-apple-macosx13.0 \
   -Xswiftc -module-cache-path -Xswiftc "$PWD/.build/module-cache"
+assert_sources_unchanged
 UNIVERSAL_BINARY="$ROOT_DIR/.build/MyDock-universal"
 lipo -create \
   "$ROOT_DIR/.build/swiftpm-release-arm64/arm64-apple-macosx/release/MyDock" \
