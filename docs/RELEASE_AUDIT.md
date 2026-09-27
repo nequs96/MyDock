@@ -11,6 +11,7 @@
 - A read-only check of this Mac's Dock preferences found 15 pinned tiles, all with types the auto-save reader recognizes. No Dock preference was changed.
 - The Music artwork and Spotify metadata AppleScript snippets compile with `osacompile`; no Apple Event was sent to a player during this audit.
 - A live London city search and forecast succeeded through the Weather widget in the isolated per-process preview. Celsius/Fahrenheit conversion and Current/Conditions/Hourly layouts updated live. No Location permission was requested; the selected city remains in that temporary preview store only.
+- The refreshed isolated preview displayed the window-preview cache explanation in Settings without clipping. Show minimized windows enabled its dependent cache option without requesting Screen Recording. A disposable second Custom Dock profile appeared in the surface right-click Switch Profile menu; selecting Everyday changed the menu checkmark back to Everyday. The preview surface remains tied to its seed profile, so panel replacement itself was not verified.
 
 ## Source and data review
 
