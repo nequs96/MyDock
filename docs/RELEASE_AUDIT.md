@@ -12,6 +12,7 @@
 - The Music artwork and Spotify metadata AppleScript snippets compile with `osacompile`; no Apple Event was sent to a player during this audit.
 - A live London city search and forecast succeeded through the Weather widget in the isolated per-process preview. Celsius/Fahrenheit conversion and Current/Conditions/Hourly layouts updated live. No Location permission was requested; the selected city remains in that temporary preview store only.
 - The refreshed isolated preview displayed the window-preview cache explanation in Settings without clipping. Show minimized windows enabled its dependent cache option without requesting Screen Recording. A disposable second Custom Dock profile appeared in the surface right-click Switch Profile menu; selecting Everyday changed the menu checkmark back to Everyday. The preview surface remains tied to its seed profile, so panel replacement itself was not verified.
+- Settings → General was clicked through in the isolated preview: Back Up saved a JSON archive containing one disposable Custom Dock profile, and Restore added a second copy with the same four items. The original Everyday profile stayed active. The archive was removed after the check; no real profile store was opened or changed.
 
 ## Source and data review
 

@@ -2,6 +2,8 @@
 
 Status: automated fixture and host-reader tests pass (119 tests); manual desktop acceptance is partial. A DEBUG-only isolated preview was clicked through for all onboarding steps, the Manager, Settings, widget library, bottom/left/right Dock layouts, light/dark appearance, overflow navigation, Clock popouts, and both Countdown modes. In that preview, profile rename was staged, discarded, saved, and switched through the unsaved-change prompt. Two items were selected, moved right as a group, and restored with Discard; the editor tiles were also verified as accessible buttons. The rebuilt release app's Settings/Permissions path and Accessibility System Settings deep link were previously verified. The earlier manager build's group-delete count and clear-selection flow were verified without deleting saved items. Custom Dock gestures, real Dock changes, notifications, and live market data have not been manually exercised. Native Dock automated tests use fakes and do not write the developer machine's preferences. EventKit tests cover configuration and ordering only; they do not read personal calendars or reminders.
 
+The isolated preview also verified the Custom Dock surface's right-click profile submenu and the Settings → General Back Up/Restore panels. A disposable archive restored one four-item profile as an additional copy without changing the active selection. This does not replace recovery testing with real user data.
+
 ## Core vertical slice
 
 1. Launch MyDock and confirm the setup wizard presents the three setup modes.
