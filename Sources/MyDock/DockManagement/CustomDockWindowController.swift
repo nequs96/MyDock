@@ -66,6 +66,9 @@ final class CustomDockWindowController {
     }
 
     func update(state: PersistentState) {
+        WindowAccessibilityMonitor.shared.setPreviewCacheRetentionEnabled(
+            state.settings.showMinimizedWindows && state.settings.showWindowPreviews
+        )
         guard state.settings.setupMode != .nativeOnly,
               let profileID = state.settings.activeCustomProfileID,
               let profile = state.profiles.first(where: { $0.id == profileID && $0.kind == .custom }) else {

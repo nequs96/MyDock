@@ -35,6 +35,7 @@
 		640EB027E9AE6EA922042F7D /* GlobalShortcutController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50F89263099F34A51647544F /* GlobalShortcutController.swift */; };
 		64A52F2D5B0B4013A5453D4B /* ShopifyDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F344921BCCD07E03880919EB /* ShopifyDataService.swift */; };
 		65A7F470028BD6C945022CD7 /* TimeProgressCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CA117B97BC64AAEC29ED28C /* TimeProgressCalculator.swift */; };
+		6A3F6A8DC2B6FB46F8361FFA /* WindowPreviewCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FB8349AB7D7D985AAFA2377 /* WindowPreviewCache.swift */; };
 		6D36556A8DBDC57D07EA49C1 /* NativeDockController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F454C137161AAABE59576469 /* NativeDockController.swift */; };
 		6F2E1FC3501054F078BE01AF /* StripeDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8E9E75AC4D6FBD867139F5 /* StripeDataService.swift */; };
 		757E66086572EE69B441E3CC /* FileThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60C9ED44F4FD476280E1D7EC /* FileThumbnailView.swift */; };
@@ -104,6 +105,7 @@
 		5AC348626F11E4CF151E4BE4 /* DockDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockDesign.swift; sourceTree = "<group>"; };
 		5EB7EFB4157FEEF3A5299039 /* HydrationReminderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HydrationReminderService.swift; sourceTree = "<group>"; };
 		5F59E8E5BF7CE0EFB4AD9692 /* ShortcutsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsService.swift; sourceTree = "<group>"; };
+		5FB8349AB7D7D985AAFA2377 /* WindowPreviewCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowPreviewCache.swift; sourceTree = "<group>"; };
 		5FE229CE0BDAD43ACBCEF2D1 /* NowPlayingWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingWidgetViews.swift; sourceTree = "<group>"; };
 		60221CBE5C104420D68187FD /* CustomDockWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomDockWindowController.swift; sourceTree = "<group>"; };
 		60C9ED44F4FD476280E1D7EC /* FileThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileThumbnailView.swift; sourceTree = "<group>"; };
@@ -195,6 +197,7 @@
 				7DBC8E2E66C79D80425AE75B /* TrashService.swift */,
 				E4391DEE41DFB03AEF70D857 /* WeatherService.swift */,
 				9FB19E8FEA8B2BB9DBFAD714 /* WindowAccessibilityService.swift */,
+				5FB8349AB7D7D985AAFA2377 /* WindowPreviewCache.swift */,
 				A801E2B79EF9A3199D538A77 /* WindowPreviewService.swift */,
 			);
 			path = SystemServices;
@@ -484,6 +487,7 @@
 				9EFFD24CD5323B863B879541 /* WeatherWidgetViews.swift in Sources */,
 				5AE9D055964926B98F82E0AE /* WidgetViews.swift in Sources */,
 				D0A15E65FF5C6F80804CCB1B /* WindowAccessibilityService.swift in Sources */,
+				6A3F6A8DC2B6FB46F8361FFA /* WindowPreviewCache.swift in Sources */,
 				96F5FA8BBE121DDCC3402ED9 /* WindowPreviewService.swift in Sources */,
 				2FED9B373AC647DE7A34139C /* WorldClockCityCatalog.swift in Sources */,
 			);

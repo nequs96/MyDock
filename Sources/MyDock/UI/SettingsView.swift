@@ -180,7 +180,7 @@ struct SettingsView: View {
                                 windowPreviewMessage = "Visible windows will be captured while the Custom Dock is shown."
                             }
                         }
-                    Text("Optional on macOS 14 and later. Captured window contents stay in memory and are never uploaded. Minimized windows use app icons when no matching preview is available.")
+                    Text("Optional on macOS 14 and later. Unique window previews are stored locally for up to 24 hours, never uploaded, and deleted when this setting is disabled. Duplicate, expired, or unavailable previews use the app icon.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     if let windowPreviewMessage {
                         Text(windowPreviewMessage).font(.caption).foregroundStyle(.secondary)

@@ -130,9 +130,32 @@ final class WindowAccessibilityMonitor: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var previewCaptureTask: Task<Void, Never>?
     private var previewAttemptedAt: [String: Date] = [:]
+    private var previewStoredAt: [String: Date] = [:]
     private var lastPreviewBatchAt: Date?
     private var wantsMonitor = false
     private var wantsPreviews = false
+    private var retainsPreviews = false
+    private var previewRetentionPolicyApplied = false
+    private let previewCache = WindowPreviewDiskCache()
+
+    func setPreviewCacheRetentionEnabled(_ enabled: Bool) {
+        guard !previewRetentionPolicyApplied || enabled != retainsPreviews else { return }
+        previewRetentionPolicyApplied = true
+        retainsPreviews = enabled
+        if enabled {
+            // Recheck expiry when the user enables preview caching.
+            previewCache.pruneExpired()
+            if #available(macOS 14.0, *) {
+                if !CGPreflightScreenCaptureAccess() { previewCache.removeAll() }
+            } else {
+                previewCache.removeAll()
+            }
+        } else {
+            previewCache.removeAll()
+            previews = [:]
+            previewStoredAt = [:]
+        }
+    }
 
     func setEnabled(_ enabled: Bool, previewsEnabled: Bool = false) {
         let activePreviews = enabled && previewsEnabled
@@ -144,6 +167,7 @@ final class WindowAccessibilityMonitor: ObservableObject {
             previewCaptureTask?.cancel()
             previewCaptureTask = nil
             previewAttemptedAt = [:]
+            previewStoredAt = [:]
             lastPreviewBatchAt = nil
             previews = [:]
         }
@@ -173,12 +197,32 @@ final class WindowAccessibilityMonitor: ObservableObject {
         windows = WindowAccessibilityService.windows()
         guard wantsPreviews else { return }
         let currentIDs = Set(windows.map(\.id))
-        previews = previews.filter { currentIDs.contains($0.key) }
+        let cacheKeys = WindowPreviewCacheIdentity.uniqueKeys(for: windows)
+        let now = Date.now
+        previews = previews.filter { id, _ in
+            guard currentIDs.contains(id), cacheKeys[id] != nil,
+                  let storedAt = previewStoredAt[id] else { return false }
+            let age = now.timeIntervalSince(storedAt)
+            return age >= 0 && age <= WindowPreviewDiskCache.maximumAge
+        }
+        previewStoredAt = previewStoredAt.filter { id, _ in previews[id] != nil }
         previewAttemptedAt = previewAttemptedAt.filter { currentIDs.contains($0.key) }
-        guard #available(macOS 14.0, *), CGPreflightScreenCaptureAccess(), previewCaptureTask == nil else {
+        guard #available(macOS 14.0, *), CGPreflightScreenCaptureAccess() else {
+            previews = [:]
+            previewStoredAt = [:]
+            previewCache.removeAll()
             return
         }
-        let now = Date.now
+        for descriptor in windows where descriptor.isMinimized {
+            guard previews[descriptor.id] == nil,
+                  let key = cacheKeys[descriptor.id],
+                  let cached = previewCache.preview(for: key) else { continue }
+            previews[descriptor.id] = cached.image
+            previewStoredAt[descriptor.id] = cached.storedAt
+        }
+        guard previewCaptureTask == nil else {
+            return
+        }
         guard lastPreviewBatchAt.map({ now.timeIntervalSince($0) >= 8 }) ?? true else { return }
         lastPreviewBatchAt = now
         let freshIDs = Set(previewAttemptedAt.compactMap { id, attemptedAt in
@@ -192,12 +236,17 @@ final class WindowAccessibilityMonitor: ObservableObject {
             self.previewCaptureTask = nil
             guard self.wantsMonitor, self.wantsPreviews else { return }
             let validIDs = Set(self.windows.map(\.id))
+            let currentCacheKeys = WindowPreviewCacheIdentity.uniqueKeys(for: self.windows)
             var updated = self.previews
             for id in batch.attemptedIDs where validIDs.contains(id) {
                 self.previewAttemptedAt[id] = .now
             }
             for (id, image) in batch.images where validIDs.contains(id) {
                 updated[id] = image
+                self.previewStoredAt[id] = .now
+                if self.retainsPreviews, let key = currentCacheKeys[id] {
+                    self.previewCache.store(image, for: key)
+                }
             }
             self.previews = updated
         }
