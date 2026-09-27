@@ -88,7 +88,9 @@ final class ProfileStore: ObservableObject {
             var copy = item
             copy.id = UUID()
             if copy.widgetKind == "Hydration" { copy.widgetConfiguration?.hydrationRemindersEnabled = false }
-            if copy.widgetKind == "Countdown" { copy.widgetConfiguration?.resetCountdown() }
+            if copy.widgetKind == "Countdown", copy.widgetConfiguration?.countdownMode != .targetDate {
+                copy.widgetConfiguration?.resetCountdown()
+            }
             if copy.widgetKind == "Alarm", var configuration = copy.widgetConfiguration {
                 configuration.alarms = configuration.alarms.map { alarm in
                     var alarm = alarm

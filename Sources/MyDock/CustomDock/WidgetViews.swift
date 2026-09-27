@@ -711,15 +711,7 @@ private struct CountdownCompactView: View {
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
 
     var body: some View {
-        Group {
-            if configuration.countdownStartedAt != nil, configuration.countdownRemaining() > 0 {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(timerText(configuration.countdownRemaining(at: context.date)))
-                }
-            } else {
-                Text(timerText(configuration.countdownRemaining()))
-            }
-        }
+        CountdownValueText(configuration: configuration, compact: true)
         .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
         .lineLimit(1).minimumScaleFactor(0.7)
         .task(id: configuration.countdownStartedAt) {
@@ -735,13 +727,45 @@ private struct CountdownPopoutView: View {
     var item: DockItem
     var profileID: UUID
     @State private var notificationMessage: String?
+    @State private var targetDraft = Date().addingTimeInterval(3_600)
+    @State private var isSchedulingTarget = false
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            countdownText
+            CountdownValueText(configuration: configuration, compact: false)
                 .font(.system(size: 34, weight: .medium, design: .rounded).monospacedDigit())
                 .frame(maxWidth: .infinity, alignment: .center)
+            Picker("Count down to", selection: modeBinding) {
+                ForEach(CountdownMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            if configuration.countdownMode == .duration {
+                durationControls
+            } else {
+                targetDateControls
+            }
+            if let notificationMessage {
+                Text(notificationMessage).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .onAppear {
+            targetDraft = configuration.countdownTargetDate ?? Date().addingTimeInterval(3_600)
+        }
+        .onChange(of: configuration.countdownTargetDate) { target in
+            if let target { targetDraft = target }
+        }
+        .task(id: configuration.countdownStartedAt) {
+            await finishCountdownIfNeeded(store: store, itemID: item.id, profileID: profileID,
+                                          startedAt: configuration.countdownStartedAt,
+                                          remaining: configuration.countdownRemaining())
+        }
+    }
+
+    private var durationControls: some View {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Button(configuration.countdownStartedAt == nil ? "Start" : "Pause") {
                     var fireDate: Date?
@@ -782,28 +806,72 @@ private struct CountdownPopoutView: View {
                     store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.resetCountdown() }
                 }
             }
-            if let notificationMessage {
-                Text(notificationMessage).font(.caption).foregroundStyle(.secondary)
-            }
             Stepper(value: durationBinding, in: 60...86_400, step: 60) {
                 Text("Duration: \(configuration.countdownDurationSeconds / 60) min").font(.caption)
             }
             .disabled(configuration.countdownStartedAt != nil)
         }
-        .task(id: configuration.countdownStartedAt) {
-            await finishCountdownIfNeeded(store: store, itemID: item.id, profileID: profileID,
-                                          startedAt: configuration.countdownStartedAt,
-                                          remaining: configuration.countdownRemaining())
+    }
+
+    private var targetDateControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            DatePicker("Target", selection: $targetDraft, displayedComponents: [.date, .hourAndMinute])
+            HStack {
+                Button(configuration.countdownTargetDate == nil ? "Set Target" : "Update Target") {
+                    setTargetDate()
+                }
+                .disabled(isSchedulingTarget || targetDraft <= .now)
+                if configuration.countdownTargetDate != nil {
+                    Button("Clear Target") {
+                        CountdownNotificationService.cancel(itemID: item.id)
+                        notificationMessage = nil
+                        store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.resetCountdown() }
+                    }
+                }
+            }
+            if let target = configuration.countdownTargetDate {
+                Text("Target: \(target.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text("Setting a target requests a local completion alert when notifications are allowed. Restored backups need the target set again to schedule an alert on this Mac.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
-    @ViewBuilder private var countdownText: some View {
-        if configuration.countdownStartedAt != nil, configuration.countdownRemaining() > 0 {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(timerText(configuration.countdownRemaining(at: context.date)))
+    private var modeBinding: Binding<CountdownMode> {
+        Binding(get: { configuration.countdownMode }, set: { mode in
+            CountdownNotificationService.cancel(itemID: item.id)
+            notificationMessage = nil
+            store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.setCountdownMode(mode) }
+            if mode == .targetDate { targetDraft = Date().addingTimeInterval(3_600) }
+        })
+    }
+
+    private func setTargetDate() {
+        let target = targetDraft
+        guard target > .now else {
+            notificationMessage = "Choose a future date and time."
+            return
+        }
+        CountdownNotificationService.cancel(itemID: item.id)
+        store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.setCountdownTarget(target) }
+        isSchedulingTarget = true
+        Task { @MainActor in
+            defer { isSchedulingTarget = false }
+            do {
+                try await CountdownNotificationService.schedule(itemID: item.id, fireDate: target)
+                let current = store.state.profiles
+                    .first(where: { $0.id == profileID })?.items
+                    .first(where: { $0.id == item.id })?.widgetConfiguration
+                guard current?.countdownMode == .targetDate,
+                      current?.countdownTargetDate == target else {
+                    CountdownNotificationService.cancel(itemID: item.id)
+                    return
+                }
+                notificationMessage = "macOS will notify you when the target arrives."
+            } catch {
+                notificationMessage = error.localizedDescription
             }
-        } else {
-            Text(timerText(configuration.countdownRemaining()))
         }
     }
 
@@ -811,6 +879,50 @@ private struct CountdownPopoutView: View {
         Binding(get: { configuration.countdownDurationSeconds }, set: { seconds in
             store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.countdownDurationSeconds = seconds }
         })
+    }
+}
+
+private struct CountdownValueText: View {
+    var configuration: WidgetConfiguration
+    var compact: Bool
+    @State private var targetCompleted = false
+
+    var body: some View {
+        Group {
+            if configuration.countdownMode == .targetDate {
+                if let target = configuration.countdownTargetDate {
+                    if targetCompleted || target <= .now {
+                        Text(compact ? "Done" : "Complete")
+                    } else {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(targetCountdownText(configuration.countdownRemaining(at: context.date), compact: compact))
+                        }
+                    }
+                } else {
+                    Text(compact ? "Set date" : "Choose a target date")
+                }
+            } else if configuration.countdownStartedAt != nil, configuration.countdownRemaining() > 0 {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(timerText(configuration.countdownRemaining(at: context.date)))
+                }
+            } else {
+                Text(timerText(configuration.countdownRemaining()))
+            }
+        }
+        .task(id: configuration.countdownTargetDate) {
+            targetCompleted = false
+            guard configuration.countdownMode == .targetDate,
+                  let target = configuration.countdownTargetDate else { return }
+            while !Task.isCancelled {
+                let remaining = target.timeIntervalSinceNow
+                if remaining <= 0 {
+                    targetCompleted = true
+                    return
+                }
+                let nanoseconds = UInt64(max(0.05, min(remaining, 86_400)) * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: nanoseconds)
+            }
+        }
     }
 }
 
@@ -1282,6 +1394,23 @@ private func finishFocusTimerIfNeeded(store: ProfileStore, itemID: UUID, profile
 private func timerText(_ interval: TimeInterval) -> String {
     let seconds = max(0, Int(interval.rounded(.up)))
     return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
+}
+
+private func targetCountdownText(_ interval: TimeInterval, compact: Bool) -> String {
+    let safeInterval = interval.isFinite ? min(max(0, interval), TimeInterval(Int.max / 4)) : 0
+    let seconds = Int(safeInterval.rounded(.up))
+    let days = seconds / 86_400
+    let hours = (seconds % 86_400) / 3_600
+    let minutes = (seconds % 3_600) / 60
+    let remainingSeconds = seconds % 60
+    if compact {
+        if days > 0 { return "\(days)d" }
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return timerText(safeInterval)
+    }
+    if days > 0 { return "\(days)d \(String(format: "%02d:%02d:%02d", hours, minutes, remainingSeconds))" }
+    if hours > 0 { return "\(hours):\(String(format: "%02d:%02d", minutes, remainingSeconds))" }
+    return timerText(safeInterval)
 }
 
 func stopwatchText(_ interval: TimeInterval) -> String {

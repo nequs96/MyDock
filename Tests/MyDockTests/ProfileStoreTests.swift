@@ -248,6 +248,31 @@ struct ProfileStoreTests {
         #expect(countdown.countdownRemaining(at: start.addingTimeInterval(500)) == 60)
     }
 
+    @Test func countdownCanTargetAnAbsoluteDateAndSurvivePersistence() throws {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let target = now.addingTimeInterval(90_000)
+        var countdown = WidgetConfiguration()
+        countdown.setCountdownTarget(target)
+
+        #expect(countdown.countdownMode == .targetDate)
+        #expect(countdown.countdownRemaining(at: now) == 90_000)
+        #expect(countdown.countdownRemaining(at: target.addingTimeInterval(1)) == 0)
+        countdown.startCountdown(at: now)
+        countdown.pauseCountdown(at: now.addingTimeInterval(20))
+        #expect(countdown.countdownStartedAt == nil)
+        #expect(countdown.countdownRemaining(at: now.addingTimeInterval(30)) == 89_970)
+
+        let restored = try JSONDecoder().decode(WidgetConfiguration.self, from: JSONEncoder().encode(countdown))
+        #expect(restored.countdownMode == .targetDate)
+        #expect(restored.countdownTargetDate == target)
+        #expect(restored.countdownRemaining(at: now.addingTimeInterval(60)) == 89_940)
+
+        countdown.resetCountdown()
+        #expect(countdown.countdownTargetDate == nil)
+        countdown.setCountdownMode(.duration)
+        #expect(countdown.countdownRemaining(at: now) == 300)
+    }
+
     @Test func stopwatchUsesPersistedMonotonicClockAcrossWallClockChanges() throws {
         let wallStart = Date(timeIntervalSince1970: 1_000)
         let first = StopwatchClockSample(continuousSeconds: 100, bootSessionID: "boot-A")
@@ -333,6 +358,8 @@ struct ProfileStoreTests {
         #expect(restored.noteText == "older backup")
         #expect(restored.focusDurationSeconds == 25 * 60)
         #expect(restored.countdownDurationSeconds == 5 * 60)
+        #expect(restored.countdownMode == .duration)
+        #expect(restored.countdownTargetDate == nil)
         #expect(restored.timeProgressPeriod == .day)
         #expect(restored.calendarLayout == .dateAndNextEvent)
         #expect(restored.selectedCalendarIDs.isEmpty)
@@ -547,6 +574,24 @@ struct ProfileStoreTests {
         #expect(copiedConfiguration?.countdownStartedAt == nil)
         #expect(copiedConfiguration?.countdownRemaining(at: Date(timeIntervalSince1970: 500)) == 600)
         try? FileManager.default.removeItem(at: directory)
+    }
+
+    @Test func duplicatingDateCountdownKeepsTargetConfiguration() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
+        let profileID = store.createProfile(kind: .custom, name: "Deadlines")
+        let target = Date(timeIntervalSince1970: 2_000_000_000)
+        var countdown = DockItem.widget("Countdown")
+        countdown.widgetConfiguration?.setCountdownTarget(target)
+        store.add(countdown, to: profileID)
+
+        store.duplicateProfile(profileID)
+
+        let copiedItem = store.state.profiles.last?.items.first
+        #expect(copiedItem?.id != countdown.id)
+        #expect(copiedItem?.widgetConfiguration?.countdownMode == .targetDate)
+        #expect(copiedItem?.widgetConfiguration?.countdownTargetDate == target)
     }
 
     @Test func hydrationHistoryTracksIncompleteVolumesAndUndoPreservesEntry() {
@@ -895,6 +940,17 @@ struct ProfileStoreTests {
 
         #expect(restoredName == "Open Notes")
         #expect(ShortcutCatalogParser.parse("\nZulu\nAlpha\nZulu\n") == ["Alpha", "Zulu"])
+    }
+
+    @Test func countdownTargetDateSurvivesProfileBackup() throws {
+        let target = Date(timeIntervalSince1970: 2_000_000_000)
+        var countdown = DockItem.widget("Countdown")
+        countdown.widgetConfiguration?.setCountdownTarget(target)
+        let archive = try BackupManager.makeArchive(from: [DockProfile(name: "Deadlines", kind: .custom, items: [countdown])])
+        let restored = try BackupManager.readArchive(archive).importedProfiles.first?.items.first?.widgetConfiguration
+
+        #expect(restored?.countdownMode == .targetDate)
+        #expect(restored?.countdownTargetDate == target)
     }
 
     @Test func globalShortcutBindingsPersistOutsideProfileBackupsAndRejectDuplicates() throws {

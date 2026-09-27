@@ -223,6 +223,14 @@ enum NoteBackground: String, Codable, CaseIterable, Identifiable {
     var title: String { rawValue.capitalized }
 }
 
+enum CountdownMode: String, Codable, CaseIterable, Identifiable {
+    case duration
+    case targetDate
+
+    var id: String { rawValue }
+    var title: String { self == .duration ? "Duration" : "Date & Time" }
+}
+
 enum StockChartRange: String, Codable, CaseIterable, Identifiable {
     case week
     case month
@@ -336,6 +344,8 @@ struct WidgetConfiguration: Codable, Hashable {
     var countdownDurationSeconds: Int
     var countdownElapsedBeforeStart: TimeInterval
     var countdownStartedAt: Date?
+    var countdownMode: CountdownMode
+    var countdownTargetDate: Date?
     var timeProgressPeriod: TimeProgressPeriod
     var hydrationSaveHistory: Bool
     var hydrationTrackAmounts: Bool
@@ -376,7 +386,8 @@ struct WidgetConfiguration: Codable, Hashable {
         case aiLimitsLayout, aiLimitsRepresentation, aiLimitsVisibleProviders, aiLimitsProviderOrder, aiLimitsCompactProvider, aiLimitsSnapshot
         case aiActivityProvider, aiActivityRange, aiActivityChartStyle, aiActivitySnapshot
         case stopwatchElapsedBeforeStart, stopwatchStartedAt, stopwatchClockStart
-        case countdownDurationSeconds, countdownElapsedBeforeStart, countdownStartedAt, timeProgressPeriod
+        case countdownDurationSeconds, countdownElapsedBeforeStart, countdownStartedAt
+        case countdownMode, countdownTargetDate, timeProgressPeriod
         case hydrationSaveHistory, hydrationTrackAmounts, hydrationRemindersEnabled, hydrationDefaultAmountML
         case hydrationReminderIntervalMinutes, hydrationEntries, hydrationLastRemovedEntry
         case appFolderName, appFolderColor, appFolderLetter, appFolderApplications, selectedShortcutName
@@ -440,6 +451,8 @@ struct WidgetConfiguration: Codable, Hashable {
         countdownDurationSeconds = 5 * 60
         countdownElapsedBeforeStart = 0
         countdownStartedAt = nil
+        countdownMode = .duration
+        countdownTargetDate = nil
         timeProgressPeriod = .day
         hydrationSaveHistory = true
         hydrationTrackAmounts = true
@@ -526,6 +539,8 @@ struct WidgetConfiguration: Codable, Hashable {
         countdownDurationSeconds = try values.decodeIfPresent(Int.self, forKey: .countdownDurationSeconds) ?? 5 * 60
         countdownElapsedBeforeStart = try values.decodeIfPresent(TimeInterval.self, forKey: .countdownElapsedBeforeStart) ?? 0
         countdownStartedAt = try values.decodeIfPresent(Date.self, forKey: .countdownStartedAt)
+        countdownMode = try values.decodeIfPresent(CountdownMode.self, forKey: .countdownMode) ?? .duration
+        countdownTargetDate = try values.decodeIfPresent(Date.self, forKey: .countdownTargetDate)
         timeProgressPeriod = try values.decodeIfPresent(TimeProgressPeriod.self, forKey: .timeProgressPeriod) ?? .day
         hydrationSaveHistory = try values.decodeIfPresent(Bool.self, forKey: .hydrationSaveHistory) ?? true
         hydrationTrackAmounts = try values.decodeIfPresent(Bool.self, forKey: .hydrationTrackAmounts) ?? true
@@ -607,22 +622,43 @@ struct WidgetConfiguration: Codable, Hashable {
     }
 
     func countdownRemaining(at date: Date = .now) -> TimeInterval {
+        if countdownMode == .targetDate {
+            return max(0, countdownTargetDate?.timeIntervalSince(date) ?? 0)
+        }
         let elapsed = countdownElapsedBeforeStart + (countdownStartedAt.map { max(0, date.timeIntervalSince($0)) } ?? 0)
         return max(0, TimeInterval(countdownDurationSeconds) - elapsed)
     }
 
     mutating func startCountdown(at date: Date = .now) {
+        guard countdownMode == .duration else { return }
         guard countdownStartedAt == nil, countdownRemaining(at: date) > 0 else { return }
         countdownStartedAt = date
     }
 
     mutating func pauseCountdown(at date: Date = .now) {
+        guard countdownMode == .duration else { return }
         guard countdownStartedAt != nil else { return }
         countdownElapsedBeforeStart = TimeInterval(countdownDurationSeconds) - countdownRemaining(at: date)
         countdownStartedAt = nil
     }
 
     mutating func resetCountdown() {
+        countdownElapsedBeforeStart = 0
+        countdownStartedAt = nil
+        if countdownMode == .targetDate { countdownTargetDate = nil }
+    }
+
+    mutating func setCountdownMode(_ mode: CountdownMode) {
+        guard countdownMode != mode else { return }
+        countdownMode = mode
+        countdownTargetDate = nil
+        countdownElapsedBeforeStart = 0
+        countdownStartedAt = nil
+    }
+
+    mutating func setCountdownTarget(_ target: Date) {
+        countdownMode = .targetDate
+        countdownTargetDate = target
         countdownElapsedBeforeStart = 0
         countdownStartedAt = nil
     }
