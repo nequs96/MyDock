@@ -70,7 +70,9 @@ struct WidgetCompactView: View {
                             .frame(width: 5, height: 5)
                         Text(item.title)
                             .font(.system(size: 9, weight: .medium))
-                            .lineLimit(2)
+                            .lineLimit(item.title.contains(where: { $0.isWhitespace }) ? 2 : 1)
+                            .minimumScaleFactor(0.8)
+                            .allowsTightening(true)
                             .multilineTextAlignment(.leading)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
