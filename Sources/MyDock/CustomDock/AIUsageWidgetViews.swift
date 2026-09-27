@@ -76,34 +76,37 @@ private struct AILimitsPopoutView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 8) {
-                Image(systemName: "gauge.with.dots.needle.67percent").foregroundStyle(.cyan)
-                Text("AI Limits").font(.headline)
-                Spacer()
-                Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing)
-                if isRefreshing { ProgressView().controlSize(.small) }
-            }
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack(spacing: 8) {
+                    Image(systemName: "gauge.with.dots.needle.67percent").foregroundStyle(.cyan)
+                    Text("AI Limits").font(.headline)
+                    Spacer()
+                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing)
+                    if isRefreshing { ProgressView().controlSize(.small) }
+                }
 
-            controls
-            Divider()
-            if visibleReadings.isEmpty {
-                Text(configuration.aiLimitsVisibleProviders.isEmpty
-                     ? "Turn on a provider to show its usage window here."
-                     : "Refreshing provider limits…")
-                    .font(.callout).foregroundStyle(.secondary)
-            } else {
-                ForEach(visibleReadings) { reading in providerSection(reading) }
+                controls
+                Divider()
+                if visibleReadings.isEmpty {
+                    Text(configuration.aiLimitsVisibleProviders.isEmpty
+                         ? "Turn on a provider to show its usage window here."
+                         : "Refreshing provider limits…")
+                        .font(.callout).foregroundStyle(.secondary)
+                } else {
+                    ForEach(visibleReadings) { reading in providerSection(reading) }
+                }
+                if let fetchedAt = configuration.aiLimitsSnapshot?.fetchedAt {
+                    Label("Updated \(fetchedAt.formatted(date: .omitted, time: .shortened))", systemImage: "clock")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                Text("A dash means unavailable. MyDock reads Codex's local app-server rate-limit API without starting a task. It does not infer percentages or refresh limits by spending model tokens.")
+                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
             }
-            if let fetchedAt = configuration.aiLimitsSnapshot?.fetchedAt {
-                Label("Updated \(fetchedAt.formatted(date: .omitted, time: .shortened))", systemImage: "clock")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            Text("A dash means unavailable. MyDock reads Codex's local app-server rate-limit API without starting a task. It does not infer percentages or refresh limits by spending model tokens.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            .frame(width: 375, alignment: .leading)
+            .frame(minHeight: 220, alignment: .topLeading)
         }
-        .frame(width: 385, alignment: .leading)
-        .frame(minHeight: 220, alignment: .topLeading)
+        .frame(width: 385, height: 480)
         .task(id: configuration.aiLimitsVisibleProviders.map(\.rawValue).joined(separator: ",")) {
             await refresh()
             for await _ in RefreshScheduler.shared.ticks(every: 60) {
