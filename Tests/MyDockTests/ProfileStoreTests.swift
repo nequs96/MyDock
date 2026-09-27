@@ -384,6 +384,10 @@ struct ProfileStoreTests {
         let second = UUID()
         #expect(CountdownNotificationService.notificationID(itemID: first) == "mydock.countdown.\(first.uuidString)")
         #expect(CountdownNotificationService.notificationID(itemID: first) != CountdownNotificationService.notificationID(itemID: second))
+        let now = Date(timeIntervalSince1970: 1_000)
+        #expect(CountdownNotificationService.isFutureTarget(now.addingTimeInterval(1), now: now))
+        #expect(!CountdownNotificationService.isFutureTarget(now, now: now))
+        #expect(!CountdownNotificationService.isFutureTarget(now.addingTimeInterval(-1), now: now))
     }
 
     @Test func calendarAndReminderWidgetConfigurationPersistsInBackup() throws {

@@ -3,15 +3,22 @@ import UserNotifications
 
 enum CountdownNotificationError: LocalizedError {
     case permissionDenied
+    case targetExpired
 
     var errorDescription: String? {
-        "Notification access is disabled. The countdown will still run, but macOS cannot alert when it finishes. Enable alerts for MyDock in System Settings."
+        switch self {
+        case .permissionDenied:
+            "Notification access is disabled. The countdown will still run, but macOS cannot alert when it finishes. Enable alerts for MyDock in System Settings."
+        case .targetExpired:
+            "The countdown finished before macOS could schedule its alert. Set a new target to receive a notification."
+        }
     }
 }
 
 @MainActor
 enum CountdownNotificationService {
     static func schedule(itemID: UUID, fireDate: Date) async throws {
+        guard isFutureTarget(fireDate) else { throw CountdownNotificationError.targetExpired }
         let center = UNUserNotificationCenter.current()
         var settings = await center.notificationSettings()
         if settings.authorizationStatus == .notDetermined {
@@ -23,6 +30,7 @@ enum CountdownNotificationService {
         guard settings.authorizationStatus == .authorized else {
             throw CountdownNotificationError.permissionDenied
         }
+        guard isFutureTarget(fireDate) else { throw CountdownNotificationError.targetExpired }
 
         let identifier = notificationID(itemID: itemID)
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
@@ -44,5 +52,9 @@ enum CountdownNotificationService {
 
     static func notificationID(itemID: UUID) -> String {
         "mydock.countdown.\(itemID.uuidString)"
+    }
+
+    static func isFutureTarget(_ target: Date, now: Date = .now) -> Bool {
+        target > now
     }
 }
