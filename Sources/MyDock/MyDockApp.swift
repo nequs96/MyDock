@@ -54,11 +54,9 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
             NSApplication.shared.setActivationPolicy(.regular)
             showManager(nil)
             openSettings(nil)
-            if let profile = store.state.profiles.first(where: { $0.id == id }) {
-                showWindow(id: "visual-preview", title: "Custom Dock Preview",
-                           root: VisualDockPreviewSurface(store: store, profile: profile),
-                           size: NSSize(width: 620, height: 420))
-            }
+            showWindow(id: "visual-preview", title: "Custom Dock Preview",
+                       root: VisualDockPreviewSurface(store: store, profileID: id),
+                       size: NSSize(width: 620, height: 420))
             return
         }
         #endif
@@ -258,19 +256,21 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
 #if DEBUG
 private struct VisualDockPreviewSurface: View {
     @ObservedObject var store: ProfileStore
-    let profile: DockProfile
+    let profileID: UUID
 
     var body: some View {
-        let settings = store.state.settings
-        let scale = CGFloat(settings.customDockSize)
-        let length = DockSurfaceMetrics.contentLength(items: profile.items, settings: settings, scale: scale)
-        let horizontal = settings.customDockPosition == .bottom
-        ZStack {
-            LinearGradient(colors: [DockDesign.accent.opacity(0.16), DockDesign.page],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            CustomDockView(store: store, profile: profile)
-                .frame(width: horizontal ? length : 76 * scale,
-                       height: horizontal ? 76 * scale : length)
+        if let profile = store.state.profiles.first(where: { $0.id == profileID }) {
+            let settings = store.state.settings
+            let scale = CGFloat(settings.customDockSize)
+            let length = DockSurfaceMetrics.contentLength(items: profile.items, settings: settings, scale: scale)
+            let horizontal = settings.customDockPosition == .bottom
+            ZStack {
+                LinearGradient(colors: [DockDesign.accent.opacity(0.16), DockDesign.page],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                CustomDockView(store: store, profile: profile)
+                    .frame(width: horizontal ? min(length, 560) : 76 * scale,
+                           height: horizontal ? 76 * scale : min(length, 360))
+            }
         }
     }
 }
