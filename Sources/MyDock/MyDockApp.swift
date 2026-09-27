@@ -34,7 +34,9 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
     private var abortingDuplicateLaunch = false
     #if DEBUG
     private let visualPreview = ProcessInfo.processInfo.environment["MYDOCK_VISUAL_PREVIEW"] == "1"
-        || Bundle.main.bundleIdentifier == Product.bundleIdentifier + "VisualPreview"
+        || (Bundle.main.bundleIdentifier?.hasPrefix(Product.bundleIdentifier) == true
+            && Bundle.main.bundleIdentifier?.hasSuffix("VisualPreview") == true)
+    private let countdownVisualPreview = Bundle.main.bundleIdentifier == Product.bundleIdentifier + "CountdownVisualPreview"
     private lazy var previewStore = ProfileStore(fileURL: FileManager.default.temporaryDirectory
         .appendingPathComponent("MyDock-VisualPreview-\(ProcessInfo.processInfo.processIdentifier).json"))
     private var store: ProfileStore { visualPreview ? previewStore : ProfileStore.shared }
@@ -54,6 +56,11 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
             store.add(.widget("Weather"), to: id)
             store.add(.widget("Focus Timer"), to: id)
             store.add(.widget("Sticky Note"), to: id)
+            if countdownVisualPreview {
+                var countdown = DockItem.widget("Countdown")
+                countdown.widgetConfiguration?.setCountdownTarget(Date.now.addingTimeInterval(90_061))
+                store.add(countdown, to: id)
+            }
             NSApplication.shared.setActivationPolicy(.regular)
             showManager(nil)
             openSettings(nil)

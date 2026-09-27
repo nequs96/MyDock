@@ -735,6 +735,7 @@ private struct CountdownPopoutView: View {
         VStack(alignment: .leading, spacing: 14) {
             CountdownValueText(configuration: configuration, compact: false)
                 .font(.system(size: 34, weight: .medium, design: .rounded).monospacedDigit())
+                .lineLimit(1).minimumScaleFactor(0.65)
                 .frame(maxWidth: .infinity, alignment: .center)
             Picker("Count down to", selection: modeBinding) {
                 ForEach(CountdownMode.allCases) { mode in
@@ -751,6 +752,7 @@ private struct CountdownPopoutView: View {
                 Text(notificationMessage).font(.caption).foregroundStyle(.secondary)
             }
         }
+        .frame(width: 300, alignment: .leading)
         .onAppear {
             targetDraft = configuration.countdownTargetDate ?? Date().addingTimeInterval(3_600)
         }
@@ -833,8 +835,9 @@ private struct CountdownPopoutView: View {
                 Text("Target: \(target.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Text("Setting a target requests a local completion alert when notifications are allowed. Restored backups need the target set again to schedule an alert on this Mac.")
+            Text("Setting a target schedules a local alert when allowed. After a backup restore, set it again to arm the alert.")
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
