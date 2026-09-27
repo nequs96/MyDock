@@ -66,7 +66,8 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
             openSettings(nil)
             showWindow(id: "visual-preview", title: "Custom Dock Preview",
                        root: VisualDockPreviewSurface(store: store, profileID: id),
-                       size: NSSize(width: 620, height: 420))
+                       size: NSSize(width: countdownVisualPreview ? 960 : 620,
+                                    height: countdownVisualPreview ? 560 : 420))
             return
         }
         #endif
