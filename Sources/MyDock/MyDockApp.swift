@@ -30,13 +30,15 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
     private var windows: [String: NSWindow] = [:]
     private var pendingCustomMainMode: Bool?
     private var customMainModeTask: Task<Void, Never>?
+    private var instanceLock: SingleInstanceLock?
+    private var abortingDuplicateLaunch = false
     #if DEBUG
     private let visualPreview = ProcessInfo.processInfo.environment["MYDOCK_VISUAL_PREVIEW"] == "1"
     private lazy var previewStore = ProfileStore(fileURL: FileManager.default.temporaryDirectory
         .appendingPathComponent("MyDock-VisualPreview-\(ProcessInfo.processInfo.processIdentifier).json"))
     private var store: ProfileStore { visualPreview ? previewStore : ProfileStore.shared }
     #else
-    private let store = ProfileStore.shared
+    private lazy var store = ProfileStore.shared
     #endif
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -60,6 +62,29 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         #endif
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        if let existing = NSRunningApplication.runningApplications(withBundleIdentifier: Product.bundleIdentifier)
+            .first(where: { $0.processIdentifier < currentPID }) {
+            abortingDuplicateLaunch = true
+            existing.activate(options: [.activateIgnoringOtherApps])
+            NSApplication.shared.terminate(nil)
+            return
+        }
+        do {
+            instanceLock = try SingleInstanceLock()
+        } catch SingleInstanceLockError.alreadyRunning {
+            abortingDuplicateLaunch = true
+            NSApplication.shared.terminate(nil)
+            return
+        } catch {
+            abortingDuplicateLaunch = true
+            let alert = NSAlert()
+            alert.messageText = "MyDock could not start safely"
+            alert.informativeText = "MyDock could not secure its profile store for exclusive use. Close other copies or check access to Application Support, then try again."
+            alert.runModal()
+            NSApplication.shared.terminate(nil)
+            return
+        }
         NSApplication.shared.setActivationPolicy(store.state.settings.onboardingComplete ? .accessory : .regular)
         dockController = CustomDockWindowController(store: store)
         dockController?.update(state: store.state)
@@ -93,6 +118,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if abortingDuplicateLaunch { return .terminateNow }
         guard NativeDockAutoHideController.shared.hasPendingRestore else { return .terminateNow }
         Task { @MainActor in
             do {
