@@ -23,6 +23,8 @@ Quit the copy you are replacing, then rebuild its bundle to update. Profile data
 
 ## Signing for wider distribution
 
-For distribution outside this machine, sign the app with an Apple Developer ID certificate and notarize it. The ad-hoc signature produced by the build script is only for local development. The project does not currently include entitlements, hardened-runtime notarization configuration, or a Sparkle updater.
+For distribution outside this machine, sign the app with an Apple Developer ID certificate and notarize it. The ad-hoc signature produced by the build script is only for local development. The Xcode project's Release configuration enables the hardened runtime and includes an Apple Events entitlement; it still needs a full Xcode build, Developer ID signing, notarization, and final behavior checks. There is no updater.
+
+The repository also includes [an Xcode project and Focus filter build guide](XCODE_BUILD.md) for a full Xcode toolchain and Developer ID signing.
 
 See [permissions and data handling](PERMISSIONS.md) before enabling features that require additional system access.

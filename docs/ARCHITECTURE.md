@@ -32,7 +32,7 @@ Widget names and compact metadata are centralized in `WidgetRegistry`; rendering
 
 - `./BuildMyDock.sh` compiles macOS 13+ arm64 and x86_64 Release slices, combines them into a universal executable, and creates an ad-hoc signed `build/MyDock.app` by default. `--output` selects a separate bundle. The script checks running MyDock executables before and after compilation and refuses to overwrite an active bundle.
 - `./TestMyDock.sh` currently runs 112 Swift Testing checks for profile persistence/recovery, single-instance locking, Dock transaction and auto-hide recovery, freeze-overlay cleanup, Focus off behavior, widget configuration and backup, AI local-usage parsers/quota windows, Shopify/Stripe/Paddle/market fixtures, timer/hydration/calendar/reminder/weather/shortcut/system/network/window policies, Dock Manager selection/drafts, locale-aware Clock formatting, Trash tile geometry, and privacy/security boundaries. Fake adapters keep tests away from real Dock preferences and external accounts.
-- `xcodebuild` and an Xcode project are not available in the current environment because only Command Line Tools are installed.
+- `MyDock.xcodeproj` is generated from `project.yml` by `GenerateXcodeProject.sh`; the script takes the product name, bundle identifier, and version from `Product.swift`. The app target includes the Focus Filter intent source and original icon. XcodeGen generation and project/plist syntax were checked locally, but `xcodebuild` and App Intents metadata generation cannot run here because only Command Line Tools are installed. See [Xcode build and Focus verification](XCODE_BUILD.md).
 
 ## Known limitations
 

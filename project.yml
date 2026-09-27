@@ -1,0 +1,58 @@
+name: MyDock
+options:
+  createIntermediateGroups: true
+  developmentLanguage: en
+configs:
+  Debug: debug
+  Release: release
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+targets:
+  MyDock:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: Sources/MyDock
+      - path: Resources/AppIcon.icns
+        buildPhase: resources
+    info:
+      path: Xcode/MyDock-Info.plist
+      properties:
+        CFBundleDisplayName: ${MYDOCK_PRODUCT_NAME}
+        CFBundleIconFile: AppIcon
+        CFBundleShortVersionString: ${MYDOCK_MARKETING_VERSION}
+        LSMinimumSystemVersion: "13.0"
+        NSPrincipalClass: NSApplication
+        NSHighResolutionCapable: true
+        NSCalendarsFullAccessUsageDescription: MyDock reads selected calendar events for the Calendar widget.
+        NSCalendarsUsageDescription: MyDock reads selected calendar events for the Calendar widget.
+        NSRemindersFullAccessUsageDescription: MyDock reads, adds, and completes reminders when you use the Reminders widget.
+        NSRemindersUsageDescription: MyDock reads and updates reminders when you use the Reminders widget.
+        NSLocationWhenInUseUsageDescription: MyDock uses your location only when you choose current-location weather.
+        NSAppleEventsUsageDescription: MyDock reads and controls Music or Spotify while you use the Now Playing widget, or asks Finder to empty Trash after you confirm.
+    entitlements:
+      path: Xcode/MyDock.entitlements
+      properties:
+        com.apple.security.automation.apple-events: true
+    settings:
+      base:
+        PRODUCT_NAME: ${MYDOCK_PRODUCT_NAME}
+        PRODUCT_BUNDLE_IDENTIFIER: ${MYDOCK_BUNDLE_IDENTIFIER}
+        MARKETING_VERSION: ${MYDOCK_MARKETING_VERSION}
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: 6.0
+        SWIFT_STRICT_CONCURRENCY: complete
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_EMIT_LOC_STRINGS: YES
+      configs:
+        Release:
+          ENABLE_HARDENED_RUNTIME: YES
+schemes:
+  MyDock:
+    build:
+      targets:
+        MyDock: all

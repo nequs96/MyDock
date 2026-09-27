@@ -1,0 +1,689 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00A41426671FA3FD7789A152 /* WeatherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4391DEE41DFB03AEF70D857 /* WeatherService.swift */; };
+		028D2937292EB743DAD2A0A5 /* CountdownNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE902F5D39367E85B976088 /* CountdownNotificationService.swift */; };
+		054D8F3B43E10584E9455FC5 /* StopwatchClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93A8818898A1D2E99CC7FAAF /* StopwatchClock.swift */; };
+		069F89AC990CF3FE4CB5386D /* NativeDockAutoSaveMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BB8DEFC665A3B140F40C4D /* NativeDockAutoSaveMonitor.swift */; };
+		0D5BAFE0588699099D03B1E6 /* AirDropWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBCBC80CE6951461F8FDC15B /* AirDropWidgetViews.swift */; };
+		116A1DA4F039E0AD50117B8D /* LocalClockFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21CFEE1F14847708B9EDFA1A /* LocalClockFormatter.swift */; };
+		13F0DF429E430F6048A50B14 /* RefreshScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42965F326E36376ED429CF6 /* RefreshScheduler.swift */; };
+		1C5053E8699F129EEBED0513 /* NetworkActivityReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42F868C21E6C9BE2978926D /* NetworkActivityReader.swift */; };
+		1CC95F826106745B33070E61 /* MenuBarProfileTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DDEB8903C269E742496D5AF /* MenuBarProfileTitle.swift */; };
+		201A16574787D7922C519521 /* SingleInstanceLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47778F8A12065845D562899 /* SingleInstanceLock.swift */; };
+		2FED9B373AC647DE7A34139C /* WorldClockCityCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736731CF7DA257570F336C15 /* WorldClockCityCatalog.swift */; };
+		3AB00530BF01A4D749332A4B /* DockManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6758F25C6EA73B904DA86066 /* DockManagerView.swift */; };
+		3B03938D926260A1E21BF2EC /* RunningApplications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7536B36501AFF71CA760CA15 /* RunningApplications.swift */; };
+		3D0CFD5D24775E41A08B8EFF /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62E043D8D750B7188E1DD502 /* SettingsView.swift */; };
+		3DAC46296B3371EBC32E7009 /* DockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D470722BB79311109DE0D2AA /* DockModels.swift */; };
+		3F8083D806B67E984EDE0EBF /* DockDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AC348626F11E4CF151E4BE4 /* DockDesign.swift */; };
+		40C72F9E5E256C65225CF240 /* StockWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99186BF9921E1D5CDBFFC2 /* StockWidgetViews.swift */; };
+		4AE5974C9CE04E6BF56B9C31 /* ShortcutsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F59E8E5BF7CE0EFB4AD9692 /* ShortcutsService.swift */; };
+		4B02C2E71E772A62D2BD51FC /* FolderIconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3365272DF8136DA76925BCC7 /* FolderIconView.swift */; };
+		4E6D8CE1BECFE8359492F83F /* TrashService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DBC8E2E66C79D80425AE75B /* TrashService.swift */; };
+		525A0E832976173AF7A9191D /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFBB3AB92DDE77B19242D056 /* AboutView.swift */; };
+		525EDA1617F20EB2B25A7A99 /* AlarmWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB25319664E95494E5A1F058 /* AlarmWidgetViews.swift */; };
+		564480A25B6BF4C06A94547E /* AlarmNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 463ABA122EDE7DA7B5AD3029 /* AlarmNotificationService.swift */; };
+		5AE9D055964926B98F82E0AE /* WidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9252F582158031B5BE6A5EA6 /* WidgetViews.swift */; };
+		6353C5AB686FBF8FFAE97880 /* ShopifyWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2128A00815BBB2691B453251 /* ShopifyWidgetViews.swift */; };
+		640EB027E9AE6EA922042F7D /* GlobalShortcutController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50F89263099F34A51647544F /* GlobalShortcutController.swift */; };
+		64A52F2D5B0B4013A5453D4B /* ShopifyDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F344921BCCD07E03880919EB /* ShopifyDataService.swift */; };
+		65A7F470028BD6C945022CD7 /* TimeProgressCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CA117B97BC64AAEC29ED28C /* TimeProgressCalculator.swift */; };
+		6D36556A8DBDC57D07EA49C1 /* NativeDockController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F454C137161AAABE59576469 /* NativeDockController.swift */; };
+		6F2E1FC3501054F078BE01AF /* StripeDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8E9E75AC4D6FBD867139F5 /* StripeDataService.swift */; };
+		757E66086572EE69B441E3CC /* FileThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60C9ED44F4FD476280E1D7EC /* FileThumbnailView.swift */; };
+		77470E173C9080BA3A993DB6 /* FinancialCurrencyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83830AAC384D2604F8A38F0E /* FinancialCurrencyFormatter.swift */; };
+		78F8529B841B51BEC27829EF /* PaddleWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E91584E6116F0E9B70944C /* PaddleWidgetViews.swift */; };
+		7E0D4186A9CAAE3B7C32432D /* CurrentLocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2683184ECD83EC69D51DC097 /* CurrentLocationService.swift */; };
+		7FF0EBA818C13C7FCF67B004 /* CalendarRemindersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8103CF2D1F157F4F2FDBA1E0 /* CalendarRemindersService.swift */; };
+		80D900876DC403B00FB0EA86 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD754067A5466BDC46784D7D /* MenuBarView.swift */; };
+		8107C3C7DAEC1A795364C5D6 /* HydrationReminderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EB7EFB4157FEEF3A5299039 /* HydrationReminderService.swift */; };
+		8E0C9AF5A97559D65C39FA21 /* CustomDockWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60221CBE5C104420D68187FD /* CustomDockWindowController.swift */; };
+		9098DDA022CDB84191A422A4 /* BatteryReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2A1616F786149BF6FC17622 /* BatteryReader.swift */; };
+		96F5FA8BBE121DDCC3402ED9 /* WindowPreviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A801E2B79EF9A3199D538A77 /* WindowPreviewService.swift */; };
+		97544E0B6AB1FE1B137EF4F7 /* SystemActivityWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9CD952672513A407C3038B /* SystemActivityWidgetViews.swift */; };
+		978BE9CDE5834A30BA3CD20C /* AccessibilityDisplayState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD1C3241C068010754E2F1FA /* AccessibilityDisplayState.swift */; };
+		9A98F1FC8A8DEA925105C612 /* DockSwitchFreezeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 616B4F9ABB3E6AD721E9CB70 /* DockSwitchFreezeProvider.swift */; };
+		9B38CC5CADE2F8DA4067624E /* SystemDockVisibilityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 160AD6CAE0D1DFD8A0FAD901 /* SystemDockVisibilityService.swift */; };
+		9CF1EF762D9DF815E91D2DB4 /* NativeDockAutoHideController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3E90093FE464742F6DF90E1 /* NativeDockAutoHideController.swift */; };
+		9E19D892B79EE3A09FDB1054 /* SiteFaviconFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0902CD545A012912F8597333 /* SiteFaviconFetcher.swift */; };
+		9EFFD24CD5323B863B879541 /* WeatherWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CB4610863D5853F971E8C35 /* WeatherWidgetViews.swift */; };
+		A475CA25DEFE374CF9B42744 /* PaddleDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A362720EE164869D7D987E3 /* PaddleDataService.swift */; };
+		A69366058ECB1EC0AC71575C /* NowPlayingArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C27C41C4DB6A31E908A359 /* NowPlayingArtwork.swift */; };
+		A7A5D10457A026634E759D1A /* CalendarRemindersWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA98B889C73D5EDECAB69896 /* CalendarRemindersWidgetViews.swift */; };
+		A949B5813F4EA94E2132A197 /* NowPlayingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F7739C0D68A3CA8E3098B7 /* NowPlayingService.swift */; };
+		AB9080C30572BDAD0DE9E666 /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC96B5EE49B3B69DD6C349CA /* ProfileStore.swift */; };
+		B9D4B3F1AB0E9E6FA819C3EE /* NowPlayingWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FE229CE0BDAD43ACBCEF2D1 /* NowPlayingWidgetViews.swift */; };
+		BDDA29AD5147C004A88D0319 /* FolderContentsReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC62EC3F8ABE5C0D8808C9FA /* FolderContentsReader.swift */; };
+		BE5DE7BFD6FF0825DB7D30CC /* AIUsageWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C48ECB2A627715F75BC2A1EB /* AIUsageWidgetViews.swift */; };
+		BF7E9EE081899935E28D7561 /* MyDockApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DBF2E68F40E7667A236F357 /* MyDockApp.swift */; };
+		C327B7F00439EA14382315AF /* FolderContentsPopout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 974BECC1D427C16C9C949FDD /* FolderContentsPopout.swift */; };
+		C6B60D7C9A2954240C9388D9 /* KeyboardShortcutEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAA3D3A3F0C1DCBC454A3AAA /* KeyboardShortcutEditor.swift */; };
+		D044CEEAD756EE2511C64248 /* NetworkActivityWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA0EC704F8F4E79C4F36D5E0 /* NetworkActivityWidgetViews.swift */; };
+		D0A15E65FF5C6F80804CCB1B /* WindowAccessibilityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB19E8FEA8B2BB9DBFAD714 /* WindowAccessibilityService.swift */; };
+		D5515E908A51127AC4F15EBF /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B29E430F23BFAB12E20829E /* OnboardingView.swift */; };
+		DEEBC09A48DCBD61544C70FB /* Product.swift in Sources */ = {isa = PBXBuildFile; fileRef = 886210AC190A961D2D546AF6 /* Product.swift */; };
+		DFC28BF5D1A1A77D894F61EB /* AIUsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A760EEBCA7ABE084C12A16C /* AIUsageService.swift */; };
+		E10948BC57E55987B3D2565B /* TrashWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0836F59B113A05C863CDE10 /* TrashWidgetViews.swift */; };
+		E49E376C11F012D38C45A0EF /* SystemActivityReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EB5D4FEF7D060E8D2EE2874 /* SystemActivityReader.swift */; };
+		E919BD6595027C6E80F35667 /* FocusDockFilterIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3659FE931E85AFEDF1736A3F /* FocusDockFilterIntent.swift */; };
+		E977A23DE9AE9286B3985372 /* AppLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 592BAD75EABCB51BC1628FDF /* AppLauncher.swift */; };
+		F3966C536E638B97EDC932A5 /* StripeWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51088F3122DB5D13D0F9C40 /* StripeWidgetViews.swift */; };
+		F9CC003830669CDA06F42006 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = D775FAF79BFB59E8B642EF42 /* AppIcon.icns */; };
+		F9EB5D7371E2070D2DA5AD1B /* BackupManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9477E75B67A51DC03E1F9722 /* BackupManager.swift */; };
+		FFCD24641D5936E4031BFA69 /* MarketDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24E3E2FA59D04DFB52AFDA50 /* MarketDataService.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0902CD545A012912F8597333 /* SiteFaviconFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteFaviconFetcher.swift; sourceTree = "<group>"; };
+		0CA117B97BC64AAEC29ED28C /* TimeProgressCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeProgressCalculator.swift; sourceTree = "<group>"; };
+		0DBF2E68F40E7667A236F357 /* MyDockApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyDockApp.swift; sourceTree = "<group>"; };
+		160AD6CAE0D1DFD8A0FAD901 /* SystemDockVisibilityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemDockVisibilityService.swift; sourceTree = "<group>"; };
+		2128A00815BBB2691B453251 /* ShopifyWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShopifyWidgetViews.swift; sourceTree = "<group>"; };
+		21BB8DEFC665A3B140F40C4D /* NativeDockAutoSaveMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDockAutoSaveMonitor.swift; sourceTree = "<group>"; };
+		21CFEE1F14847708B9EDFA1A /* LocalClockFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalClockFormatter.swift; sourceTree = "<group>"; };
+		24E3E2FA59D04DFB52AFDA50 /* MarketDataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketDataService.swift; sourceTree = "<group>"; };
+		2683184ECD83EC69D51DC097 /* CurrentLocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentLocationService.swift; sourceTree = "<group>"; };
+		2A362720EE164869D7D987E3 /* PaddleDataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaddleDataService.swift; sourceTree = "<group>"; };
+		3365272DF8136DA76925BCC7 /* FolderIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderIconView.swift; sourceTree = "<group>"; };
+		3659FE931E85AFEDF1736A3F /* FocusDockFilterIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusDockFilterIntent.swift; sourceTree = "<group>"; };
+		3DDEB8903C269E742496D5AF /* MenuBarProfileTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarProfileTitle.swift; sourceTree = "<group>"; };
+		3EB5D4FEF7D060E8D2EE2874 /* SystemActivityReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemActivityReader.swift; sourceTree = "<group>"; };
+		463ABA122EDE7DA7B5AD3029 /* AlarmNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmNotificationService.swift; sourceTree = "<group>"; };
+		4B29E430F23BFAB12E20829E /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		4D8E9E75AC4D6FBD867139F5 /* StripeDataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StripeDataService.swift; sourceTree = "<group>"; };
+		4F9CD952672513A407C3038B /* SystemActivityWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemActivityWidgetViews.swift; sourceTree = "<group>"; };
+		50F89263099F34A51647544F /* GlobalShortcutController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalShortcutController.swift; sourceTree = "<group>"; };
+		592BAD75EABCB51BC1628FDF /* AppLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLauncher.swift; sourceTree = "<group>"; };
+		5AC348626F11E4CF151E4BE4 /* DockDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockDesign.swift; sourceTree = "<group>"; };
+		5EB7EFB4157FEEF3A5299039 /* HydrationReminderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HydrationReminderService.swift; sourceTree = "<group>"; };
+		5F59E8E5BF7CE0EFB4AD9692 /* ShortcutsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsService.swift; sourceTree = "<group>"; };
+		5FE229CE0BDAD43ACBCEF2D1 /* NowPlayingWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingWidgetViews.swift; sourceTree = "<group>"; };
+		60221CBE5C104420D68187FD /* CustomDockWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomDockWindowController.swift; sourceTree = "<group>"; };
+		60C9ED44F4FD476280E1D7EC /* FileThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileThumbnailView.swift; sourceTree = "<group>"; };
+		616B4F9ABB3E6AD721E9CB70 /* DockSwitchFreezeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSwitchFreezeProvider.swift; sourceTree = "<group>"; };
+		62E043D8D750B7188E1DD502 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		65E91584E6116F0E9B70944C /* PaddleWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaddleWidgetViews.swift; sourceTree = "<group>"; };
+		6758F25C6EA73B904DA86066 /* DockManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockManagerView.swift; sourceTree = "<group>"; };
+		736731CF7DA257570F336C15 /* WorldClockCityCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorldClockCityCatalog.swift; sourceTree = "<group>"; };
+		7536B36501AFF71CA760CA15 /* RunningApplications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningApplications.swift; sourceTree = "<group>"; };
+		7A760EEBCA7ABE084C12A16C /* AIUsageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIUsageService.swift; sourceTree = "<group>"; };
+		7CB4610863D5853F971E8C35 /* WeatherWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherWidgetViews.swift; sourceTree = "<group>"; };
+		7DBC8E2E66C79D80425AE75B /* TrashService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrashService.swift; sourceTree = "<group>"; };
+		8103CF2D1F157F4F2FDBA1E0 /* CalendarRemindersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarRemindersService.swift; sourceTree = "<group>"; };
+		83830AAC384D2604F8A38F0E /* FinancialCurrencyFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinancialCurrencyFormatter.swift; sourceTree = "<group>"; };
+		886210AC190A961D2D546AF6 /* Product.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Product.swift; sourceTree = "<group>"; };
+		9252F582158031B5BE6A5EA6 /* WidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetViews.swift; sourceTree = "<group>"; };
+		93A8818898A1D2E99CC7FAAF /* StopwatchClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StopwatchClock.swift; sourceTree = "<group>"; };
+		9477E75B67A51DC03E1F9722 /* BackupManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupManager.swift; sourceTree = "<group>"; };
+		974BECC1D427C16C9C949FDD /* FolderContentsPopout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderContentsPopout.swift; sourceTree = "<group>"; };
+		9FB19E8FEA8B2BB9DBFAD714 /* WindowAccessibilityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessibilityService.swift; sourceTree = "<group>"; };
+		A2A1616F786149BF6FC17622 /* BatteryReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryReader.swift; sourceTree = "<group>"; };
+		A3E90093FE464742F6DF90E1 /* NativeDockAutoHideController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDockAutoHideController.swift; sourceTree = "<group>"; };
+		A42965F326E36376ED429CF6 /* RefreshScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshScheduler.swift; sourceTree = "<group>"; };
+		A51088F3122DB5D13D0F9C40 /* StripeWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StripeWidgetViews.swift; sourceTree = "<group>"; };
+		A801E2B79EF9A3199D538A77 /* WindowPreviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowPreviewService.swift; sourceTree = "<group>"; };
+		AB99186BF9921E1D5CDBFFC2 /* StockWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockWidgetViews.swift; sourceTree = "<group>"; };
+		B42F868C21E6C9BE2978926D /* NetworkActivityReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkActivityReader.swift; sourceTree = "<group>"; };
+		BA0EC704F8F4E79C4F36D5E0 /* NetworkActivityWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkActivityWidgetViews.swift; sourceTree = "<group>"; };
+		BB25319664E95494E5A1F058 /* AlarmWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmWidgetViews.swift; sourceTree = "<group>"; };
+		BD1C3241C068010754E2F1FA /* AccessibilityDisplayState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityDisplayState.swift; sourceTree = "<group>"; };
+		C48ECB2A627715F75BC2A1EB /* AIUsageWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIUsageWidgetViews.swift; sourceTree = "<group>"; };
+		C6C27C41C4DB6A31E908A359 /* NowPlayingArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingArtwork.swift; sourceTree = "<group>"; };
+		CD754067A5466BDC46784D7D /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
+		D470722BB79311109DE0D2AA /* DockModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockModels.swift; sourceTree = "<group>"; };
+		D775FAF79BFB59E8B642EF42 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		DA98B889C73D5EDECAB69896 /* CalendarRemindersWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarRemindersWidgetViews.swift; sourceTree = "<group>"; };
+		E4391DEE41DFB03AEF70D857 /* WeatherService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherService.swift; sourceTree = "<group>"; };
+		E47778F8A12065845D562899 /* SingleInstanceLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SingleInstanceLock.swift; sourceTree = "<group>"; };
+		EAA3D3A3F0C1DCBC454A3AAA /* KeyboardShortcutEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutEditor.swift; sourceTree = "<group>"; };
+		EBCBC80CE6951461F8FDC15B /* AirDropWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirDropWidgetViews.swift; sourceTree = "<group>"; };
+		EC62EC3F8ABE5C0D8808C9FA /* FolderContentsReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderContentsReader.swift; sourceTree = "<group>"; };
+		EFBB3AB92DDE77B19242D056 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		F03563307FEA33AA61161F9B /* MyDock.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyDock.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F0836F59B113A05C863CDE10 /* TrashWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrashWidgetViews.swift; sourceTree = "<group>"; };
+		F344921BCCD07E03880919EB /* ShopifyDataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShopifyDataService.swift; sourceTree = "<group>"; };
+		F454C137161AAABE59576469 /* NativeDockController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDockController.swift; sourceTree = "<group>"; };
+		F9F7739C0D68A3CA8E3098B7 /* NowPlayingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingService.swift; sourceTree = "<group>"; };
+		FAE902F5D39367E85B976088 /* CountdownNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownNotificationService.swift; sourceTree = "<group>"; };
+		FC96B5EE49B3B69DD6C349CA /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		33EAB36B7B677F1FA24E2D32 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				D775FAF79BFB59E8B642EF42 /* AppIcon.icns */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		42CF9876E187CD7796F2CA51 /* SystemServices */ = {
+			isa = PBXGroup;
+			children = (
+				BD1C3241C068010754E2F1FA /* AccessibilityDisplayState.swift */,
+				7A760EEBCA7ABE084C12A16C /* AIUsageService.swift */,
+				463ABA122EDE7DA7B5AD3029 /* AlarmNotificationService.swift */,
+				592BAD75EABCB51BC1628FDF /* AppLauncher.swift */,
+				A2A1616F786149BF6FC17622 /* BatteryReader.swift */,
+				8103CF2D1F157F4F2FDBA1E0 /* CalendarRemindersService.swift */,
+				FAE902F5D39367E85B976088 /* CountdownNotificationService.swift */,
+				2683184ECD83EC69D51DC097 /* CurrentLocationService.swift */,
+				83830AAC384D2604F8A38F0E /* FinancialCurrencyFormatter.swift */,
+				EC62EC3F8ABE5C0D8808C9FA /* FolderContentsReader.swift */,
+				50F89263099F34A51647544F /* GlobalShortcutController.swift */,
+				5EB7EFB4157FEEF3A5299039 /* HydrationReminderService.swift */,
+				24E3E2FA59D04DFB52AFDA50 /* MarketDataService.swift */,
+				B42F868C21E6C9BE2978926D /* NetworkActivityReader.swift */,
+				C6C27C41C4DB6A31E908A359 /* NowPlayingArtwork.swift */,
+				F9F7739C0D68A3CA8E3098B7 /* NowPlayingService.swift */,
+				2A362720EE164869D7D987E3 /* PaddleDataService.swift */,
+				A42965F326E36376ED429CF6 /* RefreshScheduler.swift */,
+				7536B36501AFF71CA760CA15 /* RunningApplications.swift */,
+				F344921BCCD07E03880919EB /* ShopifyDataService.swift */,
+				5F59E8E5BF7CE0EFB4AD9692 /* ShortcutsService.swift */,
+				0902CD545A012912F8597333 /* SiteFaviconFetcher.swift */,
+				4D8E9E75AC4D6FBD867139F5 /* StripeDataService.swift */,
+				3EB5D4FEF7D060E8D2EE2874 /* SystemActivityReader.swift */,
+				160AD6CAE0D1DFD8A0FAD901 /* SystemDockVisibilityService.swift */,
+				7DBC8E2E66C79D80425AE75B /* TrashService.swift */,
+				E4391DEE41DFB03AEF70D857 /* WeatherService.swift */,
+				9FB19E8FEA8B2BB9DBFAD714 /* WindowAccessibilityService.swift */,
+				A801E2B79EF9A3199D538A77 /* WindowPreviewService.swift */,
+			);
+			path = SystemServices;
+			sourceTree = "<group>";
+		};
+		52022F53F5D87215B4AB4DC8 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				BB57A42402BF2358C68EBD3A /* MyDock */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		5400384F3FE4392CF0B3EEAB /* Widgets */ = {
+			isa = PBXGroup;
+			children = (
+				0CA117B97BC64AAEC29ED28C /* TimeProgressCalculator.swift */,
+			);
+			path = Widgets;
+			sourceTree = "<group>";
+		};
+		92A63DE2C6D2AA02AEE6A2EB /* Focus */ = {
+			isa = PBXGroup;
+			children = (
+				3659FE931E85AFEDF1736A3F /* FocusDockFilterIntent.swift */,
+			);
+			path = Focus;
+			sourceTree = "<group>";
+		};
+		B713EFBB950D2798BF7BB69E /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				886210AC190A961D2D546AF6 /* Product.swift */,
+				E47778F8A12065845D562899 /* SingleInstanceLock.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		B7EE3C410AF152E4304CC072 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F03563307FEA33AA61161F9B /* MyDock.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		BB57A42402BF2358C68EBD3A /* MyDock */ = {
+			isa = PBXGroup;
+			children = (
+				0DBF2E68F40E7667A236F357 /* MyDockApp.swift */,
+				D4F4793EC060B7DBD872CEF9 /* Backup */,
+				B713EFBB950D2798BF7BB69E /* Core */,
+				E2CCEA750E758A1B6A28EF3E /* CustomDock */,
+				E9DA3010726A12B82146FC64 /* DockManagement */,
+				92A63DE2C6D2AA02AEE6A2EB /* Focus */,
+				FFA1EDD92F552DD254AD5049 /* Models */,
+				CE0D377C305C1C1C119FD60C /* Persistence */,
+				42CF9876E187CD7796F2CA51 /* SystemServices */,
+				E90745DC7DCF8CD08FE18905 /* UI */,
+				5400384F3FE4392CF0B3EEAB /* Widgets */,
+			);
+			path = MyDock;
+			sourceTree = "<group>";
+		};
+		CADB19AD5461F0271ED48F2E = {
+			isa = PBXGroup;
+			children = (
+				33EAB36B7B677F1FA24E2D32 /* Resources */,
+				52022F53F5D87215B4AB4DC8 /* Sources */,
+				B7EE3C410AF152E4304CC072 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		CE0D377C305C1C1C119FD60C /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				FC96B5EE49B3B69DD6C349CA /* ProfileStore.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		D4F4793EC060B7DBD872CEF9 /* Backup */ = {
+			isa = PBXGroup;
+			children = (
+				9477E75B67A51DC03E1F9722 /* BackupManager.swift */,
+			);
+			path = Backup;
+			sourceTree = "<group>";
+		};
+		E2CCEA750E758A1B6A28EF3E /* CustomDock */ = {
+			isa = PBXGroup;
+			children = (
+				EBCBC80CE6951461F8FDC15B /* AirDropWidgetViews.swift */,
+				C48ECB2A627715F75BC2A1EB /* AIUsageWidgetViews.swift */,
+				BB25319664E95494E5A1F058 /* AlarmWidgetViews.swift */,
+				DA98B889C73D5EDECAB69896 /* CalendarRemindersWidgetViews.swift */,
+				60C9ED44F4FD476280E1D7EC /* FileThumbnailView.swift */,
+				974BECC1D427C16C9C949FDD /* FolderContentsPopout.swift */,
+				3365272DF8136DA76925BCC7 /* FolderIconView.swift */,
+				BA0EC704F8F4E79C4F36D5E0 /* NetworkActivityWidgetViews.swift */,
+				5FE229CE0BDAD43ACBCEF2D1 /* NowPlayingWidgetViews.swift */,
+				65E91584E6116F0E9B70944C /* PaddleWidgetViews.swift */,
+				2128A00815BBB2691B453251 /* ShopifyWidgetViews.swift */,
+				AB99186BF9921E1D5CDBFFC2 /* StockWidgetViews.swift */,
+				A51088F3122DB5D13D0F9C40 /* StripeWidgetViews.swift */,
+				4F9CD952672513A407C3038B /* SystemActivityWidgetViews.swift */,
+				F0836F59B113A05C863CDE10 /* TrashWidgetViews.swift */,
+				7CB4610863D5853F971E8C35 /* WeatherWidgetViews.swift */,
+				9252F582158031B5BE6A5EA6 /* WidgetViews.swift */,
+			);
+			path = CustomDock;
+			sourceTree = "<group>";
+		};
+		E90745DC7DCF8CD08FE18905 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				EFBB3AB92DDE77B19242D056 /* AboutView.swift */,
+				5AC348626F11E4CF151E4BE4 /* DockDesign.swift */,
+				6758F25C6EA73B904DA86066 /* DockManagerView.swift */,
+				EAA3D3A3F0C1DCBC454A3AAA /* KeyboardShortcutEditor.swift */,
+				3DDEB8903C269E742496D5AF /* MenuBarProfileTitle.swift */,
+				CD754067A5466BDC46784D7D /* MenuBarView.swift */,
+				4B29E430F23BFAB12E20829E /* OnboardingView.swift */,
+				62E043D8D750B7188E1DD502 /* SettingsView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		E9DA3010726A12B82146FC64 /* DockManagement */ = {
+			isa = PBXGroup;
+			children = (
+				60221CBE5C104420D68187FD /* CustomDockWindowController.swift */,
+				616B4F9ABB3E6AD721E9CB70 /* DockSwitchFreezeProvider.swift */,
+				A3E90093FE464742F6DF90E1 /* NativeDockAutoHideController.swift */,
+				21BB8DEFC665A3B140F40C4D /* NativeDockAutoSaveMonitor.swift */,
+				F454C137161AAABE59576469 /* NativeDockController.swift */,
+			);
+			path = DockManagement;
+			sourceTree = "<group>";
+		};
+		FFA1EDD92F552DD254AD5049 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				D470722BB79311109DE0D2AA /* DockModels.swift */,
+				21CFEE1F14847708B9EDFA1A /* LocalClockFormatter.swift */,
+				93A8818898A1D2E99CC7FAAF /* StopwatchClock.swift */,
+				736731CF7DA257570F336C15 /* WorldClockCityCatalog.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		54481E55D94188BCF870BE50 /* MyDock */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 39713A87CF9111AC3EEAE2D9 /* Build configuration list for PBXNativeTarget "MyDock" */;
+			buildPhases = (
+				B6ABED957536BC3BDE93AE68 /* Sources */,
+				017CA8874FE646D9DA8E17C4 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MyDock;
+			packageProductDependencies = (
+			);
+			productName = MyDock;
+			productReference = F03563307FEA33AA61161F9B /* MyDock.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D452518A752B9F8738226E41 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					54481E55D94188BCF870BE50 = {
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = 7415148124CEB41C1E3119E9 /* Build configuration list for PBXProject "MyDock" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = CADB19AD5461F0271ED48F2E;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B7EE3C410AF152E4304CC072 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				54481E55D94188BCF870BE50 /* MyDock */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		017CA8874FE646D9DA8E17C4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F9CC003830669CDA06F42006 /* AppIcon.icns in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B6ABED957536BC3BDE93AE68 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DFC28BF5D1A1A77D894F61EB /* AIUsageService.swift in Sources */,
+				BE5DE7BFD6FF0825DB7D30CC /* AIUsageWidgetViews.swift in Sources */,
+				525A0E832976173AF7A9191D /* AboutView.swift in Sources */,
+				978BE9CDE5834A30BA3CD20C /* AccessibilityDisplayState.swift in Sources */,
+				0D5BAFE0588699099D03B1E6 /* AirDropWidgetViews.swift in Sources */,
+				564480A25B6BF4C06A94547E /* AlarmNotificationService.swift in Sources */,
+				525EDA1617F20EB2B25A7A99 /* AlarmWidgetViews.swift in Sources */,
+				E977A23DE9AE9286B3985372 /* AppLauncher.swift in Sources */,
+				F9EB5D7371E2070D2DA5AD1B /* BackupManager.swift in Sources */,
+				9098DDA022CDB84191A422A4 /* BatteryReader.swift in Sources */,
+				7FF0EBA818C13C7FCF67B004 /* CalendarRemindersService.swift in Sources */,
+				A7A5D10457A026634E759D1A /* CalendarRemindersWidgetViews.swift in Sources */,
+				028D2937292EB743DAD2A0A5 /* CountdownNotificationService.swift in Sources */,
+				7E0D4186A9CAAE3B7C32432D /* CurrentLocationService.swift in Sources */,
+				8E0C9AF5A97559D65C39FA21 /* CustomDockWindowController.swift in Sources */,
+				3F8083D806B67E984EDE0EBF /* DockDesign.swift in Sources */,
+				3AB00530BF01A4D749332A4B /* DockManagerView.swift in Sources */,
+				3DAC46296B3371EBC32E7009 /* DockModels.swift in Sources */,
+				9A98F1FC8A8DEA925105C612 /* DockSwitchFreezeProvider.swift in Sources */,
+				757E66086572EE69B441E3CC /* FileThumbnailView.swift in Sources */,
+				77470E173C9080BA3A993DB6 /* FinancialCurrencyFormatter.swift in Sources */,
+				E919BD6595027C6E80F35667 /* FocusDockFilterIntent.swift in Sources */,
+				C327B7F00439EA14382315AF /* FolderContentsPopout.swift in Sources */,
+				BDDA29AD5147C004A88D0319 /* FolderContentsReader.swift in Sources */,
+				4B02C2E71E772A62D2BD51FC /* FolderIconView.swift in Sources */,
+				640EB027E9AE6EA922042F7D /* GlobalShortcutController.swift in Sources */,
+				8107C3C7DAEC1A795364C5D6 /* HydrationReminderService.swift in Sources */,
+				C6B60D7C9A2954240C9388D9 /* KeyboardShortcutEditor.swift in Sources */,
+				116A1DA4F039E0AD50117B8D /* LocalClockFormatter.swift in Sources */,
+				FFCD24641D5936E4031BFA69 /* MarketDataService.swift in Sources */,
+				1CC95F826106745B33070E61 /* MenuBarProfileTitle.swift in Sources */,
+				80D900876DC403B00FB0EA86 /* MenuBarView.swift in Sources */,
+				BF7E9EE081899935E28D7561 /* MyDockApp.swift in Sources */,
+				9CF1EF762D9DF815E91D2DB4 /* NativeDockAutoHideController.swift in Sources */,
+				069F89AC990CF3FE4CB5386D /* NativeDockAutoSaveMonitor.swift in Sources */,
+				6D36556A8DBDC57D07EA49C1 /* NativeDockController.swift in Sources */,
+				1C5053E8699F129EEBED0513 /* NetworkActivityReader.swift in Sources */,
+				D044CEEAD756EE2511C64248 /* NetworkActivityWidgetViews.swift in Sources */,
+				A69366058ECB1EC0AC71575C /* NowPlayingArtwork.swift in Sources */,
+				A949B5813F4EA94E2132A197 /* NowPlayingService.swift in Sources */,
+				B9D4B3F1AB0E9E6FA819C3EE /* NowPlayingWidgetViews.swift in Sources */,
+				D5515E908A51127AC4F15EBF /* OnboardingView.swift in Sources */,
+				A475CA25DEFE374CF9B42744 /* PaddleDataService.swift in Sources */,
+				78F8529B841B51BEC27829EF /* PaddleWidgetViews.swift in Sources */,
+				DEEBC09A48DCBD61544C70FB /* Product.swift in Sources */,
+				AB9080C30572BDAD0DE9E666 /* ProfileStore.swift in Sources */,
+				13F0DF429E430F6048A50B14 /* RefreshScheduler.swift in Sources */,
+				3B03938D926260A1E21BF2EC /* RunningApplications.swift in Sources */,
+				3D0CFD5D24775E41A08B8EFF /* SettingsView.swift in Sources */,
+				64A52F2D5B0B4013A5453D4B /* ShopifyDataService.swift in Sources */,
+				6353C5AB686FBF8FFAE97880 /* ShopifyWidgetViews.swift in Sources */,
+				4AE5974C9CE04E6BF56B9C31 /* ShortcutsService.swift in Sources */,
+				201A16574787D7922C519521 /* SingleInstanceLock.swift in Sources */,
+				9E19D892B79EE3A09FDB1054 /* SiteFaviconFetcher.swift in Sources */,
+				40C72F9E5E256C65225CF240 /* StockWidgetViews.swift in Sources */,
+				054D8F3B43E10584E9455FC5 /* StopwatchClock.swift in Sources */,
+				6F2E1FC3501054F078BE01AF /* StripeDataService.swift in Sources */,
+				F3966C536E638B97EDC932A5 /* StripeWidgetViews.swift in Sources */,
+				E49E376C11F012D38C45A0EF /* SystemActivityReader.swift in Sources */,
+				97544E0B6AB1FE1B137EF4F7 /* SystemActivityWidgetViews.swift in Sources */,
+				9B38CC5CADE2F8DA4067624E /* SystemDockVisibilityService.swift in Sources */,
+				65A7F470028BD6C945022CD7 /* TimeProgressCalculator.swift in Sources */,
+				4E6D8CE1BECFE8359492F83F /* TrashService.swift in Sources */,
+				E10948BC57E55987B3D2565B /* TrashWidgetViews.swift in Sources */,
+				00A41426671FA3FD7789A152 /* WeatherService.swift in Sources */,
+				9EFFD24CD5323B863B879541 /* WeatherWidgetViews.swift in Sources */,
+				5AE9D055964926B98F82E0AE /* WidgetViews.swift in Sources */,
+				D0A15E65FF5C6F80804CCB1B /* WindowAccessibilityService.swift in Sources */,
+				96F5FA8BBE121DDCC3402ED9 /* WindowPreviewService.swift in Sources */,
+				2FED9B373AC647DE7A34139C /* WorldClockCityCatalog.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0B562B13CBC26D4D6F4E8B59 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		3C00375F5254752FB6E57EA8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Xcode/MyDock.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Xcode/MyDock-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.mydock.MyDock;
+				PRODUCT_NAME = MyDock;
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		5D256D0FC6C64304B184CA2C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Xcode/MyDock.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Xcode/MyDock-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.mydock.MyDock;
+				PRODUCT_NAME = MyDock;
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		6E6B019F3A88F01EF870F539 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		39713A87CF9111AC3EEAE2D9 /* Build configuration list for PBXNativeTarget "MyDock" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5D256D0FC6C64304B184CA2C /* Debug */,
+				3C00375F5254752FB6E57EA8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7415148124CEB41C1E3119E9 /* Build configuration list for PBXProject "MyDock" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0B562B13CBC26D4D6F4E8B59 /* Debug */,
+				6E6B019F3A88F01EF870F539 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = D452518A752B9F8738226E41 /* Project object */;
+}
