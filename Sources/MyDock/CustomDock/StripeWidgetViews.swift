@@ -27,7 +27,7 @@ private struct StripeCompactView: View {
                 Text(configuration.stripeMetric.title)
                     .font(.system(size: 7, weight: .medium)).lineLimit(1)
             } else {
-                Text("Connect Stripe").font(.system(size: 8, weight: .medium)).lineLimit(1)
+                Text("Connect").font(.system(size: 8, weight: .medium)).lineLimit(1)
             }
             if let snapshot = configuration.stripeSnapshot,
                Date.now.timeIntervalSince(snapshot.fetchedAt) > 300 {
@@ -67,85 +67,88 @@ private struct StripePopoutView: View {
     private var currencyMetrics: StripeCurrencyMetrics? { snapshot?.metrics(for: configuration.stripeCurrency) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 8) {
-                Image(systemName: "creditcard.fill").foregroundStyle(color(for: configuration.stripeColor))
-                TextField("Account name", text: displayNameBinding)
-                    .textFieldStyle(.plain).font(.headline)
-                Spacer(minLength: 4)
-                Button("Refresh") { Task { await refresh() } }
-                    .disabled(isRefreshing)
-                if isRefreshing { ProgressView().controlSize(.small) }
-            }
-
-            if let snapshot {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(snapshot.accountName).font(.subheadline.weight(.medium)).lineLimit(1)
-                    Text("Restricted, read-only connection").font(.caption2).foregroundStyle(.tertiary)
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack(spacing: 8) {
+                    Image(systemName: "creditcard.fill").foregroundStyle(color(for: configuration.stripeColor))
+                    TextField("Account name", text: displayNameBinding)
+                        .textFieldStyle(.plain).font(.headline)
+                    Spacer(minLength: 4)
+                    Button("Refresh") { Task { await refresh() } }
+                        .disabled(isRefreshing)
+                    if isRefreshing { ProgressView().controlSize(.small) }
                 }
-                .help("Account name is local to MyDock. The API key determines the Stripe account.")
-            } else {
-                Label("Connect a restricted Stripe key", systemImage: "key.horizontal")
-                    .font(.callout.weight(.medium))
-                Text("Add an rk_ key in Settings → Integrations. Use read-only access for Account, Balance, Balance Transactions, and Subscriptions.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
 
-            if let currencyMetrics {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(StripeMetricFormatter.text(for: configuration.stripeMetric, values: currencyMetrics))
-                        .font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
-                    HStack(spacing: 6) {
-                        Text(configuration.stripeMetric.title)
-                        Text("·")
-                        Text(configuration.stripeCurrency)
-                        if [.revenue, .netAfterFees].contains(configuration.stripeMetric) {
-                            Text("·")
-                            Text((snapshot?.period ?? configuration.stripePeriod).title)
-                        }
+                if let snapshot {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(snapshot.accountName).font(.subheadline.weight(.medium)).lineLimit(1)
+                        Text("Restricted, read-only connection").font(.caption2).foregroundStyle(.tertiary)
                     }
-                    .font(.caption).foregroundStyle(.secondary)
+                    .help("Account name is local to MyDock. The API key determines the Stripe account.")
+                } else {
+                    Label("Connect a restricted Stripe key", systemImage: "key.horizontal")
+                        .font(.callout.weight(.medium))
+                    Text("Add an rk_ key in Settings → Integrations. Use read-only access for Account, Balance, Balance Transactions, and Subscriptions.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.vertical, 3)
-            } else if snapshot != nil {
-                Text("No \(configuration.stripeCurrency) data is available for this account yet.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
 
-            controls
-
-            connectionControls
-
-            if let snapshot {
-                HStack(spacing: 5) {
-                    Image(systemName: isStale ? "clock.badge.exclamationmark" : "checkmark.circle")
-                    Text(isStale ? "Showing last successful values" : "Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
-                    Text("·")
-                    Text(TimeZone.autoupdatingCurrent.identifier)
+                if let currencyMetrics {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(StripeMetricFormatter.text(for: configuration.stripeMetric, values: currencyMetrics))
+                            .font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
+                        HStack(spacing: 6) {
+                            Text(configuration.stripeMetric.title)
+                            Text("·")
+                            Text(configuration.stripeCurrency)
+                            if [.revenue, .netAfterFees].contains(configuration.stripeMetric) {
+                                Text("·")
+                                Text((snapshot?.period ?? configuration.stripePeriod).title)
+                            }
+                        }
+                        .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 3)
+                } else if snapshot != nil {
+                    Text("No \(configuration.stripeCurrency) data is available for this account yet.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
-                .font(.caption2).foregroundStyle(isStale ? Color.orange : Color.gray)
-                if snapshot.unsupportedSubscriptionItems > 0 {
-                    Text("Skipped \(snapshot.unsupportedSubscriptionItems) complex subscription item(s) from MRR/ARR.")
-                        .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+
+                controls
+
+                connectionControls
+
+                if let snapshot {
+                    HStack(spacing: 5) {
+                        Image(systemName: isStale ? "clock.badge.exclamationmark" : "checkmark.circle")
+                        Text(isStale ? "Showing last successful values" : "Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
+                        Text("·")
+                        Text(TimeZone.autoupdatingCurrent.identifier)
+                    }
+                    .font(.caption2).foregroundStyle(isStale ? Color.orange : Color.gray)
+                    if snapshot.unsupportedSubscriptionItems > 0 {
+                        Text("Skipped \(snapshot.unsupportedSubscriptionItems) complex subscription item(s) from MRR/ARR.")
+                            .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+                if let errorMessage {
+                    Label(snapshot == nil ? errorMessage : "Refresh failed. Showing saved data. \(errorMessage)",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
+                if let snapshot, snapshot.period != configuration.stripePeriod,
+                   [.revenue, .netAfterFees].contains(configuration.stripeMetric) {
+                    Text("Last successful period: \(snapshot.period.title) · selected: \(configuration.stripePeriod.title)")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                Text("Revenue is payment activity posted to the Stripe balance, less refunds and payment reversals, before fees. It includes collected tax and excludes payouts, transfers, and disputes. Net uses Stripe's transaction net after fees. Currencies are never converted.")
+                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                Text("MRR/ARR estimate active and past-due fixed recurring prices; trials and metered, tiered, discounted, or tax-adjusted items are excluded.")
+                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
             }
-            if let errorMessage {
-                Label(snapshot == nil ? errorMessage : "Refresh failed. Showing saved data. \(errorMessage)",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-            }
-            if let snapshot, snapshot.period != configuration.stripePeriod,
-               [.revenue, .netAfterFees].contains(configuration.stripeMetric) {
-                Text("Last successful period: \(snapshot.period.title) · selected: \(configuration.stripePeriod.title)")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            Text("Revenue is payment activity posted to the Stripe balance, less refunds and payment reversals, before fees. It includes collected tax and excludes payouts, transfers, and disputes. Net uses Stripe's transaction net after fees. Currencies are never converted.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
-            Text("MRR/ARR estimate active and past-due fixed recurring prices; trials and metered, tiered, discounted, or tax-adjusted items are excluded.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            .frame(width: 350, alignment: .leading)
+            .frame(minHeight: 220, alignment: .topLeading)
         }
-        .frame(width: 360, alignment: .leading)
-        .frame(minHeight: 220, alignment: .topLeading)
+        .frame(width: 360, height: 480)
         .task(id: "\(configuration.stripeAccountID)|\(configuration.stripePeriod.rawValue)") {
             guard !configuration.stripeAccountID.isEmpty else { return }
             await refresh()

@@ -30,7 +30,7 @@ private struct ShopifyCompactView: View {
                     Circle().fill(.orange).frame(width: 4, height: 4)
                 }
             } else {
-                Text("Connect store").font(.system(size: 8, weight: .medium)).lineLimit(1)
+                Text("Connect").font(.system(size: 8, weight: .medium)).lineLimit(1)
             }
         }
         .frame(width: 54, height: 54)
@@ -58,68 +58,71 @@ private struct ShopifyPopoutView: View {
     private var snapshot: ShopifySnapshot? { configuration.shopifySnapshot }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "bag.fill").foregroundStyle(shopifyColor(configuration.shopifyColor))
-                TextField("Store name", text: displayNameBinding).textFieldStyle(.plain).font(.headline)
-                Spacer(minLength: 4)
-                Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing || configuration.shopifyStoreID.isEmpty)
-                if isRefreshing { ProgressView().controlSize(.small) }
-            }
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "bag.fill").foregroundStyle(shopifyColor(configuration.shopifyColor))
+                    TextField("Store name", text: displayNameBinding).textFieldStyle(.plain).font(.headline)
+                    Spacer(minLength: 4)
+                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing || configuration.shopifyStoreID.isEmpty)
+                    if isRefreshing { ProgressView().controlSize(.small) }
+                }
 
-            if let snapshot {
-                Text("\(snapshot.storeName) · \(snapshot.storeDomain)")
-                    .font(.subheadline.weight(.medium)).lineLimit(1)
-            } else {
-                Label("Connect a Shopify store", systemImage: "key.horizontal")
-                    .font(.callout.weight(.medium))
-                Text("Use an app installed on a store in the same Shopify organization. Grant only read_orders; Shopify limits standard access to the last 60 days.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
+                if let snapshot {
+                    Text("\(snapshot.storeName) · \(snapshot.storeDomain)")
+                        .font(.subheadline.weight(.medium)).lineLimit(1)
+                } else {
+                    Label("Connect a Shopify store", systemImage: "key.horizontal")
+                        .font(.callout.weight(.medium))
+                    Text("Use an app installed on a store in the same Shopify organization. Grant only read_orders; Shopify limits standard access to the last 60 days.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
 
-            if let snapshot {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: snapshot))
-                        .font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
-                    HStack(spacing: 6) {
-                        Text(configuration.shopifyMetric.title)
-                        Text("·")
-                        Text(configuration.shopifyMetric == .orders ? "orders" : snapshot.currency)
-                        Text("·")
-                        Text(snapshot.period.title)
+                if let snapshot {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: snapshot))
+                            .font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
+                        HStack(spacing: 6) {
+                            Text(configuration.shopifyMetric.title)
+                            Text("·")
+                            Text(configuration.shopifyMetric == .orders ? "orders" : snapshot.currency)
+                            Text("·")
+                            Text(snapshot.period.title)
+                        }
+                        .font(.caption).foregroundStyle(.secondary)
                     }
-                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.vertical, 2)
+                    if configuration.shopifyShowsChart { metricChart(snapshot) }
+                    breakdowns(snapshot)
                 }
-                .padding(.vertical, 2)
-                if configuration.shopifyShowsChart { metricChart(snapshot) }
-                breakdowns(snapshot)
-            }
 
-            controls
-            connectionControls
+                controls
+                connectionControls
 
-            if let snapshot {
-                HStack(spacing: 5) {
-                    Image(systemName: isStale ? "clock.badge.exclamationmark" : "checkmark.circle")
-                    Text(isStale ? "Showing last successful values" : "Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
-                    Text("· \(timeZoneLabel(snapshot.timeZoneID))")
+                if let snapshot {
+                    HStack(spacing: 5) {
+                        Image(systemName: isStale ? "clock.badge.exclamationmark" : "checkmark.circle")
+                        Text(isStale ? "Showing last successful values" : "Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
+                        Text("· \(timeZoneLabel(snapshot.timeZoneID))")
+                    }
+                    .font(.caption2).foregroundStyle(isStale ? Color.orange : Color.gray)
+                    if snapshot.period != configuration.shopifyPeriod {
+                        Text("Last successful period: \(snapshot.period.title) · selected: \(configuration.shopifyPeriod.title)")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
-                .font(.caption2).foregroundStyle(isStale ? Color.orange : Color.gray)
-                if snapshot.period != configuration.shopifyPeriod {
-                    Text("Last successful period: \(snapshot.period.title) · selected: \(configuration.shopifyPeriod.title)")
-                        .font(.caption2).foregroundStyle(.secondary)
+                if let errorMessage {
+                    Label(snapshot == nil ? errorMessage : "Refresh failed. Showing saved data. \(errorMessage)",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
+                Text("Order value uses Shopify's current order total after returns and discounts, including tax and shipping. Unpaid and fully returned orders count; test and canceled orders do not. This is order activity, not cash received.")
+                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
             }
-            if let errorMessage {
-                Label(snapshot == nil ? errorMessage : "Refresh failed. Showing saved data. \(errorMessage)",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-            }
-            Text("Order value uses Shopify's current order total after returns and discounts, including tax and shipping. Unpaid and fully returned orders count; test and canceled orders do not. This is order activity, not cash received.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            .frame(width: 375, alignment: .leading)
+            .frame(minHeight: 220, alignment: .topLeading)
         }
-        .frame(width: 385, alignment: .leading)
-        .frame(minHeight: 220, alignment: .topLeading)
+        .frame(width: 385, height: 480)
         .task(id: "\(configuration.shopifyStoreID)|\(configuration.shopifyPeriod.rawValue)") {
             guard !configuration.shopifyStoreID.isEmpty else { return }
             await refresh()

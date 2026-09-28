@@ -30,7 +30,7 @@ private struct PaddleCompactView: View {
                     Circle().fill(.orange).frame(width: 4, height: 4)
                 }
             } else {
-                Text("Connect Paddle").font(.system(size: 8, weight: .medium)).lineLimit(1)
+                Text("Connect").font(.system(size: 8, weight: .medium)).lineLimit(1)
             }
         }
         .frame(width: 54, height: 54)
@@ -56,68 +56,71 @@ private struct PaddlePopoutView: View {
     private var snapshot: PaddleSnapshot? { configuration.paddleSnapshot }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "creditcard.fill").foregroundStyle(color(for: configuration.paddleColor))
-                TextField("Account name", text: accountNameBinding)
-                    .textFieldStyle(.plain).font(.headline)
-                Spacer(minLength: 4)
-                Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing || configuration.paddleAccountID.isEmpty)
-                if isRefreshing { ProgressView().controlSize(.small) }
-            }
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "creditcard.fill").foregroundStyle(color(for: configuration.paddleColor))
+                    TextField("Account name", text: accountNameBinding)
+                        .textFieldStyle(.plain).font(.headline)
+                    Spacer(minLength: 4)
+                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing || configuration.paddleAccountID.isEmpty)
+                    if isRefreshing { ProgressView().controlSize(.small) }
+                }
 
-            if let snapshot {
-                Text("\(snapshot.accountName) · Paddle Billing")
-                    .font(.subheadline.weight(.medium)).lineLimit(1)
-            } else {
-                Label("Connect a Paddle Billing account", systemImage: "key.horizontal")
-                    .font(.callout.weight(.medium))
-                Text("Paddle Classic and client-side tokens are not supported. Create a current Billing API key with Metrics → Read (metrics.read).")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
+                if let snapshot {
+                    Text("\(snapshot.accountName) · Paddle Billing")
+                        .font(.subheadline.weight(.medium)).lineLimit(1)
+                } else {
+                    Label("Connect a Paddle Billing account", systemImage: "key.horizontal")
+                        .font(.callout.weight(.medium))
+                    Text("Paddle Classic and client-side tokens are not supported. Create a current Billing API key with Metrics → Read (metrics.read).")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
 
-            if let snapshot {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(PaddleMetricFormatter.text(for: configuration.paddleMetric, snapshot: snapshot))
-                        .font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
-                    HStack(spacing: 6) {
-                        Text(configuration.paddleMetric.title)
-                        Text("·")
-                        Text(configuration.paddleMetric == .activeSubscribers ? "customers" : snapshot.currency)
-                        Text("·")
-                        Text(snapshot.period.title)
+                if let snapshot {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(PaddleMetricFormatter.text(for: configuration.paddleMetric, snapshot: snapshot))
+                            .font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
+                        HStack(spacing: 6) {
+                            Text(configuration.paddleMetric.title)
+                            Text("·")
+                            Text(configuration.paddleMetric == .activeSubscribers ? "customers" : snapshot.currency)
+                            Text("·")
+                            Text(snapshot.period.title)
+                        }
+                        .font(.caption).foregroundStyle(.secondary)
                     }
-                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.vertical, 2)
+                    if configuration.paddleShowsChart { metricChart(snapshot) }
                 }
-                .padding(.vertical, 2)
-                if configuration.paddleShowsChart { metricChart(snapshot) }
-            }
 
-            controls
-            connectionControls
+                controls
+                connectionControls
 
-            if let snapshot {
-                HStack(spacing: 5) {
-                    Image(systemName: isStale ? "clock.badge.exclamationmark" : "checkmark.circle")
-                    Text(isStale ? "Showing last successful values" : "Updated \(snapshot.updatedAt.formatted(date: .omitted, time: .shortened))")
-                    Text("· UTC")
+                if let snapshot {
+                    HStack(spacing: 5) {
+                        Image(systemName: isStale ? "clock.badge.exclamationmark" : "checkmark.circle")
+                        Text(isStale ? "Showing last successful values" : "Updated \(snapshot.updatedAt.formatted(date: .omitted, time: .shortened))")
+                        Text("· UTC")
+                    }
+                    .font(.caption2).foregroundStyle(isStale ? Color.orange : Color.gray)
+                    if snapshot.period != configuration.paddlePeriod {
+                        Text("Last successful period: \(snapshot.period.title) · selected: \(configuration.paddlePeriod.title)")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
-                .font(.caption2).foregroundStyle(isStale ? Color.orange : Color.gray)
-                if snapshot.period != configuration.paddlePeriod {
-                    Text("Last successful period: \(snapshot.period.title) · selected: \(configuration.paddlePeriod.title)")
-                        .font(.caption2).foregroundStyle(.secondary)
+                if let errorMessage {
+                    Label(snapshot == nil ? errorMessage : "Refresh failed. Showing saved data. \(errorMessage)",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
+                Text("Net revenue is Paddle's reported revenue after tax and fees, before refunds and chargebacks. MRR is its current recurring run rate; ARR is MRR × 12, not a cash forecast. Paddle reports its primary balance currency and UTC-day series.")
+                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
             }
-            if let errorMessage {
-                Label(snapshot == nil ? errorMessage : "Refresh failed. Showing saved data. \(errorMessage)",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-            }
-            Text("Net revenue is Paddle's reported revenue after tax and fees, before refunds and chargebacks. MRR is its current recurring run rate; ARR is MRR × 12, not a cash forecast. Paddle reports its primary balance currency and UTC-day series.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            .frame(width: 365, alignment: .leading)
+            .frame(minHeight: 220, alignment: .topLeading)
         }
-        .frame(width: 375, alignment: .leading)
-        .frame(minHeight: 220, alignment: .topLeading)
+        .frame(width: 375, height: 480)
         .task(id: "\(configuration.paddleAccountID)|\(configuration.paddlePeriod.rawValue)") {
             guard !configuration.paddleAccountID.isEmpty else { return }
             await refresh()

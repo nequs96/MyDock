@@ -327,42 +327,45 @@ private struct AIActivityPopoutView: View {
     private var snapshot: AIActivitySnapshot? { configuration.aiActivitySnapshot }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "chart.bar.xaxis").foregroundStyle(.cyan)
-                Text("AI Activity").font(.headline)
-                Spacer()
-                Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing)
-                if isRefreshing { ProgressView().controlSize(.small) }
-            }
-            HStack {
-                Picker("Provider", selection: providerBinding) {
-                    ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
-                }.labelsHidden()
-                Picker("Date range", selection: rangeBinding) {
-                    ForEach(AIActivityRange.allCases) { Text($0.title).tag($0) }
-                }.labelsHidden()
-                Picker("Chart style", selection: chartStyleBinding) {
-                    ForEach(AIActivityChartStyle.allCases) { Text($0.title).tag($0) }
-                }.labelsHidden()
-            }
-            if let snapshot {
-                metricSummary(snapshot)
-                if configuration.aiActivityChartStyle != .totals, snapshot.available { activityChart(snapshot) }
-                Text(snapshot.sourceDescription).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                if let message = snapshot.message {
-                    Label(message, systemImage: snapshot.available ? "exclamationmark.triangle" : "info.circle")
-                        .font(.caption).foregroundStyle(snapshot.available ? Color.orange : Color.secondary).fixedSize(horizontal: false, vertical: true)
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "chart.bar.xaxis").foregroundStyle(.cyan)
+                    Text("AI Activity").font(.headline)
+                    Spacer()
+                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing)
+                    if isRefreshing { ProgressView().controlSize(.small) }
                 }
-                Text("Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
-                    .font(.caption2).foregroundStyle(.tertiary)
-            } else {
-                Text("Refresh to read local usage counters. MyDock does not retain prompts, tool contents, file paths, or session transcripts.")
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Picker("Provider", selection: providerBinding) {
+                        ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
+                    }.labelsHidden()
+                    Picker("Date range", selection: rangeBinding) {
+                        ForEach(AIActivityRange.allCases) { Text($0.title).tag($0) }
+                    }.labelsHidden()
+                    Picker("Chart style", selection: chartStyleBinding) {
+                        ForEach(AIActivityChartStyle.allCases) { Text($0.title).tag($0) }
+                    }.labelsHidden()
+                }
+                if let snapshot {
+                    metricSummary(snapshot)
+                    if configuration.aiActivityChartStyle != .totals, snapshot.available { activityChart(snapshot) }
+                    Text(snapshot.sourceDescription).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    if let message = snapshot.message {
+                        Label(message, systemImage: snapshot.available ? "exclamationmark.triangle" : "info.circle")
+                            .font(.caption).foregroundStyle(snapshot.available ? Color.orange : Color.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text("Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                } else {
+                    Text("Refresh to read local usage counters. MyDock does not retain prompts, tool contents, file paths, or session transcripts.")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             }
+            .frame(width: 375, alignment: .leading)
+            .frame(minHeight: 220, alignment: .topLeading)
         }
-        .frame(width: 385, alignment: .leading)
-        .frame(minHeight: 220, alignment: .topLeading)
+        .frame(width: 385, height: 480)
         .task(id: "\(configuration.aiActivityProvider.rawValue)|\(configuration.aiActivityRange.rawValue)") {
             await refresh()
             for await _ in RefreshScheduler.shared.ticks(every: 60) {

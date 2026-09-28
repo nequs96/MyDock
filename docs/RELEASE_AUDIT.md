@@ -1,4 +1,4 @@
-# MyDock release audit — 27 September 2026
+# MyDock release audit — 28 September 2026
 
 ## Build and automated checks
 
@@ -14,6 +14,7 @@
 - The refreshed isolated preview displayed the window-preview cache explanation in Settings without clipping. Show minimized windows enabled its dependent cache option without requesting Screen Recording. A disposable second Custom Dock profile appeared in the surface right-click Switch Profile menu; selecting Everyday changed the menu checkmark back to Everyday. The preview surface remains tied to its seed profile, so panel replacement itself was not verified.
 - Settings → General was clicked through in the isolated preview: Back Up saved a JSON archive containing one disposable Custom Dock profile, and Restore added a second copy with the same four items. The original Everyday profile stayed active. The archive was removed after the check; no real profile store was opened or changed.
 - AI Limits was added through the isolated widget library and its compact tile appeared at the overflow end. Its long default setup popout now has a bounded vertical scroll area; the accessibility scrollbar moved from top to bottom when scrolled. The small preview window crops the native popover capture, so physical screen-edge placement remains unverified.
+- Shopify's disconnected connection form was added in the isolated preview; its bounded popout scrollbar moved from top to bottom, exposing the final guidance. Paddle and AI Activity exposed accessible scroll areas. Stripe, Paddle, and Shopify compact connection prompts were shortened to avoid visible truncation in the 54 pt tile. Connected-account popouts still require credential-backed visual checks.
 
 ## Source and data review
 
