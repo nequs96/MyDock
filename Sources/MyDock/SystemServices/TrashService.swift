@@ -63,7 +63,13 @@ final class TrashStatus: ObservableObject {
             queue: .main
         )
         watcher.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in self?.refresh() }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if source?.data.contains(.delete) == true || source?.data.contains(.rename) == true {
+                    source?.cancel(); source = nil; scheduleFallbackRefresh()
+                }
+                refresh()
+            }
         }
         watcher.setCancelHandler { close(descriptor) }
         source = watcher
@@ -75,6 +81,7 @@ final class TrashStatus: ObservableObject {
         fallbackRefreshTask = Task { [weak self] in
             for await _ in RefreshScheduler.shared.ticks(every: 30) {
                 guard !Task.isCancelled else { return }
+                if self?.source == nil { self?.startWatching() }
                 self?.refresh()
             }
         }
@@ -88,16 +95,8 @@ enum TrashActions {
         NSWorkspace.shared.open(url)
     }
 
-    static func emptyTrash() throws {
-        guard let script = NSAppleScript(source: "tell application id \"com.apple.finder\" to empty trash") else {
-            throw TrashActionError.scriptUnavailable
-        }
-        var errorInfo: NSDictionary?
-        _ = script.executeAndReturnError(&errorInfo)
-        if let errorInfo {
-            let message = errorInfo["NSAppleScriptErrorMessage"] as? String
-            throw TrashActionError.failed(message ?? "Finder could not empty the Trash.")
-        }
+    static func emptyTrash() async throws {
+        _ = try await BoundedAutomationRunner.run("tell application id \"com.apple.finder\" to empty trash")
     }
 }
 

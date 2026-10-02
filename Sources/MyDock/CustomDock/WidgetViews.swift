@@ -11,6 +11,9 @@ protocol DockWidgetProvider {
 @MainActor
 enum WidgetProviderRegistry {
     private static let providers: [String: any DockWidgetProvider] = [
+        "Disk Space": DiskSpaceWidgetProvider(),
+        "Calculator": CalculatorWidgetProvider(),
+        "Quick Checklist": QuickChecklistWidgetProvider(),
         "Stock": StockWidgetProvider(),
         "Watchlist": WatchlistWidgetProvider(),
         "Stripe": StripeWidgetProvider(),
@@ -52,41 +55,34 @@ struct WidgetCompactView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
-
-    private var usesCard: Bool {
-        store.state.settings.customDockPosition == .bottom && store.state.settings.customDockWidgetStyle == .cards
-    }
-
+    var sampleMode = false
+    var presentationSettings: AppSettings? = nil
+    var layoutOverride: WidgetLayout? = nil
+    private var settings: AppSettings { presentationSettings ?? store.effectiveSettings(profileID: profileID) }
+    private var kind: String { item.widgetKind ?? item.title }
+    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    private var layout: WidgetLayout { layoutOverride ?? WidgetPresentationCatalog.resolvedLayout(for: kind, configuration: configuration, compactDefault: settings.customDockWidgetStyle == .compact) }
+    private var width: CGFloat { settings.customDockPosition == .bottom ? CGFloat(WidgetPresentationCatalog.width(for: kind, layout: layout)) : 54 }
     var body: some View {
         Group {
-            if usesCard {
-                HStack(spacing: 2) {
-                    WidgetProviderRegistry.provider(for: item.widgetKind)
-                        .compactView(store: store, item: item, profileID: profileID)
-                        .frame(width: 54, height: 54)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Circle()
-                            .fill(WidgetRegistry.all.first(where: { $0.name == item.widgetKind })?.category.displayColor ?? DockDesign.accent)
-                            .frame(width: 5, height: 5)
-                        Text(item.title)
-                            .font(.system(size: 9, weight: .medium))
-                            .lineLimit(item.title.contains(where: { $0.isWhitespace }) ? 2 : 1)
-                            .minimumScaleFactor(0.8)
-                            .allowsTightening(true)
-                            .multilineTextAlignment(.leading)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.trailing, 5)
-                }
-                .frame(width: 112, height: 54)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
-                .accessibilityElement(children: .combine)
+            if sampleMode {
+                WidgetCardPreview(kind: kind, width: width, layout: layout, appearance: configuration.iconAppearance)
             } else {
-                WidgetProviderRegistry.provider(for: item.widgetKind)
-                    .compactView(store: store, item: item, profileID: profileID)
+                WidgetContainer(width: width, kind: kind) { content }
+                    .environment(\.dockWidgetContentWidth, width)
+                    .environment(\.widgetLayout, settings.customDockPosition == .bottom ? layout : .compact)
+                    .environment(\.widgetIconAppearance, configuration.iconAppearance)
             }
+        }.overlay(alignment: .topTrailing) {
+            if !sampleMode { WidgetFreshnessIndicator(coordinator: store.widgetData, item: item) }
+        }
+    }
+    @ViewBuilder private var content: some View {
+        switch kind {
+        case "Clock", "Focus Timer", "Stopwatch", "Countdown", "Sticky Note", "Time Progress", "Hydration", "Quick Checklist", "Stock", "Watchlist", "Calculator", "Shortcuts", "App Folder", "AirDrop", "Trash":
+            LocalWidgetDockFace(item: item)
+        default:
+            WidgetProviderRegistry.provider(for: kind).compactView(store: store, item: item, profileID: profileID)
         }
     }
 }
@@ -95,20 +91,75 @@ struct WidgetPopout: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    var showsCustomize = true
+    var showsHeader = true
+    @Environment(\.dismiss) private var dismiss
+    @State private var showsAppearance = false
+    private var currentItem: DockItem {
+        store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id } ?? item
+    }
 
     var body: some View {
-        WidgetProviderRegistry.provider(for: item.widgetKind)
-            .popoutView(store: store, item: item, profileID: profileID)
-            .tint(DockDesign.accent)
+        VStack(alignment: .leading, spacing: 16) {
+            if showsHeader {
+                HStack(spacing: 11) {
+                    WidgetEmblem(kind: item.widgetKind ?? item.title)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(item.displayName).font(.system(size: 17, weight: .semibold))
+                        Text((WidgetRegistry.all.first { $0.name == item.widgetKind }?.category.rawValue ?? "Dock") + " widget").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 4)
+                    if showsCustomize {
+                        Button { showsAppearance.toggle() } label: { Image(systemName: "slider.horizontal.3") }
+                            .buttonStyle(DockButtonStyle(icon: true))
+                            .help("Customize this widget").accessibilityLabel("Customize this widget")
+                            .accessibilityValue(showsAppearance ? "Expanded" : "Collapsed")
+                    }
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .buttonStyle(DockButtonStyle(icon: true)).accessibilityLabel("Close widget")
+                }
+                Divider()
+            }
+            if showsAppearance {
+                WidgetAppearanceControls(store: store, item: currentItem, profileID: profileID)
+                Divider()
+            }
+            if store.hasUnpersistedChanges || store.persistenceError != nil {
+                HStack(alignment: .top, spacing: 10) {
+                    Label(store.persistenceError ?? "Changes are waiting to be saved.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+                    Button("Retry Save") { store.commit() }
+                        .controlSize(.small).disabled(!store.canRetryPersistence || !store.hasUnpersistedChanges)
+                }.padding(10).background(Color.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
+            }
+            WidgetProviderRegistry.provider(for: currentItem.widgetKind)
+                .popoutView(store: store, item: currentItem, profileID: profileID)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if item.widgetKind != "AI Activity" {
+                WidgetFreshnessView(coordinator: store.widgetData, item: currentItem) {
+                    Task { await store.widgetData.refresh(item: currentItem, profileID: profileID) }
+                }
+            }
+        }
+        .font(DockDesign.body).tint(DockDesign.accent)
+        .buttonStyle(DockButtonStyle()).textFieldStyle(DockTextFieldStyle())
+        .toggleStyle(SettingsSwitchStyle())
+        .frame(width: 420, alignment: .leading)
+        .onExitCommand { dismiss() }
     }
 }
 
 private struct ClockWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
         AnyView(TimelineView(.periodic(from: .now, by: 30)) { context in
-            Text(LocalClockFormatter.time(for: context.date))
-                .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
-                .lineLimit(1).minimumScaleFactor(0.7)
+            VStack(spacing: 4) {
+                Text(LocalClockFormatter.time(for: context.date))
+                    .font(.system(size: 14, weight: .medium).monospacedDigit())
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                Text(context.date.formatted(.dateTime.weekday(.abbreviated).day()))
+                    .font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+            }.frame(width: 54, height: 54)
         })
     }
 
@@ -255,7 +306,7 @@ private struct ShortcutsPopoutView: View {
 
             HStack {
                 Button("Run Shortcut", action: runShortcut)
-                    .buttonStyle(.borderedProminent).disabled(selectedName.isEmpty)
+                    .buttonStyle(DockButtonStyle(primary: true)).disabled(selectedName.isEmpty)
                 Button("Refresh", action: refreshCatalog).disabled(isRefreshing)
                 Button("Open Shortcuts") { runner.openShortcutsApp() }
             }
@@ -350,12 +401,12 @@ private struct AppFolderPopoutView: View {
             TextField("Folder name", text: Binding(get: { configuration.appFolderName }, set: { name in
                 store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderName = name }
             }))
-            .font(.headline).textFieldStyle(.roundedBorder)
+            .font(.headline).textFieldStyle(DockTextFieldStyle())
             TextField("Icon letters (optional)", text: Binding(get: { configuration.appFolderLetter }, set: { value in
                 let letters = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2)).uppercased()
                 store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderLetter = letters }
             }))
-            .textFieldStyle(.roundedBorder)
+            .textFieldStyle(DockTextFieldStyle())
             HStack(spacing: 7) {
                 ForEach(DockProfileColor.allCases) { color in
                     Button { store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderColor = color.rawValue } } label: {
@@ -366,7 +417,7 @@ private struct AppFolderPopoutView: View {
                 }
                 Spacer()
                 Button(reordering ? "Done" : "Reorder") { reordering.toggle() }
-                Button("Add Apps…", action: pickApplications).buttonStyle(.borderedProminent)
+                Button("Add Apps…", action: pickApplications).buttonStyle(DockButtonStyle(primary: true))
             }
 
             if applications.isEmpty {
@@ -376,7 +427,7 @@ private struct AppFolderPopoutView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
+                DockScrollView {
                     LazyVStack(spacing: 3) {
                         ForEach(Array(applications.enumerated()), id: \.element.id) { index, application in
                             HStack(spacing: 8) {
@@ -510,14 +561,15 @@ private struct PlaceholderWidgetProvider: DockWidgetProvider {
 }
 
 private struct WorldClockCompactView: View {
+    @Environment(\.dockWidgetContentWidth) private var contentWidth
     var item: DockItem
     private var timeZone: TimeZone { TimeZone(identifier: item.widgetConfiguration?.worldClockTimeZoneID ?? "Europe/Warsaw") ?? .current }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
-            VStack(spacing: 2) {
+            VStack(alignment: contentWidth > 54 ? .leading : .center, spacing: 2) {
                 Text(formattedTime(context.date, timeZone: timeZone))
-                    .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
+                    .font(.system(size: contentWidth > 54 ? 21 : 13, weight: .medium).monospacedDigit())
                     .lineLimit(1).minimumScaleFactor(0.65)
                 Text(timeZone.abbreviation(for: context.date) ?? "World")
                     .font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
@@ -525,7 +577,8 @@ private struct WorldClockCompactView: View {
                     Text("+\(configuration.worldClockAdditionalTimeZoneIDs.count)")
                         .font(.system(size: 7, weight: .medium)).foregroundStyle(.secondary)
                 }
-            }
+            }.padding(.horizontal, contentWidth > 54 ? 9 : 0)
+                .frame(maxWidth: .infinity, alignment: contentWidth > 54 ? .leading : .center)
         }
     }
 
@@ -550,12 +603,12 @@ private struct WorldClockPopoutView: View {
                     .font(.subheadline.weight(.medium))
             }
             TextField("Search cities or time zones", text: $citySearch)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(DockTextFieldStyle())
             if citySearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text("Search by city or time zone, then set it as primary or add it to the list.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
-                ScrollView {
+                DockScrollView {
                     LazyVStack(spacing: 4) {
                         ForEach(WorldClockCityCatalog.matches(citySearch)) { city in
                             cityResult(city)
@@ -594,14 +647,14 @@ private struct WorldClockPopoutView: View {
                 Image(systemName: "star.fill").font(.caption2).foregroundStyle(.yellow).help("Primary city")
             } else {
                 Button("Primary") { setPrimaryCity(city.id) }
-                    .buttonStyle(.bordered).controlSize(.mini)
+                    .buttonStyle(DockButtonStyle()).controlSize(.mini)
             }
             if city.id == configuration.worldClockTimeZoneID || configuration.worldClockAdditionalTimeZoneIDs.contains(city.id) {
                 Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(.secondary)
                     .help("Already in this clock")
             } else {
                 Button { addCity(city.id) } label: { Image(systemName: "plus") }
-                    .buttonStyle(.bordered).controlSize(.mini).help("Add city")
+                    .buttonStyle(DockButtonStyle()).controlSize(.mini).help("Add city")
             }
         }
         .padding(.vertical, 2)
@@ -714,11 +767,6 @@ private struct CountdownCompactView: View {
         CountdownValueText(configuration: configuration, compact: true)
         .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
         .lineLimit(1).minimumScaleFactor(0.7)
-        .task(id: configuration.countdownStartedAt) {
-            await finishCountdownIfNeeded(store: store, itemID: item.id, profileID: profileID,
-                                          startedAt: configuration.countdownStartedAt,
-                                          remaining: configuration.countdownRemaining())
-        }
     }
 }
 
@@ -759,11 +807,6 @@ private struct CountdownPopoutView: View {
         .onChange(of: configuration.countdownTargetDate) { target in
             if let target { targetDraft = target }
         }
-        .task(id: configuration.countdownStartedAt) {
-            await finishCountdownIfNeeded(store: store, itemID: item.id, profileID: profileID,
-                                          startedAt: configuration.countdownStartedAt,
-                                          remaining: configuration.countdownRemaining())
-        }
     }
 
     private var durationControls: some View {
@@ -771,19 +814,26 @@ private struct CountdownPopoutView: View {
             HStack {
                 Button(configuration.countdownStartedAt == nil ? "Start" : "Pause") {
                     var fireDate: Date?
+                    var expectedStart: Date?
                     store.updateWidgetConfiguration(itemID: item.id, in: profileID) { value in
                         if value.countdownStartedAt == nil {
                             value.startCountdown()
-                            fireDate = value.countdownStartedAt?.addingTimeInterval(TimeInterval(value.countdownDurationSeconds))
+                            expectedStart = value.countdownStartedAt
+                            fireDate = value.countdownNotificationDeadline
                         } else {
                             value.pauseCountdown()
                         }
                     }
                     if let fireDate {
-                        let expectedStart = fireDate.addingTimeInterval(-TimeInterval(configuration.countdownDurationSeconds))
+                        let operationID = UUID()
+                        CountdownNotificationService.begin(itemID: item.id, operationID: operationID)
                         Task { @MainActor in
                             do {
-                                try await CountdownNotificationService.schedule(itemID: item.id, fireDate: fireDate)
+                                try await CountdownNotificationService.schedule(itemID: item.id,
+                                                                               operationID: operationID,
+                                                                               fireDate: fireDate)
+                                guard CountdownNotificationService.isCurrent(itemID: item.id,
+                                                                             operationID: operationID) else { return }
                                 let isStillRunning = store.state.profiles
                                     .first(where: { $0.id == profileID })?.items
                                     .first(where: { $0.id == item.id })?.widgetConfiguration?.countdownStartedAt == expectedStart
@@ -793,6 +843,8 @@ private struct CountdownPopoutView: View {
                                 }
                                 notificationMessage = "macOS will notify you when the countdown finishes."
                             } catch {
+                                guard CountdownNotificationService.isCurrent(itemID: item.id,
+                                                                             operationID: operationID) else { return }
                                 notificationMessage = error.localizedDescription
                             }
                         }
@@ -826,6 +878,7 @@ private struct CountdownPopoutView: View {
                 if configuration.countdownTargetDate != nil {
                     Button("Clear Target") {
                         CountdownNotificationService.cancel(itemID: item.id)
+                        isSchedulingTarget = false
                         notificationMessage = nil
                         store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.resetCountdown() }
                     }
@@ -844,6 +897,7 @@ private struct CountdownPopoutView: View {
     private var modeBinding: Binding<CountdownMode> {
         Binding(get: { configuration.countdownMode }, set: { mode in
             CountdownNotificationService.cancel(itemID: item.id)
+            isSchedulingTarget = false
             notificationMessage = nil
             store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.setCountdownMode(mode) }
             if mode == .targetDate { targetDraft = Date().addingTimeInterval(3_600) }
@@ -858,11 +912,21 @@ private struct CountdownPopoutView: View {
         }
         CountdownNotificationService.cancel(itemID: item.id)
         store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.setCountdownTarget(target) }
+        let operationID = UUID()
+        CountdownNotificationService.begin(itemID: item.id, operationID: operationID)
         isSchedulingTarget = true
         Task { @MainActor in
-            defer { isSchedulingTarget = false }
+            defer {
+                if CountdownNotificationService.isCurrent(itemID: item.id, operationID: operationID) {
+                    isSchedulingTarget = false
+                }
+            }
             do {
-                try await CountdownNotificationService.schedule(itemID: item.id, fireDate: target)
+                try await CountdownNotificationService.schedule(itemID: item.id,
+                                                               operationID: operationID,
+                                                               fireDate: target)
+                guard CountdownNotificationService.isCurrent(itemID: item.id,
+                                                             operationID: operationID) else { return }
                 let current = store.state.profiles
                     .first(where: { $0.id == profileID })?.items
                     .first(where: { $0.id == item.id })?.widgetConfiguration
@@ -873,6 +937,8 @@ private struct CountdownPopoutView: View {
                 }
                 notificationMessage = "macOS will notify you when the target arrives."
             } catch {
+                guard CountdownNotificationService.isCurrent(itemID: item.id,
+                                                             operationID: operationID) else { return }
                 notificationMessage = error.localizedDescription
             }
         }
@@ -988,12 +1054,13 @@ enum HydrationHistoryPolicy {
 
 private struct HydrationCompactView: View {
     var item: DockItem
-    private var entries: [HydrationEntry] { (item.widgetConfiguration ?? WidgetConfiguration()).hydrationEntriesToday() }
-
     var body: some View {
-        VStack(spacing: 1) {
-            Image(systemName: "drop.fill").font(.system(size: 17)).foregroundStyle(.blue)
-            Text("\(entries.count)").font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let entries = (item.widgetConfiguration ?? WidgetConfiguration()).hydrationEntriesToday(at: context.date)
+            VStack(spacing: 1) {
+                Image(systemName: "drop.fill").font(.system(size: 17)).foregroundStyle(.blue)
+                Text("\(entries.count)").font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+            }.accessibilityLabel("\(entries.count) drinks today")
         }
     }
 }
@@ -1006,9 +1073,10 @@ private struct HydrationPopoutView: View {
     @State private var reminderPermissionDenied = false
     @State private var reminderOperationID = UUID()
     @State private var showingOlderDrinks = false
+    @State private var currentDay = Date.now
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-    private var todayEntries: [HydrationEntry] { configuration.hydrationEntriesToday() }
+    private var todayEntries: [HydrationEntry] { configuration.hydrationEntriesToday(at: currentDay) }
     private var dayGroups: [HydrationDayGroup] {
         let grouped = Dictionary(grouping: configuration.hydrationEntries) { Calendar.current.startOfDay(for: $0.timestamp) }
         return grouped.keys.sorted(by: >).map { HydrationDayGroup(date: $0, entries: (grouped[$0] ?? []).sorted { $0.timestamp > $1.timestamp }) }
@@ -1021,14 +1089,15 @@ private struct HydrationPopoutView: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Today: \(todayEntries.count) drinks").font(.title3.weight(.semibold))
-                Text(configuration.hydrationVolumeSummary()).font(.callout).foregroundStyle(.secondary)
+                Text(configuration.hydrationVolumeSummary(at: currentDay)).font(.callout).foregroundStyle(.secondary)
             }
             HStack {
-                Button("I drank water") { log(amount: nil) }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!configuration.hydrationSaveHistory)
+                Button("I drank water") { drinkAndRestartReminder() }
+                    .buttonStyle(DockButtonStyle(primary: true))
+                    .help("Log a drink when history is enabled and restart the water reminder.")
                 Button("Log water") { log(amount: configuration.hydrationDefaultAmountML) }
                     .disabled(!configuration.hydrationSaveHistory)
+                    .help("Record the configured amount without changing the reminder timer.")
             }
             Toggle("Save drink history", isOn: binding(\.hydrationSaveHistory))
             Toggle("Track drink amounts", isOn: binding(\.hydrationTrackAmounts))
@@ -1062,9 +1131,10 @@ private struct HydrationPopoutView: View {
                 Spacer()
                 if configuration.hydrationLastRemovedEntry != nil {
                     Button("Undo") { update { $0.undoHydrationRemoval() } }
+                        .keyboardShortcut("z", modifiers: .command)
                 }
             }
-            ScrollView {
+            DockScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(visibleDayGroups) { group in
                         Section {
@@ -1103,6 +1173,9 @@ private struct HydrationPopoutView: View {
         .onChange(of: configuration.hydrationReminderIntervalMinutes) { minutes in
             if configuration.hydrationRemindersEnabled { setReminders(true, interval: minutes) }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in currentDay = .now }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in currentDay = .now }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in currentDay = .now }
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<WidgetConfiguration, Value>) -> Binding<Value> {
@@ -1115,6 +1188,12 @@ private struct HydrationPopoutView: View {
         update { $0.logHydrationDrink(amountML: amount) }
     }
 
+    private func drinkAndRestartReminder() {
+        log(amount: nil)
+        guard configuration.hydrationRemindersEnabled else { return }
+        setReminders(true, interval: configuration.hydrationReminderIntervalMinutes)
+    }
+
     private func setReminders(_ enabled: Bool) {
         setReminders(enabled, interval: configuration.hydrationReminderIntervalMinutes)
     }
@@ -1123,24 +1202,29 @@ private struct HydrationPopoutView: View {
         let operationID = UUID()
         reminderOperationID = operationID
         if !enabled {
-            HydrationReminderService.cancel(itemID: item.id)
+            HydrationReminderService.cancel(itemID: item.id, operationID: operationID)
             update { $0.hydrationRemindersEnabled = false }
             reminderMessage = nil
             reminderPermissionDenied = false
             return
         }
+        HydrationReminderService.begin(itemID: item.id, operationID: operationID)
         Task { @MainActor in
             do {
-                try await HydrationReminderService.schedule(itemID: item.id, intervalMinutes: interval)
-                guard reminderOperationID == operationID else {
-                    HydrationReminderService.cancel(itemID: item.id)
+                try await HydrationReminderService.schedule(itemID: item.id,
+                                                            operationID: operationID,
+                                                            intervalMinutes: interval)
+                guard reminderOperationID == operationID,
+                      HydrationReminderService.isCurrent(itemID: item.id, operationID: operationID) else {
                     return
                 }
                 update { $0.hydrationRemindersEnabled = true }
                 reminderMessage = "Reminder scheduled every \(min(max(interval, 30), 240)) minutes."
                 reminderPermissionDenied = false
             } catch {
-                guard reminderOperationID == operationID else { return }
+                guard reminderOperationID == operationID,
+                      HydrationReminderService.isCurrent(itemID: item.id, operationID: operationID) else { return }
+                HydrationReminderService.cancel(itemID: item.id, operationID: operationID)
                 update { $0.hydrationRemindersEnabled = false }
                 reminderMessage = error.localizedDescription
                 reminderPermissionDenied = error is HydrationReminderError
@@ -1186,24 +1270,16 @@ private final class BatteryMonitor: ObservableObject {
 }
 
 private struct BatteryCompactView: View {
+    @Environment(\.dockWidgetContentWidth) private var contentWidth
     @StateObject private var monitor = BatteryMonitor.shared
     @State private var subscriptionID = UUID()
 
     var body: some View {
-        Group {
-            if let battery = monitor.readings.first {
-                VStack(spacing: 1) {
-                    Image(systemName: batterySymbol(battery.percentage, charging: battery.isCharging))
-                        .font(.system(size: 18)).foregroundStyle(battery.percentage <= 20 ? .orange : .primary)
-                    Text("\(battery.percentage)%").font(.system(size: 10, weight: .semibold).monospacedDigit())
-                }
-            } else {
-                Image(systemName: "battery.0").font(.system(size: 22)).foregroundStyle(.secondary)
-                    .help("Battery information is unavailable")
-            }
-        }
-        .onAppear { monitor.subscribe(subscriptionID) }
-        .onDisappear { monitor.unsubscribe(subscriptionID) }
+        BatteryDockFace(readings: monitor.readings).frame(width: contentWidth, height: 54)
+            .onAppear { monitor.subscribe(subscriptionID) }
+            .onDisappear { monitor.unsubscribe(subscriptionID) }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Battery")
+            .accessibilityValue(monitor.readings.map { "\($0.name), \($0.percentage) percent" }.joined(separator: ", "))
     }
 }
 
@@ -1269,11 +1345,6 @@ private struct FocusTimerCompactView: View {
                     .lineLimit(1).minimumScaleFactor(0.7)
             }
         }
-        .task(id: configuration.focusStartedAt) {
-            await finishFocusTimerIfNeeded(store: store, itemID: item.id, profileID: profileID,
-                                           startedAt: configuration.focusStartedAt,
-                                           remaining: configuration.focusRemaining())
-        }
     }
 }
 
@@ -1305,11 +1376,6 @@ private struct FocusTimerPopoutView: View {
                 Text("Session: \(configuration.focusDurationSeconds / 60) min").font(.caption)
             }
             .disabled(configuration.focusStartedAt != nil)
-        }
-        .task(id: configuration.focusStartedAt) {
-            await finishFocusTimerIfNeeded(store: store, itemID: item.id, profileID: profileID,
-                                           startedAt: configuration.focusStartedAt,
-                                           remaining: configuration.focusRemaining())
         }
     }
 
@@ -1344,9 +1410,18 @@ private struct StickyNotePopoutView: View {
             TextEditor(text: $noteDraft)
                 .frame(minHeight: 120)
                 .scrollContentBackground(.hidden)
+                .foregroundColor(noteForeground(configuration.noteBackground))
+                .tint(noteAccent(configuration.noteBackground))
+                .accessibilityLabel("Note text")
                 .padding(6)
                 .background(noteColor(configuration.noteBackground), in: RoundedRectangle(cornerRadius: 10))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(.primary.opacity(0.12), lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
                 .onChange(of: noteDraft) { value in
+                    WidgetSetupDraftStore.shared.updateNoteDraft(value, for: item.id, in: profileID)
                     noteSaveTask?.cancel()
                     noteSaveTask = Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(300))
@@ -1375,28 +1450,14 @@ private struct StickyNotePopoutView: View {
 
     private func saveNote(_ text: String) {
         store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.noteText = text }
+        WidgetSetupDraftStore.shared.noteWasSaved(text, for: item.id)
     }
 }
 
-@MainActor
-private func finishFocusTimerIfNeeded(store: ProfileStore, itemID: UUID, profileID: UUID,
-                                      startedAt: Date?, remaining: TimeInterval) async {
-    guard let startedAt else { return }
-    if remaining > 0 {
-        do { try await Task.sleep(for: .seconds(remaining)) }
-        catch { return }
-    }
-    guard !Task.isCancelled else { return }
-    store.updateWidgetConfiguration(itemID: itemID, in: profileID) { configuration in
-        guard configuration.focusStartedAt == startedAt, configuration.focusRemaining() <= 0 else { return }
-        configuration.focusElapsedBeforeStart = TimeInterval(configuration.focusDurationSeconds)
-        configuration.focusStartedAt = nil
-    }
-}
+
 
 private func timerText(_ interval: TimeInterval) -> String {
-    let seconds = max(0, Int(interval.rounded(.up)))
-    return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
+    TimerValueFormatter.text(interval)
 }
 
 func targetCountdownText(_ interval: TimeInterval, compact: Bool) -> String {
@@ -1443,21 +1504,7 @@ private func formattedDate(_ date: Date, timeZone: TimeZone) -> String {
     return formatter.string(from: date)
 }
 
-@MainActor
-private func finishCountdownIfNeeded(store: ProfileStore, itemID: UUID, profileID: UUID,
-                                     startedAt: Date?, remaining: TimeInterval) async {
-    guard let startedAt else { return }
-    if remaining > 0 {
-        do { try await Task.sleep(for: .seconds(remaining)) }
-        catch { return }
-    }
-    guard !Task.isCancelled else { return }
-    store.updateWidgetConfiguration(itemID: itemID, in: profileID) { configuration in
-        guard configuration.countdownStartedAt == startedAt, configuration.countdownRemaining() <= 0 else { return }
-        configuration.countdownElapsedBeforeStart = TimeInterval(configuration.countdownDurationSeconds)
-        configuration.countdownStartedAt = nil
-    }
-}
+
 
 private func noteColor(_ background: NoteBackground) -> Color {
     switch background {
@@ -1467,5 +1514,20 @@ private func noteColor(_ background: NoteBackground) -> Color {
     case .white: .white.opacity(0.6)
     case .black: .black.opacity(0.75)
     case .translucent: .primary.opacity(0.06)
+    }
+}
+
+private func noteForeground(_ background: NoteBackground) -> Color {
+    switch background {
+    case .white: .black
+    case .black: .white
+    default: Color(nsColor: .textColor)
+    }
+}
+
+private func noteAccent(_ background: NoteBackground) -> Color {
+    switch background {
+    case .white, .black: noteForeground(background)
+    default: .accentColor
     }
 }

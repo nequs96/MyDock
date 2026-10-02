@@ -39,13 +39,12 @@ final class NativeDockAutoSaveMonitor: ObservableObject {
 
         guard nextProfileID != nil, let pollingInterval else { return }
         pollingTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await refreshNow()
+            await self?.refreshNow()
             while !Task.isCancelled {
                 do { try await Task.sleep(for: pollingInterval) }
                 catch { return }
-                guard !Task.isCancelled else { return }
-                await refreshNow()
+                guard !Task.isCancelled, self != nil else { return }
+                await self?.refreshNow()
             }
         }
     }
@@ -54,6 +53,11 @@ final class NativeDockAutoSaveMonitor: ObservableObject {
         guard let profileID = selectedProfileID else { return }
         await gate.acquire()
         if Task.isCancelled || selectedProfileID != profileID {
+            await gate.release()
+            return
+        }
+        guard controller.health == .ready else {
+            errorMessage = "Automatic saving is paused until the macOS Dock operation or recovery completes."
             await gate.release()
             return
         }
@@ -81,26 +85,35 @@ final class NativeDockAutoSaveMonitor: ObservableObject {
             lastSeenAppliedGeneration = controller.appliedGeneration
             if signatures == controller.lastAppliedSignatures {
                 lastObservedSignatures = signatures
-                errorMessage = nil
+                confirmSavedState()
                 return
             }
         }
         guard let previous = lastObservedSignatures else {
             lastObservedSignatures = signatures
-            errorMessage = nil
+            confirmSavedState()
             return
         }
         guard signatures != previous else {
-            errorMessage = nil
+            confirmSavedState()
             return
         }
         lastObservedSignatures = signatures
         guard signatures != NativeDockSerializer.signatures(from: profile.items) else {
-            errorMessage = nil
+            confirmSavedState()
             return
         }
 
         store.replaceItems(NativeDockSerializer.preservingIDs(in: imported, from: profile.items), in: profileID)
         errorMessage = store.persistenceError
     }
+
+    private func confirmSavedState() {
+        // An unchanged Dock does not mean the last disk write succeeded.
+        // Retry failed persistence and retain the warning until it really saves.
+        if store.hasUnpersistedChanges { store.flush() }
+        errorMessage = store.persistenceError
+    }
+
+    deinit { pollingTask?.cancel() }
 }

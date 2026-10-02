@@ -26,6 +26,11 @@ targets:
         LSMinimumSystemVersion: "13.0"
         NSPrincipalClass: NSApplication
         NSHighResolutionCapable: true
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: app.mydock.items
+            UTTypeDescription: MyDock items
+            UTTypeConformsTo:
+              - public.json
         NSCalendarsFullAccessUsageDescription: MyDock reads selected calendar events for the Calendar widget.
         NSCalendarsUsageDescription: MyDock reads selected calendar events for the Calendar widget.
         NSRemindersFullAccessUsageDescription: MyDock reads, adds, and completes reminders when you use the Reminders widget.
@@ -49,10 +54,57 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         SWIFT_EMIT_LOC_STRINGS: YES
       configs:
+        Debug:
+          ENABLE_TESTABILITY: YES
         Release:
           ENABLE_HARDENED_RUNTIME: YES
+  MyDockTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Tests/MyDockTests
+    dependencies:
+      - target: MyDock
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ${MYDOCK_BUNDLE_IDENTIFIER}.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/MyDock.app/Contents/MacOS/MyDock
+        SWIFT_VERSION: 6.0
+        SWIFT_STRICT_CONCURRENCY: complete
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+  MyDockUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: Tests/MyDockUITests
+    dependencies:
+      - target: MyDock
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ${MYDOCK_BUNDLE_IDENTIFIER}.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: MyDock
+        SWIFT_VERSION: 6.0
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
 schemes:
   MyDock:
     build:
       targets:
         MyDock: all
+    test:
+      targets:
+        - MyDockTests
+      environmentVariables:
+        MYDOCK_UNIT_TEST_HOST: "1"
+  MyDock Visual QA:
+    build:
+      targets:
+        MyDock: all
+    test:
+      targets:
+        - MyDockUITests

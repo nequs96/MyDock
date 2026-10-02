@@ -9,6 +9,9 @@ struct MyDockApp: App {
     var body: some Scene {
         Settings { EmptyView() }
             .commands {
+                CommandGroup(replacing: .appInfo) {
+                    Button("About \(Product.name)") { appDelegate.showAboutFromAppMenu() }
+                }
                 CommandGroup(replacing: .appSettings) {
                     Button("Settings…") { appDelegate.showSettingsFromAppMenu() }
                         .keyboardShortcut(",", modifiers: .command)
@@ -22,23 +25,30 @@ struct MyDockApp: App {
 }
 
 @MainActor
-final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
+final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var dockController: CustomDockWindowController?
     private var statusItem: NSStatusItem?
     private var stateObservation: AnyCancellable?
+    private var persistenceObservation: AnyCancellable?
     private var shortcutObservation: AnyCancellable?
     private var windows: [String: NSWindow] = [:]
+    private let workspaceNavigation = DockWorkspaceNavigation()
     private var pendingCustomMainMode: Bool?
     private var customMainModeTask: Task<Void, Never>?
+    private var lastCustomMainModeAttempt: Bool?
     private var instanceLock: SingleInstanceLock?
     private var abortingDuplicateLaunch = false
+    private var quitWithoutSaving = false
     #if DEBUG
+    private let unitTestHost = ProcessInfo.processInfo.environment["MYDOCK_UNIT_TEST_HOST"] == "1"
     private let visualPreview = ProcessInfo.processInfo.environment["MYDOCK_VISUAL_PREVIEW"] == "1"
         || (Bundle.main.bundleIdentifier?.hasPrefix(Product.bundleIdentifier) == true
             && Bundle.main.bundleIdentifier?.hasSuffix("VisualPreview") == true)
-    private let countdownVisualPreview = Bundle.main.bundleIdentifier == Product.bundleIdentifier + "CountdownVisualPreview"
-    private lazy var previewStore = ProfileStore(fileURL: FileManager.default.temporaryDirectory
-        .appendingPathComponent("MyDock-VisualPreview-\(ProcessInfo.processInfo.processIdentifier).json"))
+    private let countdownVisualPreview = ProcessInfo.processInfo.environment["MYDOCK_COUNTDOWN_VISUAL_PREVIEW"] == "1"
+        || Bundle.main.bundleIdentifier == Product.bundleIdentifier + "CountdownVisualPreview"
+    private let previewDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MyDock-VisualPreview-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+    private lazy var previewStore = ProfileStore(fileURL: previewDirectory.appendingPathComponent("state.json"), allowsSystemChanges: false)
     private var store: ProfileStore { visualPreview ? previewStore : ProfileStore.shared }
     #else
     private lazy var store = ProfileStore.shared
@@ -46,16 +56,39 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
-        if visualPreview {
-            if ProcessInfo.processInfo.environment["MYDOCK_VISUAL_DARK"] == "1" {
-                NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+        if unitTestHost { return }
+        #endif
+        NSApplication.shared.appearance = MyDockInterfaceAppearance.current.native
+        #if DEBUG
+        if let directory = ProcessInfo.processInfo.environment["MYDOCK_RENDER_QA"] {
+            Task { @MainActor in
+                do {
+                    try await PremiumVisualQA.export(to: URL(fileURLWithPath: directory, isDirectory: true), store: previewStore)
+                    print("MyDock render matrix exported")
+                } catch { print("MyDock render failed: \(error)") }
+                NSApplication.shared.terminate(nil)
             }
-            store.updateSettings { $0.showRunningApps = false }
+            return
+        }
+        if visualPreview {
+            if let dark = ProcessInfo.processInfo.environment["MYDOCK_VISUAL_DARK"] {
+                NSApplication.shared.appearance = NSAppearance(named: dark == "1" ? .darkAqua : .aqua)
+            }
+            let previewPosition = DockPosition(rawValue: ProcessInfo.processInfo.environment["MYDOCK_VISUAL_POSITION"] ?? "") ?? .bottom
+            store.updateSettings {
+                $0.showRunningApps = false
+                $0.customDockPosition = previewPosition
+                $0.customDockTheme = ProcessInfo.processInfo.environment["MYDOCK_VISUAL_DARK"] == "0" ? .light : .dark
+            }
             let id = store.createProfile(kind: .custom, name: "Everyday")
             store.add(.widget("Clock"), to: id)
             store.add(.widget("Weather"), to: id)
             store.add(.widget("Focus Timer"), to: id)
             store.add(.widget("Sticky Note"), to: id)
+            if ProcessInfo.processInfo.environment["MYDOCK_WIDGET_PREVIEW"] == "1" {
+                for kind in ["System Activity", "AI Limits", "Disk Space", "Calculator", "Quick Checklist"] { store.add(.widget(kind), to: id) }
+                store.add(AIActivityPreviewData.item(), to: id)
+            }
             if countdownVisualPreview {
                 var countdown = DockItem.widget("Countdown")
                 countdown.widgetConfiguration?.setCountdownTarget(Date.now.addingTimeInterval(90_061))
@@ -63,11 +96,11 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
             }
             NSApplication.shared.setActivationPolicy(.regular)
             showManager(nil)
-            openSettings(nil)
             showWindow(id: "visual-preview", title: "Custom Dock Preview",
                        root: VisualDockPreviewSurface(store: store, profileID: id),
                        size: NSSize(width: countdownVisualPreview ? 960 : 620,
                                     height: countdownVisualPreview ? 560 : 420))
+            showManager(nil)
             return
         }
         #endif
@@ -94,12 +127,14 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
             NSApplication.shared.terminate(nil)
             return
         }
+        DiagnosticsService.shared.record(.appLaunched)
         NSApplication.shared.setActivationPolicy(store.state.settings.onboardingComplete ? .accessory : .regular)
-        dockController = CustomDockWindowController(store: store)
+        dockController = CustomDockWindowController(store: store) { [weak self] page in
+            self?.showSettings(page: page)
+        }
         dockController?.update(state: store.state)
         installMenuBarItem()
         stateObservation = store.$state.receive(on: RunLoop.main).sink { [weak self] state in
-            self?.dockController?.update(state: state)
             self?.rebuildMenu()
             NativeDockAutoSaveMonitor.shared.configure(
                 enabled: state.settings.onboardingComplete && state.settings.automaticallySaveNativeDockChanges,
@@ -110,6 +145,9 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
             } ?? false
             self?.synchronizeCustomMainMode(state.settings.setupMode == .customMain && activeCustomProfileExists)
         }
+        persistenceObservation = Publishers.CombineLatest(store.$persistenceError, store.$hasUnpersistedChanges)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _, _ in self?.rebuildMenu() }
         GlobalShortcutController.shared.onActivateProfile = { [weak self] profileID in
             self?.activateProfile(profileID)
         }
@@ -126,8 +164,53 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showManager(nil)
+        return true
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard sender === windows["workspace"] else { return true }
+        return store.editSessions.resolveBeforeQuitting(action: "Close")
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        #if DEBUG
+        if unitTestHost { return .terminateNow }
+        #endif
         if abortingDuplicateLaunch { return .terminateNow }
+        DiagnosticsService.shared.record(.quitRequested)
+        quitWithoutSaving = false
+        WidgetSetupDraftStore.shared.flushNotes(to: store)
+        guard store.editSessions.resolveBeforeQuitting() else { return .terminateCancel }
+        store.flush()
+        if store.hasUnpersistedChanges {
+            let alert = NSAlert()
+            alert.messageText = "MyDock changes are not saved"
+            alert.informativeText = store.persistenceError ?? "MyDock could not save its latest changes."
+            alert.addButton(withTitle: "Retry Save")
+            alert.addButton(withTitle: "Cancel Quit")
+            alert.addButton(withTitle: "Quit Without Saving")
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                store.commit()
+                guard !store.hasUnpersistedChanges else {
+                    DiagnosticsService.shared.record(.quitCancelled)
+                    return .terminateCancel
+                }
+            case .alertSecondButtonReturn:
+                DiagnosticsService.shared.record(.quitCancelled)
+                return .terminateCancel
+            case .alertThirdButtonReturn:
+                quitWithoutSaving = true
+            default:
+                DiagnosticsService.shared.record(.quitCancelled)
+                return .terminateCancel
+            }
+        }
+        #if DEBUG
+        if visualPreview { return .terminateNow }
+        #endif
         guard NativeDockAutoHideController.shared.hasPendingRestore else { return .terminateNow }
         Task { @MainActor in
             do {
@@ -136,22 +219,36 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "Apple Dock settings could not be restored"
-                alert.informativeText = "MyDock could not restore the Dock's previous auto-hide setting. The recovery record was kept; try quitting again after resolving the issue.\n\n\(error.localizedDescription)"
+                alert.informativeText = "MyDock could not restore the Dock's previous visibility settings. The recovery record was kept; try quitting again after resolving the issue.\n\n\(error.localizedDescription)"
                 alert.addButton(withTitle: "OK")
                 alert.runModal()
+                DiagnosticsService.shared.record(.quitCancelled)
                 sender.reply(toApplicationShouldTerminate: false)
             }
         }
         return .terminateLater
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        #if DEBUG
+        if unitTestHost { return }
+        if visualPreview { try? FileManager.default.removeItem(at: previewDirectory); return }
+        #endif
+        if !abortingDuplicateLaunch { DiagnosticsService.shared.record(.appTerminated) }
+        guard !quitWithoutSaving else { return }
+        WidgetSetupDraftStore.shared.flushNotes(to: store)
+        if store.hasUnpersistedChanges { store.commit() }
+    }
+
     private func synchronizeCustomMainMode(_ enabled: Bool) {
+        guard enabled != lastCustomMainModeAttempt || pendingCustomMainMode != nil else { return }
         pendingCustomMainMode = enabled
         guard customMainModeTask == nil else { return }
         customMainModeTask = Task { @MainActor [weak self] in
             guard let self else { return }
             while let requested = pendingCustomMainMode {
                 pendingCustomMainMode = nil
+                lastCustomMainModeAttempt = requested
                 do {
                     try await NativeDockAutoHideController.shared.setCustomDockMain(requested)
                 } catch {
@@ -179,11 +276,28 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
         let title = store.state.settings.showActiveProfileNameInMenuBar
             ? MenuBarProfileTitle.title(in: store.state) : nil
         statusItem.length = title == nil ? NSStatusItem.squareLength : NSStatusItem.variableLength
+        statusItem.button?.image = NSImage(
+            systemSymbolName: store.hasUnpersistedChanges ? "exclamationmark.triangle.fill" : "dock.rectangle",
+            accessibilityDescription: store.hasUnpersistedChanges ? "MyDock has unsaved changes" : Product.name
+        )
         statusItem.button?.title = title ?? ""
         let description = MenuBarProfileTitle.toolTip(in: store.state)
-        statusItem.button?.toolTip = description
-        statusItem.button?.setAccessibilityLabel(description)
+        let persistenceDescription = store.hasUnpersistedChanges
+            ? "Changes are waiting to be saved. " + (store.persistenceError ?? "Retry saving in MyDock Settings.")
+            : nil
+        statusItem.button?.toolTip = [description, persistenceDescription].compactMap { $0 }.joined(separator: "\n")
+        statusItem.button?.setAccessibilityLabel([description, persistenceDescription].compactMap { $0 }.joined(separator: ". "))
         let menu = NSMenu()
+        if store.hasUnpersistedChanges {
+            let item = NSMenuItem(
+                title: store.canRetryPersistence ? "Changes Not Saved — Retry Save" : "Changes Not Saved — Settings…",
+                action: store.canRetryPersistence ? #selector(retryPersistence(_:)) : #selector(openSettings(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            menu.addItem(item)
+            menu.addItem(.separator())
+        }
         if !store.nativeProfiles.isEmpty {
             let heading = NSMenuItem(title: "macOS Dock", action: nil, keyEquivalent: "")
             heading.isEnabled = false
@@ -192,7 +306,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
                 let item = NSMenuItem(title: profile.name, action: #selector(selectProfile(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = profile.id.uuidString
-                item.state = store.state.settings.activeNativeProfileID == profile.id ? .on : .off
+                item.state = DockProfileStatus(profile: profile, settings: store.state.settings).isCurrent ? .on : .off
                 menu.addItem(item)
             }
         }
@@ -205,7 +319,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
                 let item = NSMenuItem(title: profile.name, action: #selector(selectProfile(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = profile.id.uuidString
-                item.state = store.state.settings.activeCustomProfileID == profile.id ? .on : .off
+                item.state = DockProfileStatus(profile: profile, settings: store.state.settings).isCurrent ? .on : .off
                 menu.addItem(item)
             }
         }
@@ -227,6 +341,10 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
         activateProfile(id)
     }
 
+    @objc private func retryPersistence(_ sender: NSMenuItem) {
+        store.commit()
+    }
+
     private func activateProfile(_ id: UUID) {
         guard let profile = store.state.profiles.first(where: { $0.id == id }) else { return }
         if profile.kind == .custom {
@@ -235,7 +353,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 do {
                     try await NativeDockController.shared.apply(profile)
-                    store.activate(id)
+                    store.recordAppliedNativeProfile(id)
                 } catch {
                     let alert = NSAlert()
                     alert.messageText = "Could not switch the macOS Dock"
@@ -248,17 +366,33 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openManager(_ sender: Any?) { showManager(sender) }
     @objc private func openSettings(_ sender: Any?) {
-        showWindow(id: "settings", title: "Settings", root: SettingsView(store: store), size: NSSize(width: 860, height: 700))
+        showSettings(page: nil)
+    }
+    private func showSettings(page: MyDockSettingsPage?) {
+        workspaceNavigation.showsSettings = true
+        if let page { store.updateSettings { $0.lastSettingsPage = page } }
+        showWorkspace()
     }
     func showSettingsFromAppMenu() { openSettings(nil) }
     func showManagerFromAppMenu() { showManager(nil) }
+    func showAboutFromAppMenu() { openAbout(nil) }
     @objc private func openAbout(_ sender: Any?) {
         showWindow(id: "about", title: "About \(Product.name)", root: AboutView(onReplaySetup: { [weak self] in self?.showOnboarding() }), size: NSSize(width: 420, height: 360))
     }
     @objc private func quit(_ sender: Any?) { NSApplication.shared.terminate(nil) }
 
     private func showManager(_ sender: Any?) {
-        showWindow(id: "manager", title: "Manage Docks", root: DockManagerView(store: store, onContinueSetup: { [weak self] in self?.showOnboarding() }), size: NSSize(width: 1060, height: 650))
+        workspaceNavigation.showsSettings = false
+        showWorkspace()
+    }
+
+    private func showWorkspace() {
+        if let window = windows["workspace"] {
+            window.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            return
+        }
+        showWindow(id: "workspace", title: "MyDock", root: DockWorkspaceView(store: store, navigation: workspaceNavigation, onContinueSetup: { [weak self] in self?.showOnboarding() }), size: NSSize(width: 1160, height: 760))
     }
 
     private func showOnboarding() {
@@ -274,15 +408,22 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate {
             window = existing
         } else {
             window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
             window.title = title
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = id == "workspace" ? .hidden : .visible
+            window.toolbarStyle = .unifiedCompact
+            window.backgroundColor = NSColor.windowBackgroundColor
+            window.hasShadow = true
+            window.minSize = id == "workspace" ? NSSize(width: 780, height: 600) : size
+            if id == "workspace" { window.delegate = self }
             window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: root)
+            window.contentView = NSHostingView(rootView: root.modifier(MyDockInterfaceStyle()))
             window.center()
             windows[id] = window
         }
-        window.contentView = NSHostingView(rootView: root)
+        window.contentView = NSHostingView(rootView: root.modifier(MyDockInterfaceStyle()))
         window.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
@@ -295,18 +436,46 @@ private struct VisualDockPreviewSurface: View {
 
     var body: some View {
         if let profile = store.state.profiles.first(where: { $0.id == profileID }) {
-            let settings = store.state.settings
+            let settings = store.effectiveSettings(for: profile)
             let scale = CGFloat(settings.customDockSize)
-            let length = DockSurfaceMetrics.contentLength(items: profile.items, settings: settings, scale: scale)
+            let model = DockRenderModel(profile: profile, settings: settings, runningApplications: [], windows: [], runningMediaSources: Set(NowPlayingSource.allCases))
+            let length = model.contentLength(settings: settings, scale: scale) + (settings.magnificationEnabled ? 32 : 22) * scale
             let horizontal = settings.customDockPosition == .bottom
             ZStack {
                 LinearGradient(colors: [DockDesign.accent.opacity(0.16), DockDesign.page],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
-                CustomDockView(store: store, profile: profile)
-                    .frame(width: horizontal ? min(length, 560) : 76 * scale,
-                           height: horizontal ? 76 * scale : min(length, 360))
+                DockLayoutPreview(store: store, profile: profile, maximumSideLength: 360)
+                    .frame(width: horizontal ? min(length + 20, 560) : 118 * scale)
             }
         }
     }
 }
 #endif
+
+@MainActor
+final class DockWorkspaceNavigation: ObservableObject {
+    @Published var showsSettings = false
+}
+
+struct DockWorkspaceView: View {
+    @ObservedObject var store: ProfileStore
+    @ObservedObject var navigation: DockWorkspaceNavigation
+    var onContinueSetup: () -> Void
+
+    @State private var sidebarVisible = true
+
+    var body: some View {
+        DockManagerView(store: store, onContinueSetup: onContinueSetup,
+                        sidebarVisible: sidebarVisible, showsSettings: navigation.showsSettings,
+                        openSettings: { navigation.showsSettings = true },
+                        openDocks: { navigation.showsSettings = false })
+            .frame(minWidth: 780, minHeight: 560)
+            .background(DockDesign.page)
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    Button { sidebarVisible.toggle() } label: { Image(systemName: "sidebar.left") }
+                        .help("Toggle sidebar").accessibilityLabel("Toggle sidebar")
+                }
+            }
+    }
+}

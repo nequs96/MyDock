@@ -43,9 +43,21 @@ enum AlarmSchedule {
 
 @MainActor
 enum AlarmNotificationService {
-    static func schedule(widgetID: UUID, alarm: DockAlarm) async throws {
+    private static var currentOperations: [UUID: [UUID: UUID]] = [:]
+
+    static func begin(widgetID: UUID, alarmID: UUID, operationID: UUID) {
+        currentOperations[widgetID, default: [:]][alarmID] = operationID
+    }
+
+    static func isCurrent(widgetID: UUID, alarmID: UUID, operationID: UUID) -> Bool {
+        currentOperations[widgetID]?[alarmID] == operationID
+    }
+
+    static func schedule(widgetID: UUID, alarm: DockAlarm, operationID: UUID) async throws {
+        guard isCurrent(widgetID: widgetID, alarmID: alarm.id, operationID: operationID) else { return }
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
+        guard isCurrent(widgetID: widgetID, alarmID: alarm.id, operationID: operationID) else { return }
         if settings.authorizationStatus == .notDetermined {
             guard try await center.requestAuthorization(options: [.alert, .sound]) else {
                 throw AlarmNotificationError.permissionDenied
@@ -53,8 +65,8 @@ enum AlarmNotificationService {
         } else if settings.authorizationStatus != .authorized {
             throw AlarmNotificationError.permissionDenied
         }
+        guard isCurrent(widgetID: widgetID, alarmID: alarm.id, operationID: operationID) else { return }
 
-        cancel(widgetID: widgetID, alarm: alarm)
         let content = UNMutableNotificationContent()
         content.title = alarm.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "MyDock Alarm" : alarm.title
         content.body = "Your scheduled alarm is ready."
@@ -68,31 +80,67 @@ enum AlarmNotificationService {
                 }
                 let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
                 let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-                try await center.add(UNNotificationRequest(identifier: oneTimeID(widgetID: widgetID, alarmID: alarm.id),
+                try await center.add(UNNotificationRequest(identifier: oneTimeID(widgetID: widgetID,
+                                                                                alarmID: alarm.id,
+                                                                                operationID: operationID),
                                                             content: content,
                                                             trigger: trigger))
+                guard isCurrent(widgetID: widgetID, alarmID: alarm.id, operationID: operationID) else {
+                    removeOperationRequests(widgetID: widgetID, alarmID: alarm.id, operationID: operationID)
+                    return
+                }
             } else {
                 for weekday in weekdays {
+                    guard isCurrent(widgetID: widgetID, alarmID: alarm.id, operationID: operationID) else {
+                        removeOperationRequests(widgetID: widgetID, alarmID: alarm.id, operationID: operationID)
+                        return
+                    }
                     var components = DateComponents()
                     components.weekday = weekday
                     components.hour = alarm.hour
                     components.minute = alarm.minute
                     let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
-                    let identifier = repeatingID(widgetID: widgetID, alarmID: alarm.id, weekday: weekday)
+                    let identifier = repeatingID(widgetID: widgetID,
+                                                 alarmID: alarm.id,
+                                                 operationID: operationID,
+                                                 weekday: weekday)
                     try await center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
+                    guard isCurrent(widgetID: widgetID, alarmID: alarm.id, operationID: operationID) else {
+                        removeOperationRequests(widgetID: widgetID, alarmID: alarm.id, operationID: operationID)
+                        return
+                    }
                 }
             }
         } catch {
-            cancel(widgetID: widgetID, alarm: alarm)
+            removeOperationRequests(widgetID: widgetID, alarmID: alarm.id, operationID: operationID)
             throw error
         }
+        await removeObsoleteRequests(widgetID: widgetID, alarmID: alarm.id)
     }
 
     static func cancel(widgetID: UUID, alarm: DockAlarm) {
-        let identifiers = notificationIDs(widgetID: widgetID, alarm: alarm)
+        let previousOperation = currentOperations[widgetID]?[alarm.id]
+        currentOperations[widgetID]?.removeValue(forKey: alarm.id)
+        if currentOperations[widgetID]?.isEmpty == true { currentOperations.removeValue(forKey: widgetID) }
+        let identifiers = legacyIDs(widgetID: widgetID, alarmID: alarm.id)
+            + (previousOperation.map { operationIDs(widgetID: widgetID, alarmID: alarm.id, operationID: $0) } ?? [])
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        Task { @MainActor in await removeObsoleteRequests(widgetID: widgetID, alarmID: alarm.id) }
+    }
+
+    static func cancelAll(widgetID: UUID, alarms: [DockAlarm]) {
+        let previous = currentOperations.removeValue(forKey: widgetID) ?? [:]
+        let knownAlarmIDs = Set(alarms.map(\.id)).union(previous.keys)
+        let identifiers = knownAlarmIDs.flatMap { alarmID in
+            legacyIDs(widgetID: widgetID, alarmID: alarmID)
+                + (previous[alarmID].map { operationIDs(widgetID: widgetID, alarmID: alarmID, operationID: $0) } ?? [])
+        }
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        Task { @MainActor in await removeObsoleteRequests(widgetID: widgetID, alarmID: nil) }
     }
 
     static func reconcileSchedules(in store: ProfileStore) async {
@@ -117,24 +165,68 @@ enum AlarmNotificationService {
         }
     }
 
-    private static func isScheduled(widgetID: UUID, alarm: DockAlarm, pending: Set<String>) -> Bool {
-        let weekdays = Array(Set(alarm.repeatWeekdays.filter { (1...7).contains($0) }))
-        if weekdays.isEmpty {
-            return pending.contains(oneTimeID(widgetID: widgetID, alarmID: alarm.id))
+    static func isScheduled(widgetID: UUID, alarm: DockAlarm, pending: Set<String>) -> Bool {
+        let weekdays = Set(alarm.repeatWeekdays.filter { (1...7).contains($0) })
+        let requiredSuffixes: Set<String> = weekdays.isEmpty ? ["once"] : Set(weekdays.map(String.init))
+        let prefix = notificationPrefix(widgetID: widgetID, alarmID: alarm.id) + "."
+        if requiredSuffixes.allSatisfy({ pending.contains(prefix + $0) }) { return true }
+
+        var suffixesByOperation: [UUID: Set<String>] = [:]
+        for identifier in pending where identifier.hasPrefix(prefix) {
+            let tail = identifier.dropFirst(prefix.count).split(separator: ".", omittingEmptySubsequences: false)
+            guard tail.count == 2, let operationID = UUID(uuidString: String(tail[0])) else { continue }
+            suffixesByOperation[operationID, default: []].insert(String(tail[1]))
         }
-        return weekdays.allSatisfy { pending.contains(repeatingID(widgetID: widgetID, alarmID: alarm.id, weekday: $0)) }
+        return suffixesByOperation.values.contains { requiredSuffixes.isSubset(of: $0) }
     }
 
-    private static func notificationIDs(widgetID: UUID, alarm: DockAlarm) -> [String] {
-        [oneTimeID(widgetID: widgetID, alarmID: alarm.id)]
-            + (1...7).map { repeatingID(widgetID: widgetID, alarmID: alarm.id, weekday: $0) }
+    static func notificationPrefix(widgetID: UUID, alarmID: UUID) -> String {
+        "mydock.alarm.\(widgetID.uuidString).\(alarmID.uuidString)"
     }
 
-    private static func oneTimeID(widgetID: UUID, alarmID: UUID) -> String {
-        "mydock.alarm.\(widgetID.uuidString).\(alarmID.uuidString).once"
+    static func oneTimeID(widgetID: UUID, alarmID: UUID, operationID: UUID) -> String {
+        "\(notificationPrefix(widgetID: widgetID, alarmID: alarmID)).\(operationID.uuidString).once"
     }
 
-    private static func repeatingID(widgetID: UUID, alarmID: UUID, weekday: Int) -> String {
-        "mydock.alarm.\(widgetID.uuidString).\(alarmID.uuidString).\(weekday)"
+    static func repeatingID(widgetID: UUID, alarmID: UUID, operationID: UUID, weekday: Int) -> String {
+        "\(notificationPrefix(widgetID: widgetID, alarmID: alarmID)).\(operationID.uuidString).\(weekday)"
+    }
+
+    private static func legacyIDs(widgetID: UUID, alarmID: UUID) -> [String] {
+        let prefix = notificationPrefix(widgetID: widgetID, alarmID: alarmID)
+        return [prefix + ".once"] + (1...7).map { prefix + ".\($0)" }
+    }
+
+    private static func operationIDs(widgetID: UUID, alarmID: UUID, operationID: UUID) -> [String] {
+        [oneTimeID(widgetID: widgetID, alarmID: alarmID, operationID: operationID)]
+            + (1...7).map { repeatingID(widgetID: widgetID, alarmID: alarmID, operationID: operationID, weekday: $0) }
+    }
+
+    private static func removeOperationRequests(widgetID: UUID, alarmID: UUID, operationID: UUID) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: operationIDs(widgetID: widgetID, alarmID: alarmID, operationID: operationID))
+    }
+
+    private static func removeObsoleteRequests(widgetID: UUID, alarmID: UUID?) async {
+        let center = UNUserNotificationCenter.current()
+        let pending = await center.pendingNotificationRequests()
+        center.removePendingNotificationRequests(withIdentifiers: obsoleteIdentifiers(
+            pending.map(\.identifier), widgetID: widgetID, alarmID: alarmID))
+        let delivered = await center.deliveredNotifications()
+        center.removeDeliveredNotifications(withIdentifiers: obsoleteIdentifiers(
+            delivered.map(\.request.identifier), widgetID: widgetID, alarmID: alarmID))
+    }
+
+    private static func obsoleteIdentifiers(_ identifiers: [String], widgetID: UUID, alarmID: UUID?) -> [String] {
+        let widgetPrefix = "mydock.alarm.\(widgetID.uuidString)."
+        let alarmPrefix = alarmID.map { notificationPrefix(widgetID: widgetID, alarmID: $0) + "." }
+        let preservedPrefixes = (currentOperations[widgetID] ?? [:]).map { key, operationID in
+            notificationPrefix(widgetID: widgetID, alarmID: key) + ".\(operationID.uuidString)."
+        }
+        return identifiers.filter { identifier in
+            guard identifier.hasPrefix(widgetPrefix) else { return false }
+            if let alarmPrefix, !identifier.hasPrefix(alarmPrefix) { return false }
+            return !preservedPrefixes.contains(where: identifier.hasPrefix)
+        }
     }
 }

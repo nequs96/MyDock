@@ -70,13 +70,15 @@ struct OpenMeteoWeatherProvider: WeatherProvider {
     static func decodeForecast(_ data: Data, location: WeatherLocation, fetchedAt: Date = .now) throws -> WeatherForecast {
         let response = try JSONDecoder().decode(ForecastResponse.self, from: data)
         let hours = min(response.hourly.time.count,
-                        min(response.hourly.temperature.count,
-                            min(response.hourly.weatherCode.count, response.hourly.precipitationProbability?.count ?? Int.max)))
+                        min(response.hourly.temperature.count, response.hourly.weatherCode.count))
         let hourly = (0..<hours).map { index in
-            WeatherHour(timestamp: Date(timeIntervalSince1970: response.hourly.time[index]),
-                        temperature: response.hourly.temperature[index],
-                        precipitationProbability: response.hourly.precipitationProbability?[index],
-                        weatherCode: response.hourly.weatherCode[index])
+            let precipitationProbability = response.hourly.precipitationProbability.flatMap { values in
+                index < values.count ? values[index] : nil
+            }
+            return WeatherHour(timestamp: Date(timeIntervalSince1970: response.hourly.time[index]),
+                               temperature: response.hourly.temperature[index],
+                               precipitationProbability: precipitationProbability,
+                               weatherCode: response.hourly.weatherCode[index])
         }
         guard response.current.temperature.isFinite,
               response.current.apparentTemperature.isFinite,
@@ -115,6 +117,8 @@ struct OpenMeteoWeatherProvider: WeatherProvider {
 actor WeatherService {
     private struct ForecastKey: Hashable {
         var locationID: String
+        var latitude: Double
+        var longitude: Double
         var unit: WeatherTemperatureUnit
     }
 
@@ -126,10 +130,14 @@ actor WeatherService {
     static let shared = WeatherService(provider: OpenMeteoWeatherProvider())
 
     private let provider: any WeatherProvider
+    private let maximumCachedForecasts: Int
     private var cache: [ForecastKey: CachedForecast] = [:]
     private var inFlight: [ForecastKey: Task<WeatherForecast, Error>] = [:]
 
-    init(provider: any WeatherProvider) { self.provider = provider }
+    init(provider: any WeatherProvider, maximumCachedForecasts: Int = 128) {
+        self.provider = provider
+        self.maximumCachedForecasts = max(1, maximumCachedForecasts)
+    }
 
     func searchLocations(_ query: String) async throws -> [WeatherLocation] {
         try await provider.searchLocations(query)
@@ -138,7 +146,8 @@ actor WeatherService {
     func forecast(for location: WeatherLocation,
                   unit: WeatherTemperatureUnit,
                   forceRefresh: Bool = false) async throws -> WeatherForecast {
-        let key = ForecastKey(locationID: location.id, unit: unit)
+        let key = ForecastKey(locationID: location.id, latitude: location.latitude,
+                              longitude: location.longitude, unit: unit)
         if !forceRefresh, let cached = cache[key], cached.expiresAt > .now { return cached.value }
         if let task = inFlight[key] { return try await task.value }
         let provider = self.provider
@@ -146,7 +155,12 @@ actor WeatherService {
         inFlight[key] = task
         do {
             let value = try await task.value
+            cache = cache.filter { $0.value.expiresAt > .now }
             cache[key] = CachedForecast(value: value, expiresAt: .now.addingTimeInterval(10 * 60))
+            if cache.count > maximumCachedForecasts,
+               let oldest = cache.min(by: { $0.value.expiresAt < $1.value.expiresAt })?.key {
+                cache[oldest] = nil
+            }
             inFlight.removeValue(forKey: key)
             return value
         } catch {

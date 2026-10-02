@@ -28,7 +28,7 @@ enum NowPlayingParsingError: Error {
 enum NowPlayingResponseParser {
     static func snapshot(from response: String, updatedAt: Date = .now) throws -> NowPlayingSnapshot? {
         guard !response.isEmpty else { return nil }
-        let parts = response.components(separatedBy: "\n")
+        let parts = response.trimmingCharacters(in: .newlines).components(separatedBy: response.contains("\u{1f}") ? "\u{1f}" : "\n")
         guard parts.count >= 6,
               let position = Double(parts[4]), let duration = Double(parts[5]),
               position.isFinite, duration.isFinite else { throw NowPlayingParsingError.malformedResponse }
@@ -44,9 +44,33 @@ enum NowPlayingResponseParser {
 }
 
 enum NowPlayingVisibilityPolicy {
+    static func showsTile(hideWhenClosed: Bool, enabledSources: Set<NowPlayingSource>,
+                          runningSources: Set<NowPlayingSource>) -> Bool {
+        !hideWhenClosed || !enabledSources.isDisjoint(with: runningSources)
+    }
+
     static func showsTile(hideWhenClosed: Bool, source: NowPlayingSource,
                           runningSources: Set<NowPlayingSource>) -> Bool {
-        !hideWhenClosed || runningSources.contains(source)
+        showsTile(hideWhenClosed: hideWhenClosed, enabledSources: [source], runningSources: runningSources)
+    }
+}
+
+enum NowPlayingSourcePolicy {
+    static func activeSource(preferred: NowPlayingSource,
+                             enabledSources: Set<NowPlayingSource>,
+                             snapshots: [NowPlayingSource: NowPlayingSnapshot]) -> NowPlayingSource? {
+        guard !enabledSources.isEmpty else { return nil }
+        let playingSources = enabledSources.compactMap { source -> (NowPlayingSource, NowPlayingSnapshot)? in
+            guard let snapshot = snapshots[source], snapshot.isPlaying else { return nil }
+            return (source, snapshot)
+        }
+        if playingSources.count == 1 { return playingSources[0].0 }
+        if !playingSources.isEmpty {
+            if playingSources.contains(where: { $0.0 == preferred }) { return preferred }
+            return playingSources.max(by: { $0.1.updatedAt < $1.1.updatedAt })?.0
+        }
+        if enabledSources.contains(preferred) { return preferred }
+        return NowPlayingSource.allCases.first(where: enabledSources.contains)
     }
 }
 
@@ -78,6 +102,8 @@ final class NowPlayingMonitor: ObservableObject {
     private var refreshTasks: [NowPlayingSource: Task<Void, Never>] = [:]
     private var refreshIntervals: [NowPlayingSource: TimeInterval] = [:]
     private var dockIsVisible = false
+    private var pendingReads: [NowPlayingSource: Task<Void, Never>] = [:]
+    private var commandTasks: [NowPlayingSource: Task<Void, Never>] = [:]
 
     private init() {
         refreshRunningSources()
@@ -147,6 +173,10 @@ final class NowPlayingMonitor: ObservableObject {
             return
         }
 
+        guard pendingReads[source] == nil else { return }
+        pendingReads[source] = Task { [weak self] in
+            guard let self else { return }
+            defer { pendingReads[source] = nil }
         let artworkStatement = source == .spotify
             ? "try\nset trackArtworkURL to artwork url of current track as text\nend try"
             : ""
@@ -161,14 +191,11 @@ final class NowPlayingMonitor: ObservableObject {
             set trackDuration to duration of current track as text
             set trackArtworkURL to ""
             \(artworkStatement)
-            return trackName & linefeed & trackArtist & linefeed & trackAlbum & linefeed & playbackState & linefeed & playbackPosition & linefeed & trackDuration & linefeed & trackArtworkURL
+            set separator to ASCII character 31
+            return trackName & separator & trackArtist & separator & trackAlbum & separator & playbackState & separator & playbackPosition & separator & trackDuration & separator & trackArtworkURL
         end tell
         """
-        guard let result = execute(script, source: source) else {
-            snapshots[source] = nil
-            clearArtwork(source)
-            return
-        }
+        guard let result = await execute(script, source: source), !Task.isCancelled else { return }
         do {
             guard let snapshot = try NowPlayingResponseParser.snapshot(from: result) else {
                 snapshots[source] = nil
@@ -180,9 +207,8 @@ final class NowPlayingMonitor: ObservableObject {
             errors[source] = nil
             updateArtwork(for: snapshot, source: source)
         } catch {
-            snapshots[source] = nil
-            clearArtwork(source)
             errors[source] = "The player returned track data MyDock couldn't read."
+        }
         }
     }
 
@@ -198,9 +224,9 @@ final class NowPlayingMonitor: ObservableObject {
         case .togglePlayback: action = "playpause"
         case .nextTrack: action = "next track"
         case let .seekBackward(seconds):
-            action = "set targetPosition to player position - \(max(1, Int(seconds.rounded()))); if targetPosition < 0 then set targetPosition to 0; set player position to targetPosition"
+            action = "set targetPosition to player position - \(max(1, Int((seconds.isFinite ? min(max(0, seconds), 86_400) : 1).rounded()))); if targetPosition < 0 then set targetPosition to 0; set player position to targetPosition"
         case let .seekForward(seconds):
-            action = "set targetPosition to player position + \(max(1, Int(seconds.rounded()))); set player position to targetPosition"
+            action = "set targetPosition to player position + \(max(1, Int((seconds.isFinite ? min(max(0, seconds), 86_400) : 1).rounded()))); set player position to targetPosition"
         }
         let script = """
         tell application id "\(source.bundleIdentifier)"
@@ -209,8 +235,13 @@ final class NowPlayingMonitor: ObservableObject {
             end if
         end tell
         """
-        _ = execute(script, source: source)
-        refresh(source)
+        let previous = commandTasks[source]
+        commandTasks[source] = Task { [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled else { return }
+            _ = await execute(script, source: source)
+            refresh(source)
+        }
     }
 
     private func clearTerminatedPlayer(from notification: Notification) {
@@ -218,6 +249,8 @@ final class NowPlayingMonitor: ObservableObject {
         guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
               let bundleIdentifier = application.bundleIdentifier,
               let source = NowPlayingSource.allCases.first(where: { $0.bundleIdentifier == bundleIdentifier }) else { return }
+        pendingReads[source]?.cancel()
+        commandTasks[source]?.cancel()
         snapshots[source] = nil
         errors[source] = nil
         clearArtwork(source)
@@ -230,8 +263,12 @@ final class NowPlayingMonitor: ObservableObject {
         artworkKeys[source] = key
         switch source {
         case .appleMusic:
-            if let data = musicArtworkData() {
-                artwork[source] = NowPlayingArtwork.thumbnail(from: data)
+            artworkTasks[source] = Task { [weak self] in
+                guard let self else { return }
+                let data = await musicArtworkData()
+                guard !Task.isCancelled, artworkKeys[source] == key else { return }
+                artwork[source] = data.flatMap { NowPlayingArtwork.thumbnail(from: $0) }
+                artworkTasks[source] = nil
             }
         case .spotify:
             guard let url = snapshot.artworkURL else { return }
@@ -251,8 +288,8 @@ final class NowPlayingMonitor: ObservableObject {
         artwork[source] = nil
     }
 
-    private func musicArtworkData() -> Data? {
-        let scriptText = """
+    private func musicArtworkData() async -> Data? {
+        let script = """
         tell application id "com.apple.Music"
             try
                 return raw data of artwork 1 of current track
@@ -261,24 +298,46 @@ final class NowPlayingMonitor: ObservableObject {
             end try
         end tell
         """
-        guard let script = NSAppleScript(source: scriptText) else { return nil }
-        var errorInfo: NSDictionary?
-        let result = script.executeAndReturnError(&errorInfo)
-        guard errorInfo == nil else { return nil }
-        return result.data
+        guard let response = try? await BoundedAutomationRunner.run(script, sourceForm: true, maximumBytes: 4 * 1_024 * 1_024) else { return nil }
+        return BoundedAutomationRunner.artworkData(from: response)
     }
 
-    private func execute(_ sourceText: String, source: NowPlayingSource) -> String? {
-        guard let script = NSAppleScript(source: sourceText) else {
-            errors[source] = "MyDock couldn't prepare the playback command."
+    private func execute(_ sourceText: String, source: NowPlayingSource) async -> String? {
+        do {
+            let response = try await BoundedAutomationRunner.run(sourceText)
+            guard !Task.isCancelled else { return nil }
+            errors[source] = nil
+            return response
+        } catch {
+            guard !Task.isCancelled else { return nil }
+            errors[source] = "MyDock couldn't read or control \(source.title). Check Automation permission, then try again. The player may be unresponsive."
             return nil
         }
-        var errorInfo: NSDictionary?
-        let result = script.executeAndReturnError(&errorInfo)
-        if errorInfo != nil {
-            errors[source] = "MyDock couldn't read or control \(source.title). Check System Settings → Privacy & Security → Automation."
-            return nil
+    }
+}
+
+enum BoundedAutomationRunner {
+    static func run(_ source: String, sourceForm: Bool = false, maximumBytes: Int = 65_536) async throws -> String {
+        let output = try await BoundedSubprocessCapture.runCancellable(
+            executableURL: URL(fileURLWithPath: "/usr/bin/osascript"),
+            arguments: ["-s", sourceForm ? "s" : "h", "-e", source],
+            maximumOutputBytes: maximumBytes, maximumErrorBytes: 4_096, timeout: 8)
+        guard output.terminationStatus == 0 else { throw NowPlayingParsingError.malformedResponse }
+        return String(decoding: output.standardOutput, as: UTF8.self).trimmingCharacters(in: .newlines)
+    }
+
+    static func artworkData(from response: String) -> Data? {
+        guard response.hasPrefix("«data "), response.hasSuffix("»") else { return nil }
+        let payload = response.dropFirst(6).dropLast().dropFirst(4)
+        guard payload.count <= 4 * 1_024 * 1_024, payload.count.isMultiple(of: 2) else { return nil }
+        var data = Data()
+        var index = payload.startIndex
+        while index < payload.endIndex {
+            let end = payload.index(index, offsetBy: 2)
+            guard let byte = UInt8(payload[index..<end], radix: 16) else { return nil }
+            data.append(byte)
+            index = end
         }
-        return result.stringValue ?? ""
+        return data.isEmpty ? nil : data
     }
 }

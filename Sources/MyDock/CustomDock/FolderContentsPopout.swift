@@ -3,14 +3,16 @@ import SwiftUI
 
 struct FolderContentsPopout: View {
     var folderURL: URL
+    var folderName: String?
     var onClose: () -> Void
 
     @State private var directoryStack: [URL]
     @State private var entries: [FolderContentsEntry] = []
     @State private var errorMessage: String?
 
-    init(folderURL: URL, onClose: @escaping () -> Void) {
+    init(folderURL: URL, folderName: String? = nil, onClose: @escaping () -> Void) {
         self.folderURL = folderURL
+        self.folderName = folderName
         self.onClose = onClose
         _directoryStack = State(initialValue: [folderURL])
     }
@@ -28,7 +30,8 @@ struct FolderContentsPopout: View {
                     .help("Back")
                 }
                 Image(systemName: "folder.fill").foregroundStyle(.tint)
-                Text(currentURL.lastPathComponent).font(.headline).lineLimit(1)
+                Text(directoryStack.count == 1 ? (folderName ?? currentURL.lastPathComponent) : currentURL.lastPathComponent)
+                    .font(.headline).lineLimit(1)
                 Spacer(minLength: 4)
                 Button {
                     NSWorkspace.shared.open(currentURL)
@@ -44,7 +47,7 @@ struct FolderContentsPopout: View {
             } else if entries.isEmpty {
                 emptyState(title: "Empty folder", symbol: "folder", message: "This folder has no visible items.")
             } else {
-                ScrollView {
+                DockScrollView {
                     LazyVStack(spacing: 2) {
                         ForEach(entries) { entry in
                             Button {
@@ -76,7 +79,7 @@ struct FolderContentsPopout: View {
                 .scrollIndicators(.hidden)
             }
         }
-        .frame(width: 330, height: 360)
+        .frame(width: 330, height: 360).background(DockDesign.page).font(DockDesign.body).modifier(MyDockInterfaceStyle())
         .task(id: currentURL) { await loadEntries(at: currentURL) }
         .onExitCommand(perform: onClose)
     }

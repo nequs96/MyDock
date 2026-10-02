@@ -10,22 +10,32 @@ enum SetupMode: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .nativeOnly: "macOS Dock only"
         case .both: "macOS Dock + Custom Dock"
-        case .customMain: "Custom Dock as main Dock"
+        case .customMain: "Replace macOS Dock"
         }
     }
 }
 
+enum CustomDockTheme: String, Codable, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+}
+
 enum CustomDockMaterial: String, Codable, CaseIterable, Identifiable {
     case frosted
+    case solid
     case liquidGlass
+    case liquidGlassClear
     case dark
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .solid: "Solid · no glass"
         case .frosted: "Frosted"
-        case .liquidGlass: "Liquid Glass (macOS 26+)"
+        case .liquidGlass: "Liquid Glass · Regular"
+        case .liquidGlassClear: "Liquid Glass · Clear"
         case .dark: "Dark"
         }
     }
@@ -36,7 +46,44 @@ enum CustomDockWidgetStyle: String, Codable, CaseIterable, Identifiable {
     case compact
 
     var id: String { rawValue }
-    var title: String { self == .cards ? "Information cards" : "Compact tiles" }
+    var title: String { self == .cards ? "Adaptive widgets" : "Compact defaults" }
+}
+
+enum WidgetIconStyle: String, Codable, CaseIterable, Identifiable {
+    case live, gradient, tinted, outline
+    var id: String { rawValue }
+    var title: String {
+        switch self { case .live: "Live"; case .gradient: "Color"; case .tinted: "Soft"; case .outline: "Mono" }
+    }
+}
+
+struct QuickChecklistEntry: Codable, Hashable, Identifiable {
+    var id = UUID()
+    var title: String
+    var isComplete = false
+}
+
+enum WidgetCardWidth: String, Codable, CaseIterable, Identifiable {
+    case compact
+    case standard
+    case wide
+
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .compact: "Compact · no name"
+        case .standard: "Standard"
+        case .wide: "Wide"
+        }
+    }
+    var points: Double {
+        switch self {
+        case .compact: 66
+        case .standard: 112
+        case .wide: 144
+        }
+    }
 }
 
 enum DockProfileKind: String, Codable, CaseIterable, Identifiable {
@@ -136,6 +183,8 @@ struct DockItem: Codable, Identifiable, Hashable {
     var spacerKind: SpacerKind?
     var widgetKind: String?
     var widgetConfiguration: WidgetConfiguration?
+    var folderCustomName: String?
+    var showFolderLabel: Bool?
     var folderIconColor: DockProfileColor?
     var folderIconLetter: String?
     var folderIconNumber: String?
@@ -144,6 +193,17 @@ struct DockItem: Codable, Identifiable, Hashable {
 
     var hasCustomFolderIcon: Bool {
         folderIconColor != nil || folderIconLetter?.isEmpty == false || folderIconNumber?.isEmpty == false
+    }
+
+    var showsFolderLabel: Bool { showFolderLabel ?? false }
+
+    var displayName: String {
+        guard type == .folder else { return title }
+        if let folderCustomName,
+           !folderCustomName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return folderCustomName
+        }
+        return url?.lastPathComponent ?? title
     }
 
     static func application(at url: URL) -> DockItem {
@@ -159,7 +219,8 @@ struct DockItem: Codable, Identifiable, Hashable {
     }
 
     static func file(at url: URL, isFolder: Bool = false) -> DockItem {
-        DockItem(type: isFolder ? .folder : .file, title: url.deletingPathExtension().lastPathComponent, url: url)
+        let title = isFolder ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
+        return DockItem(type: isFolder ? .folder : .file, title: title, url: url)
     }
 
     static func link(_ url: URL, title: String, icon: DockLinkIcon? = nil) -> DockItem {
@@ -181,6 +242,14 @@ enum DockItemMoveDirection {
 }
 
 enum DockItemSelectionPolicy {
+    static func next<ItemID: Hashable>(in orderedIDs: [ItemID], selected: Set<ItemID>, cursor: ItemID?, forward: Bool) -> ItemID? {
+        guard !orderedIDs.isEmpty else { return nil }
+        guard !selected.isEmpty else { return forward ? orderedIDs.first : orderedIDs.last }
+        let current = cursor.flatMap { selected.contains($0) ? orderedIDs.firstIndex(of: $0) : nil }
+            ?? orderedIDs.firstIndex(where: selected.contains) ?? (forward ? -1 : orderedIDs.count)
+        return orderedIDs[min(orderedIDs.count - 1, max(0, current + (forward ? 1 : -1)))]
+    }
+
     static func range<ItemID: Hashable>(in orderedIDs: [ItemID], from anchorID: ItemID, to targetID: ItemID) -> Set<ItemID> {
         guard let anchorIndex = orderedIDs.firstIndex(of: anchorID),
               let targetIndex = orderedIDs.firstIndex(of: targetID) else { return [] }
@@ -189,6 +258,16 @@ enum DockItemSelectionPolicy {
 }
 
 enum DockItemOrderingPolicy {
+    static func moving(_ items: [DockItem], ids: Set<UUID>, before targetID: UUID?) -> [DockItem] {
+        guard !ids.isEmpty, targetID.map({ !ids.contains($0) }) ?? true else { return items }
+        let moved = items.filter { ids.contains($0.id) }
+        guard !moved.isEmpty else { return items }
+        var remaining = items.filter { !ids.contains($0.id) }
+        let target = targetID.flatMap { id in remaining.firstIndex(where: { $0.id == id }) } ?? remaining.endIndex
+        remaining.insert(contentsOf: moved, at: target)
+        return remaining
+    }
+
     static func moving(_ originalItems: [DockItem], ids: Set<UUID>, direction: DockItemMoveDirection) -> [DockItem] {
         guard !ids.isEmpty else { return originalItems }
         var items = originalItems
@@ -240,10 +319,10 @@ enum StockChartRange: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .week: "1W"
-        case .month: "1M"
-        case .threeMonths: "3M"
-        case .year: "1Y"
+        case .week: "5D"
+        case .month: "22D"
+        case .threeMonths: "66D"
+        case .year: "100D"
         }
     }
 
@@ -285,12 +364,26 @@ struct StockMarketSnapshot: Codable, Hashable {
 struct WatchlistStock: Codable, Hashable, Identifiable {
     var symbol: String
     var name: String
+    var customName: String? = nil
     var currency: String
     var snapshot: StockMarketSnapshot?
     var id: String { symbol }
+
+    var displayName: String {
+        let custom = customName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return custom.isEmpty ? name : custom
+    }
 }
 
 struct WidgetConfiguration: Codable, Hashable {
+    var cardWidth: WidgetCardWidth
+    // Legacy fields stay decodable for existing profiles and backups.
+    var iconStyle: WidgetIconStyle
+    var widgetLayout: WidgetLayout?
+    var iconAppearance: WidgetIconAppearance
+    var aiActivitySecondaryMetric: AIActivitySecondaryMetric
+    var systemSecondaryMetric: SystemSecondaryMetric
+    var checklistEntries: [QuickChecklistEntry]
     var noteText: String
     var noteBackground: NoteBackground
     var focusDurationSeconds: Int
@@ -334,6 +427,7 @@ struct WidgetConfiguration: Codable, Hashable {
     var aiLimitsProviderOrder: [AIProvider]
     var aiLimitsCompactProvider: AIProvider
     var aiLimitsSnapshot: AILimitsSnapshot?
+    var aiCopilotMonthlyCreditAllowance: Int?
     var aiActivityProvider: AIProvider
     var aiActivityRange: AIActivityRange
     var aiActivityChartStyle: AIActivityChartStyle
@@ -366,9 +460,12 @@ struct WidgetConfiguration: Codable, Hashable {
     var remindersLayout: RemindersWidgetLayout
     var alarms: [DockAlarm]
     var nowPlayingSource: NowPlayingSource
+    var nowPlayingEnabledSources: [NowPlayingSource]
     var nowPlayingLayout: NowPlayingLayout
     var nowPlayingSkipSeconds: Int
     var nowPlayingHidesWhenClosed: Bool
+    var nowPlayingShowsTrackControls: Bool
+    var nowPlayingShowsSeekControls: Bool
     var weatherLocation: WeatherLocation?
     var weatherUnit: WeatherTemperatureUnit
     var weatherLayout: WeatherWidgetLayout
@@ -377,6 +474,7 @@ struct WidgetConfiguration: Codable, Hashable {
     var cachedWeatherForecast: WeatherForecast?
 
     private enum CodingKeys: String, CodingKey {
+        case cardWidth, iconStyle, checklistEntries, widgetLayout, iconAppearance, aiActivitySecondaryMetric, systemSecondaryMetric
         case noteText, noteBackground, focusDurationSeconds, focusElapsedBeforeStart, focusStartedAt
         case worldClockTimeZoneID, worldClockAdditionalTimeZoneIDs, stockSymbol, stockName, stockCurrency, stockRange
         case stockRefreshIntervalMinutes, stockShowsVolume, stockSnapshot, watchlistStocks, watchlistSelectedSymbol
@@ -384,6 +482,7 @@ struct WidgetConfiguration: Codable, Hashable {
         case paddleDisplayName, paddleColor, paddleAccountID, paddleMetric, paddlePeriod, paddleShowsChart, paddleSnapshot
         case shopifyDisplayName, shopifyColor, shopifyStoreID, shopifyMetric, shopifyPeriod, shopifyShowsChart, shopifySnapshot
         case aiLimitsLayout, aiLimitsRepresentation, aiLimitsVisibleProviders, aiLimitsProviderOrder, aiLimitsCompactProvider, aiLimitsSnapshot
+        case aiCopilotMonthlyCreditAllowance
         case aiActivityProvider, aiActivityRange, aiActivityChartStyle, aiActivitySnapshot
         case stopwatchElapsedBeforeStart, stopwatchStartedAt, stopwatchClockStart
         case countdownDurationSeconds, countdownElapsedBeforeStart, countdownStartedAt
@@ -393,11 +492,19 @@ struct WidgetConfiguration: Codable, Hashable {
         case appFolderName, appFolderColor, appFolderLetter, appFolderApplications, selectedShortcutName
         case selectedCalendarIDs, calendarLayout, calendarShowsAllDayEvents
         case selectedReminderCalendarID, remindersLayout, alarms
-        case nowPlayingSource, nowPlayingLayout, nowPlayingSkipSeconds, nowPlayingHidesWhenClosed
+        case nowPlayingSource, nowPlayingEnabledSources, nowPlayingLayout, nowPlayingSkipSeconds, nowPlayingHidesWhenClosed
+        case nowPlayingShowsTrackControls, nowPlayingShowsSeekControls
         case weatherLocation, weatherUnit, weatherLayout, weatherForecastHours, weatherBackground, cachedWeatherForecast
     }
 
     init() {
+        cardWidth = .standard
+        iconStyle = .live
+        widgetLayout = nil
+        iconAppearance = .soft
+        aiActivitySecondaryMetric = .sessions
+        systemSecondaryMetric = .memory
+        checklistEntries = []
         noteText = ""
         noteBackground = .yellow
         focusDurationSeconds = 25 * 60
@@ -441,6 +548,7 @@ struct WidgetConfiguration: Codable, Hashable {
         aiLimitsProviderOrder = AIProvider.allCases
         aiLimitsCompactProvider = .codex
         aiLimitsSnapshot = nil
+        aiCopilotMonthlyCreditAllowance = nil
         aiActivityProvider = .codex
         aiActivityRange = .today
         aiActivityChartStyle = .sparkline
@@ -473,9 +581,12 @@ struct WidgetConfiguration: Codable, Hashable {
         remindersLayout = .list
         alarms = []
         nowPlayingSource = .appleMusic
+        nowPlayingEnabledSources = [.appleMusic]
         nowPlayingLayout = .full
         nowPlayingSkipSeconds = 15
         nowPlayingHidesWhenClosed = false
+        nowPlayingShowsTrackControls = true
+        nowPlayingShowsSeekControls = true
         weatherLocation = nil
         weatherUnit = .celsius
         weatherLayout = .current
@@ -486,6 +597,16 @@ struct WidgetConfiguration: Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        cardWidth = try values.decodeIfPresent(WidgetCardWidth.self, forKey: .cardWidth) ?? .standard
+        iconStyle = try values.decodeIfPresent(WidgetIconStyle.self, forKey: .iconStyle) ?? .live
+        iconAppearance = try values.decodeIfPresent(WidgetIconAppearance.self, forKey: .iconAppearance) ?? WidgetIconAppearance(legacy: iconStyle)
+        widgetLayout = try values.decodeIfPresent(WidgetLayout.self, forKey: .widgetLayout)
+        if widgetLayout == nil, !values.contains(.iconAppearance), values.contains(.cardWidth) {
+            widgetLayout = cardWidth == .compact ? .compact : cardWidth == .wide ? .wide : .standard
+        }
+        aiActivitySecondaryMetric = try values.decodeIfPresent(AIActivitySecondaryMetric.self, forKey: .aiActivitySecondaryMetric) ?? .sessions
+        systemSecondaryMetric = try values.decodeIfPresent(SystemSecondaryMetric.self, forKey: .systemSecondaryMetric) ?? .memory
+        checklistEntries = try values.decodeIfPresent([QuickChecklistEntry].self, forKey: .checklistEntries) ?? []
         noteText = try values.decodeIfPresent(String.self, forKey: .noteText) ?? ""
         noteBackground = try values.decodeIfPresent(NoteBackground.self, forKey: .noteBackground) ?? .yellow
         focusDurationSeconds = try values.decodeIfPresent(Int.self, forKey: .focusDurationSeconds) ?? 25 * 60
@@ -529,6 +650,8 @@ struct WidgetConfiguration: Codable, Hashable {
         aiLimitsProviderOrder = try values.decodeIfPresent([AIProvider].self, forKey: .aiLimitsProviderOrder) ?? AIProvider.allCases
         aiLimitsCompactProvider = try values.decodeIfPresent(AIProvider.self, forKey: .aiLimitsCompactProvider) ?? .codex
         aiLimitsSnapshot = try values.decodeIfPresent(AILimitsSnapshot.self, forKey: .aiLimitsSnapshot)
+        aiCopilotMonthlyCreditAllowance = try values.decodeIfPresent(Int.self, forKey: .aiCopilotMonthlyCreditAllowance)
+            .flatMap { (1...1_000_000).contains($0) ? $0 : nil }
         aiActivityProvider = try values.decodeIfPresent(AIProvider.self, forKey: .aiActivityProvider) ?? .codex
         aiActivityRange = try values.decodeIfPresent(AIActivityRange.self, forKey: .aiActivityRange) ?? .today
         aiActivityChartStyle = try values.decodeIfPresent(AIActivityChartStyle.self, forKey: .aiActivityChartStyle) ?? .sparkline
@@ -561,15 +684,29 @@ struct WidgetConfiguration: Codable, Hashable {
         remindersLayout = try values.decodeIfPresent(RemindersWidgetLayout.self, forKey: .remindersLayout) ?? .list
         alarms = try values.decodeIfPresent([DockAlarm].self, forKey: .alarms) ?? []
         nowPlayingSource = try values.decodeIfPresent(NowPlayingSource.self, forKey: .nowPlayingSource) ?? .appleMusic
+        let enabledSources = try values.decodeIfPresent([NowPlayingSource].self, forKey: .nowPlayingEnabledSources) ?? [.appleMusic]
+        nowPlayingEnabledSources = NowPlayingSource.allCases.filter(enabledSources.contains)
+        nowPlayingSource = nowPlayingEnabledSources.contains(nowPlayingSource)
+            ? nowPlayingSource
+            : (nowPlayingEnabledSources.first ?? nowPlayingSource)
         nowPlayingLayout = try values.decodeIfPresent(NowPlayingLayout.self, forKey: .nowPlayingLayout) ?? .full
         nowPlayingSkipSeconds = min(max(try values.decodeIfPresent(Int.self, forKey: .nowPlayingSkipSeconds) ?? 15, 5), 60)
         nowPlayingHidesWhenClosed = try values.decodeIfPresent(Bool.self, forKey: .nowPlayingHidesWhenClosed) ?? false
+        nowPlayingShowsTrackControls = try values.decodeIfPresent(Bool.self, forKey: .nowPlayingShowsTrackControls) ?? true
+        nowPlayingShowsSeekControls = try values.decodeIfPresent(Bool.self, forKey: .nowPlayingShowsSeekControls) ?? true
         weatherLocation = try values.decodeIfPresent(WeatherLocation.self, forKey: .weatherLocation)
         weatherUnit = try values.decodeIfPresent(WeatherTemperatureUnit.self, forKey: .weatherUnit) ?? .celsius
         weatherLayout = try values.decodeIfPresent(WeatherWidgetLayout.self, forKey: .weatherLayout) ?? .current
         weatherForecastHours = min(max(try values.decodeIfPresent(Int.self, forKey: .weatherForecastHours) ?? 3, 1), 6)
         weatherBackground = try values.decodeIfPresent(WeatherBackground.self, forKey: .weatherBackground) ?? .themed
         cachedWeatherForecast = try values.decodeIfPresent(WeatherForecast.self, forKey: .cachedWeatherForecast)
+        try ProfileSemanticValidator.validate(self)
+    }
+
+    mutating func selectWeatherUnit(_ unit: WeatherTemperatureUnit) {
+        guard weatherUnit != unit else { return }
+        weatherUnit = unit
+        cachedWeatherForecast = nil
     }
 
     func focusRemaining(at date: Date = .now) -> TimeInterval {
@@ -627,6 +764,11 @@ struct WidgetConfiguration: Codable, Hashable {
         }
         let elapsed = countdownElapsedBeforeStart + (countdownStartedAt.map { max(0, date.timeIntervalSince($0)) } ?? 0)
         return max(0, TimeInterval(countdownDurationSeconds) - elapsed)
+    }
+
+    var countdownNotificationDeadline: Date? {
+        guard countdownMode == .duration, let start = countdownStartedAt else { return nil }
+        return start.addingTimeInterval(max(0, TimeInterval(countdownDurationSeconds) - countdownElapsedBeforeStart))
     }
 
     mutating func startCountdown(at date: Date = .now) {
@@ -865,6 +1007,7 @@ struct DockProfile: Codable, Identifiable, Hashable {
     var color: String = "blue"
     var items: [DockItem] = []
     var createdAt: Date = .now
+    var appearance: ProfileAppearance?
 }
 
 struct DockProfileDraft: Equatable {
@@ -896,6 +1039,51 @@ struct DockProfileDraft: Equatable {
     }
 }
 
+enum MyDockSettingsPage: String, Codable, CaseIterable, Identifiable {
+    case general
+    case dock
+    case appearance
+    case behavior
+    case shortcuts
+    case integrations
+    case permissions
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .dock: "Dock Setup"
+        case .appearance: "Appearance"
+        case .behavior: "Behavior"
+        case .general: "General"
+        case .permissions: "Permissions"
+        case .integrations: "Integrations"
+        case .shortcuts: "Shortcuts"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .dock: "dock.rectangle"
+        case .appearance: "paintbrush"
+        case .behavior: "hand.draw"
+        case .general: "gearshape"
+        case .permissions: "hand.raised"
+        case .integrations: "puzzlepiece.extension"
+        case .shortcuts: "command.square"
+        }
+    }
+    var searchTerms: String {
+        switch self {
+        case .dock: "dock setup profiles mode display position focus native switching auto save freeze"
+        case .appearance: "appearance material glass dark frosted cards labels widget width density size spacing radius tint"
+        case .behavior: "behavior auto hide reveal desktop running apps minimized windows previews trash badges magnification accessibility"
+        case .general: "general backup restore diagnostics export saved docks"
+        case .permissions: "permissions privacy calendar reminders location automation notification screen recording accessibility"
+        case .integrations: "integrations stripe paddle shopify market alpha vantage copilot github key token"
+        case .shortcuts: "shortcuts keyboard hotkeys global profile"
+        }
+    }
+}
+
 struct AppSettings: Codable, Equatable {
     var setupMode: SetupMode = .both
     var activeNativeProfileID: UUID?
@@ -906,11 +1094,14 @@ struct AppSettings: Codable, Equatable {
     var customDockCornerRadius: Double = 24
     var customDockTintStrength: Double = 0.08
     var customDockWidgetStyle: CustomDockWidgetStyle = .cards
+    var showWidgetLabels = true
     var customDockDisplayID: UInt32?
     var automaticallyHideCustomDock = false
+    var showRevealHandle = true
     var hideCustomDockWhenSystemDockAppears = false
     var customDockDesktopMode = false
     var customDockMaterial: CustomDockMaterial = .frosted
+    var customDockTheme: CustomDockTheme = .system
     var smoothNativeDockSwitches = false
     var showRunningApps = true
     var showMinimizedWindows = false
@@ -922,19 +1113,22 @@ struct AppSettings: Codable, Equatable {
     var automaticallySaveNativeDockChanges = false
     var showActiveProfileNameInMenuBar = false
     var onboardingComplete = false
+    var lastSettingsPage: MyDockSettingsPage = .dock
 
     private enum CodingKeys: String, CodingKey {
+        case customDockTheme
         case setupMode, activeNativeProfileID, activeCustomProfileID, customDockPosition, customDockSize
-        case customDockItemSpacing, customDockCornerRadius, customDockTintStrength, customDockWidgetStyle
-        case customDockDisplayID, automaticallyHideCustomDock, hideCustomDockWhenSystemDockAppears, customDockDesktopMode, customDockMaterial, smoothNativeDockSwitches, showRunningApps
+        case customDockItemSpacing, customDockCornerRadius, customDockTintStrength, customDockWidgetStyle, showWidgetLabels
+        case customDockDisplayID, automaticallyHideCustomDock, showRevealHandle, hideCustomDockWhenSystemDockAppears, customDockDesktopMode, customDockMaterial, smoothNativeDockSwitches, showRunningApps
         case showMinimizedWindows, showWindowPreviews, showTrash, showAppBadges, clickFocusedAppToMinimize, magnificationEnabled
-        case automaticallySaveNativeDockChanges, showActiveProfileNameInMenuBar, onboardingComplete
+        case automaticallySaveNativeDockChanges, showActiveProfileNameInMenuBar, onboardingComplete, lastSettingsPage
     }
 
     init() {}
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        customDockTheme = try values.decodeIfPresent(CustomDockTheme.self, forKey: .customDockTheme) ?? .system
         setupMode = try values.decodeIfPresent(SetupMode.self, forKey: .setupMode) ?? .both
         activeNativeProfileID = try values.decodeIfPresent(UUID.self, forKey: .activeNativeProfileID)
         activeCustomProfileID = try values.decodeIfPresent(UUID.self, forKey: .activeCustomProfileID)
@@ -944,8 +1138,10 @@ struct AppSettings: Codable, Equatable {
         customDockCornerRadius = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockCornerRadius), default: 24, range: 12...32)
         customDockTintStrength = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockTintStrength), default: 0.08, range: 0...0.3)
         customDockWidgetStyle = try values.decodeIfPresent(CustomDockWidgetStyle.self, forKey: .customDockWidgetStyle) ?? .cards
+        showWidgetLabels = try values.decodeIfPresent(Bool.self, forKey: .showWidgetLabels) ?? true
         customDockDisplayID = try values.decodeIfPresent(UInt32.self, forKey: .customDockDisplayID)
         automaticallyHideCustomDock = try values.decodeIfPresent(Bool.self, forKey: .automaticallyHideCustomDock) ?? false
+        showRevealHandle = try values.decodeIfPresent(Bool.self, forKey: .showRevealHandle) ?? true
         hideCustomDockWhenSystemDockAppears = try values.decodeIfPresent(Bool.self, forKey: .hideCustomDockWhenSystemDockAppears) ?? false
         customDockDesktopMode = try values.decodeIfPresent(Bool.self, forKey: .customDockDesktopMode) ?? false
         customDockMaterial = try values.decodeIfPresent(CustomDockMaterial.self, forKey: .customDockMaterial) ?? .frosted
@@ -960,6 +1156,7 @@ struct AppSettings: Codable, Equatable {
         automaticallySaveNativeDockChanges = try values.decodeIfPresent(Bool.self, forKey: .automaticallySaveNativeDockChanges) ?? false
         showActiveProfileNameInMenuBar = try values.decodeIfPresent(Bool.self, forKey: .showActiveProfileNameInMenuBar) ?? false
         onboardingComplete = try values.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? false
+        lastSettingsPage = try values.decodeIfPresent(MyDockSettingsPage.self, forKey: .lastSettingsPage) ?? .dock
     }
 
     private static func bounded(_ value: Double?, default fallback: Double, range: ClosedRange<Double>) -> Double {
@@ -1001,6 +1198,7 @@ struct WidgetDefinition: Identifiable, Hashable {
 }
 
 enum WidgetRegistry {
+    static let airDropSymbol = "dot.radiowaves.left.and.right"
     static let all: [WidgetDefinition] = [
         .init(name: "Stock", symbol: "chart.line.uptrend.xyaxis", category: .business, description: "Follow a market ticker."),
         .init(name: "Watchlist", symbol: "chart.xyaxis.line", category: .business, description: "Compare saved tickers."),
@@ -1022,12 +1220,15 @@ enum WidgetRegistry {
         .init(name: "Alarm", symbol: "alarm", category: .time, description: "Keep local alarms."),
         .init(name: "Time Progress", symbol: "chart.pie", category: .time, description: "See progress through a period."),
         .init(name: "Hydration", symbol: "drop", category: .personal, description: "Track water and reminders."),
-        .init(name: "System Activity", symbol: "waveform.path.ecg", category: .system, description: "Inspect CPU, memory, and storage."),
+        .init(name: "System Activity", symbol: "cpu", category: .system, description: "Inspect CPU, memory, and storage."),
         .init(name: "Network Activity", symbol: "network", category: .system, description: "See network activity and interfaces."),
         .init(name: "AI Limits", symbol: "gauge.with.dots.needle.67percent", category: .ai, description: "Show available provider limits."),
-        .init(name: "AI Activity", symbol: "chart.bar", category: .ai, description: "Review local provider activity."),
-        .init(name: "AirDrop", symbol: "airdrop", category: .system, description: "Send files with AirDrop."),
+        .init(name: "AI Activity", symbol: "sparkles.rectangle.stack", category: .ai, description: "Review local provider activity."),
+        .init(name: "AirDrop", symbol: airDropSymbol, category: .system, description: "Send files with AirDrop."),
         .init(name: "Trash", symbol: "trash", category: .system, description: "Open Trash and empty it after confirmation."),
+        .init(name: "Disk Space", symbol: "internaldrive", category: .system, description: "Keep an eye on available startup disk space."),
+        .init(name: "Calculator", symbol: "plus.forwardslash.minus", category: .productivity, description: "Calculate expressions without leaving your Dock."),
+        .init(name: "Quick Checklist", symbol: "checklist", category: .productivity, description: "Keep a small, private checklist without an account."),
         .init(name: "App Folder", symbol: "square.grid.2x2", category: .productivity, description: "Group apps together.")
     ]
 }

@@ -5,6 +5,67 @@ import Testing
 
 @MainActor
 struct ProfileStoreTests {
+    @Test func failedRecoveryBlocksNewApplyAndRetainsOriginalJournal() async throws {
+        let original: [[String: Any]] = [["tile-type": "small-spacer-tile"]]
+        let backend = FakeDockPreferencesBackend(tiles: original, failingWrites: [1])
+        let journal = FakeDockTransactionJournal()
+        try journal.begin(snapshot: original, profileID: UUID())
+        let controller = NativeDockController(backend: backend, relauncher: FakeDockRelauncher(), journal: journal)
+        do { try await controller.recoverInterruptedTransaction(); Issue.record("Recovery should fail") } catch { }
+        #expect(controller.health == .recoveryRequired)
+        let writes = backend.writeCount
+        do { try await controller.apply(DockProfile(name: "Other", kind: .native)); Issue.record("Apply should be blocked") } catch { }
+        #expect(backend.writeCount == writes)
+        #expect(journal.isPending)
+        #expect(try NativeDockSerializer.plistArraysEqual(journal.pendingSnapshot() ?? [], original))
+    }
+
+    @Test func nativeDockImportRejectsUnreadableOrUnsupportedLayout() throws {
+        let backend = FakeDockPreferencesBackend(tiles: [["tile-type": "unsupported-tile"]])
+        let controller = NativeDockController(backend: backend, relauncher: FakeDockRelauncher())
+        #expect(throws: NativeDockError.self) { try controller.readCurrentItems() }
+
+        backend.tiles = []
+        #expect(try controller.readCurrentItems().isEmpty)
+        backend.failReads = true
+        #expect(throws: NativeDockError.self) { try controller.readCurrentItems() }
+    }
+
+    @Test func starterPresetsUseAvailableAppsAndKnownWidgets() {
+        for preset in DockStarterPreset.allCases {
+            let items = preset.items()
+            #expect(!items.isEmpty)
+            #expect(Set(items.map(\.id)).count == items.count)
+            for item in items {
+                if item.type == .application {
+                    #expect(item.url.map { FileManager.default.fileExists(atPath: $0.path) } == true)
+                }
+                if item.type == .widget {
+                    #expect(WidgetRegistry.all.contains { $0.name == item.widgetKind })
+                }
+            }
+        }
+    }
+
+    @Test func replacementDockReclaimsReservedSpaceOnSecondaryDisplay() {
+        let frame = NSRect(x: -1440, y: -200, width: 1440, height: 900)
+        let visible = NSRect(x: -1360, y: -200, width: 1360, height: 875)
+        let main = DockSurfaceMetrics.placementArea(frame: frame, visibleFrame: visible, mode: .customMain)
+        #expect(main.minX == frame.minX)
+        #expect(main.minY == frame.minY)
+        #expect(main.maxY == visible.maxY)
+        #expect(DockSurfaceMetrics.placementArea(frame: frame, visibleFrame: visible, mode: .both) == visible)
+        let bottom = NSRect(x: 0, y: 80, width: 1440, height: 795)
+        #expect(DockSurfaceMetrics.placementArea(frame: NSRect(x: 0, y: 0, width: 1440, height: 900), visibleFrame: bottom, mode: .customMain).minY == 0)
+    }
+
+    @Test func solidFinishPersists() throws {
+        var settings = AppSettings()
+        settings.customDockMaterial = .solid
+        let restored = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
+        #expect(restored.customDockMaterial == .solid)
+    }
+
     @Test func spacerKindsSurviveJSONRoundTrip() throws {
         let original = [DockItem.spacer(.small), DockItem.spacer(.regular)]
         let encoded = try JSONEncoder().encode(original)
@@ -43,6 +104,50 @@ struct ProfileStoreTests {
         #expect(restored.state.settings.customDockDesktopMode)
     }
 
+    @Test func clearingActiveCustomProfilePersistsNoneForCustomMainRecovery() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("state.json")
+        let store = ProfileStore(fileURL: file)
+        let profileID = store.createProfile(kind: .custom, name: "Workspace")
+        store.setSetupMode(.customMain)
+
+        store.setActiveCustomProfile(nil)
+
+        #expect(store.state.settings.activeCustomProfileID == nil)
+        #expect(store.activeCustomProfile == nil)
+        #expect(store.state.settings.setupMode == .customMain)
+        let restored = ProfileStore(fileURL: file)
+        #expect(restored.state.settings.activeCustomProfileID == nil)
+        #expect(restored.state.settings.setupMode == .customMain)
+        #expect(restored.customProfiles.contains(where: { $0.id == profileID }))
+    }
+
+    @Test func failedProfileSaveKeepsDraftAvailableForRetry() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blockedParent = root.appendingPathComponent("not-a-directory")
+        try Data("blocker".utf8).write(to: blockedParent)
+        let store = ProfileStore(fileURL: blockedParent.appendingPathComponent("state.json"))
+        let profileID = store.createProfile(kind: .custom, name: "Draft survives")
+
+        #expect(store.persistenceError != nil)
+        #expect(store.hasUnpersistedChanges)
+        #expect(store.canRetryPersistence)
+        #expect(store.state.profiles.contains(where: { $0.id == profileID }))
+
+        try FileManager.default.removeItem(at: blockedParent)
+        try FileManager.default.createDirectory(at: blockedParent, withIntermediateDirectories: true)
+        store.commit()
+
+        #expect(store.persistenceError == nil)
+        #expect(!store.hasUnpersistedChanges)
+        #expect(ProfileStore(fileURL: blockedParent.appendingPathComponent("state.json"))
+            .state.profiles.contains(where: { $0.id == profileID }))
+    }
+
     @Test func corruptProfileDataIsPreservedBeforeNewStateIsWritten() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -75,7 +180,9 @@ struct ProfileStoreTests {
         #expect(store.persistenceWarning != nil)
         _ = store.createProfile(kind: .custom)
         #expect(try Data(contentsOf: file) == futureData)
-        #expect(store.persistenceError == nil)
+        #expect(store.persistenceError == store.persistenceWarning)
+        #expect(store.hasUnpersistedChanges)
+        #expect(!store.canRetryPersistence)
     }
 
     @Test func onboardingCreatesSelectedProfilesAndStarterWidgets() {
@@ -117,6 +224,23 @@ struct ProfileStoreTests {
         #expect(items?.map(\.id) == [regular.id, one.id, small.id])
         #expect(items?.first?.spacerKind == .regular)
         #expect(items?.last?.spacerKind == .small)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    @Test func insertItemPlacesRunningAppBeforeDockTarget() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
+        let profileID = store.createProfile(kind: .custom)
+        let first = DockItem.widget("Clock")
+        let target = DockItem.widget("Weather")
+        let inserted = DockItem.application(at: URL(fileURLWithPath: "/Applications/Preview.app"))
+        store.add(first, to: profileID)
+        store.add(target, to: profileID)
+
+        store.insert(inserted, before: target.id, in: profileID)
+
+        let items = store.state.profiles.first { $0.id == profileID }?.items
+        #expect(items?.map(\.id) == [first.id, inserted.id, target.id])
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -218,6 +342,7 @@ struct ProfileStoreTests {
             $0.noteText = "Bring the notebook"
             $0.noteBackground = .blue
         }
+        store.flush()
 
         let restored = ProfileStore(fileURL: file)
         let saved = restored.state.profiles.first { $0.id == profileID }?.items.first
@@ -373,17 +498,34 @@ struct ProfileStoreTests {
         #expect(restored.remindersLayout == .list)
         #expect(restored.alarms.isEmpty)
         #expect(restored.nowPlayingSource == .appleMusic)
+        #expect(restored.nowPlayingEnabledSources == [.appleMusic])
         #expect(restored.nowPlayingLayout == .full)
         #expect(restored.nowPlayingSkipSeconds == 15)
         #expect(!restored.nowPlayingHidesWhenClosed)
+        #expect(restored.nowPlayingShowsTrackControls)
+        #expect(restored.nowPlayingShowsSeekControls)
         #expect(restored.worldClockAdditionalTimeZoneIDs.isEmpty)
     }
 
-    @Test func countdownNotificationsUseWidgetScopedIdentifiers() {
+    @Test func countdownNotificationGenerationsPreserveOnlyTheCurrentRequest() {
         let first = UUID()
         let second = UUID()
         #expect(CountdownNotificationService.notificationID(itemID: first) == "mydock.countdown.\(first.uuidString)")
         #expect(CountdownNotificationService.notificationID(itemID: first) != CountdownNotificationService.notificationID(itemID: second))
+        let earlierOperation = UUID()
+        let currentOperation = UUID()
+        var generations = WidgetNotificationGenerationPolicy()
+        generations.begin(itemID: first, operationID: earlierOperation)
+        generations.begin(itemID: first, operationID: currentOperation)
+        #expect(!generations.isCurrent(itemID: first, operationID: earlierOperation))
+        #expect(generations.isCurrent(itemID: first, operationID: currentOperation))
+        let prefix = CountdownNotificationService.notificationID(itemID: first)
+        let earlierID = CountdownNotificationService.notificationID(itemID: first, operationID: earlierOperation)
+        let currentID = CountdownNotificationService.notificationID(itemID: first, operationID: currentOperation)
+        let anotherWidgetID = CountdownNotificationService.notificationID(itemID: second, operationID: UUID())
+        #expect(WidgetNotificationGenerationPolicy.obsoleteIdentifiers(
+            [prefix, earlierID, currentID, anotherWidgetID], prefix: prefix, preserving: currentID) ==
+            [prefix, earlierID])
         let now = Date(timeIntervalSince1970: 1_000)
         #expect(CountdownNotificationService.isFutureTarget(now.addingTimeInterval(1), now: now))
         #expect(!CountdownNotificationService.isFutureTarget(now, now: now))
@@ -499,7 +641,7 @@ struct ProfileStoreTests {
         item.widgetConfiguration?.stockRefreshIntervalMinutes = 720
         item.widgetConfiguration?.stockShowsVolume = true
         item.widgetConfiguration?.watchlistSelectedSymbol = "AAPL"
-        item.widgetConfiguration?.watchlistStocks = [WatchlistStock(symbol: "AAPL", name: "Apple Inc.", currency: "USD", snapshot: nil)]
+        item.widgetConfiguration?.watchlistStocks = [WatchlistStock(symbol: "AAPL", name: "Apple Inc.", customName: "My Apple", currency: "USD", snapshot: nil)]
         let archive = try BackupManager.makeArchive(from: [DockProfile(name: "Markets", kind: .custom, items: [item])])
         let restored = try BackupManager.readArchive(archive).importedProfiles[0].items[0].widgetConfiguration
 
@@ -508,6 +650,26 @@ struct ProfileStoreTests {
         #expect(restored?.stockShowsVolume == true)
         #expect(restored?.watchlistSelectedSymbol == "AAPL")
         #expect(restored?.watchlistStocks.first?.currency == "USD")
+        #expect(restored?.watchlistStocks.first?.displayName == "My Apple")
+
+        let legacy = #"{"symbol":"MSFT","name":"Microsoft","currency":"USD","snapshot":null}"#
+        let legacyStock = try JSONDecoder().decode(WatchlistStock.self, from: Data(legacy.utf8))
+        #expect(legacyStock.customName == nil)
+        #expect(legacyStock.displayName == "Microsoft")
+    }
+
+    @Test func marketFinanceLinksValidateAndEncodeTickerSymbols() {
+        #expect(MarketFinanceURL.url(for: " brk.b ")?.absoluteString == "https://finance.yahoo.com/quote/BRK.B")
+        #expect(MarketFinanceURL.url(for: "AAPL/other") == nil)
+        #expect(MarketFinanceURL.url(for: "") == nil)
+    }
+
+    @Test func calendarDateRefreshAppliesOnlyToCalendarApplications() {
+        var calendar = DockItem.application(at: URL(fileURLWithPath: "/System/Applications/Calendar.app"))
+        calendar.bundleIdentifier = CalendarAppIconPolicy.bundleIdentifier
+        #expect(CalendarAppIconPolicy.requiresDateRefresh(calendar))
+        #expect(!CalendarAppIconPolicy.requiresDateRefresh(.application(at: URL(fileURLWithPath: "/Applications/Notes.app"))))
+        #expect(!CalendarAppIconPolicy.requiresDateRefresh(.widget("Calendar")))
     }
 
     @Test func nativeProfileColorSurvivesBackup() throws {
@@ -554,6 +716,46 @@ struct ProfileStoreTests {
         #expect(AlarmSchedule.nextFireDate(hour: 25, minute: 0, now: now, calendar: calendar) == nil)
     }
 
+    @Test func alarmReconciliationRequiresOneCompleteNotificationGeneration() {
+        let widgetID = UUID()
+        let weekly = DockAlarm(title: "Weekdays", hour: 8, minute: 30, repeatWeekdays: [2, 4], isEnabled: true)
+        let first = UUID()
+        let second = UUID()
+        let monday = AlarmNotificationService.repeatingID(widgetID: widgetID,
+                                                           alarmID: weekly.id,
+                                                           operationID: first,
+                                                           weekday: 2)
+        let thursdayFromOtherGeneration = AlarmNotificationService.repeatingID(widgetID: widgetID,
+                                                                               alarmID: weekly.id,
+                                                                               operationID: second,
+                                                                               weekday: 4)
+        #expect(!AlarmNotificationService.isScheduled(widgetID: widgetID,
+                                                      alarm: weekly,
+                                                      pending: [monday, thursdayFromOtherGeneration]))
+        let thursday = AlarmNotificationService.repeatingID(widgetID: widgetID,
+                                                             alarmID: weekly.id,
+                                                             operationID: first,
+                                                             weekday: 4)
+        #expect(AlarmNotificationService.isScheduled(widgetID: widgetID,
+                                                     alarm: weekly,
+                                                     pending: [monday, thursday]))
+        let prefix = AlarmNotificationService.notificationPrefix(widgetID: widgetID, alarmID: weekly.id)
+        #expect(AlarmNotificationService.isScheduled(widgetID: widgetID,
+                                                     alarm: weekly,
+                                                     pending: [prefix + ".2", prefix + ".4"]))
+
+        let once = DockAlarm(title: "Once", hour: 9, minute: 0, repeatWeekdays: [], isEnabled: true)
+        let onceID = AlarmNotificationService.oneTimeID(widgetID: widgetID,
+                                                        alarmID: once.id,
+                                                        operationID: first)
+        #expect(AlarmNotificationService.isScheduled(widgetID: widgetID,
+                                                     alarm: once,
+                                                     pending: [onceID]))
+        #expect(!AlarmNotificationService.isScheduled(widgetID: UUID(),
+                                                      alarm: once,
+                                                      pending: [onceID]))
+    }
+
     @Test func duplicatingProfileDisablesAlarmsWithOriginalNotificationIdentity() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -568,6 +770,175 @@ struct ProfileStoreTests {
         let copy = store.state.profiles.last
         #expect(copy?.items.first?.id != alarmItem.id)
         #expect(copy?.items.first?.widgetConfiguration?.alarms.first?.isEnabled == false)
+    }
+
+    @Test func duplicateWidgetCopiesConfigurationButDisablesNotificationSchedules() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
+        let profileID = store.createProfile(kind: .custom, name: "Widgets")
+        var note = DockItem.widget("Sticky Note")
+        note.widgetConfiguration?.noteText = "Keep this detail"
+        store.add(note, to: profileID)
+        var alarm = DockItem.widget("Alarm")
+        alarm.widgetConfiguration?.alarms = [DockAlarm(title: "Wake", hour: 7, minute: 0, repeatWeekdays: [], isEnabled: true)]
+        store.add(alarm, to: profileID)
+
+        let noteCopyID = try #require(store.duplicateWidget(note.id, in: profileID))
+        let alarmCopyID = try #require(store.duplicateWidget(alarm.id, in: profileID))
+        let copiedItems = store.state.profiles.first(where: { $0.id == profileID })?.items ?? []
+        let copiedNote = try #require(copiedItems.first(where: { $0.id == noteCopyID }))
+        let copiedAlarm = try #require(copiedItems.first(where: { $0.id == alarmCopyID }))
+
+        #expect(noteCopyID != note.id)
+        #expect(copiedNote.widgetConfiguration?.noteText == "Keep this detail")
+        #expect(copiedAlarm.widgetConfiguration?.alarms.first?.isEnabled == false)
+        #expect(copiedItems.first(where: { $0.id == alarm.id })?.widgetConfiguration?.alarms.first?.isEnabled == true)
+    }
+
+    @Test func widgetSetupDraftsSurviveViewRecreationButStayOutOfProfilesAndClearOnRemoval() throws {
+        let itemID = UUID()
+        let otherItemID = UUID()
+        let drafts = WidgetSetupDraftStore.shared
+        drafts.updateStripeDraft(for: itemID) {
+            $0.accountName = "Revenue account"
+            $0.restrictedKey = "rk_test_memory_only"
+        }
+        drafts.updatePaddleDraft(for: itemID) {
+            $0.accountName = "Billing account"
+            $0.apiKey = "pdl_memory_only"
+        }
+        drafts.updateShopifyDraft(for: itemID) {
+            $0.domain = "store.myshopify.com"
+            $0.clientID = "client_memory_only"
+            $0.clientSecret = "secret_memory_only"
+        }
+        let city = WeatherLocation(id: "warsaw", name: "Warsaw", administrativeArea: "Masovian", country: "Poland",
+                                   latitude: 52.23, longitude: 21.01, timeZoneIdentifier: "Europe/Warsaw")
+        drafts.updateWeatherDraft(for: itemID) {
+            $0.searchText = "Warsaw"
+            $0.isChangingLocation = true
+            $0.searchResults = [city]
+        }
+
+        // A newly reconstructed popout asks the same owner for the existing draft.
+        #expect(drafts.stripeDraft(for: itemID).restrictedKey == "rk_test_memory_only")
+        #expect(drafts.paddleDraft(for: itemID).apiKey == "pdl_memory_only")
+        #expect(drafts.shopifyDraft(for: itemID).clientSecret == "secret_memory_only")
+        #expect(drafts.weatherDraft(for: itemID).searchResults == [city])
+        #expect(drafts.stripeDraft(for: otherItemID).isPristine)
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            drafts.clearDrafts(for: itemID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
+        let profileID = store.createProfile(kind: .custom, name: "Setup drafts")
+        var stripeWidget = DockItem.widget("Stripe")
+        stripeWidget.id = itemID
+        store.add(stripeWidget, to: profileID)
+        let stateJSON = String(decoding: try JSONEncoder().encode(store.state), as: UTF8.self)
+        let backupJSON = String(decoding: try BackupManager.makeArchive(from: store.state.profiles), as: UTF8.self)
+        for secret in ["rk_test_memory_only", "pdl_memory_only", "client_memory_only", "secret_memory_only"] {
+            #expect(!stateJSON.contains(secret))
+            #expect(!backupJSON.contains(secret))
+        }
+
+        store.removeItem(itemID, from: profileID)
+        #expect(drafts.stripeDraft(for: itemID).isPristine)
+        #expect(drafts.paddleDraft(for: itemID).isPristine)
+        #expect(drafts.shopifyDraft(for: itemID).isPristine)
+        #expect(drafts.weatherDraft(for: itemID).isPristine)
+    }
+
+    @Test func pendingStickyNoteDraftFlushesBeforeQuitAndClearsOnRemoval() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("state.json")
+        let store = ProfileStore(fileURL: file)
+        let profileID = store.createProfile(kind: .custom, name: "Notes")
+        let note = DockItem.widget("Sticky Note")
+        store.add(note, to: profileID)
+        let drafts = WidgetSetupDraftStore.shared
+        defer { drafts.clearDrafts(for: note.id) }
+
+        drafts.updateNoteDraft("Older edit", for: note.id, in: profileID)
+        drafts.updateNoteDraft("Latest edit", for: note.id, in: profileID)
+        drafts.noteWasSaved("Older edit", for: note.id)
+        #expect(drafts.hasPendingNotes)
+        drafts.flushNotes(to: store)
+        #expect(!drafts.hasPendingNotes)
+        let restored = ProfileStore(fileURL: file)
+        #expect(restored.state.profiles.first(where: { $0.id == profileID })?.items
+            .first(where: { $0.id == note.id })?.widgetConfiguration?.noteText == "Latest edit")
+
+        drafts.updateNoteDraft("Discarded edit", for: note.id, in: profileID)
+        store.removeItem(note.id, from: profileID)
+        #expect(!drafts.hasPendingNotes)
+    }
+
+    @Test func disconnectingSharedProviderAccountClearsEveryReferencingWidget() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("state.json")
+        let store = ProfileStore(fileURL: file)
+        let firstProfile = store.createProfile(kind: .custom, name: "First finance Dock")
+        let secondProfile = store.createProfile(kind: .custom, name: "Second finance Dock")
+
+        func connectedWidget(_ kind: String, id: String) -> DockItem {
+            var item = DockItem.widget(kind)
+            switch kind {
+            case "Stripe": item.widgetConfiguration?.stripeAccountID = id
+            case "Paddle": item.widgetConfiguration?.paddleAccountID = id
+            case "Shopify": item.widgetConfiguration?.shopifyStoreID = id
+            default: break
+            }
+            return item
+        }
+
+        var stripeFirst = connectedWidget("Stripe", id: "stripe-shared")
+        stripeFirst.widgetConfiguration?.stripeSnapshot = StripeSnapshot(
+            accountID: "stripe-shared", accountName: "Shared", fetchedAt: .now,
+            period: .sevenDays, periodStart: .now, periodEnd: .now,
+            currencies: [], unsupportedSubscriptionItems: 0)
+        let stripeSecond = connectedWidget("Stripe", id: "stripe-shared")
+        let stripeOther = connectedWidget("Stripe", id: "stripe-other")
+        var paddleFirst = connectedWidget("Paddle", id: "paddle-shared")
+        paddleFirst.widgetConfiguration?.paddleSnapshot = PaddleSnapshot(
+            accountID: "paddle-shared", accountName: "Shared", fetchedAt: .now,
+            period: .sevenDays, currency: "USD", points: [], updatedAt: .now)
+        let paddleSecond = connectedWidget("Paddle", id: "paddle-shared")
+        var shopifyFirst = connectedWidget("Shopify", id: "shopify-shared")
+        shopifyFirst.widgetConfiguration?.shopifySnapshot = ShopifySnapshot(
+            storeID: "shopify-shared", storeName: "Shared", storeDomain: "shared.myshopify.com",
+            fetchedAt: .now, period: .monthToDate, periodStart: .now, periodEnd: .now,
+            timeZoneID: "UTC", currency: "USD", orderValue: 0, orderCount: 0,
+            dailyPoints: [], productBreakdown: [], trafficBreakdown: [],
+            productBreakdownIncompleteOrders: 0, trafficAttributedOrders: 0)
+        let shopifySecond = connectedWidget("Shopify", id: "shopify-shared")
+        for item in [stripeFirst, paddleFirst, shopifyFirst] { store.add(item, to: firstProfile) }
+        for item in [stripeSecond, stripeOther, paddleSecond, shopifySecond] { store.add(item, to: secondProfile) }
+
+        store.clearConnectionReferences(.stripe("stripe-shared"))
+        store.clearConnectionReferences(.paddle("paddle-shared"))
+        store.clearConnectionReferences(.shopify("shopify-shared"))
+        let restored = ProfileStore(fileURL: file)
+        let items = Dictionary(uniqueKeysWithValues: restored.state.profiles.flatMap(\.items).map { ($0.id, $0) })
+        #expect(items[stripeFirst.id]?.widgetConfiguration?.stripeAccountID == "")
+        #expect(items[stripeFirst.id]?.widgetConfiguration?.stripeSnapshot == nil)
+        #expect(items[stripeSecond.id]?.widgetConfiguration?.stripeAccountID == "")
+        #expect(items[stripeOther.id]?.widgetConfiguration?.stripeAccountID == "stripe-other")
+        #expect(items[paddleFirst.id]?.widgetConfiguration?.paddleAccountID == "")
+        #expect(items[paddleFirst.id]?.widgetConfiguration?.paddleSnapshot == nil)
+        #expect(items[paddleSecond.id]?.widgetConfiguration?.paddleAccountID == "")
+        #expect(items[shopifyFirst.id]?.widgetConfiguration?.shopifyStoreID == "")
+        #expect(items[shopifyFirst.id]?.widgetConfiguration?.shopifySnapshot == nil)
+        #expect(items[shopifySecond.id]?.widgetConfiguration?.shopifyStoreID == "")
     }
 
     @Test func duplicatingProfileResetsCountdownRunState() {
@@ -634,6 +1005,21 @@ struct ProfileStoreTests {
         let thirdLogged = configuration.logHydrationDrink(at: today.addingTimeInterval(120))
         #expect(!thirdLogged)
         #expect(configuration.hydrationEntries.count == 2)
+    }
+
+    @Test func hydrationReminderGenerationPreventsOlderSchedulesFromWinning() {
+        var generations = WidgetNotificationGenerationPolicy()
+        let itemID = UUID()
+        let first = UUID()
+        let second = UUID()
+        generations.begin(itemID: itemID, operationID: first)
+        #expect(generations.isCurrent(itemID: itemID, operationID: first))
+        generations.begin(itemID: itemID, operationID: second)
+        #expect(!generations.isCurrent(itemID: itemID, operationID: first))
+        #expect(generations.isCurrent(itemID: itemID, operationID: second))
+        #expect(HydrationReminderService.notificationID(for: itemID, operationID: first) !=
+                HydrationReminderService.notificationID(for: itemID, operationID: second))
+        #expect(HydrationReminderService.notificationPrefix(for: itemID) == "mydock.hydration.\(itemID.uuidString)")
     }
 
     @Test func batteryReaderHandlesMissingAndOutOfRangeValues() {
@@ -854,8 +1240,13 @@ struct ProfileStoreTests {
         let restoredLegacy = try JSONDecoder().decode(DockItem.self, from: Data(legacy.utf8))
         #expect(!restoredLegacy.hasCustomFolderIcon)
         #expect(restoredLegacy.folderIconColor == nil)
+        #expect(!restoredLegacy.showsFolderLabel)
+        #expect(restoredLegacy.displayName == "Projects")
 
         var customized = DockItem.file(at: URL(fileURLWithPath: "/tmp/Projects"), isFolder: true)
+        #expect(customized.title == "Projects")
+        customized.folderCustomName = "Client Work"
+        customized.showFolderLabel = true
         customized.folderIconColor = .purple
         customized.folderIconLetter = "P"
         customized.folderIconNumber = "12"
@@ -864,7 +1255,17 @@ struct ProfileStoreTests {
         #expect(restored.folderIconColor == .purple)
         #expect(restored.folderIconLetter == "P")
         #expect(restored.folderIconNumber == "12")
+        #expect(restored.folderCustomName == "Client Work")
+        #expect(restored.showsFolderLabel)
+        #expect(restored.displayName == "Client Work")
         #expect(restored.hasCustomFolderIcon)
+
+        var resetName = restored
+        resetName.folderCustomName = "   "
+        #expect(resetName.displayName == "Projects")
+
+        let dottedFolder = DockItem.file(at: URL(fileURLWithPath: "/tmp/Archive.2026"), isFolder: true)
+        #expect(dottedFolder.displayName == "Archive.2026")
     }
 
     @Test func dockRevealEdgeRequiresDwellWhileDockAndPopoutsRevealImmediately() {
@@ -1015,6 +1416,23 @@ struct ProfileStoreTests {
         #expect(report.importedProfiles[0].items[2].widgetConfiguration?.hydrationRemindersEnabled == false)
     }
 
+    @Test func backupImportBoundsFileReadBeforeDecoding() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let archiveURL = directory.appendingPathComponent("MyDock-Backup.json")
+        let archive = try BackupManager.makeArchive(from: [DockProfile(name: "Portable", kind: .custom)])
+        try archive.write(to: archiveURL)
+        #expect(try BackupManager.readArchive(from: archiveURL).importedProfiles.count == 1)
+        #expect(try BackupManager.boundedArchiveData(from: archiveURL, maximumBytes: archive.count) == archive)
+        #expect(throws: BackupError.self) {
+            try BackupManager.boundedArchiveData(from: archiveURL, maximumBytes: archive.count - 1)
+        }
+        #expect(throws: BackupError.self) {
+            try BackupManager.boundedArchiveData(from: directory)
+        }
+    }
+
     @Test func backupRejectsInvalidLinkScheme() {
         let item = DockItem(type: .link, title: "unsafe", url: URL(fileURLWithPath: "/tmp/unsafe"))
         let profile = DockProfile(name: "Links", kind: .custom, items: [item])
@@ -1124,6 +1542,7 @@ struct ProfileStoreTests {
         let location = WeatherLocation(id: "geonames-123", name: "Warsaw", administrativeArea: "Masovian", country: "Poland", latitude: 52.23, longitude: 21.01, timeZoneIdentifier: "Europe/Warsaw")
         let cached = WeatherForecast(temperature: 21, apparentTemperature: 20, relativeHumidity: 55, precipitation: 0, windSpeed: 9, weatherCode: 1, isDay: true, fetchedAt: Date(timeIntervalSince1970: 1_700_000_000), timeZoneIdentifier: "Europe/Warsaw", hourly: [])
         var item = DockItem.widget("Weather")
+        item.widgetConfiguration?.cardWidth = .wide
         item.widgetConfiguration?.weatherLocation = location
         item.widgetConfiguration?.weatherUnit = .fahrenheit
         item.widgetConfiguration?.weatherLayout = .hourlyForecast
@@ -1136,6 +1555,7 @@ struct ProfileStoreTests {
         let restored = try BackupManager.readArchive(archive).importedProfiles[0].items[0].widgetConfiguration
 
         #expect(restored?.weatherLocation == location)
+        #expect(restored?.cardWidth == .wide)
         #expect(restored?.weatherUnit == .fahrenheit)
         #expect(restored?.weatherLayout == .hourlyForecast)
         #expect(restored?.weatherForecastHours == 6)
@@ -1168,27 +1588,58 @@ struct ProfileStoreTests {
     @Test func nowPlayingConfigurationSurvivesBackupRoundTrip() throws {
         var item = DockItem.widget("Now Playing")
         item.widgetConfiguration?.nowPlayingSource = .spotify
+        item.widgetConfiguration?.nowPlayingEnabledSources = [.appleMusic, .spotify]
         item.widgetConfiguration?.nowPlayingLayout = .mini
         item.widgetConfiguration?.nowPlayingSkipSeconds = 30
         item.widgetConfiguration?.nowPlayingHidesWhenClosed = true
+        item.widgetConfiguration?.nowPlayingShowsTrackControls = false
+        item.widgetConfiguration?.nowPlayingShowsSeekControls = false
         let profile = DockProfile(name: "Music", kind: .custom, items: [item])
 
         let archive = try BackupManager.makeArchive(from: [profile])
         let restored = try BackupManager.readArchive(archive).importedProfiles[0].items[0].widgetConfiguration
 
         #expect(restored?.nowPlayingSource == .spotify)
+        #expect(restored?.nowPlayingEnabledSources == [.appleMusic, .spotify])
         #expect(restored?.nowPlayingLayout == .mini)
         #expect(restored?.nowPlayingSkipSeconds == 30)
         #expect(restored?.nowPlayingHidesWhenClosed == true)
+        #expect(restored?.nowPlayingShowsTrackControls == false)
+        #expect(restored?.nowPlayingShowsSeekControls == false)
         #expect(!NowPlayingVisibilityPolicy.showsTile(hideWhenClosed: true, source: .spotify,
                                                       runningSources: [.appleMusic]))
         #expect(NowPlayingVisibilityPolicy.showsTile(hideWhenClosed: true, source: .spotify,
                                                      runningSources: [.spotify]))
         #expect(NowPlayingVisibilityPolicy.showsTile(hideWhenClosed: false, source: .spotify,
                                                      runningSources: []))
+        #expect(NowPlayingVisibilityPolicy.showsTile(hideWhenClosed: true,
+                                                      enabledSources: [.appleMusic, .spotify],
+                                                      runningSources: [.appleMusic]))
+        #expect(!NowPlayingVisibilityPolicy.showsTile(hideWhenClosed: true,
+                                                       enabledSources: [.spotify],
+                                                       runningSources: [.appleMusic]))
         #expect(NowPlayingRefreshPolicy.interval(dockIsVisible: true, kinds: [.compact]) == 15)
         #expect(NowPlayingRefreshPolicy.interval(dockIsVisible: true, kinds: [.compact, .popout]) == 5)
         #expect(NowPlayingRefreshPolicy.interval(dockIsVisible: false, kinds: [.popout]) == nil)
+    }
+
+    @Test func nowPlayingFollowsTheEnabledPlayerThatIsPlaying() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let musicPaused = NowPlayingSnapshot(title: "Paused", artist: "Artist", album: "", isPlaying: false,
+                                             position: 0, duration: 200, updatedAt: now, artworkURL: nil)
+        let spotifyPlaying = NowPlayingSnapshot(title: "Playing", artist: "Artist", album: "", isPlaying: true,
+                                                position: 20, duration: 200, updatedAt: now.addingTimeInterval(1), artworkURL: nil)
+        #expect(NowPlayingSourcePolicy.activeSource(preferred: .appleMusic,
+                                                    enabledSources: [.appleMusic, .spotify],
+                                                    snapshots: [.appleMusic: musicPaused, .spotify: spotifyPlaying]) == .spotify)
+        #expect(NowPlayingSourcePolicy.activeSource(preferred: .spotify,
+                                                    enabledSources: [.appleMusic, .spotify],
+                                                    snapshots: [.appleMusic: musicPaused]) == .spotify)
+        #expect(NowPlayingSourcePolicy.activeSource(preferred: .spotify,
+                                                    enabledSources: [], snapshots: [:]) == nil)
+        #expect(NowPlayingSourcePolicy.activeSource(preferred: .appleMusic,
+                                                    enabledSources: [.appleMusic, .spotify],
+                                                    snapshots: [.appleMusic: spotifyPlaying, .spotify: spotifyPlaying]) == .appleMusic)
     }
 
     @Test func nowPlayingResponseParserReadsPlaybackStateAndTimes() throws {
@@ -1727,16 +2178,16 @@ struct ProfileStoreTests {
         #expect(fractional.windows.last?.usedPercent == nil)
     }
 
-    @Test func aiLimitsCollectorKeepsOtherProvidersVisibleWhenCodexFails() {
+    @Test func aiLimitsCollectorKeepsOtherProvidersVisibleWhenCodexFails() async {
         struct FailingCodex: AILimitProviderAdapter {
             let provider: AIProvider = .codex
-            func read(now: Date) throws -> AIProviderLimitReading {
+            func read(now: Date) async throws -> AIProviderLimitReading {
                 throw AIUsageError.codexCLIUnavailable
             }
         }
         struct WorkingClaude: AILimitProviderAdapter {
             let provider: AIProvider = .claude
-            func read(now: Date) throws -> AIProviderLimitReading {
+            func read(now: Date) async throws -> AIProviderLimitReading {
                 AIProviderLimitReading(provider: provider, availability: .available, plan: nil,
                                        windows: [AILimitWindow(name: "Weekly", usedPercent: 24,
                                                                resetsAt: nil, durationMinutes: 10_080)],
@@ -1744,8 +2195,8 @@ struct ProfileStoreTests {
             }
         }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let snapshot = AILimitsCollector.collect(providers: [.codex, .claude, .cursor], now: now,
-                                                 adapters: [FailingCodex(), WorkingClaude()])
+        let snapshot = await AILimitsCollector.collect(providers: [.codex, .claude, .cursor], now: now,
+                                                       adapters: [FailingCodex(), WorkingClaude()])
         #expect(snapshot.fetchedAt == now)
         #expect(snapshot.readings.map(\.provider) == [.codex, .claude, .cursor])
         #expect(snapshot.reading(for: .codex)?.availability == .setupRequired)
@@ -1753,6 +2204,44 @@ struct ProfileStoreTests {
         #expect(snapshot.reading(for: .claude)?.windows.first?.remainingPercent == 76)
         #expect(snapshot.reading(for: .cursor)?.availability == .unavailable)
         #expect(snapshot.reading(for: .grok) == nil)
+    }
+
+    @Test func aiLimitsCollectorStopsStartingReadersAfterCancellation() async {
+        actor Probe {
+            private var startedProviders = Set<AIProvider>()
+            func markStarted(_ provider: AIProvider) { startedProviders.insert(provider) }
+            func hasStarted(_ provider: AIProvider) -> Bool { startedProviders.contains(provider) }
+        }
+        struct WaitingCodex: AILimitProviderAdapter {
+            let probe: Probe
+            let provider: AIProvider = .codex
+            func read(now: Date) async throws -> AIProviderLimitReading {
+                await probe.markStarted(provider)
+                try await Task.sleep(nanoseconds: 30_000_000_000)
+                return AIProviderLimitReading(provider: provider, availability: .available,
+                                              plan: nil, windows: [], updatedAt: now, message: nil)
+            }
+        }
+        struct TrackingClaude: AILimitProviderAdapter {
+            let probe: Probe
+            let provider: AIProvider = .claude
+            func read(now: Date) async throws -> AIProviderLimitReading {
+                await probe.markStarted(provider)
+                return AIProviderLimitReading(provider: provider, availability: .available,
+                                              plan: nil, windows: [], updatedAt: now, message: nil)
+            }
+        }
+
+        let probe = Probe()
+        let worker = Task {
+            await AILimitsCollector.collect(providers: [.codex, .claude],
+                                            adapters: [WaitingCodex(probe: probe), TrackingClaude(probe: probe)])
+        }
+        while !(await probe.hasStarted(.codex)) { await Task.yield() }
+        worker.cancel()
+        _ = await worker.value
+        let startedClaude = await probe.hasStarted(.claude)
+        #expect(!startedClaude)
     }
 
     @Test func claudeStatusLineLimitsAreReadLocallyAndExpiredSamplesAreHidden() throws {
@@ -1773,7 +2262,7 @@ struct ProfileStoreTests {
         #expect(stale.updatedAt == now)
     }
 
-    @Test func claudeStatusLineLimitAdapterReadsOnlyItsBoundedRegularFile() throws {
+    @Test func claudeStatusLineLimitAdapterReadsOnlyItsBoundedRegularFile() async throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let directory = home.appendingPathComponent(".claude", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1782,7 +2271,7 @@ struct ProfileStoreTests {
         let sample = #"{"updated_at":1800000000,"rate_limits":{"five_hour":{"used_percentage":23.5}}}"#
         try Data(sample.utf8).write(to: directory.appendingPathComponent("mydock-rate-limits.json"))
 
-        let reading = try ClaudeStatusLineLimitAdapter(homeDirectory: home).read(now: now)
+        let reading = try await ClaudeStatusLineLimitAdapter(homeDirectory: home).read(now: now)
         #expect(reading.availability == .available)
         #expect(reading.windows.first?.usedPercent == 24)
 
@@ -1957,9 +2446,11 @@ struct ProfileStoreTests {
         #expect(restoredLegacy.customDockPosition == .left)
         #expect(restoredLegacy.customDockSize == 1.2)
         #expect(restoredLegacy.automaticallyHideCustomDock)
+        #expect(restoredLegacy.showRevealHandle)
         #expect(!restoredLegacy.hideCustomDockWhenSystemDockAppears)
         #expect(!restoredLegacy.customDockDesktopMode)
         #expect(restoredLegacy.customDockMaterial == .frosted)
+        #expect(restoredLegacy.showWidgetLabels)
         #expect(restoredLegacy.customDockItemSpacing == 8)
         #expect(restoredLegacy.customDockCornerRadius == 24)
         #expect(restoredLegacy.customDockTintStrength == 0.08)
@@ -1969,11 +2460,14 @@ struct ProfileStoreTests {
         #expect(!restoredLegacy.showActiveProfileNameInMenuBar)
         #expect(!restoredLegacy.showWindowPreviews)
         #expect(!restoredLegacy.showRunningApps)
+        #expect(restoredLegacy.lastSettingsPage == .dock)
 
         var current = AppSettings()
+        current.showRevealHandle = false
         current.customDockDesktopMode = true
         current.hideCustomDockWhenSystemDockAppears = true
         current.customDockMaterial = .liquidGlass
+        current.showWidgetLabels = false
         current.smoothNativeDockSwitches = true
         current.showWindowPreviews = true
         current.showActiveProfileNameInMenuBar = true
@@ -1981,17 +2475,24 @@ struct ProfileStoreTests {
         current.customDockCornerRadius = 30
         current.customDockTintStrength = 0.21
         current.customDockWidgetStyle = .compact
-        #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).customDockDesktopMode)
+        current.lastSettingsPage = .shortcuts
+        let restoredCurrent = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current))
+        #expect(restoredCurrent.customDockDesktopMode)
+        #expect(!restoredCurrent.showRevealHandle)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).hideCustomDockWhenSystemDockAppears)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).customDockMaterial == .liquidGlass)
+        #expect(!restoredCurrent.showWidgetLabels)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).smoothNativeDockSwitches)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).showWindowPreviews)
         #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).showActiveProfileNameInMenuBar)
-        let restoredCurrent = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current))
         #expect(restoredCurrent.customDockItemSpacing == 14)
         #expect(restoredCurrent.customDockCornerRadius == 30)
         #expect(restoredCurrent.customDockTintStrength == 0.21)
         #expect(restoredCurrent.customDockWidgetStyle == .compact)
+        #expect(restoredCurrent.lastSettingsPage == .shortcuts)
+
+        current.customDockMaterial = .liquidGlassClear
+        #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(current)).customDockMaterial == .liquidGlassClear)
 
         let unbounded = #"{"customDockSize":999,"customDockItemSpacing":50,"customDockCornerRadius":3,"customDockTintStrength":2}"#
         let restoredUnbounded = try JSONDecoder().decode(AppSettings.self, from: Data(unbounded.utf8))
@@ -2001,27 +2502,52 @@ struct ProfileStoreTests {
         #expect(restoredUnbounded.customDockTintStrength == 0.3)
     }
 
+    @Test func settingsSidebarKeepsLegacyDockPageAndPersistsNewPages() throws {
+        #expect(MyDockSettingsPage.allCases.count == 7)
+        #expect(MyDockSettingsPage.dock.title == "Dock Setup")
+        #expect(MyDockSettingsPage.appearance.searchTerms.contains("density"))
+        #expect(MyDockSettingsPage.behavior.searchTerms.contains("auto hide"))
+        #expect(try JSONDecoder().decode(MyDockSettingsPage.self, from: Data("\"dock\"".utf8)) == .dock)
+
+        var settings = AppSettings()
+        settings.lastSettingsPage = .appearance
+        let restored = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
+        #expect(restored.lastSettingsPage == .appearance)
+    }
+
     @Test func dockSurfaceMetricsMatchRenderedTileGeometry() {
         let items = [DockItem.widget("Clock"), DockItem.spacer(.small), DockItem.widget("Battery")]
         var settings = AppSettings()
         settings.customDockWidgetStyle = .compact
-        let normal = DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1)
-        #expect(normal == CGFloat(156))
+        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 222)
         settings.customDockWidgetStyle = .cards
-        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == CGFloat(272))
+        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 222)
         settings.customDockItemSpacing = 14
-        let spaced = DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1)
-        let scaled = DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1.5)
-        #expect(spaced == CGFloat(284))
-        #expect(scaled == CGFloat(425))
+        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 234)
+        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1.5) == 350)
         settings.customDockPosition = .left
-        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == CGFloat(168))
+        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 168)
         settings.customDockPosition = .bottom
         settings.showTrash = true
-        #expect(DockSurfaceMetrics.contentLength(items: [], settings: settings, scale: 1) == CGFloat(136))
-        #expect(DockSurfaceMetrics.contentLength(items: [.widget("Trash")], settings: settings, scale: 1) == CGFloat(136))
+        #expect(DockSurfaceMetrics.contentLength(items: [], settings: settings, scale: 1) == 78)
+        #expect(DockSurfaceMetrics.contentLength(items: [.widget("Trash")], settings: settings, scale: 1) == 78)
+    }
+
+    @Test func adaptiveLayoutPersistsWithoutLabelOrIconWidthCoupling() throws {
+        var widget = DockItem.widget("Weather")
+        var settings = AppSettings()
+        #expect(DockSurfaceMetrics.itemLength(widget, settings: settings, scale: 1) == 132)
+        widget.widgetConfiguration?.widgetLayout = .wide
+        widget.widgetConfiguration?.iconAppearance = .mono
+        #expect(DockSurfaceMetrics.itemLength(widget, settings: settings, scale: 1) == 184)
+        let restored = try JSONDecoder().decode(DockItem.self, from: JSONEncoder().encode(widget))
+        #expect(restored.widgetConfiguration?.widgetLayout == .wide)
+        #expect(restored.widgetConfiguration?.iconAppearance == .mono)
+        settings.showWidgetLabels = false
         settings.customDockWidgetStyle = .compact
-        #expect(DockSurfaceMetrics.contentLength(items: [], settings: settings, scale: 1) == CGFloat(78))
+        #expect(DockSurfaceMetrics.itemLength(widget, settings: settings, scale: 1) == 184)
+        settings.customDockPosition = .left
+        #expect(DockSurfaceMetrics.itemLength(widget, settings: settings, scale: 1) == 54)
     }
 
     @Test func menuBarProfileTitleReflectsTheSelectedDockModes() {
@@ -2064,12 +2590,15 @@ struct ProfileStoreTests {
 
         try await controller.setCustomDockMain(true)
         #expect(backend.value == true)
+        #expect(backend.settings == .replacement)
         #expect(controller.hasPendingRestore)
         #expect(relauncher.restartCount == 1)
 
         let restartedController = NativeDockAutoHideController(backend: backend, relauncher: relauncher, defaults: defaults)
         try await restartedController.restoreBeforeExit()
         #expect(backend.value == false)
+        #expect(backend.settings.revealDelay == nil)
+        #expect(backend.settings.noBouncing == nil)
         #expect(!restartedController.hasPendingRestore)
         #expect(relauncher.restartCount == 2)
     }
@@ -2090,11 +2619,61 @@ struct ProfileStoreTests {
         } catch {
             #expect(controller.hasPendingRestore)
             #expect(backend.value == true)
+            #expect(controller.errorMessage?.contains("could not be restored") == true)
         }
         backend.failingWrites = []
         try await controller.restoreBeforeExit()
         #expect(backend.value == nil)
         #expect(!controller.hasPendingRestore)
+        #expect(controller.errorMessage == nil)
+    }
+
+    @Test func replacementRestoresAllOriginalPreferencesAndDoesNotRestartWhenUnchanged() async throws {
+        let suite = "MyDock.ReplacementTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let backend = FakeDockAutoHideBackend(value: true, revealDelay: 0.35, noBouncing: false)
+        let original = backend.settings
+        let relauncher = FakeDockRelauncher()
+        let controller = NativeDockAutoHideController(backend: backend, relauncher: relauncher, defaults: defaults)
+        try await controller.setCustomDockMain(true)
+        #expect(backend.settings == .replacement)
+        #expect(relauncher.restartCount == 1)
+        try await controller.setCustomDockMain(true)
+        #expect(relauncher.restartCount == 1)
+        let restarted = NativeDockAutoHideController(backend: backend, relauncher: relauncher, defaults: defaults)
+        try await restarted.restoreBeforeExit()
+        #expect(backend.settings == original)
+        #expect(!restarted.hasPendingRestore)
+    }
+
+    @Test func replacementMigratesThePreviousAutoHideRecoveryRecordBeforeSuppressingHover() async throws {
+        let suite = "MyDock.ReplacementTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(try JSONSerialization.data(withJSONObject: ["version": 1, "originalValue": false]),
+                     forKey: "nativeDockAutoHideRecoveryRecord")
+        let backend = FakeDockAutoHideBackend(value: true, revealDelay: 0.2, noBouncing: nil)
+        let controller = NativeDockAutoHideController(backend: backend, relauncher: FakeDockRelauncher(), defaults: defaults)
+        try await controller.setCustomDockMain(true)
+        #expect(backend.settings == .replacement)
+        let record = try #require(defaults.data(forKey: "nativeDockAutoHideRecoveryRecord"))
+        let decoded = try #require(JSONSerialization.jsonObject(with: record) as? [String: Any])
+        #expect(decoded["version"] as? Int == 2)
+        try await controller.restoreBeforeExit()
+        #expect(backend.settings == NativeDockVisibilitySettings(autoHide: false, revealDelay: 0.2, noBouncing: nil))
+        #expect(!controller.hasPendingRestore)
+    }
+
+    @Test func previousAutoHideRecordCanRestoreWithoutChangingUnownedPreferences() async throws {
+        let suite = "MyDock.ReplacementTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(try JSONSerialization.data(withJSONObject: ["version": 1]), forKey: "nativeDockAutoHideRecoveryRecord")
+        let backend = FakeDockAutoHideBackend(value: true, revealDelay: 2, noBouncing: false)
+        let controller = NativeDockAutoHideController(backend: backend, relauncher: FakeDockRelauncher(), defaults: defaults)
+        try await controller.restoreBeforeExit()
+        #expect(backend.settings == NativeDockVisibilitySettings(autoHide: nil, revealDelay: 2, noBouncing: false))
     }
 }
 
@@ -2245,6 +2824,7 @@ private enum NativeDockTestFixtures {
 @MainActor
 private final class FakeDockPreferencesBackend: DockPreferencesBackend {
     var tiles: [[String: Any]]
+    var failReads = false
     var failingWrites: Set<Int>
     private(set) var writeCount = 0
 
@@ -2253,7 +2833,10 @@ private final class FakeDockPreferencesBackend: DockPreferencesBackend {
         self.failingWrites = failingWrites
     }
 
-    func readCurrentTiles() throws -> [[String: Any]] { tiles }
+    func readCurrentTiles() throws -> [[String: Any]] {
+        if failReads { throw NativeDockError.preferencesUnavailable }
+        return tiles
+    }
 
     func writeTiles(_ tiles: [[String: Any]]) throws {
         writeCount += 1
@@ -2295,18 +2878,24 @@ private final class FakeDockTransactionJournal: DockTransactionJournal {
 
 @MainActor
 private final class FakeDockAutoHideBackend: DockAutoHidePreferencesBackend {
-    var value: Bool?
+    var settings: NativeDockVisibilitySettings
+    var value: Bool? {
+        get { settings.autoHide }
+        set { settings.autoHide = newValue }
+    }
     var failingWrites: Set<Int> = []
     private(set) var writeCount = 0
 
-    init(value: Bool?) { self.value = value }
+    init(value: Bool?, revealDelay: Double? = nil, noBouncing: Bool? = nil) {
+        settings = NativeDockVisibilitySettings(autoHide: value, revealDelay: revealDelay, noBouncing: noBouncing)
+    }
 
-    func readAutoHideSetting() throws -> Bool? { value }
+    func readVisibilitySettings() throws -> NativeDockVisibilitySettings { settings }
 
-    func writeAutoHideSetting(_ value: Bool?) throws {
+    func writeVisibilitySettings(_ settings: NativeDockVisibilitySettings) throws {
         writeCount += 1
         if failingWrites.contains(writeCount) { throw NativeDockError.preferencesUnavailable }
-        self.value = value
+        self.settings = settings
     }
 }
 

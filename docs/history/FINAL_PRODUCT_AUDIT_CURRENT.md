@@ -1,0 +1,25 @@
+# MyDock final product audit — 29 September 2026
+
+> Historical audit, retained at its original path for existing references. Current implementation and acceptance status: [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md). Findings and “current” statements below describe that audit's date.
+
+
+This is the current working-tree audit. The tree already contained substantial uncommitted product work when this pass began; no unrelated changes were reset. MyDock is a menu-bar macOS utility that saves Custom Dock and native Dock profiles. `ProfileStore` persists profiles and app settings to Application Support; `NativeDockController` reads/writes Apple's `persistent-apps`, journals the prior value, restarts Dock, verifies, and rolls back on failure. `NativeDockAutoHideController` owns a separate recovery record for replacement mode. The Custom Dock is a SwiftUI view in an AppKit panel. The workspace is a shared window containing profile management and Settings. No third-party Swift package dependencies are declared.
+
+| Finding | Severity | Evidence and impact | Action and verification |
+| --- | --- | --- | --- |
+| Native Dock import silently returned an empty profile when preferences were unreadable or contained an unsupported tile. | P1 | `readCurrentItems()` swallowed read errors and the onboarding/manager callers could save `[]`; applying that profile could remove pinned apps. | Import now throws, validates that every tile is represented, and leaves both setup and existing profiles unchanged on failure. Fake backend tests cover unreadable, unsupported and truly empty layouts. |
+| A failed replacement-mode auto-hide operation was only shown in a transient alert while Settings still appeared applied. | P1 | `synchronizeCustomMainMode` caught the error and there was no persistent state or retry path. | The controller publishes an error, Settings shows it beside Dock setup with Retry, and successful retry clears it. Failure/retry is covered by the auto-hide fake backend test. |
+| Creating profiles while another profile had unsaved edits could activate the new profile before resolving those edits. | P1 | The add/preset/import actions created a profile before `requestProfileSelection` checked the draft. | Those actions now save the draft first; invalid names or failed persistence stop creation. Visual preview confirms the creation entry points remain reachable. |
+| The profile Add toolbar control remained visible on Settings after the two screens were merged. | P2 | A hidden `DockManagerView` still contributed its toolbar item. | The toolbar item is conditional on the active page. Verified in the revised live preview accessibility tree and screenshot. |
+| Settings repeated its title and relied on large rounded cards for every group. | P2 | Live preview showed duplicate chrome and weak hierarchy. | Removed the embedded title, simplified section styling, and tightened appearance copy. Verified in dark-mode preview after rebuilding. |
+
+## Verification and remaining release gates
+
+- SwiftPM debug tests: 161 tests in 8 suites pass. They cover persistence, native Dock transaction rollback/recovery, auto-hide recovery, malformed imports, rapid native applies, backups, subprocess limits and more.
+- The isolated Debug visual preview launched without touching the real Dock. We inspected the unified workspace, Dock setup, Appearance, preset chooser, Custom Dock surface, and first onboarding screen in dark appearance. The Mac locked during a later interaction, so other light/dark and compact states still need live review.
+- `BuildMyDock.sh` compiled arm64 and x86_64 macOS 13 release slices into `build/MyDock-Audit-Candidate.app` with no app compiler warnings. A separate clean arm64 Release build passed from a fresh SwiftPM scratch directory. `codesign --verify --deep --strict`, `lipo -archs`, `plutil -lint`, and `vtool -show-build` passed. The review ZIP passed `unzip -tq`; its SHA-256 is `6ffe6daf4352038be5d4180c9d15b8e5d1f69cf956ba4816bee3b276205f67ae`.
+- **P1 release gate:** the real Apple Dock apply/restore and custom-main auto-hide/restore flows have not been exercised on this user's Dock. Use `docs/REAL_DOCK_TEST_PLAN.md` with a saved preference snapshot and explicit approval before changing the live Dock.
+- **P1 distribution gate:** local ad-hoc signing does not provide Developer ID signing or notarization. Those require the publisher's credentials and release workflow.
+- Full Xcode and UI XCTest execution are unavailable with this host's Command Line Tools. The Swift Testing framework used by the local test command has a macOS 14 minimum; this produces a test-link warning even though the app's release target is macOS 13.
+
+Apple's [Settings](https://developer.apple.com/design/human-interface-guidelines/settings) and [macOS design](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos/) guidance informed the simplified section hierarchy. MyDock deliberately keeps Settings in the same workspace as Dock management to match the product direction established by the user.

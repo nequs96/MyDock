@@ -5,14 +5,41 @@ import UniformTypeIdentifiers
 struct DockManagerView: View {
     @ObservedObject var store: ProfileStore
     var onContinueSetup: () -> Void = {}
+    var isVisible = true
+    var sidebarVisible = true
+    var showsSettings = false
+    var openSettings: () -> Void = {}
+    var openDocks: () -> Void = {}
     @State private var selectedProfileID: UUID?
-    @State private var draftSession: DockProfileDraft?
+    @ObservedObject private var edits: ProfileEditSessionCoordinator
+    private var draftSession: DockProfileDraft? {
+        get { selectedProfileID.flatMap { edits.drafts[$0] } }
+        nonmutating set { if let id = selectedProfileID { edits.set(newValue, for: id) } }
+    }
+
+    init(store: ProfileStore, onContinueSetup: @escaping () -> Void = {}, isVisible: Bool = true, sidebarVisible: Bool = true, showsSettings: Bool = false, openSettings: @escaping () -> Void = {}, openDocks: @escaping () -> Void = {}, initialInspector: Bool = false, initialSelection: Set<UUID> = []) {
+        self.store = store
+        _selectedProfileID = State(initialValue: DockProfileStatus.preferredWorkspaceProfileID(profiles: store.state.profiles, settings: store.state.settings))
+        self.edits = store.editSessions
+        self.onContinueSetup = onContinueSetup
+        self.isVisible = isVisible
+        self.sidebarVisible = sidebarVisible
+        self.showsSettings = showsSettings
+        self.openSettings = openSettings
+        self.openDocks = openDocks
+        _showingDockInspector = State(initialValue: initialInspector)
+        _selectedItemIDs = State(initialValue: initialSelection)
+    }
     @State private var pendingProfileSelectionID: UUID?
     @State private var showingUnsavedProfileChanges = false
     @State private var selectedItemIDs: Set<UUID> = []
     @State private var selectionAnchorID: UUID?
-    @State private var isSelectingItems = false
-    @State private var showingWidgetPicker = false
+    @State private var emptyDropActive = false
+    @State private var selectionCursorID: UUID?
+    @State private var showingPresets = false
+    @State private var resolvedPreset: DockProfile?
+    @State private var presetResolutionNotes: [String] = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingLinkEditor = false
     @State private var linkTitle = ""
     @State private var linkAddress = "https://"
@@ -23,21 +50,34 @@ struct DockManagerView: View {
     @State private var faviconRequestID = UUID()
     @State private var faviconFetchTask: Task<Void, Never>?
     @State private var editingLinkItemID: UUID?
-    @State private var searchText = ""
-    @State private var selectedWidgetCategory: WidgetCategory?
-    @State private var previewItemToReveal: UUID?
-    @State private var highlightedPreviewItemID: UUID?
-    @State private var previewHighlightTask: Task<Void, Never>?
     @State private var dockOperationMessage: String?
-    @State private var shortcutProfileID: UUID?
-    @State private var showingShortcutEditor = false
+    @State private var shortcutProfile: DockProfile?
+    @State private var renamingProfile = false
+    @State private var renameText = ""
+    @FocusState private var profileNameFocused: Bool
+    @State private var workspaceSize = CGSize(width: 1160, height: 760)
+    @State private var profileSearch = ""
+    @State private var dropTargetID: UUID?
+    @State private var isEndDropTarget = false
+    @State private var configurationTarget: DockConfigurationTarget?
+    @State private var confirmingProfileDeletion = false
+    @State private var profileToDelete: UUID?
+    @State private var libraryMode: DockLibraryMode?
+    @State private var showingActiveStatus = false
+    @State private var showingDockInspector = false
+    @State private var showingCreation = false
+    @State private var creationName = "New Dock"
+    @State private var creationSource = "Empty"
+    @State private var creationKind: DockProfileKind = .custom
+    @State private var confirmingClear = false
+    private var saveStatus: String? { selectedProfileID.flatMap { edits.saveFeedback[$0] } }
+    @Environment(\.undoManager) private var undoManager
 
     private var selectedProfile: DockProfile? {
-        guard let committedProfile = store.state.profiles.first(where: { $0.id == selectedProfileID }) else { return nil }
         if let draftSession, draftSession.profile.id == selectedProfileID {
             return draftSession.profile
         }
-        return committedProfile
+        return store.state.profiles.first(where: { $0.id == selectedProfileID })
     }
 
     private var hasUnsavedProfileChanges: Bool { draftSession?.isDirty == true }
@@ -47,88 +87,139 @@ struct DockManagerView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: Binding(get: { selectedProfileID }, set: { requestProfileSelection($0) })) {
-                Section("macOS Dock") {
-                    ForEach(store.nativeProfiles) { profile in
-                        profileRow(profile).tag(profile.id)
-                    }
-                }
-                Section("Custom Dock") {
-                    ForEach(store.customProfiles) { profile in
-                        profileRow(profile).tag(profile.id)
-                    }
-                }
+        HStack(spacing: 0) {
+            if sidebarVisible {
+                profileSidebar
+                Rectangle().fill(DockDesign.hairline).frame(width: 1)
             }
-            .navigationTitle("Your Docks")
-            .navigationSplitViewColumnWidth(min: 200, ideal: 225, max: 260)
-            .toolbar {
-                ToolbarItem {
-                    Menu {
-                        Button("New macOS Dock") { select(store.createProfile(kind: .native)) }
-                        Button("New Custom Dock") { select(store.createProfile(kind: .custom)) }
-                        Divider()
-                        Button("Create from Current Dock…") { createFromCurrentDock() }
-                        Button("Start Empty") { select(store.createProfile(kind: .native)) }
-                    } label: { Image(systemName: "plus") }
-                    .help("New profile")
+            Group {
+                if showsSettings { SettingsView(store: store, embeddedInWorkspace: true, sidebarVisible: false) }
+                else if let profile = selectedProfile { editor(for: profile) }
+                else {
+                    VStack(spacing: 16) {
+                        EmptyStateView(title: "Choose a Dock", symbol: "dock.rectangle",
+                                       detail: "Create a profile to arrange your apps and widgets.")
+                            .frame(maxHeight: 200)
+                        Button("Create Dock") { prepareCreation() }
+                            .buttonStyle(DockButtonStyle(primary: true))
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            }
-        } detail: {
-            if let profile = selectedProfile {
-                editor(for: profile)
-            } else {
-                EmptyStateView(title: "Choose a Dock", symbol: "dock.rectangle", detail: "Create a macOS Dock profile or a Custom Dock to get started.")
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(minHeight: 520)
+        .background(DockDesign.page)
+        .background(GeometryReader { geometry in
+            Color.clear.onAppear { workspaceSize = geometry.size }
+                .onChange(of: geometry.size) { workspaceSize = $0 }
+        })
+        .tint(DockDesign.accent)
+        .overlay(alignment: .top) {
+            if store.hasUnpersistedChanges {
+                HStack(alignment: .top, spacing: 10) {
+                    Label(store.persistenceError ?? "Changes are waiting to be saved.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 6)
+                    Button("Retry Save") { store.commit() }
+                        .controlSize(.small)
+                        .disabled(!store.canRetryPersistence)
+                }
+                .padding(11)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.orange.opacity(0.3), lineWidth: 1))
+                .padding(12)
+                .zIndex(20)
             }
         }
-        .frame(minWidth: 860, minHeight: 560)
-        .background(DockDesign.page)
-        .tint(DockDesign.accent)
         .onAppear {
             if selectedProfileID == nil {
-                switchToProfile(store.state.settings.activeCustomProfileID ?? store.state.settings.activeNativeProfileID ?? store.state.profiles.first?.id)
+                switchToProfile(DockProfileStatus.preferredWorkspaceProfileID(profiles: store.state.profiles, settings: store.state.settings))
             } else {
                 loadDraftSession()
             }
         }
-        .onDisappear {
-            previewHighlightTask?.cancel()
-            previewHighlightTask = nil
-            highlightedPreviewItemID = nil
-            previewItemToReveal = nil
-        }
         .onChange(of: selectedProfileID) { _ in
-            selectedItemIDs.removeAll()
-            selectionAnchorID = nil
-            isSelectingItems = false
-            highlightedPreviewItemID = nil
-            previewItemToReveal = nil
-            previewHighlightTask?.cancel()
-            previewHighlightTask = nil
+            showingDockInspector = false
+            clearItemSelection()
         }
         .onReceive(store.$state) { state in
+            if let selectedProfileID, !state.profiles.contains(where: { $0.id == selectedProfileID }) {
+                switchToProfile(DockProfileStatus.preferredWorkspaceProfileID(profiles: state.profiles, settings: state.settings))
+                return
+            }
             guard draftSession?.isDirty != true,
                   let selectedProfileID,
                   let profile = state.profiles.first(where: { $0.id == selectedProfileID }) else { return }
-            draftSession = DockProfileDraft(profile: profile)
+            edits.load(profile)
         }
-        .sheet(isPresented: $showingWidgetPicker) { widgetPicker }
+        .confirmationDialog("Delete this Dock profile?", isPresented: $confirmingProfileDeletion, titleVisibility: .visible) {
+            Button("Delete Profile", role: .destructive) {
+                guard let id = profileToDelete ?? selectedProfileID else { return }
+                store.deleteProfile(id)
+                edits.set(nil, for: id)
+                profileToDelete = nil
+                switchToProfile(store.state.profiles.first?.id)
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: { Text("The profile will be removed from your library. Other profiles are kept.") }
+        .sheet(item: $configurationTarget) { target in
+            if target.item.type == .widget {
+                WidgetConfigurationSheet(store: store, item: target.item, profileID: target.profileID,
+                                         maximumHeight: workspaceSize.height - DockDesign.Space.section * 2)
+            } else {
+                DockItemInspector(item: target.item, update: { replacement in
+                    updateDraft { draft in
+                        if let index = draft.items.firstIndex(where: { $0.id == target.item.id }) { draft.items[index] = replacement }
+                    }
+                }, replace: { replaceItem(target.item) }, close: { configurationTarget = nil })
+            }
+        }
+        .sheet(item: $libraryMode) { mode in
+            Group {
+                let profile = selectedProfile ?? DockProfile(name: "New Dock", kind: .custom)
+                AddLibrary(store: store, profile: profile, commandMode: mode == .command, allowsAdding: selectedProfile != nil,
+                           add: { appendDraftItem($0, to: profile.id) },
+                           switchProfile: { requestProfileSelection($0); openDocks() },
+                           newDock: { prepareCreation() }, settings: openSettings,
+                           browse: { name in
+                               switch name {
+                               case "Folder…": pickFiles(profile, foldersOnly: true)
+                               case "File…": pickFiles(profile, foldersOnly: false)
+                               case "Link…": prepareLinkEditor()
+                               default: pickApplications(profile)
+                               }
+                           }, close: { libraryMode = nil })
+            }
+        }
+        .sheet(isPresented: $showingCreation) { creationSheet }
+        .confirmationDialog("Remove all items from this Dock?", isPresented: $confirmingClear) {
+            Button("Remove All Items", role: .destructive) { updateDraft { $0.items.removeAll() } }
+        } message: { Text("You can undo this change.") }
+        .background {
+            Group {
+                Button("Search MyDock") { libraryMode = .command }.keyboardShortcut("k")
+                Button("New Dock") { prepareCreation() }.keyboardShortcut("n")
+                Button("Settings", action: openSettings).keyboardShortcut(",")
+                Button("Duplicate") {
+                    if let item = selectedProfile?.items.first(where: { selectedItemIDs.contains($0.id) }) { duplicateItem(item) }
+                    else if let profile = selectedProfile { duplicateProfile(profile) }
+                }.keyboardShortcut("d")
+            }.hidden()
+        }
+        .sheet(isPresented: $showingPresets) { presetPicker }
         .sheet(isPresented: $showingLinkEditor) { linkEditor }
-        .sheet(isPresented: $showingShortcutEditor) {
-            if let shortcutProfileID,
-               let profile = store.state.profiles.first(where: { $0.id == shortcutProfileID }) {
-                KeyboardShortcutEditor(profileID: profile.id,
-                                       profileName: profile.name,
-                                       bindings: DockShortcutStore.shared,
-                                       controller: GlobalShortcutController.shared) {
-                    showingShortcutEditor = false
-                }
+        .sheet(item: $shortcutProfile) { profile in
+            KeyboardShortcutEditor(profileID: profile.id,
+                                   profileName: profile.name,
+                                   bindings: DockShortcutStore.shared,
+                                   controller: GlobalShortcutController.shared) {
+                shortcutProfile = nil
             }
         }
         .alert("MyDock data", isPresented: Binding(get: { store.persistenceError != nil || store.persistenceWarning != nil }, set: { if !$0 { store.dismissPersistenceNotice() } })) {
             Button("OK", role: .cancel) { }
         } message: { Text(store.persistenceError ?? store.persistenceWarning ?? "") }
-        .alert("macOS Dock", isPresented: Binding(get: { dockOperationMessage != nil }, set: { if !$0 { dockOperationMessage = nil } })) {
+        .alert("MyDock", isPresented: Binding(get: { dockOperationMessage != nil }, set: { if !$0 { dockOperationMessage = nil } })) {
             Button("OK", role: .cancel) { dockOperationMessage = nil }
         } message: { Text(dockOperationMessage ?? "") }
         .confirmationDialog("Unsaved Dock Changes", isPresented: $showingUnsavedProfileChanges, titleVisibility: .visible) {
@@ -140,200 +231,344 @@ struct DockManagerView: View {
         }
     }
 
-    private func profileRow(_ profile: DockProfile) -> some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill((DockProfileColor(rawValue: profile.color) ?? .blue).displayColor)
-                .frame(width: 10, height: 10)
-            Text(profile.name).lineLimit(1)
-            Spacer(minLength: 0)
-            if profile.id == store.state.settings.activeNativeProfileID ||
-                profile.id == store.state.settings.activeCustomProfileID {
-                Image(systemName: "checkmark")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(DockDesign.accent)
-                    .accessibilityLabel("Active profile")
+    private var profileSidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DockSidebarHeader(title: "MyDock", symbol: "dock.rectangle") { EmptyView() }
+            if store.state.profiles.count > 8 {
+                DockSearchField(placeholder: "Find a Dock", text: $profileSearch).padding(.horizontal, 16)
             }
+            SidebarSectionTitle(title: "Docks")
+            DockScrollView {
+                VStack(spacing: 2) {
+                    ForEach(store.state.profiles.filter { profileSearch.isEmpty || $0.name.localizedCaseInsensitiveContains(profileSearch) }) { sidebarProfile($0) }
+                }.padding(.horizontal, 12)
+            }
+            VStack(spacing: 4) {
+                SidebarRow { Label("New Dock", systemImage: "plus") } action: { prepareCreation() }
+                    .contextMenu {
+                        Button("New macOS Dock") { prepareCreation(kind: .native) }
+                        Button("Import Current macOS Dock") { prepareCreation(kind: .native, source: "Current macOS Dock") }
+                    }
+                SidebarRow { Label("Explore", systemImage: "square.grid.2x2") } action: { showingPresets = true }
+                SidebarRow(selected: showsSettings) { Label("Settings", systemImage: "gearshape") } action: { openSettings() }
+                if !store.state.settings.onboardingComplete {
+                    SidebarRow { Label("Finish setup", systemImage: "checkmark.circle") } action: { onContinueSetup() }
+                }
+            }.padding(12)
+        }.frame(width: DockDesign.sidebarWidth).background(DockSidebarBackground())
+    }
+
+    private func sidebarProfile(_ profile: DockProfile) -> some View {
+        SidebarRow(selected: !showsSettings && selectedProfileID == profile.id) {
+            HStack(spacing: 10) {
+                Circle().fill((DockProfileColor(rawValue: profile.color) ?? .blue).displayColor)
+                    .frame(width: 6, height: 6).accessibilityHidden(true)
+                Text(profile.name).font(DockDesign.body).lineLimit(1)
+                Spacer(minLength: 0)
+                if isActive(profile) {
+                    Image(systemName: "checkmark").font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+                        .accessibilityLabel(profile.kind == .native ? "Applied macOS layout" : "Active Dock")
+                }
+                if profile.kind == .native { Image(systemName: "macwindow").font(.system(size: 11)).foregroundStyle(.tertiary).help("Saved macOS Dock") }
+            }
+        } action: { requestProfileSelection(profile.id); openDocks() }
+        .contextMenu {
+            Button(profile.kind == .native ? "Apply to macOS Dock" : "Activate") { useProfile(profile) }
+            Button("Rename") { requestProfileSelection(profile.id); openDocks(); if selectedProfileID == profile.id { beginRename(profile) } }
+            Button("Export…") { exportProfile(profile) }
+            Button("Duplicate") { duplicateProfile(profile); openDocks() }
+            Button("Save as Personal Preset") { store.personalPresets.record(profile, reason: "Personal preset") }
+            Button("Delete…", role: .destructive) { profileToDelete = profile.id; confirmingProfileDeletion = true }
         }
-        .padding(.vertical, 4)
     }
 
     private func editor(for profile: DockProfile) -> some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 14) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(profile.kind == .native ? "MACOS DOCK" : "CUSTOM DOCK")
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .tracking(1.4).foregroundStyle(DockDesign.accent)
-                    TextField("Dock name", text: Binding(get: { profile.name }, set: { name in
-                        updateDraft { $0.name = name }
-                    }))
-                        .font(.system(size: 29, weight: .medium, design: .serif))
-                        .textFieldStyle(.plain)
-                        .frame(maxWidth: 360)
-                        .frame(height: 40, alignment: .leading)
-                }
+        let status = DockProfileStatus(profile: profile, settings: store.state.settings)
+        return VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                if profile.kind == .native { Text("macOS Dock").font(DockDesign.caption).foregroundStyle(.secondary) }
                 Spacer()
-                if !store.state.settings.onboardingComplete {
-                    Button("Continue Setup…", action: onContinueSetup).buttonStyle(.borderedProminent)
+                if let saveStatus {
+                    if saveStatus.hasPrefix("Couldn’t") { Button(saveStatus) { scheduleAutosave() }.buttonStyle(.plain).foregroundStyle(.orange) }
+                    else { Text(saveStatus).font(DockDesign.caption).foregroundStyle(.secondary) }
                 }
-                Menu("Profile Actions") {
-                    Button("Duplicate") {
-                        guard saveDraft() else { return }
-                        store.duplicateProfile(profile.id)
-                    }
-                    Button("Keyboard Shortcut…") {
-                        shortcutProfileID = profile.id
-                        showingShortcutEditor = true
-                    }
-                    Menu("Profile Color") {
-                        ForEach(DockProfileColor.allCases) { color in
-                            Button {
-                                updateDraft { $0.color = color.rawValue }
-                            } label: {
-                                Label(color.title, systemImage: profile.color == color.rawValue ? "checkmark.circle.fill" : "circle.fill")
-                            }
-                        }
-                    }
-                    Button("Replace with Current Dock…") { replaceFromCurrentDock(profile) }
-                    Divider()
-                    Button("Delete Profile…", role: .destructive) {
-                        guard saveDraft() else { return }
-                        store.deleteProfile(profile.id)
-                        switchToProfile(nil)
-                    }
-                }
-                Button("Use This Profile") { useProfile(profile) }.buttonStyle(.borderedProminent)
-                    .disabled(!draftCanBeSaved)
-            }
-            .padding(.horizontal, 24).padding(.vertical, 20)
-            Divider()
-            HStack(spacing: 8) {
-                Text("Preview").font(.system(size: 16, weight: .semibold, design: .rounded))
-                Text("\(profile.items.count) items").font(.caption).foregroundStyle(.secondary)
-                Spacer(minLength: 12)
-                addMenu(for: profile)
-                Button(isSelectingItems ? "Done Selecting" : "Select Items") {
-                    isSelectingItems.toggle()
-                    if !isSelectingItems {
-                        selectedItemIDs.removeAll()
-                        selectionAnchorID = nil
-                    }
-                }
-                .buttonStyle(.bordered)
-                if hasUnsavedProfileChanges {
-                    Button("Discard") { discardDraft() }.buttonStyle(.bordered)
-                }
-                Button("Save") { _ = saveDraft() }
-                    .buttonStyle(.bordered).disabled(!hasUnsavedProfileChanges || !draftCanBeSaved)
-                if profile.kind == .native {
-                    Button("Apply") { applyNativeProfile(profile) }
-                        .buttonStyle(.borderedProminent).disabled(!draftCanBeSaved)
-                }
-            }
-            .padding(.horizontal, 24).padding(.vertical, 14)
-            if !selectedItemIDs.isEmpty {
-                HStack(spacing: 8) {
-                    Text("\(selectedItemIDs.count) selected")
-                        .font(.caption.weight(.semibold))
-                    Spacer()
-                    Button("Clear Selection") {
-                        selectedItemIDs.removeAll()
-                        selectionAnchorID = nil
-                    }.buttonStyle(.bordered)
-                    Button { moveSelection(.left, in: profile) } label: { Image(systemName: "arrow.left") }
-                        .help("Move selected items left").accessibilityLabel("Move selected items left")
-                        .disabled(!canMoveSelection(.left, in: profile))
-                    Button { moveSelection(.right, in: profile) } label: { Image(systemName: "arrow.right") }
-                        .help("Move selected items right").accessibilityLabel("Move selected items right")
-                        .disabled(!canMoveSelection(.right, in: profile))
-                    Button("Delete \(selectedItemIDs.count) Selected", role: .destructive) {
-                        removeSelectedItems(from: profile)
-                    }.buttonStyle(.bordered)
-                }
-                .padding(.horizontal, 24).padding(.vertical, 8)
-                .background(DockDesign.accent.opacity(0.08))
-            }
-            Divider()
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal) {
-                    HStack(spacing: 10) {
-                        ForEach(profile.items) { item in
-                            DockManagerItemView(item: item,
-                                                isSelected: selectedItemIDs.contains(item.id),
-                                                isHighlighted: highlightedPreviewItemID == item.id,
-                                                isSelectionMode: isSelectingItems,
-                                                remove: { removeItem(item.id, from: profile.id) },
-                                                editLink: { prepareLinkEditor(for: item) },
-                                                updateFolderIcon: { color, letter, number in
-                                                    updateDraft { draft in
-                                                        guard let index = draft.items.firstIndex(where: { $0.id == item.id }) else { return }
-                                                        draft.items[index].folderIconColor = color
-                                                        draft.items[index].folderIconLetter = letter
-                                                        draft.items[index].folderIconNumber = number
-                                                    }
-                                                },
-                                                select: { commandPressed, shiftPressed in
-                                                    selectItem(item.id, commandPressed: commandPressed, shiftPressed: shiftPressed)
-                                                })
-                            .draggable(item.id.uuidString)
-                            .dropDestination(for: String.self) { values, _ in
-                                guard let raw = values.first, let draggedID = UUID(uuidString: raw) else { return false }
-                                updateDraft { draft in
-                                    guard draggedID != item.id,
-                                          let sourceIndex = draft.items.firstIndex(where: { $0.id == draggedID }),
-                                          let targetIndex = draft.items.firstIndex(where: { $0.id == item.id }) else { return }
-                                    let movedItem = draft.items.remove(at: sourceIndex)
-                                    let adjustedTarget = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
-                                    draft.items.insert(movedItem, at: adjustedTarget)
+                if isActive(profile) {
+                    Button { showingActiveStatus.toggle() } label: {
+                        HStack(spacing: 6) { Circle().fill(status.showsActiveIndicator ? Color.green : Color.secondary).frame(width: 6, height: 6); Text(status.label).font(DockDesign.caption) }
+                    }.buttonStyle(.plain).foregroundStyle(.secondary).help(profile.kind == .native ? "Applied macOS Dock layout" : "Active Dock")
+                        .popover(isPresented: $showingActiveStatus) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text(profile.kind == .native ? "Applied to macOS Dock" : "Active on this Mac").font(DockDesign.sectionTitle)
+                                if status == .applied(hidden: true) { Text("The macOS Dock is hidden in replacement mode.").font(DockDesign.caption).foregroundStyle(.secondary) }
+                                if profile.kind == .custom {
+                                    Button("Deactivate") { showingActiveStatus = false; store.setActiveCustomProfile(nil) }
                                 }
-                                return true
+                            }.padding(20)
+                        }
+                } else {
+                    Button(profile.kind == .native ? "Apply" : "Activate") { useProfile(profile) }.buttonStyle(DockButtonStyle()).disabled(!draftCanBeSaved)
+                }
+                profileActions(for: profile)
+            }.padding(.horizontal, 24).padding(.vertical, 16)
+            GeometryReader { geometry in
+                DockScrollView {
+                VStack(spacing: geometry.size.height < 600 ? 16 : 24) {
+                    Spacer(minLength: 16)
+                    VStack(spacing: 8) {
+                        if renamingProfile {
+                            TextField("Dock name", text: $renameText)
+                                .font(DockDesign.title).textFieldStyle(.plain).multilineTextAlignment(.center)
+                                .focused($profileNameFocused).frame(maxWidth: 440)
+                                .accessibilityIdentifier("manager.profile.name")
+                                .id(profile.id)
+                                .onChange(of: renameText) { value in
+                                    if renamingProfile { updateProfileName(value) }
+                                }
+                                .onSubmit {
+                                    updateProfileName(renameText)
+                                    if saveDraft() { renamingProfile = false }
+                                }
+                        } else {
+                            Text(profile.name).font(DockDesign.title).lineLimit(2).multilineTextAlignment(.center)
+                                .padding(.horizontal, 24)
+                                .onTapGesture(count: 2) { beginRename(profile) }
+                                .accessibilityAction(named: "Rename Dock") { beginRename(profile) }
+                                .help("Double-click to rename")
+                        }
+                        Text(profile.kind == .native ? "Your saved macOS layout" : "Your apps and widgets, within reach.")
+                            .font(DockDesign.body).foregroundStyle(.secondary)
+                    }
+                    if profile.items.isEmpty {
+                        VStack(spacing: 12) {
+                            Text("Your Dock is empty").font(.system(size: 17, weight: .medium))
+                            Text(profile.kind == .native ? "Add apps to save a macOS Dock layout." : "Add the apps and widgets you want available here.").foregroundStyle(.secondary)
+                        }.frame(maxWidth: 480).frame(height: 120)
+                            .background(emptyDropActive ? DockDesign.accent.opacity(0.05) : Color.clear,
+                                        in: RoundedRectangle(cornerRadius: DockDesign.Radius.group))
+                            .overlay {
+                                DockCanvasDragSurface(profileID: profile.id, items: [], frames: [:], selection: [],
+                                                      select: { _, _, _ in }, hover: { _, active in emptyDropActive = active }, lift: { _ in },
+                                                      drop: { values, _ in
+                                    emptyDropActive = false
+                                    let urls = values.compactMap { if case .url(let url) = $0 { return url }; return nil }
+                                    return insertDroppedURLs(urls, before: nil, into: profile)
+                                })
                             }
-                            .id(item.id)
-                        }
-                        if profile.items.isEmpty {
-                            EmptyStateView(title: "No items yet", symbol: "plus.app", detail: "Use Add to put apps, files, spacers, or widgets in this Dock.")
-                                .frame(width: 320, height: 180)
+                    } else {
+                        DockCanvas(store: store, profile: profile, selection: $selectedItemIDs, cursor: selectionCursorID,
+                                   select: { selectItem($0, commandPressed: $1, shiftPressed: $2) },
+                                   move: { ids, before in guard selectedProfileID == profile.id else { return }; updateDraft { $0.items = DockItemOrderingPolicy.moving($0.items, ids: ids, before: before) } },
+                                   configure: { configureItem($0) }, remove: { removeItem($0.id, from: profile.id) },
+                                   replace: { replaceItem($0) }, duplicate: { duplicateItem($0) },
+                                   addURLs: { urls, before in _ = insertDroppedURLs(urls, before: before, into: profile) })
+                    }
+                    HStack(spacing: 12) {
+                        Button { libraryMode = .add } label: { Label("Add Item", systemImage: "plus") }
+                            .buttonStyle(DockButtonStyle()).accessibilityIdentifier("manager.add-item")
+                        if profile.kind == .custom {
+                            Button { showingDockInspector.toggle(); clearItemSelection() } label: { Image(systemName: "slider.horizontal.3") }
+                                .buttonStyle(DockButtonStyle(icon: true)).help("Edit Dock appearance").accessibilityLabel("Edit Dock appearance")
                         }
                     }
-                    .padding(24)
-                }
-                .onChange(of: previewItemToReveal) { itemID in
-                    guard let itemID else { return }
-                    Task { @MainActor in
-                        await Task.yield()
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            proxy.scrollTo(itemID, anchor: .trailing)
-                        }
+                    if showingDockInspector || !selectedItemIDs.isEmpty {
+                        workspaceInspector(profile).frame(maxWidth: min(480, geometry.size.width - 48))
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
+                    Spacer(minLength: 16)
+                    Text("Drag to arrange · Click to edit · ⌘K to search").font(.system(size: 11)).foregroundStyle(.tertiary)
+                        .padding(.bottom, 20)
+                }.frame(maxWidth: .infinity).frame(minHeight: geometry.size.height)
+                    .background(RadialGradient(colors: [(DockProfileColor(rawValue: profile.color) ?? .blue).displayColor.opacity(0.045), .clear], center: .center, startRadius: 0, endRadius: 400))
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                LinearGradient(colors: [DockDesign.accent.opacity(0.08), DockDesign.page],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-            }
-            Spacer(minLength: 0)
-            HStack {
-                Label(managerInteractionHint,
-                      systemImage: isSelectingItems ? "checkmark.circle" : "hand.draw")
-                    .font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Text("\(profile.items.count) items").font(.caption).foregroundStyle(.secondary)
-            }.padding(.horizontal, 24).padding(.vertical, 12).background(DockDesign.card)
+        }
+        .animation(reduceMotion ? nil : DockDesign.Motion.disclosure, value: showingDockInspector)
+        .animation(reduceMotion ? nil : DockDesign.Motion.disclosure, value: selectedItemIDs.isEmpty)
+        .onMoveCommand { direction in
+            guard !renamingProfile, !profile.items.isEmpty else { return }
+            navigateSelection(in: profile, forward: direction == .right || direction == .down, extending: false)
+        }
+        .onDeleteCommand { if !renamingProfile { removeSelectedItems(from: profile) } }
+        .background {
+            Group {
+                Button("Configure selected item") { if selectedItemIDs.count == 1, let item = profile.items.first(where: { selectedItemIDs.contains($0.id) }) { configureItem(item) } }.keyboardShortcut(.return, modifiers: [])
+                Button("Extend selection left") { navigateSelection(in: profile, forward: false, extending: true) }.keyboardShortcut(.leftArrow, modifiers: .shift)
+                Button("Extend selection right") { navigateSelection(in: profile, forward: true, extending: true) }.keyboardShortcut(.rightArrow, modifiers: .shift)
+                Button("Move left") { moveSelection(.left, in: profile) }.keyboardShortcut(.leftArrow, modifiers: .command)
+                Button("Move right") { moveSelection(.right, in: profile) }.keyboardShortcut(.rightArrow, modifiers: .command)
+            }.hidden()
         }
     }
 
-    private var managerInteractionHint: String {
-        guard isSelectingItems else { return "Drag items to reorder" }
-        return selectedItemIDs.isEmpty
-            ? "Click items or Shift-click a range to select"
-            : "Click selected items again to deselect; move the selection together"
+    @ViewBuilder private func workspaceInspector(_ profile: DockProfile) -> some View {
+        if let item = profile.items.first(where: { selectedItemIDs.contains($0.id) }) {
+            VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(selectedItemIDs.count > 1 ? "\(selectedItemIDs.count) items selected" : item.displayName).font(DockDesign.sectionTitle)
+                    Text(AppLauncher.isMissingTarget(item) ? "Saved location missing. Choose Replace to reconnect." : "⌘← / ⌘→ to move · Delete to remove")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if selectedItemIDs.count == 1 { Button("Configure") { configureItem(item) } }
+                Button { clearItemSelection() } label: { Image(systemName: "xmark").frame(width: DockDesign.controlHeight, height: DockDesign.controlHeight).contentShape(Rectangle()) }.buttonStyle(.plain).help("Close inspector").accessibilityLabel("Close inspector")
+            }
+            if item.type == .widget && selectedItemIDs.count == 1 {
+                SettingsControlRow(title: "Layout") {
+                    Picker("Layout", selection: Binding(get: { WidgetPresentationCatalog.resolvedLayout(for: item.widgetKind ?? item.title, configuration: item.widgetConfiguration ?? WidgetConfiguration(), compactDefault: store.effectiveSettings(for: profile).customDockWidgetStyle == .compact) }, set: { value in
+                        updateDraft { draft in
+                            if let index = draft.items.firstIndex(where: { $0.id == item.id }) { draft.items[index].widgetConfiguration?.widgetLayout = value }
+                        }
+                    })) {
+                        ForEach(WidgetPresentationCatalog.options(for: item.widgetKind ?? item.title)) { Text($0.title).tag($0.layout) }
+                    }
+                }
+            }
+            }.padding(16).background(DockDesign.card, in: RoundedRectangle(cornerRadius: DockDesign.Radius.group))
+        } else {
+            DockAppearanceInspector(store: store, profile: profile, close: { showingDockInspector = false })
+        }
+    }
+
+    private func insertDroppedURLs(_ urls: [URL], before: UUID?, into profile: DockProfile) -> Bool {
+        guard selectedProfileID == profile.id else { return false }
+        if profile.kind == .native && urls.contains(where: { $0.pathExtension != "app" }) {
+            dockOperationMessage = "macOS Dock layouts support apps and spacers. Use a custom Dock for files, folders, links, and widgets."
+        }
+        let items = urls.prefix(100).compactMap { url -> DockItem? in
+            if url.pathExtension == "app" { return .application(at: url) }
+            guard profile.kind == .custom else { return nil }
+            if !url.isFileURL { return DockLinkPolicy.validatedURL(url.absoluteString).map { .link($0, title: $0.host ?? "Link") } }
+            let directory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            return .file(at: url, isFolder: directory)
+        }
+        guard !items.isEmpty else { return false }
+        updateDraft { draft in
+            let index = before.flatMap { target in draft.items.firstIndex { $0.id == target } } ?? draft.items.endIndex
+            draft.items.insert(contentsOf: items, at: index)
+        }
+        if let last = items.last { selectItem(last.id, commandPressed: false, shiftPressed: false) }
+        return true
+    }
+
+    private func configureItem(_ item: DockItem) {
+        guard let profileID = selectedProfileID else { return }
+        if item.type == .link { prepareLinkEditor(for: item); return }
+        if item.type == .widget, !saveDraft() { return }
+        configurationTarget = DockConfigurationTarget(profileID: profileID, item: item)
+    }
+
+    private func replaceItem(_ item: DockItem) {
+        if item.type == .link { prepareLinkEditor(for: item); return }
+        guard let repaired = AppLauncher.chooseReplacement(for: item) else { return }
+        updateDraft { draft in
+            if let index = draft.items.firstIndex(where: { $0.id == item.id }) { draft.items[index] = repaired }
+        }
+    }
+    private func duplicateItem(_ item: DockItem) {
+        let copy = store.copyItemForDuplication(item)
+        updateDraft { draft in
+            if let index = draft.items.firstIndex(where: { $0.id == item.id }) { draft.items.insert(copy, at: index + 1) }
+        }
+    }
+
+    private var creationSheet: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Create Dock").font(.system(size: 22, weight: .semibold))
+            TextField("Name", text: $creationName)
+            Picker("Type", selection: $creationKind) {
+                Text("Custom Dock").tag(DockProfileKind.custom)
+                Text("macOS Dock layout").tag(DockProfileKind.native)
+            }.onChange(of: creationKind) { kind in
+                if creationSource == "Preset" && kind == .native || creationSource == "This Dock" && selectedProfile?.kind != kind { creationSource = "Empty" }
+            }
+            Picker("Start with", selection: $creationSource) {
+                Text("Empty").tag("Empty")
+                if selectedProfile?.kind == creationKind { Text("This Dock").tag("This Dock") }
+                Text("Current macOS Dock").tag("Current macOS Dock")
+                if creationKind == .custom { Text("Preset").tag("Preset") }
+            }
+            HStack {
+                Button("Cancel") { showingCreation = false }
+                Spacer()
+                Button("Create") {
+                    guard saveDraft() else { return }
+                    if creationSource == "Preset" { showingCreation = false; showingPresets = true; return }
+                    do {
+                        let items = creationSource == "This Dock" ? (selectedProfile?.items ?? []) : creationSource == "Current macOS Dock" ? try NativeDockController.shared.readCurrentItems() : []
+                        var profile = DockProfile(name: creationName.trimmingCharacters(in: .whitespacesAndNewlines), kind: creationKind, items: items)
+                        if creationSource == "This Dock", let source = selectedProfile {
+                            profile.color = source.color
+                            profile.appearance = source.appearance
+                            profile.items = source.items.map { store.copyItemForDuplication($0) }
+                        }
+                        let id = try store.createProfile(profile)
+                        requestProfileSelection(id); openDocks(); showingCreation = false
+                    } catch { dockOperationMessage = error.localizedDescription }
+                }.buttonStyle(DockButtonStyle(primary: true)).disabled(creationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }.padding(24).frame(width: 400).background(DockDesign.page)
+    }
+
+    private func exportProfile(_ profile: DockProfile) {
+        do {
+            let current = try edits.save(profile.id) ?? profile
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.json]
+            panel.nameFieldStringValue = current.name + ".json"
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            try BackupManager.makeArchive(from: [current]).write(to: url, options: .atomic)
+        } catch { dockOperationMessage = error.localizedDescription }
+    }
+
+    private func duplicateProfile(_ profile: DockProfile) {
+        guard saveDraft() else { return }
+        let existingIDs = Set(store.state.profiles.map(\.id))
+        store.duplicateProfile(profile.id)
+        if let copy = store.state.profiles.last(where: { !existingIDs.contains($0.id) }) { switchToProfile(copy.id); beginRename(copy) }
+    }
+
+    private func beginRename(_ profile: DockProfile) {
+        renameText = selectedProfile?.id == profile.id ? selectedProfile?.name ?? profile.name : profile.name
+        renamingProfile = true
+        profileNameFocused = true
+    }
+
+    private func updateProfileName(_ name: String) { updateDraft { $0.name = name } }
+    private func isActive(_ profile: DockProfile) -> Bool {
+        DockProfileStatus(profile: profile, settings: store.state.settings).isCurrent
+    }
+
+    private func profileActions(for profile: DockProfile) -> some View {
+        Menu {
+            if hasUnsavedProfileChanges { Button("Retry Save") { _ = saveDraft() }; Button("Discard Unsaved Changes", role: .destructive) { discardDraft() } }
+            Button("Rename…") { beginRename(profile) }
+            if profile.kind == .custom {
+                Button("Save as Personal Preset") { store.personalPresets.record(profile, reason: "Personal preset") }
+            }
+            Button("Export…") { exportProfile(profile) }
+            Button("Duplicate") { duplicateProfile(profile) }
+            Button("Keyboard Shortcut…") { shortcutProfile = profile }
+            Menu("Profile Color") {
+                ForEach(DockProfileColor.allCases) { color in
+                    Button { updateDraft { $0.color = color.rawValue } } label: {
+                        Label(color.title, systemImage: profile.color == color.rawValue ? "checkmark.circle.fill" : "circle.fill")
+                    }
+                }
+            }
+            if profile.kind == .native { Button("Replace with Current Dock…") { replaceFromCurrentDock(profile) } }
+            Divider()
+            Button("Remove All Items…", role: .destructive) { confirmingClear = true }
+            Button("Delete Dock…", role: .destructive) { profileToDelete = profile.id; confirmingProfileDeletion = true }
+        } label: { Image(systemName: "ellipsis") }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().frame(width: 30, height: 30)
+            .background(DockDesign.hover, in: RoundedRectangle(cornerRadius: DockDesign.Radius.control))
+            .tint(Color.secondary).help("More").accessibilityLabel("Profile actions")
     }
 
     private func requestProfileSelection(_ id: UUID?) {
         guard id != selectedProfileID else { return }
-        if hasUnsavedProfileChanges {
+        if hasUnsavedProfileChanges && !saveDraft() {
             pendingProfileSelectionID = id
             showingUnsavedProfileChanges = true
         } else {
@@ -353,10 +588,10 @@ struct DockManagerView: View {
     }
 
     private func switchToProfile(_ id: UUID?) {
-        selectedProfileID = id
-        selectedItemIDs.removeAll()
-        selectionAnchorID = nil
-        isSelectingItems = false
+        renamingProfile = false
+        profileNameFocused = false
+        withAnimation(reduceMotion ? nil : DockDesign.Motion.transform) { selectedProfileID = id }
+        clearItemSelection()
         loadDraftSession()
     }
 
@@ -366,34 +601,65 @@ struct DockManagerView: View {
             draftSession = nil
             return
         }
-        draftSession = DockProfileDraft(profile: profile)
+        edits.load(profile)
     }
 
     private func updateDraft(_ change: (inout DockProfile) -> Void) {
         guard var session = draftSession, session.profile.id == selectedProfileID else { return }
+        let before = session.profile
         session.update(change)
         draftSession = session
+        if session.profile != before {
+            registerUndo(before, replacing: session.profile)
+            scheduleAutosave()
+        }
+    }
+
+    private func registerUndo(_ before: DockProfile, replacing after: DockProfile) {
+        undoManager?.registerUndo(withTarget: edits) { coordinator in
+            do {
+                let current = try coordinator.restore(before, replacing: after)
+                let restored = coordinator.drafts[before.id]?.profile ?? before
+                registerUndo(current, replacing: restored)
+                coordinator.autosave(before.id)
+            } catch { dockOperationMessage = error.localizedDescription }
+        }
+        undoManager?.setActionName("Edit Dock")
+    }
+
+    private func scheduleAutosave(profileID: UUID? = nil) {
+        if let id = profileID ?? selectedProfileID { edits.autosave(id) }
     }
 
     @discardableResult
     private func saveDraft() -> Bool {
-        guard var session = draftSession, session.isDirty else { return true }
-        var updatedProfile = session.profile
-        updatedProfile.name = updatedProfile.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !updatedProfile.name.isEmpty else {
-            dockOperationMessage = "A Dock profile needs a name before it can be saved or applied."
+        guard let id = selectedProfileID else { return true }
+        do { try edits.save(id); return true }
+        catch let error as ProfileDraftMergeError {
+            let alert = NSAlert()
+            alert.messageText = "Your draft needs review"
+            alert.informativeText = error.localizedDescription + " You can keep this draft as a separate profile, reload the latest saved profile, or continue editing."
+            alert.addButton(withTitle: "Continue Editing")
+            alert.addButton(withTitle: "Save Draft as New Profile")
+            alert.addButton(withTitle: "Reload Latest")
+            switch alert.runModal() {
+            case .alertSecondButtonReturn:
+                guard let draft = edits.drafts[id] else { return false }
+                do {
+                    let newID = try store.createProfile(ProfileSanitizer.newIdentity(draft.profile))
+                    edits.discard(id)
+                    switchToProfile(newID)
+                } catch { dockOperationMessage = error.localizedDescription }
+            case .alertThirdButtonReturn: edits.discard(id)
+            default: break
+            }
             return false
         }
-        store.replaceProfile(updatedProfile)
-        session.markSaved(updatedProfile)
-        draftSession = session
-        return true
+        catch { dockOperationMessage = error.localizedDescription; return false }
     }
 
     private func discardDraft() {
-        guard var session = draftSession else { return }
-        session.discard()
-        draftSession = session
+        if let id = selectedProfileID { edits.discard(id) }
     }
 
     private func appendDraftItem(_ item: DockItem, to profileID: UUID?) {
@@ -403,16 +669,7 @@ struct DockManagerView: View {
             return
         }
         updateDraft { $0.items.append(item) }
-        guard item.type == .widget else { return }
-        previewHighlightTask?.cancel()
-        previewItemToReveal = item.id
-        highlightedPreviewItemID = item.id
-        previewHighlightTask = Task { @MainActor in
-            do { try await Task.sleep(for: .seconds(1.4)) } catch { return }
-            if highlightedPreviewItemID == item.id { highlightedPreviewItemID = nil }
-            if previewItemToReveal == item.id { previewItemToReveal = nil }
-            previewHighlightTask = nil
-        }
+        selectItem(item.id, commandPressed: false, shiftPressed: false)
     }
 
     private func canMoveSelection(_ direction: DockItemMoveDirection, in profile: DockProfile) -> Bool {
@@ -430,94 +687,6 @@ struct DockManagerView: View {
     private func moveSelection(_ direction: DockItemMoveDirection, in profile: DockProfile) {
         let itemIDs = selectedItemIDs
         updateDraft { $0.items = DockItemOrderingPolicy.moving($0.items, ids: itemIDs, direction: direction) }
-    }
-
-    @ViewBuilder private func addMenu(for profile: DockProfile) -> some View {
-        Menu {
-            Button("Apps…") { pickApplications(profile) }
-            if profile.kind == .custom {
-                Button("Folders…") { pickFiles(profile, foldersOnly: true) }
-                Button("Files…") { pickFiles(profile, foldersOnly: false) }
-                Button("Link…") { prepareLinkEditor() }
-                Button("Widget…") { showingWidgetPicker = true }
-            }
-            Menu("Spacer") {
-                    Button("Small spacer") { appendDraftItem(.spacer(.small), to: profile.id) }
-                    Button("Regular spacer") { appendDraftItem(.spacer(.regular), to: profile.id) }
-            }
-        } label: { Label("Add", systemImage: "plus") }
-    }
-
-    private var widgetPicker: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                DockScreenHeader(eyebrow: "CUSTOM DOCK", title: "Widget library",
-                                 subtitle: "Choose useful things to keep close.")
-                Button("Done") { showingWidgetPicker = false }
-            }
-            TextField("Search widgets", text: $searchText).textFieldStyle(.roundedBorder)
-            ScrollView(.horizontal) {
-                HStack(spacing: 7) {
-                    categoryButton(nil, title: "All")
-                    ForEach(WidgetCategory.allCases, id: \.self) { category in
-                        categoryButton(category, title: category.rawValue)
-                    }
-                }
-            }.scrollIndicators(.hidden)
-            ScrollView {
-                LazyVStack(spacing: 8) {
-                    ForEach(filteredWidgets) { widget in
-                        Button {
-                            appendDraftItem(.widget(widget.name), to: selectedProfileID)
-                            showingWidgetPicker = false
-                        } label: {
-                            HStack(spacing: 13) {
-                                Image(systemName: widget.symbol)
-                                    .font(.system(size: 19, weight: .medium))
-                                    .foregroundStyle(widget.category.displayColor)
-                                    .frame(width: 40, height: 40)
-                                    .background(widget.category.displayColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 11))
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(widget.name).font(.subheadline.weight(.semibold))
-                                    Text(widget.description).font(.caption).foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
-                                Spacer(minLength: 4)
-                                Image(systemName: "plus.circle.fill")
-                                    .font(.title3).foregroundStyle(DockDesign.accent)
-                            }
-                            .padding(11)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(DockDesign.card, in: RoundedRectangle(cornerRadius: 14))
-                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(DockDesign.hairline))
-                            .contentShape(RoundedRectangle(cornerRadius: 14))
-                        }.buttonStyle(.plain)
-                    }
-                }
-            }.scrollIndicators(.hidden)
-        }
-        .padding(24).frame(width: 540, height: 580)
-        .background(DockDesign.page)
-        .tint(DockDesign.accent)
-    }
-
-    private var filteredWidgets: [WidgetDefinition] {
-        WidgetRegistry.all.filter { widget in
-            (selectedWidgetCategory == nil || widget.category == selectedWidgetCategory) &&
-            (searchText.isEmpty || widget.name.localizedCaseInsensitiveContains(searchText) ||
-             widget.description.localizedCaseInsensitiveContains(searchText))
-        }
-    }
-
-    private func categoryButton(_ category: WidgetCategory?, title: String) -> some View {
-        Button(title) { selectedWidgetCategory = category }
-            .buttonStyle(.plain)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 11).padding(.vertical, 7)
-            .background(selectedWidgetCategory == category ? DockDesign.accent : DockDesign.card,
-                        in: Capsule())
-            .foregroundStyle(selectedWidgetCategory == category ? .white : .primary)
-            .overlay(Capsule().stroke(selectedWidgetCategory == category ? .clear : DockDesign.hairline))
     }
 
     private var linkEditor: some View {
@@ -574,27 +743,143 @@ struct DockManagerView: View {
                 Spacer()
                 Button("Cancel") { showingLinkEditor = false }
                 Button(editingLinkItemID == nil ? "Add" : "Save") { saveLink() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(DockButtonStyle(primary: true))
                     .disabled(DockLinkPolicy.validatedURL(linkAddress) == nil)
             }
         }
-        .textFieldStyle(.roundedBorder).padding(24).frame(width: 420)
+        .textFieldStyle(DockTextFieldStyle()).padding(24).frame(width: 420).background(DockDesign.page)
     }
 
-    private func select(_ id: UUID) { requestProfileSelection(id) }
+    private var presetPicker: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(resolvedPreset == nil ? "Explore Docks" : "Preview your new Dock").font(.system(size: 20, weight: .semibold))
+                Spacer()
+                Button("Cancel") { resolvedPreset = nil; showingPresets = false }
+            }
+            if let profile = resolvedPreset {
+                DockScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        TextField("Name", text: Binding(get: { resolvedPreset?.name ?? "" }, set: { resolvedPreset?.name = $0 }))
+                            .textFieldStyle(DockTextFieldStyle())
+                        DockLayoutPreview(store: store, profile: profile)
+                        Text("Start with these installed apps. Replace or remove any item before creating your Dock.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if !presetResolutionNotes.isEmpty {
+                            Text(presetResolutionNotes.joined(separator: "\n")).font(.caption).foregroundStyle(.secondary)
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(profile.items) { item in
+                                HStack {
+                                    Text(item.displayName)
+                                    Spacer()
+                                    if item.type == .application {
+                                        Button("Choose App…") { substitutePresetApp(item.id) }
+                                    }
+                                    Button("Remove") { resolvedPreset?.items.removeAll { $0.id == item.id } }
+                                }
+                            }
+                        }
+                    }
+                }
+                HStack {
+                    Button("Back") { resolvedPreset = nil }
+                    Button("Add Application…") { addPresetApp() }
+                    Spacer()
+                    Button("Create Dock") {
+                        guard saveDraft() else { return }
+                        do {
+                            let id = try store.createProfile(profile)
+                            requestProfileSelection(id)
+                            resolvedPreset = nil
+                            showingPresets = false
+                        } catch { dockOperationMessage = error.localizedDescription }
+                    }.buttonStyle(DockButtonStyle(primary: true)).disabled(profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            } else {
+                Text("Preview a complete profile before adding it. Every item and appearance stays editable.")
+                    .foregroundStyle(.secondary)
+                DockScrollView {
+                    PersonalPresetPicker(store: store, library: store.personalPresets) { resolvedPreset = $0; presetResolutionNotes = [] }
+                        .padding(.bottom, 16)
+                    VStack(spacing: 8) {
+                        ForEach(DockStarterPreset.allCases) { preset in
+                            Button {
+                                let resolution = preset.resolve()
+                                presetResolutionNotes = resolution.notes
+                                var profile = DockProfile(name: preset.title, kind: .custom, color: preset.color.rawValue, items: resolution.items)
+                                var settings = store.state.settings
+                                settings.customDockMaterial = preset == .focus ? .solid : .frosted
+                                settings.customDockTintStrength = preset == .focus ? 0.03 : 0.08
+                                profile.appearance = ProfileAppearance(settings: settings)
+                                resolvedPreset = profile
+                            } label: {
+                                PresetLibraryTile(preset: preset)
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }.frame(maxHeight: 480)
+                Text("Widget previews use sample data.").font(.caption).foregroundStyle(.secondary)
+            }
+        }.padding(24).frame(width: 660, height: min(650, max(480, workspaceSize.height - 48)))
+            .background(DockDesign.page).font(.system(size: 13))
+    }
+
+    private func substitutePresetApp(_ itemID: UUID) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url,
+              let index = resolvedPreset?.items.firstIndex(where: { $0.id == itemID }) else { return }
+        var item = DockItem.application(at: url)
+        item.id = itemID
+        resolvedPreset?.items[index] = item
+    }
+
+    private func addPresetApp() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.allowsMultipleSelection = true
+        guard panel.runModal() == .OK else { return }
+        let apps = panel.urls.prefix(100).map { DockItem.application(at: $0) }
+        resolvedPreset?.items.append(contentsOf: apps)
+    }
+
+    private func prepareCreation(kind: DockProfileKind? = nil, source: String = "Empty") {
+        creationKind = kind ?? (store.state.settings.setupMode == .nativeOnly ? .native : .custom)
+        creationName = source == "Current macOS Dock" ? "Current Dock" : "New Dock"
+        creationSource = source
+        showingCreation = true
+    }
+
+    private func navigateSelection(in profile: DockProfile, forward: Bool, extending: Bool) {
+        guard !renamingProfile,
+              let next = DockItemSelectionPolicy.next(in: profile.items.map(\.id), selected: selectedItemIDs,
+                                                     cursor: selectionCursorID, forward: forward) else { return }
+        if extending && selectionAnchorID == nil {
+            selectionAnchorID = selectionCursorID ?? profile.items.first(where: { selectedItemIDs.contains($0.id) })?.id ?? next
+        }
+        selectItem(next, commandPressed: false, shiftPressed: extending)
+    }
+
+    private func clearItemSelection() {
+        selectedItemIDs.removeAll()
+        selectionAnchorID = nil
+        selectionCursorID = nil
+    }
 
     private func selectItem(_ id: UUID, commandPressed: Bool, shiftPressed: Bool) {
         guard let profile = selectedProfile else { return }
+        selectionCursorID = id
         if shiftPressed, let anchorID = selectionAnchorID {
             let range = DockItemSelectionPolicy.range(in: profile.items.map(\.id), from: anchorID, to: id)
             if !range.isEmpty {
                 selectedItemIDs = range
-                isSelectingItems = true
                 return
             }
         }
-        if isSelectingItems || commandPressed {
-            if commandPressed { isSelectingItems = true }
+        if commandPressed {
             if !selectedItemIDs.insert(id).inserted { selectedItemIDs.remove(id) }
             selectionAnchorID = id
         } else {
@@ -607,13 +892,13 @@ struct DockManagerView: View {
         updateDraft { $0.items.removeAll { $0.id == id } }
         selectedItemIDs.remove(id)
         if selectionAnchorID == id { selectionAnchorID = nil }
+        if selectionCursorID == id { selectionCursorID = nil }
     }
 
     private func removeSelectedItems(from profile: DockProfile) {
         let itemIDs = selectedItemIDs
         updateDraft { $0.items.removeAll { itemIDs.contains($0.id) } }
-        selectedItemIDs.removeAll()
-        selectionAnchorID = nil
+        clearItemSelection()
     }
 
     private func useProfile(_ profile: DockProfile) {
@@ -626,12 +911,13 @@ struct DockManagerView: View {
     }
 
     private func applyNativeProfile(_ profile: DockProfile) {
+        guard store.allowsSystemChanges else { dockOperationMessage = "Native Dock changes are disabled in the visual preview."; return }
         guard saveDraft() else { return }
         let profileToApply = store.state.profiles.first(where: { $0.id == profile.id }) ?? profile
         Task { @MainActor in
             do {
                 try await NativeDockController.shared.apply(profileToApply)
-                store.activate(profileToApply.id)
+                store.recordAppliedNativeProfile(profileToApply.id)
                 dockOperationMessage = "Applied \(profileToApply.name)."
             } catch {
                 dockOperationMessage = error.localizedDescription
@@ -730,147 +1016,12 @@ struct DockManagerView: View {
         showingLinkEditor = false
     }
 
-    private func createFromCurrentDock() {
-        let id = store.createProfile(kind: .native, name: "Current Dock")
-        requestProfileSelection(id)
-        if let profile = store.state.profiles.first(where: { $0.id == id }) {
-            store.replaceItems(NativeDockController.shared.readCurrentItems(), in: profile.id)
-        }
-    }
-
     private func replaceFromCurrentDock(_ profile: DockProfile) {
-        let importedItems = NativeDockController.shared.readCurrentItems()
-        updateDraft { $0.items = importedItems }
-    }
-}
-
-private struct DockManagerItemView: View {
-    var item: DockItem
-    var isSelected: Bool
-    var isHighlighted: Bool
-    var isSelectionMode: Bool
-    var remove: () -> Void
-    var editLink: () -> Void
-    var updateFolderIcon: (DockProfileColor?, String?, String?) -> Void
-    var select: (Bool, Bool) -> Void
-    @State private var isFolderIconEditorPresented = false
-    @State private var folderColorSelection = ""
-    @State private var folderLetterDraft = ""
-    @State private var folderNumberDraft = ""
-
-    var body: some View {
-        Button {
-            let modifiers = NSApplication.shared.currentEvent?.modifierFlags ?? []
-            select(modifiers.contains(.command), modifiers.contains(.shift))
-        } label: {
-            VStack(spacing: 8) {
-            if item.type == .spacer {
-                RoundedRectangle(cornerRadius: 3).fill(.secondary.opacity(0.35)).frame(width: item.spacerKind == .small ? 12 : 25, height: 70)
-            } else if item.type == .widget {
-                let tint = WidgetRegistry.all.first(where: { $0.name == item.widgetKind })?.category.displayColor ?? DockDesign.accent
-                Image(systemName: WidgetRegistry.all.first(where: { $0.name == item.widgetKind })?.symbol ?? "square.grid.2x2")
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundStyle(tint)
-                    .frame(width: 58, height: 58)
-                    .background(tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 13))
-            } else if item.type == .folder && item.hasCustomFolderIcon {
-                DockFolderIconView(item: item, size: 58)
-            } else {
-                Image(nsImage: AppLauncher.icon(for: item, size: 54)).resizable().scaledToFit().frame(width: 58, height: 58)
-            }
-            Text(item.title).font(.caption).lineLimit(1).frame(width: 86)
-        }
-        .padding(10)
-        .background(isSelected ? DockDesign.accent.opacity(0.12) : DockDesign.card,
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .stroke(isSelected || isHighlighted ? DockDesign.accent : DockDesign.hairline,
-                    lineWidth: isSelected || isHighlighted ? 2 : 1))
-        .shadow(color: isHighlighted ? DockDesign.accent.opacity(0.24) : .black.opacity(isSelected ? 0.09 : 0.04),
-                radius: isHighlighted ? 12 : 6, y: 3)
-        .scaleEffect(isHighlighted ? 1.04 : 1)
-        .animation(.easeInOut(duration: 0.2), value: isHighlighted)
-        .overlay(alignment: .bottomTrailing) {
-            if AppLauncher.isMissingTarget(item) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.orange)
-                    .padding(5)
-                    .help("Saved location is unavailable")
-                    .accessibilityHidden(true)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            if isSelectionMode {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3).foregroundStyle(isSelected ? DockDesign.accent : Color.secondary)
-                    .padding(5)
-                    .accessibilityHidden(true)
-            }
-        }
-            .contentShape(RoundedRectangle(cornerRadius: 16))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(item.title)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityHint(AppLauncher.isMissingTarget(item)
-            ? "Saved location is unavailable. Re-add the item from its current location."
-            : (isSelectionMode ? "Click to toggle selection." : "Click to select; use Select Items for multi-select."))
-        .contextMenu {
-            if item.type == .link {
-                Button("Edit Link…", systemImage: "pencil") { editLink() }
-            }
-            if item.type == .file, let fileURL = item.url {
-                Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([fileURL]) }
-                Button("Open Containing Folder") { NSWorkspace.shared.open(fileURL.deletingLastPathComponent()) }
-            }
-            if item.type == .folder {
-                Button("Customize Folder Icon…", systemImage: "folder.badge.gearshape") {
-                    folderColorSelection = item.folderIconColor?.rawValue ?? ""
-                    folderLetterDraft = item.folderIconLetter ?? ""
-                    folderNumberDraft = item.folderIconNumber ?? ""
-                    isFolderIconEditorPresented = true
-                }
-                Button("Reset Icon") { updateFolderIcon(nil, nil, nil) }
-                    .disabled(!item.hasCustomFolderIcon)
-            }
-            Button("Remove", role: .destructive, action: remove)
-        }
-        .popover(isPresented: $isFolderIconEditorPresented, arrowEdge: .top) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Folder Icon").font(.headline)
-                Picker("Color", selection: $folderColorSelection) {
-                    Text("Default").tag("")
-                    ForEach(DockProfileColor.allCases) { color in
-                        Text(color.title).tag(color.rawValue)
-                    }
-                }
-                TextField("Optional single letter", text: $folderLetterDraft)
-                    .onChange(of: folderLetterDraft) { value in
-                        let normalized = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()
-                        if normalized != value { folderLetterDraft = normalized }
-                    }
-                TextField("Optional number", text: $folderNumberDraft)
-                    .onChange(of: folderNumberDraft) { value in
-                        let normalized = String(value.filter(\.isNumber).prefix(3))
-                        if normalized != value { folderNumberDraft = normalized }
-                    }
-                HStack {
-                    Button("Reset Icon") {
-                        updateFolderIcon(nil, nil, nil)
-                        isFolderIconEditorPresented = false
-                    }
-                    Spacer()
-                    Button("Done") {
-                        updateFolderIcon(DockProfileColor(rawValue: folderColorSelection),
-                                         folderLetterDraft.isEmpty ? nil : folderLetterDraft,
-                                         folderNumberDraft.isEmpty ? nil : folderNumberDraft)
-                        isFolderIconEditorPresented = false
-                    }.buttonStyle(.borderedProminent)
-                }
-            }
-            .padding(14)
-            .frame(width: 240)
+        do {
+            let importedItems = try NativeDockController.shared.readCurrentItems()
+            updateDraft { $0.items = importedItems }
+        } catch {
+            dockOperationMessage = "Could not read the current macOS Dock. Your profile was not changed. \(error.localizedDescription)"
         }
     }
 }
@@ -889,4 +1040,101 @@ private struct EmptyStateView: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+}
+
+/// Local, deterministic suggestions: no app-usage collection or network access.
+enum DockStarterPreset: String, CaseIterable, Identifiable {
+    case everyday, focus, create, develop, commerce, homeOffice, travel, ai, monitor
+    var id: String { rawValue }
+    var title: String {
+        switch self { case .everyday: "Everyday"; case .focus: "Deep focus"; case .create: "Creative space"; case .develop: "Build & code"; case .commerce: "Commerce"; case .homeOffice: "Home office"; case .travel: "Travel"; case .ai: "AI workspace"; case .monitor: "System monitor" }
+    }
+    var symbol: String {
+        switch self { case .everyday: "sun.max"; case .focus: "moon"; case .create: "paintpalette"; case .develop: "chevron.left.forwardslash.chevron.right"; case .commerce: "bag"; case .homeOffice: "house"; case .travel: "airplane"; case .ai: "sparkles"; case .monitor: "waveform.path.ecg" }
+    }
+    var color: DockProfileColor {
+        switch self { case .everyday: .blue; case .focus: .teal; case .create: .purple; case .develop: .orange; case .commerce: .green; case .homeOffice: .blue; case .travel: .teal; case .ai: .purple; case .monitor: .red }
+    }
+    var detail: String {
+        switch self {
+        case .everyday: "Your daily essentials, time, and battery at a glance."
+        case .focus: "A quiet workspace with a focus timer and a quick note."
+        case .create: "Creative apps, inspiration, and music close by."
+        case .develop: "Your editor, terminal, browser, and system activity."
+        case .commerce: "Store metrics and daily operations. Connect accounts after setup."
+        case .homeOffice: "Meetings, reminders, and a quick note."
+        case .travel: "Time zones, weather, battery, and easy sharing."
+        case .ai: "Local AI activity and available provider limits."
+        case .monitor: "System, network, storage, and battery at a glance."
+        }
+    }
+    struct Resolution {
+        var items: [DockItem]
+        var notes: [String]
+    }
+    @MainActor func items() -> [DockItem] { resolve().items }
+    var widgetKinds: [String] {
+        switch self {
+        case .everyday: ["Clock", "Battery"]
+        case .focus: ["Focus Timer", "Sticky Note"]
+        case .create: ["Now Playing", "Sticky Note"]
+        case .develop: ["System Activity", "Clock"]
+        case .commerce: ["Stripe", "Paddle", "Shopify", "Calendar"]
+        case .homeOffice: ["Calendar", "Reminders", "Sticky Note"]
+        case .travel: ["World Clock", "Weather", "Battery", "AirDrop"]
+        case .ai: ["AI Limits", "AI Activity", "Focus Timer"]
+        case .monitor: ["System Activity", "Network Activity", "Battery"]
+        }
+    }
+    @MainActor func resolve() -> Resolution {
+        let candidates: [[String]]
+        let widgets = widgetKinds
+        switch self {
+        case .everyday:
+            candidates = [["com.apple.finder"], ["com.apple.Safari"], ["com.apple.mail"], ["com.apple.Notes"]]
+        case .focus:
+            candidates = [["com.apple.finder"], ["com.apple.Notes"], ["com.apple.Safari"]]
+        case .create:
+            candidates = [["com.apple.finder"], ["com.figma.Desktop", "com.apple.Preview"], ["com.adobe.Photoshop", "com.apple.Photos"], ["com.apple.Safari"]]
+        case .develop:
+            candidates = [["com.apple.finder"], ["com.microsoft.VSCode", "com.apple.dt.Xcode", "com.apple.TextEdit"], ["com.googlecode.iterm2", "com.apple.Terminal"], ["com.apple.Safari"]]
+        case .commerce:
+            candidates = [["com.apple.Safari"], ["com.apple.Numbers"]]
+        case .homeOffice:
+            candidates = [["com.apple.mail"], ["us.zoom.xos", "com.apple.FaceTime"], ["com.apple.Notes"]]
+        case .travel:
+            candidates = [["com.apple.Safari"], ["com.apple.Maps"]]
+        case .ai:
+            candidates = [["com.openai.codex", "com.apple.Terminal"], ["com.apple.Safari"]]
+        case .monitor:
+            candidates = [["com.apple.ActivityMonitor"], ["com.apple.Terminal"]]
+        }
+        var apps: [DockItem] = []
+        var notes: [String] = []
+        let names = ["com.figma.Desktop": "Figma", "com.adobe.Photoshop": "Photoshop",
+                     "com.microsoft.VSCode": "Visual Studio Code", "com.googlecode.iterm2": "iTerm",
+                     "us.zoom.xos": "Zoom", "com.openai.codex": "Codex"]
+        for group in candidates {
+            let preferred = names[group[0]] ?? group[0].split(separator: ".").last.map(String.init) ?? "Preferred app"
+            if let match = group.enumerated().compactMap({ index, id in
+                NSWorkspace.shared.urlForApplication(withBundleIdentifier: id).map { (index, $0) }
+            }).first {
+                let app = DockItem.application(at: match.1)
+                apps.append(app)
+                if match.0 > 0 { notes.append("\(preferred) is unavailable; using \(app.title).") }
+            } else { notes.append("\(preferred) is unavailable. You can add a replacement application below.") }
+        }
+        return Resolution(items: apps + (apps.isEmpty ? [] : [.spacer(.small)]) + widgets.map { .widget($0) }, notes: notes)
+    }
+}
+
+enum DockLibraryMode: String, Identifiable {
+    case add, command
+    var id: String { rawValue }
+}
+
+private struct DockConfigurationTarget: Identifiable {
+    let profileID: UUID
+    let item: DockItem
+    var id: UUID { item.id }
 }

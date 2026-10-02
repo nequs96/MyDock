@@ -1,0 +1,328 @@
+{
+  "recorded_at_utc": "2026-09-30T07:50:05.687014+00:00",
+  "status": "Local implementation build verified; production acceptance and distribution qualification pending",
+  "base_commit": "18a664a48551d35c43232ba9f51b8f2c806afcce",
+  "dirty_worktree": true,
+  "host": {
+    "macos": "26.5.1",
+    "build": "25F80",
+    "architecture": "arm64",
+    "developer_directory": "/Library/Developer/CommandLineTools",
+    "swift": "Apple Swift version 6.3 (swiftlang-6.3.0.123.5 clang-2100.0.123.102)\nTarget: arm64-apple-macosx26.0",
+    "sdk": "26.4"
+  },
+  "bundle": {
+    "path": "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app",
+    "archive": "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.zip",
+    "identifier": "app.mydock.MyDock",
+    "version": "0.1.0",
+    "build": "1",
+    "architectures": [
+      "x86_64",
+      "arm64"
+    ],
+    "minimum_macos": "13.0",
+    "sdk": "26.4",
+    "signature": "ad-hoc",
+    "developer_id_signed": false,
+    "notarized": false,
+    "binary_sha256": "ada6d20c9c3991601ff377baf8640106d973af76f2e2e3fb2ce8545e26c9b9e8",
+    "zip_sha256": "bdb8cd798daf61bf0ae2f1ccd8ea7020853945b1cc92aa464d0b6d065ce5c9b2"
+  },
+  "source_fingerprint": {
+    "sha256": "0eefdb6d0e411fe509eaf568544df3a8eac19551a52d7a031cddc8c519459abb",
+    "scope": [
+      "Sources/MyDock",
+      "Resources",
+      "Tools",
+      "Package.swift",
+      "BuildMyDock.sh"
+    ],
+    "guard": "BuildMyDock.sh rejects a source change during either architecture build"
+  },
+  "release_configuration_sha256": {
+    "project.yml": "18868c5a37f0d0f2187b40954fa19060342bb7f5bab9c3a4df47bec02efe77e5",
+    "Xcode/MyDock-Info.plist": "d996891aca7bc9fcf55b7525fbff1e2356f7c3339d8a0220d5a0f6846d76977c",
+    "Xcode/MyDock.entitlements": "4fde578ae840738f21fc0ebd52f41703483212ae000dcff18aa9cc3a9c219d83",
+    "ReleaseMyDock.sh": "3de6828363b7b9a346c6d2a08cf822ebeac83791a459ae6e4086dfd19217bb13",
+    ".github/workflows/validate.yml": "ec9044ad006fd82914bce6c79598f0099bcf83d5d794adc059e845be8aa64af1"
+  },
+  "tests": {
+    "result": "passed",
+    "registered": 190,
+    "suites": 13,
+    "duration_seconds": 0.892,
+    "skipped_gated_tests": [
+      "nativeApplyRestoreAndJournalRecovery",
+      "recordComparableGeometryAndWriterScenarios"
+    ],
+    "test_target_macos": "14.0",
+    "live_dock_test_enabled": false,
+    "log": "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/.build/implementation-verification-20260930/tests.log"
+  },
+  "performance_baseline": {
+    "build": "SwiftPM test Debug",
+    "iterations_per_geometry_sample": 100,
+    "limits": "Synthetic CPU/disk baseline. No network, native Dock mutation, energy, animation FPS, or OS acceptance claim.",
+    "macos": "Version 26.5.1 (Build 25F80)",
+    "processors": 8,
+    "recorded_at": "2026-09-30T07:27:10Z",
+    "results": [
+      {
+        "median_ms": 0.04851541,
+        "p95_ms": 0.06982375,
+        "samples": 30,
+        "scenario": "geometry-7-widgets"
+      },
+      {
+        "median_ms": 0.17953375000000002,
+        "p95_ms": 0.27132458,
+        "samples": 30,
+        "scenario": "geometry-30-widgets"
+      },
+      {
+        "median_ms": 0.2936925,
+        "p95_ms": 0.34128959000000003,
+        "samples": 30,
+        "scenario": "geometry-60-widgets"
+      },
+      {
+        "elapsed_ms": 97.979625,
+        "scenario": "encode-atomic-write-50-profiles-2000-items"
+      }
+    ]
+  },
+  "manual_preview_verified": [
+    "staged rename/save/discard",
+    "dirty draft retained across Settings navigation",
+    "cancel quit and cancel workspace close",
+    "nine preset families and missing-app fallback notes",
+    "preset Cancel creates no profile and Create creates one complete selected profile",
+    "group one-step movement",
+    "Command Home/End moves selected group preserving relative order",
+    "returning group to original order clears dirty state",
+    "control-level Magnification search opens Behavior settings",
+    "profile inheritance and override controls",
+    "appearance Undo restores previous values",
+    "natural-width bottom sample renderer with light and dark material"
+  ],
+  "latest_local_fixes": [
+    "do not resurrect removed/replaced Shopify credentials after delayed refresh",
+    "explicit Command Home/End movement controls",
+    "preserve custom drag type through XcodeGen regeneration",
+    "clip scrolling tiles along the viewport axis while reserving cross-axis magnification",
+    "correct lipo input ordering in distribution script and CI"
+  ],
+  "not_verified": [
+    "post-fix side/overflow visual check: Mac locked before updated preview could be opened",
+    "pointer group/end drag: CUA windowNotFoundAtPosition error -10005",
+    "full Xcode unit/UI execution and App Intents metadata",
+    "Developer ID/notarization/stapling/Gatekeeper distribution",
+    "Intel runtime and macOS 13/14 runtime",
+    "production panel motion/FPS/energy/memory and display/Spaces/fullscreen policy",
+    "disposable real Dock apply/recovery and replacement-mode restoration",
+    "live provider credential, permission and notification matrix",
+    "installed signed login item and publisher update release",
+    "matched Dockset comparison"
+  ],
+  "checks": {
+    "architectures": {
+      "passed": true,
+      "command": [
+        "lipo",
+        "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app/Contents/MacOS/MyDock",
+        "-verify_arch",
+        "arm64",
+        "x86_64"
+      ],
+      "output": ""
+    },
+    "architecture_inventory": {
+      "passed": true,
+      "command": [
+        "lipo",
+        "-archs",
+        "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app/Contents/MacOS/MyDock"
+      ],
+      "output": "x86_64 arm64"
+    },
+    "signature": {
+      "passed": true,
+      "command": [
+        "codesign",
+        "--verify",
+        "--deep",
+        "--strict",
+        "--verbose=2",
+        "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app"
+      ],
+      "output": "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app: valid on disk\n/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app: satisfies its Designated Requirement"
+    },
+    "signing_identity": {
+      "passed": true,
+      "command": [
+        "codesign",
+        "-dvv",
+        "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app"
+      ],
+      "output": "Executable=/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app/Contents/MacOS/MyDock\nIdentifier=app.mydock.MyDock\nFormat=app bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=41066 flags=0x2(adhoc) hashes=1277+3 location=embedded\nSignature=adhoc\nInfo.plist entries=20\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=1\nInternal requirements count=0 size=12"
+    },
+    "deployment_targets": {
+      "passed": true,
+      "command": [
+        "vtool",
+        "-show-build",
+        "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app/Contents/MacOS/MyDock"
+      ],
+      "output": "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app/Contents/MacOS/MyDock (architecture x86_64):\nLoad command 11\n      cmd LC_BUILD_VERSION\n  cmdsize 32\n platform MACOS\n    minos 13.0\n      sdk 26.4\n   ntools 1\n     tool LD\n  version 1266.8\n/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app/Contents/MacOS/MyDock (architecture arm64):\nLoad command 11\n      cmd LC_BUILD_VERSION\n  cmdsize 32\n platform MACOS\n    minos 13.0\n      sdk 26.4\n   ntools 1\n     tool LD\n  version 1266.8"
+    },
+    "plists": {
+      "passed": true,
+      "command": [
+        "plutil",
+        "-lint",
+        "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app/Contents/Info.plist",
+        "Xcode/MyDock-Info.plist",
+        "Xcode/MyDock.entitlements",
+        "MyDock.xcodeproj/project.pbxproj"
+      ],
+      "output": "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.app/Contents/Info.plist: OK\nXcode/MyDock-Info.plist: OK\nXcode/MyDock.entitlements: OK\nMyDock.xcodeproj/project.pbxproj: OK"
+    },
+    "archive_integrity": {
+      "passed": true,
+      "command": [
+        "unzip",
+        "-tq",
+        "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.zip"
+      ],
+      "output": "No errors detected in compressed data of /Users/jakubjalowiecki/Documents/ChatGPT/dockX/build/MyDockImplementationReview.zip."
+    },
+    "shell_syntax": {
+      "passed": true,
+      "command": [
+        "sh",
+        "-n",
+        "BuildMyDock.sh",
+        "GenerateXcodeProject.sh",
+        "TestMyDock.sh",
+        "ReleaseMyDock.sh"
+      ],
+      "output": ""
+    },
+    "workflow_yaml": {
+      "passed": true,
+      "command": [
+        "ruby",
+        "-rpsych",
+        "-e",
+        "Psych.load_file(\".github/workflows/validate.yml\"); puts \"CI YAML syntax OK\""
+      ],
+      "output": "CI YAML syntax OK"
+    },
+    "ui_test_parser": {
+      "passed": true,
+      "command": [
+        "swiftc",
+        "-frontend",
+        "-parse",
+        "Tests/MyDockUITests/MyDockVisualPreviewUITests.swift"
+      ],
+      "output": ""
+    },
+    "diff_whitespace": {
+      "passed": true,
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "output": ""
+    },
+    "drag_type_declaration": {
+      "passed": true,
+      "locations": [
+        "project.yml",
+        "Xcode/MyDock-Info.plist",
+        "build/MyDockImplementationReview.app/Contents/Info.plist"
+      ]
+    },
+    "archive_matches_app": {
+      "passed": true,
+      "binary_sha256": "ada6d20c9c3991601ff377baf8640106d973af76f2e2e3fb2ce8545e26c9b9e8"
+    },
+    "source_fingerprint": {
+      "passed": true,
+      "command": [
+        "sh",
+        "-c",
+        "{ find Sources/MyDock Resources Tools -type f -exec shasum -a 256 {} + | LC_ALL=C sort; shasum -a 256 Package.swift BuildMyDock.sh; } | shasum -a 256"
+      ],
+      "output": "0eefdb6d0e411fe509eaf568544df3a8eac19551a52d7a031cddc8c519459abb  -"
+    },
+    "generated_source_inventory": {
+      "passed": true,
+      "app_swift_files": 96,
+      "unit_test_files": 13
+    },
+    "base_commit": {
+      "passed": true,
+      "command": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "output": "18a664a48551d35c43232ba9f51b8f2c806afcce"
+    },
+    "host_macos": {
+      "passed": true,
+      "command": [
+        "sw_vers",
+        "-productVersion"
+      ],
+      "output": "26.5.1"
+    },
+    "host_build": {
+      "passed": true,
+      "command": [
+        "sw_vers",
+        "-buildVersion"
+      ],
+      "output": "25F80"
+    },
+    "host_architecture": {
+      "passed": true,
+      "command": [
+        "uname",
+        "-m"
+      ],
+      "output": "arm64"
+    },
+    "developer_directory": {
+      "passed": true,
+      "command": [
+        "xcode-select",
+        "-p"
+      ],
+      "output": "/Library/Developer/CommandLineTools"
+    },
+    "swift": {
+      "passed": true,
+      "command": [
+        "swift",
+        "--version"
+      ],
+      "output": "Apple Swift version 6.3 (swiftlang-6.3.0.123.5 clang-2100.0.123.102)\nTarget: arm64-apple-macosx26.0\nswift-driver version: 1.148.6"
+    },
+    "sdk": {
+      "passed": true,
+      "command": [
+        "xcrun",
+        "--sdk",
+        "macosx",
+        "--show-sdk-version"
+      ],
+      "output": "26.4"
+    }
+  },
+  "build_log": "/Users/jakubjalowiecki/Documents/ChatGPT/dockX/.build/implementation-verification-20260930/build.log"
+}

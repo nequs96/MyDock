@@ -1,0 +1,32 @@
+{
+  "build" : "SwiftPM test Debug",
+  "iterations_per_geometry_sample" : 100,
+  "limits" : "Synthetic CPU\/disk baseline. No network, native Dock mutation, energy, animation FPS, or OS acceptance claim.",
+  "macos" : "Version 26.5.1 (Build 25F80)",
+  "processors" : 8,
+  "recorded_at" : "2026-09-30T07:27:10Z",
+  "results" : [
+    {
+      "median_ms" : 0.048515410000000002,
+      "p95_ms" : 0.069823750000000004,
+      "samples" : 30,
+      "scenario" : "geometry-7-widgets"
+    },
+    {
+      "median_ms" : 0.17953375000000002,
+      "p95_ms" : 0.27132457999999998,
+      "samples" : 30,
+      "scenario" : "geometry-30-widgets"
+    },
+    {
+      "median_ms" : 0.29369250000000002,
+      "p95_ms" : 0.34128959000000003,
+      "samples" : 30,
+      "scenario" : "geometry-60-widgets"
+    },
+    {
+      "elapsed_ms" : 97.979624999999999,
+      "scenario" : "encode-atomic-write-50-profiles-2000-items"
+    }
+  ]
+}

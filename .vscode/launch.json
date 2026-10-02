@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:dockX}",
+            "name": "Debug MyDock",
+            "target": "MyDock",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug MyDock"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:dockX}",
+            "name": "Release MyDock",
+            "target": "MyDock",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release MyDock"
+        }
+    ]
+}

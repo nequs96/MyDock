@@ -10,10 +10,13 @@ struct OnboardingView: View {
     @State private var dockPosition: DockPosition
     @State private var displayID: UInt32?
     @State private var importCurrentDock = true
+    @State private var includeStarterApps = true
     @State private var starterWidgets: Set<String> = ["Clock", "Battery"]
+    @State private var importError: String?
 
-    init(store: ProfileStore, onFinish: @escaping () -> Void) {
+    init(store: ProfileStore, initialStep: Int = 0, onFinish: @escaping () -> Void) {
         self.store = store
+        _step = State(initialValue: min(3, max(0, initialStep)))
         self.onFinish = onFinish
         _setupMode = State(initialValue: store.state.settings.setupMode)
         _dockPosition = State(initialValue: store.state.settings.customDockPosition)
@@ -21,73 +24,94 @@ struct OnboardingView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            DockScreenHeader(eyebrow: "STEP \(step + 1) OF 4", title: "Your Dock, your way.",
-                             subtitle: "A few choices will make MyDock feel at home on your Mac.")
-            HStack(spacing: 7) {
-                ForEach(0..<4) { index in
-                    Capsule()
-                        .fill(index <= step ? DockDesign.accent : Color.secondary.opacity(0.15))
-                        .frame(height: 4)
-                }
-            }
-            .padding(.top, 16).padding(.bottom, 24)
-
-            ScrollView {
-                Group {
-                    switch step {
-                    case 0: modeStep
-                    case 1: profilesStep
-                    case 2: placementStep
-                    default: reviewStep
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            Divider().padding(.top, 14)
-            HStack {
-                if step > 0 {
-                    Button("Back") { step -= 1 }
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                Label("MyDock", systemImage: "dock.rectangle").font(.system(size: 21, weight: .semibold))
+                    .padding(.top, 32).padding(.bottom, 8)
+                Text("Make room for what matters.").font(DockDesign.caption).foregroundStyle(.secondary)
+                    .padding(.bottom, 32)
+                ForEach(Array(["Welcome", "Your profile", "Placement", "Review"].enumerated()), id: \.offset) { index, title in
+                    HStack(spacing: 10) {
+                        Image(systemName: index < step ? "checkmark.circle.fill" : "\(index + 1).circle")
+                            .foregroundStyle(index == step ? DockDesign.accent : Color.secondary).frame(width: 20)
+                        Text(title).font(DockDesign.body)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                        .background(index == step ? DockDesign.selection : .clear, in: RoundedRectangle(cornerRadius: DockDesign.Radius.row))
+                        .foregroundStyle(index <= step ? Color.primary : Color.secondary)
+                        .padding(.bottom, 4)
                 }
                 Spacer()
-                if step < 3 {
-                    Button("Continue") { step += 1 }.buttonStyle(.borderedProminent)
-                } else {
-                    Button("Finish Setup") { finish() }
-                        .buttonStyle(.borderedProminent)
+                Text("Set up once. Refine anytime.").font(.system(size: 11)).foregroundStyle(.tertiary)
+            }.padding(.horizontal, 20).padding(.bottom, 24).frame(width: 212).background(DockDesign.sidebar)
+            Rectangle().fill(DockDesign.hairline).frame(width: 1)
+            VStack(alignment: .leading, spacing: 24) {
+                DockScreenHeader(eyebrow: "Step \(step + 1) of 4", title: stepTitle, subtitle: stepSubtitle)
+                DockScrollView {
+                    Group {
+                        switch step {
+                        case 0: modeStep
+                        case 1: profilesStep
+                        case 2: placementStep
+                        default: reviewStep
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .topLeading)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                HStack {
+                    if step > 0 { Button("Back") { step -= 1 } }
+                    Spacer()
+                    Button(step < 3 ? "Continue" : "Finish Setup") {
+                        if step < 3 { step += 1 } else { finish() }
+                    }.buttonStyle(DockButtonStyle(primary: true)).keyboardShortcut(.defaultAction)
                 }
-            }
-            .padding(.top, 14)
+            }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(30)
-        .frame(minWidth: 720, minHeight: 560)
-        .background(DockDesign.page)
-        .tint(DockDesign.accent)
+        .frame(minWidth: 740, minHeight: 540)
+        .background(DockDesign.page).buttonStyle(DockButtonStyle())
+        .tint(DockDesign.accent).font(DockDesign.body).toggleStyle(SettingsSwitchStyle())
+        .alert("Could not finish setup", isPresented: Binding(
+            get: { importError != nil }, set: { if !$0 { importError = nil } }
+        )) {
+            Button("OK", role: .cancel) { importError = nil }
+        } message: { Text(importError ?? "") }
+    }
+
+    private var stepTitle: String {
+        switch step {
+        case 0: "Welcome to MyDock"
+        case 1: "Make it yours"
+        case 2: "Find its place"
+        default: "You're ready"
+        }
+    }
+    private var stepSubtitle: String {
+        switch step {
+        case 0: "Choose how you'd like to use your Dock."
+        case 1: "Start with your apps and a few useful widgets."
+        case 2: "Choose the screen and edge that work for you."
+        default: "Review your choices. You can change them any time."
+        }
     }
 
     private var modeStep: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Choose how you want to use your Dock.").font(.title3.weight(.semibold))
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(SetupMode.allCases) { mode in
                 Button { setupMode = mode } label: {
-                    HStack(spacing: 14) {
+                    HStack(spacing: 12) {
                         Image(systemName: setupMode == mode ? "largecircle.fill.circle" : "circle")
-                            .font(.title2).foregroundStyle(setupMode == mode ? Color.accentColor : Color.secondary)
+                            .font(.system(size: 16)).foregroundStyle(setupMode == mode ? Color.accentColor : Color.secondary)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(mode.title).font(.headline)
-                            Text(description(for: mode)).font(.subheadline).foregroundStyle(.secondary)
+                            Text(description(for: mode)).font(.callout).foregroundStyle(.secondary)
                         }
                         Spacer()
                     }
-                    .padding(16).contentShape(Rectangle())
-                    .background(DockDesign.card, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous)
-                        .stroke(setupMode == mode ? DockDesign.accent : DockDesign.hairline,
-                                lineWidth: setupMode == mode ? 2 : 1))
+                    .padding(12).frame(minHeight: 72).contentShape(Rectangle())
+                    .background(setupMode == mode ? DockDesign.selection : DockDesign.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(DockDesign.hairline, lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(setupMode == mode ? .isSelected : [])
             }
         }
     }
@@ -103,26 +127,30 @@ struct OnboardingView: View {
             if setupMode != .nativeOnly {
                 if store.customProfiles.isEmpty {
                     Text("Choose starter widgets for your Custom Dock.")
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    Toggle("Include installed starter apps", isOn: $includeStarterApps)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 144))], spacing: 8) {
                         ForEach(Self.starterWidgetNames, id: \.self) { name in
                             let selected = starterWidgets.contains(name)
                             Button {
                                 if selected { starterWidgets.remove(name) }
                                 else { starterWidgets.insert(name) }
                             } label: {
-                                Label(name, systemImage: selected ? "checkmark.circle.fill" : "circle")
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(10)
-                                    .background(DockDesign.card, in: RoundedRectangle(cornerRadius: 10))
-                                    .overlay(RoundedRectangle(cornerRadius: 10)
-                                        .stroke(selected ? DockDesign.accent : DockDesign.hairline))
+                                VStack(alignment: .leading, spacing: 8) {
+                                    WidgetCardPreview(kind: name, width: 128).accessibilityHidden(true)
+                                    HStack {
+                                        Text(name).font(DockDesign.caption)
+                                        Spacer()
+                                        Image(systemName: selected ? "checkmark.circle.fill" : "circle").foregroundStyle(selected ? DockDesign.accent : Color.secondary)
+                                    }
+                                }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(selected ? DockDesign.selection : DockDesign.card, in: RoundedRectangle(cornerRadius: DockDesign.Radius.row))
                             }
                             .buttonStyle(.plain)
                         }
                     }
                 } else {
                     Text("Your existing Custom Dock profile will be kept. Starter widget choices apply when setup creates a new profile.")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -132,19 +160,23 @@ struct OnboardingView: View {
     }
 
     private var placementStep: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             if setupMode == .nativeOnly {
                 Text("macOS Dock only").font(.title3.weight(.semibold))
                 Text("No Custom Dock placement is needed for this setup. You can add a Custom Dock later from Manage Docks.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.callout).foregroundStyle(.secondary)
             } else {
                 Text("Choose the Custom Dock placement.").font(.title3.weight(.semibold))
-                Picker("Edge", selection: $dockPosition) {
-                    ForEach(DockPosition.allCases) { Text($0.title).tag($0) }
+                SettingsControlRow(title: "Position") {
+                    Picker("Edge", selection: $dockPosition) {
+                        ForEach(DockPosition.allCases) { Text($0.title).tag($0) }
+                    }.pickerStyle(.segmented).frame(width: 200)
                 }
-                Picker("Display", selection: $displayID) {
-                    Text("Main display").tag(Optional<UInt32>.none)
-                    ForEach(displayOptions) { option in Text(option.title).tag(Optional(option.id)) }
+                SettingsControlRow(title: "Display") {
+                    Picker("Display", selection: $displayID) {
+                        Text("Main display").tag(Optional<UInt32>.none)
+                        ForEach(displayOptions) { option in Text(option.title).tag(Optional(option.id)) }
+                    }
                 }
                 placementPreview
                 Text("Placement, display, size, and auto-hide can be changed later in Settings.")
@@ -158,7 +190,8 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Placement preview").font(.headline)
             ZStack(alignment: dockPosition == .bottom ? .bottom : (dockPosition == .left ? .leading : .trailing)) {
-                RoundedRectangle(cornerRadius: 16).fill(DockDesign.accent.opacity(0.1))
+                RoundedRectangle(cornerRadius: 12).fill(DockDesign.sidebar)
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(DockDesign.hairline, lineWidth: 0.5))
                 Group {
                     if dockPosition == .bottom {
                         HStack(spacing: 10) { previewIcons }
@@ -170,13 +203,12 @@ struct OnboardingView: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
                 .padding(14)
             }
-            .frame(height: 186)
+            .frame(height: 160)
             Text(previewSummary).font(.caption).foregroundStyle(.secondary)
         }
-        .padding(17)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DockDesign.card, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(DockDesign.hairline))
+
     }
 
     @ViewBuilder private var previewIcons: some View {
@@ -196,19 +228,19 @@ struct OnboardingView: View {
                 Label("Custom Dock at the \(dockPosition.title.lowercased()) edge", systemImage: "rectangle.bottomthird.inset.filled")
                 if store.customProfiles.isEmpty {
                     Text("Starter widgets: \(starterWidgets.sorted().joined(separator: ", ").isEmpty ? "None selected" : starterWidgets.sorted().joined(separator: ", "))")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(.secondary)
                 } else {
                     Text("Your existing Custom Dock profile will be kept.")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(.secondary)
                 }
             }
             Divider()
             Text("Permissions are optional and requested only when you use a feature that needs them.")
                 .font(.headline)
             Text("Hydration reminders may request Notifications. Calendar, Reminders, Weather location, Accessibility, and Screen Recording are not needed for this setup. You can review optional permissions in Settings.")
-                .font(.subheadline).foregroundStyle(.secondary)
+                .font(.callout).foregroundStyle(.secondary)
             Spacer()
-            Label("No changes will be made to the macOS Dock until you explicitly apply a native profile.", systemImage: "lock.shield")
+            Label(setupMode == .customMain ? "Replacement mode keeps Apple’s Dock hidden at the screen edge and restores its previous settings when you change modes or quit." : "Native Dock contents change only when you explicitly apply a profile.", systemImage: "lock.shield")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -230,18 +262,32 @@ struct OnboardingView: View {
         switch mode {
         case .nativeOnly: "Manage saved layouts for Apple's Dock."
         case .both: "Use saved macOS Dock profiles alongside a separate Custom Dock."
-        case .customMain: "Use MyDock's own launcher and widgets as your primary Dock-like surface."
+        case .customMain: "Use MyDock for apps and widgets. Apple’s Dock stays hidden, including at the screen edge."
         }
     }
 
     private func finish() {
-        let importedItems = setupMode == .customMain || !importCurrentDock
-            ? [] : NativeDockController.shared.readCurrentItems()
+        let importedItems: [DockItem]
+        if setupMode == .customMain || !importCurrentDock {
+            importedItems = []
+        } else {
+            do {
+                importedItems = try NativeDockController.shared.readCurrentItems()
+            } catch {
+                importError = "Your setup was not saved. You can turn off “Import my current macOS Dock” and continue, or try again. \(error.localizedDescription)"
+                return
+            }
+        }
         store.finishOnboarding(setupMode: setupMode,
                                customDockPosition: dockPosition,
                                customDockDisplayID: displayID,
                                importedNativeItems: importedItems,
-                               starterWidgets: starterWidgets.sorted())
+                               starterWidgets: starterWidgets.sorted(),
+                               starterApplications: includeStarterApps ? DockStarterPreset.everyday.items().filter { $0.type == .application } : [])
+        guard !store.hasUnpersistedChanges, store.state.settings.onboardingComplete else {
+            importError = store.persistenceError ?? "Setup could not be saved. Retry after restoring access to your data folder."
+            return
+        }
         onFinish()
     }
 

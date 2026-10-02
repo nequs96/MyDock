@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct StockWidgetProvider: DockWidgetProvider {
@@ -83,8 +84,16 @@ private struct StockPopoutView: View {
     @State private var isSearching = false
     @State private var isRefreshing = false
     @State private var errorMessage: String?
+    @State private var searchRequestID = UUID()
+    @State private var refreshRequestID = UUID()
 
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    private var configuration: WidgetConfiguration {
+        currentConfiguration ?? item.widgetConfiguration ?? WidgetConfiguration()
+    }
+    private var currentConfiguration: WidgetConfiguration? {
+        store.state.profiles.first(where: { $0.id == profileID })?.items
+            .first(where: { $0.id == item.id && $0.widgetKind == "Stock" })?.widgetConfiguration
+    }
     private var snapshot: StockMarketSnapshot? { configuration.stockSnapshot }
 
     var body: some View {
@@ -97,7 +106,7 @@ private struct StockPopoutView: View {
             }
             HStack {
                 TextField("Search ticker or company", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(DockTextFieldStyle())
                     .onSubmit { Task { await search() } }
                 Button { Task { await search() } } label: {
                     if isSearching { ProgressView().controlSize(.small) }
@@ -110,11 +119,15 @@ private struct StockPopoutView: View {
             if !configuration.stockSymbol.isEmpty {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(configuration.stockName.isEmpty ? configuration.stockSymbol : configuration.stockName)
-                            .font(.subheadline.weight(.semibold)).lineLimit(1)
+                        TextField("Display name", text: stockNameBinding)
+                            .font(.subheadline.weight(.semibold)).textFieldStyle(.plain).lineLimit(1)
                         Text(configuration.stockSymbol).font(.caption).foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     Spacer()
+                    Button("Yahoo Finance", systemImage: "arrow.up.right.square") { openFinance(configuration.stockSymbol) }
+                        .labelStyle(.iconOnly)
+                        .help("Open \(configuration.stockSymbol) on Yahoo Finance")
                     if isRefreshing { ProgressView().controlSize(.small) }
                 }
                 chartContent
@@ -138,23 +151,37 @@ private struct StockPopoutView: View {
                 .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: 390).frame(minHeight: 230, alignment: .topLeading)
-        .task(id: "\(configuration.stockSymbol)|\(configuration.stockRefreshIntervalMinutes)") {
+        .task(id: "\(configuration.stockSymbol)|\(configuration.stockCurrency)|\(configuration.stockRefreshIntervalMinutes)") {
             guard !configuration.stockSymbol.isEmpty else { return }
             await refresh()
-            for await _ in RefreshScheduler.shared.ticks(every: TimeInterval(configuration.stockRefreshIntervalMinutes) * 60) {
-                guard !Task.isCancelled else { return }
-                await refresh()
-            }
+        }
+        .onChange(of: "\(configuration.stockSymbol)|\(configuration.stockCurrency)") { _ in
+            refreshRequestID = UUID()
+            isRefreshing = false
+            errorMessage = nil
+        }
+        .onChange(of: searchText) { _ in
+            searchRequestID = UUID()
+            searchResults = []
+            isSearching = false
+        }
+        .onDisappear {
+            searchRequestID = UUID()
+            refreshRequestID = UUID()
+            isSearching = false
+            isRefreshing = false
         }
     }
 
     private var resultsList: some View {
-        ScrollView {
+        DockScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(searchResults) { result in
                     Button {
                         store.updateWidgetConfiguration(itemID: item.id, in: profileID) {
-                            if $0.stockSymbol != result.symbol { $0.stockSnapshot = nil }
+                            if $0.stockSymbol != result.symbol || $0.stockCurrency != result.currency {
+                                $0.stockSnapshot = nil
+                            }
                             $0.stockSymbol = result.symbol
                             $0.stockName = result.name
                             $0.stockCurrency = result.currency
@@ -194,12 +221,13 @@ private struct StockPopoutView: View {
                             .font(.caption.weight(.medium)).foregroundStyle(change >= 0 ? .green : .red)
                     }
                 }
-                MarketSparkline(points: Array(snapshot.points.suffix(configuration.stockRange.pointCount)),
+                let visiblePoints = Array(snapshot.points.suffix(configuration.stockRange.pointCount))
+                MarketSparkline(points: visiblePoints,
                                 color: (snapshot.change ?? 0) >= 0 ? .green : .red,
                                 currency: snapshot.currency)
                     .frame(height: 100)
                 HStack {
-                    Text(snapshot.points.first?.date.formatted(date: .abbreviated, time: .omitted) ?? "")
+                    Text(visiblePoints.first?.date.formatted(date: .abbreviated, time: .omitted) ?? "")
                     Spacer()
                     Text(latest.date.formatted(date: .abbreviated, time: .omitted))
                 }
@@ -222,6 +250,7 @@ private struct StockPopoutView: View {
                 ForEach(StockChartRange.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
+            Text("D = trading sessions. Up to 100 daily closes; percentage change compares the latest two sessions.").font(.caption2).foregroundStyle(.secondary)
             HStack {
                 Picker("Refresh", selection: refreshIntervalBinding) {
                     Text("1 hour").tag(60)
@@ -247,28 +276,38 @@ private struct StockPopoutView: View {
     }
 
     private func search() async {
+        let requestID = UUID()
+        searchRequestID = requestID
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         isSearching = true
         errorMessage = nil
-        defer { isSearching = false }
+        defer { if searchRequestID == requestID { isSearching = false } }
         do {
-            searchResults = try await AlphaVantageMarketProvider().search(searchText, apiKey: try requiredAPIKey())
-        } catch { errorMessage = error.localizedDescription }
+            let results = try await AlphaVantageMarketProvider().search(query, apiKey: try requiredAPIKey())
+            guard searchRequestID == requestID,
+                  query == searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+                  currentConfiguration != nil, !Task.isCancelled else { return }
+            searchResults = results
+        } catch {
+            guard searchRequestID == requestID,
+                  query == searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+                  currentConfiguration != nil, !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func refresh() async {
-        guard !configuration.stockSymbol.isEmpty else { return }
+        let requestID = UUID()
+        refreshRequestID = requestID
         isRefreshing = true
-        defer { isRefreshing = false }
-        do {
-            let data = try await AlphaVantageMarketProvider().snapshot(symbol: configuration.stockSymbol,
-                                                                          currency: configuration.stockCurrency,
-                                                                          apiKey: try requiredAPIKey())
-            store.updateWidgetConfiguration(itemID: item.id, in: profileID) { value in
-                guard value.stockSymbol == data.symbol else { return }
-                value.stockSnapshot = data
-            }
-            errorMessage = nil
-        } catch { errorMessage = error.localizedDescription }
+        defer { if refreshRequestID == requestID { isRefreshing = false } }
+        var currentItem = item
+        currentItem.widgetConfiguration = configuration
+        await store.widgetData.refresh(item: currentItem, profileID: profileID)
+        guard refreshRequestID == requestID, !Task.isCancelled else { return }
+        if let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: configuration) {
+            errorMessage = store.widgetData.errors[query]
+        }
     }
 
     private func requiredAPIKey() throws -> String {
@@ -281,6 +320,15 @@ private struct StockPopoutView: View {
     private func update(_ body: (inout WidgetConfiguration) -> Void) {
         store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: body)
     }
+
+    private var stockNameBinding: Binding<String> {
+        Binding(get: { configuration.stockName }, set: { value in update { $0.stockName = String(value.prefix(120)) } })
+    }
+
+    private func openFinance(_ symbol: String) {
+        guard let url = MarketFinanceURL.url(for: symbol) else { return }
+        NSWorkspace.shared.open(url)
+    }
 }
 
 private struct WatchlistPopoutView: View {
@@ -292,8 +340,16 @@ private struct WatchlistPopoutView: View {
     @State private var isSearching = false
     @State private var isRefreshing = false
     @State private var errorMessage: String?
+    @State private var searchRequestID = UUID()
+    @State private var refreshRequestID = UUID()
 
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    private var configuration: WidgetConfiguration {
+        currentConfiguration ?? item.widgetConfiguration ?? WidgetConfiguration()
+    }
+    private var currentConfiguration: WidgetConfiguration? {
+        store.state.profiles.first(where: { $0.id == profileID })?.items
+            .first(where: { $0.id == item.id && $0.widgetKind == "Watchlist" })?.widgetConfiguration
+    }
     private var selected: WatchlistStock? { configuration.watchlistStocks.first { $0.symbol == configuration.watchlistSelectedSymbol } }
     private var interval: Int { configuration.stockRefreshIntervalMinutes }
 
@@ -306,7 +362,7 @@ private struct WatchlistPopoutView: View {
                     .disabled(selected == nil || isRefreshing)
             }
             HStack {
-                TextField("Search ticker or company", text: $searchText).textFieldStyle(.roundedBorder)
+                TextField("Search ticker or company", text: $searchText).textFieldStyle(DockTextFieldStyle())
                     .onSubmit { Task { await search() } }
                 Button { Task { await search() } } label: {
                     if isSearching { ProgressView().controlSize(.small) }
@@ -322,7 +378,7 @@ private struct WatchlistPopoutView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 100)
             } else {
-                watchlistRows
+                watchlistTabs
                 if let selected { selectedChart(selected) }
             }
             controls
@@ -334,18 +390,30 @@ private struct WatchlistPopoutView: View {
                 .font(.caption2).foregroundStyle(.tertiary)
         }
         .frame(width: 410).frame(minHeight: 240, alignment: .topLeading)
-        .task(id: "\(configuration.watchlistSelectedSymbol)|\(interval)") {
+        .task(id: "\(configuration.watchlistSelectedSymbol)|\(selected?.currency ?? "")|\(interval)") {
             guard !configuration.watchlistSelectedSymbol.isEmpty else { return }
             await refreshSelected()
-            for await _ in RefreshScheduler.shared.ticks(every: TimeInterval(interval) * 60) {
-                guard !Task.isCancelled else { return }
-                await refreshSelected()
-            }
+        }
+        .onChange(of: "\(configuration.watchlistSelectedSymbol)|\(selected?.currency ?? "")") { _ in
+            refreshRequestID = UUID()
+            isRefreshing = false
+            errorMessage = nil
+        }
+        .onChange(of: searchText) { _ in
+            searchRequestID = UUID()
+            searchResults = []
+            isSearching = false
+        }
+        .onDisappear {
+            searchRequestID = UUID()
+            refreshRequestID = UUID()
+            isSearching = false
+            isRefreshing = false
         }
     }
 
     private var searchResultsList: some View {
-        ScrollView {
+        DockScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(searchResults) { result in
                     Button { add(result) } label: {
@@ -369,61 +437,92 @@ private struct WatchlistPopoutView: View {
         .background(.quaternary.opacity(0.24), in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private var watchlistRows: some View {
-        VStack(spacing: 2) {
-            ForEach(configuration.watchlistStocks) { stock in
-                HStack(spacing: 4) {
+    private var watchlistTabs: some View {
+        DockScrollView(.horizontal) {
+            LazyHStack(spacing: 8) {
+                ForEach(configuration.watchlistStocks) { stock in
                     Button { update { $0.watchlistSelectedSymbol = stock.symbol } } label: {
-                        HStack {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(stock.symbol).font(.callout.weight(.semibold))
-                            Text(stock.name).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer()
-                        if let snapshot = stock.snapshot, let latest = snapshot.latest {
-                            VStack(alignment: .trailing, spacing: 1) {
-                                Text(latest.close.formatted(.currency(code: snapshot.currency))).font(.caption.monospacedDigit())
-                                if let percent = snapshot.changePercent {
-                                    Text(String(format: "%+.2f%%", percent)).font(.caption2).foregroundStyle(percent >= 0 ? .green : .red)
-                                }
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(stock.symbol).font(.callout.weight(.semibold)).lineLimit(1)
+                            Text(stock.displayName).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            if let snapshot = stock.snapshot, let latest = snapshot.latest {
+                                Text(latest.close.formatted(.currency(code: snapshot.currency)))
+                                    .font(.caption2.monospacedDigit()).lineLimit(1)
+                            } else {
+                                Text("No quote").font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                             }
-                        } else {
-                            Text("—").font(.caption).foregroundStyle(.tertiary)
                         }
-                    }
-                        .padding(.horizontal, 8).padding(.vertical, 5)
-                        .background(configuration.watchlistSelectedSymbol == stock.symbol ? Color.accentColor.opacity(0.12) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 7))
+                        .frame(width: 112, alignment: .leading)
+                        .padding(.horizontal, 9).padding(.vertical, 7)
+                        .background(configuration.watchlistSelectedSymbol == stock.symbol ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.035),
+                                    in: RoundedRectangle(cornerRadius: 9))
+                        .overlay(RoundedRectangle(cornerRadius: 9)
+                            .strokeBorder(configuration.watchlistSelectedSymbol == stock.symbol ? Color.accentColor.opacity(0.48) : Color.primary.opacity(0.08), lineWidth: 1))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    Button { remove(stock.symbol) } label: {
-                        Image(systemName: "xmark.circle").foregroundStyle(.secondary).padding(5)
+                    .accessibilityLabel("\(stock.displayName), \(stock.symbol)")
+                    .accessibilityAddTraits(configuration.watchlistSelectedSymbol == stock.symbol ? .isSelected : [])
+                    .contextMenu {
+                        Button("Move Earlier", systemImage: "arrow.left") { move(stock.symbol, by: -1) }
+                            .disabled(configuration.watchlistStocks.first?.symbol == stock.symbol)
+                        Button("Move Later", systemImage: "arrow.right") { move(stock.symbol, by: 1) }
+                            .disabled(configuration.watchlistStocks.last?.symbol == stock.symbol)
+                        Divider()
+                        Button("Remove \(stock.symbol)", systemImage: "trash", role: .destructive) { remove(stock.symbol) }
                     }
-                    .buttonStyle(.plain).help("Remove \(stock.symbol)")
                 }
             }
+            .padding(.vertical, 2)
         }
+        .scrollIndicators(.hidden)
+        .frame(maxWidth: .infinity)
+        .help("Choose a ticker. Open a ticker's context menu to change its order or remove it.")
     }
 
     @ViewBuilder private func selectedChart(_ stock: WatchlistStock) -> some View {
-        if let snapshot = stock.snapshot, let latest = snapshot.latest {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text(latest.close.formatted(.currency(code: snapshot.currency))).font(.system(size: 22, weight: .medium, design: .rounded).monospacedDigit())
-                    if let change = snapshot.changePercent {
-                        Text(String(format: "%+.2f%%", change)).font(.caption.weight(.medium)).foregroundStyle(change >= 0 ? .green : .red)
-                    }
-                    Spacer()
-                }
-                MarketSparkline(points: Array(snapshot.points.suffix(configuration.stockRange.pointCount)),
-                                color: (snapshot.change ?? 0) >= 0 ? .green : .red,
-                                currency: snapshot.currency)
-                    .frame(height: 72)
-                if configuration.stockShowsVolume { Text("Volume \(latest.volume.formatted())").font(.caption2).foregroundStyle(.secondary) }
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                TextField("Display name", text: displayNameBinding(for: stock))
+                    .font(.subheadline.weight(.semibold)).textFieldStyle(.plain)
+                    .accessibilityLabel("Display name for \(stock.symbol)")
+                Text(stock.symbol).font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button { move(stock.symbol, by: -1) } label: { Image(systemName: "arrow.left") }
+                    .buttonStyle(.plain).disabled(configuration.watchlistStocks.first?.symbol == stock.symbol)
+                    .help("Move \(stock.symbol) earlier")
+                Button { move(stock.symbol, by: 1) } label: { Image(systemName: "arrow.right") }
+                    .buttonStyle(.plain).disabled(configuration.watchlistStocks.last?.symbol == stock.symbol)
+                    .help("Move \(stock.symbol) later")
+                Button("Open on Yahoo Finance", systemImage: "arrow.up.right.square") { openFinance(stock.symbol) }
+                    .labelStyle(.iconOnly).help("Open \(stock.symbol) on Yahoo Finance")
             }
-        } else if isRefreshing {
-            ProgressView("Loading \(stock.symbol)…").frame(maxWidth: .infinity, minHeight: 75)
+            if let snapshot = stock.snapshot, let latest = snapshot.latest {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(latest.close.formatted(.currency(code: snapshot.currency))).font(.system(size: 22, weight: .medium, design: .rounded).monospacedDigit())
+                        if let change = snapshot.changePercent {
+                            Text(String(format: "%+.2f%%", change)).font(.caption.weight(.medium)).foregroundStyle(change >= 0 ? .green : .red)
+                        }
+                        Spacer()
+                    }
+                    let visiblePoints = Array(snapshot.points.suffix(configuration.stockRange.pointCount))
+                    MarketSparkline(points: visiblePoints,
+                                    color: (snapshot.change ?? 0) >= 0 ? .green : .red,
+                                    currency: snapshot.currency)
+                        .frame(height: 72)
+                    Text("\(visiblePoints.count) trading sessions · \(visiblePoints.first?.date.formatted(date: .abbreviated, time: .omitted) ?? "")–\(latest.date.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Text("Change compares the latest two sessions; up to 100 daily closes are available.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    if configuration.stockShowsVolume { Text("Volume \(latest.volume.formatted())").font(.caption2).foregroundStyle(.secondary) }
+                }
+            } else if isRefreshing {
+                ProgressView("Loading \(stock.symbol)…").frame(maxWidth: .infinity, minHeight: 75)
+            } else {
+                Label("No saved quote for \(stock.symbol)", systemImage: "chart.xyaxis.line")
+                    .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 75)
+            }
         }
     }
 
@@ -446,27 +545,38 @@ private struct WatchlistPopoutView: View {
     }
 
     private func search() async {
+        let requestID = UUID()
+        searchRequestID = requestID
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         isSearching = true
         errorMessage = nil
-        defer { isSearching = false }
-        do { searchResults = try await AlphaVantageMarketProvider().search(searchText, apiKey: try requiredAPIKey()) }
-        catch { errorMessage = error.localizedDescription }
+        defer { if searchRequestID == requestID { isSearching = false } }
+        do {
+            let results = try await AlphaVantageMarketProvider().search(query, apiKey: try requiredAPIKey())
+            guard searchRequestID == requestID,
+                  query == searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+                  currentConfiguration != nil, !Task.isCancelled else { return }
+            searchResults = results
+        } catch {
+            guard searchRequestID == requestID,
+                  query == searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+                  currentConfiguration != nil, !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func refreshSelected() async {
-        guard let selected else { return }
+        let requestID = UUID()
+        refreshRequestID = requestID
         isRefreshing = true
-        defer { isRefreshing = false }
-        do {
-            let snapshot = try await AlphaVantageMarketProvider().snapshot(symbol: selected.symbol,
-                                                                             currency: selected.currency,
-                                                                             apiKey: try requiredAPIKey())
-            update { configuration in
-                guard let index = configuration.watchlistStocks.firstIndex(where: { $0.symbol == snapshot.symbol }) else { return }
-                configuration.watchlistStocks[index].snapshot = snapshot
-            }
-            errorMessage = nil
-        } catch { errorMessage = error.localizedDescription }
+        defer { if refreshRequestID == requestID { isRefreshing = false } }
+        var currentItem = item
+        currentItem.widgetConfiguration = configuration
+        await store.widgetData.refresh(item: currentItem, profileID: profileID)
+        guard refreshRequestID == requestID, !Task.isCancelled else { return }
+        if let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: configuration) {
+            errorMessage = store.widgetData.errors[query]
+        }
     }
 
     private func add(_ result: MarketSymbol) {
@@ -487,6 +597,32 @@ private struct WatchlistPopoutView: View {
                 configuration.watchlistSelectedSymbol = configuration.watchlistStocks.first?.symbol ?? ""
             }
         }
+    }
+
+    private func move(_ symbol: String, by offset: Int) {
+        update { configuration in
+            guard let index = configuration.watchlistStocks.firstIndex(where: { $0.symbol == symbol }) else { return }
+            let destination = index + offset
+            guard configuration.watchlistStocks.indices.contains(destination) else { return }
+            configuration.watchlistStocks.swapAt(index, destination)
+        }
+    }
+
+    private func displayNameBinding(for stock: WatchlistStock) -> Binding<String> {
+        Binding(get: {
+            configuration.watchlistStocks.first(where: { $0.symbol == stock.symbol })?.customName ?? ""
+        }, set: { value in
+            update { configuration in
+                guard let index = configuration.watchlistStocks.firstIndex(where: { $0.symbol == stock.symbol }) else { return }
+                let trimmed = String(value.prefix(120)).trimmingCharacters(in: .whitespacesAndNewlines)
+                configuration.watchlistStocks[index].customName = trimmed.isEmpty ? nil : trimmed
+            }
+        })
+    }
+
+    private func openFinance(_ symbol: String) {
+        guard let url = MarketFinanceURL.url(for: symbol) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func requiredAPIKey() throws -> String {
@@ -564,9 +700,31 @@ private struct MarketSparkline: View {
                                                                 width: geometry.size.width,
                                                                 pointCount: points.count)
                 }
-                .onEnded { _ in selectedIndex = nil })
+            )
         }
-        .accessibilityLabel("Stock price chart. Move or drag over the chart to inspect a date, close, and volume.")
+        .onChange(of: points) { _ in selectedIndex = nil }
+        .accessibilityElement()
+        .accessibilityLabel("Stock price chart")
+        .accessibilityValue(accessibilityValue)
+        .accessibilityHint("Use the increment and decrement actions to inspect dates, closing prices, and volume.")
+        .accessibilityAdjustableAction { direction in
+            guard !points.isEmpty else { return }
+            let current = selectedIndex ?? (points.count - 1)
+            switch direction {
+            case .increment: selectedIndex = min(current + 1, points.count - 1)
+            case .decrement: selectedIndex = max(current - 1, 0)
+            @unknown default: break
+            }
+        }
+    }
+
+    private var accessibilityValue: String {
+        guard let selectedIndex, points.indices.contains(selectedIndex) else {
+            guard let latest = points.last else { return "No chart data" }
+            return "Latest: \(latest.date.formatted(date: .abbreviated, time: .omitted)), \(latest.close.formatted(.currency(code: currency))), volume \(latest.volume.formatted())"
+        }
+        let point = points[selectedIndex]
+        return "\(point.date.formatted(date: .abbreviated, time: .omitted)), \(point.close.formatted(.currency(code: currency))), volume \(point.volume.formatted())"
     }
 }
 

@@ -9,9 +9,15 @@ struct MenuBarView: View {
             Section("macOS Dock") {
                 ForEach(store.nativeProfiles) { profile in
                     Button {
-                        store.activate(profile.id)
+                        Task { @MainActor in
+                            do { try await NativeDockController.shared.apply(profile); store.recordAppliedNativeProfile(profile.id) }
+                            catch {
+                                let alert = NSAlert(); alert.messageText = "Could not switch the macOS Dock"
+                                alert.informativeText = error.localizedDescription; alert.runModal()
+                            }
+                        }
                     } label: {
-                        if store.state.settings.activeNativeProfileID == profile.id { Label(profile.name, systemImage: "checkmark") }
+                        if DockProfileStatus(profile: profile, settings: store.state.settings).isCurrent { Label(profile.name, systemImage: "checkmark") }
                         else { Text(profile.name) }
                     }
                 }
@@ -23,7 +29,7 @@ struct MenuBarView: View {
                     Button {
                         store.activate(profile.id)
                     } label: {
-                        if store.state.settings.activeCustomProfileID == profile.id { Label(profile.name, systemImage: "checkmark") }
+                        if DockProfileStatus(profile: profile, settings: store.state.settings).isCurrent { Label(profile.name, systemImage: "checkmark") }
                         else { Text(profile.name) }
                     }
                 }

@@ -1,4 +1,4 @@
-#!/bin/sh
+c#!/bin/sh
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -31,7 +31,8 @@ ensure_output_is_not_running() {
     if lsof -nP -a -p "$RUNNING_PID" -d txt -Fn 2>/dev/null |
        grep -Fqx "n$APP/Contents/MacOS/$PRODUCT_NAME"; then
       printf 'Refusing to overwrite a running app: %s\n' "$APP" >&2
-      printf 'Use --output to build another bundle while this copy is open.\n' >&2
+      printf 'Quit MyDock, rebuild, then reopen build/MyDock.app.\n' >&2
+      printf 'Use --output under .build/ only for isolated validation bundles.\n' >&2
       exit 1
     fi
   done
@@ -94,6 +95,11 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>UTExportedTypeDeclarations</key><array><dict>
+    <key>UTTypeIdentifier</key><string>app.mydock.items</string>
+    <key>UTTypeDescription</key><string>MyDock items</string>
+    <key>UTTypeConformsTo</key><array><string>public.json</string></array>
+  </dict></array>
   <key>NSCalendarsFullAccessUsageDescription</key><string>MyDock reads selected calendar events for the Calendar widget.</string>
   <key>NSCalendarsUsageDescription</key><string>MyDock reads selected calendar events for the Calendar widget.</string>
   <key>NSRemindersFullAccessUsageDescription</key><string>MyDock reads, adds, and completes reminders when you use the Reminders widget.</string>

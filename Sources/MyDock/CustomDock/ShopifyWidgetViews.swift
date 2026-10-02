@@ -17,25 +17,7 @@ private struct ShopifyCompactView: View {
     private var snapshot: ShopifySnapshot? { configuration.shopifySnapshot }
 
     var body: some View {
-        VStack(spacing: 2) {
-            Image(systemName: "bag.fill")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(shopifyColor(configuration.shopifyColor))
-            if let snapshot {
-                Text(ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: snapshot))
-                    .font(.system(size: 9, weight: .semibold, design: .rounded).monospacedDigit())
-                    .lineLimit(1).minimumScaleFactor(0.6)
-                Text(configuration.shopifyMetric.title).font(.system(size: 7, weight: .medium)).lineLimit(1)
-                if Date.now.timeIntervalSince(snapshot.fetchedAt) > 300 {
-                    Circle().fill(.orange).frame(width: 4, height: 4)
-                }
-            } else {
-                Text("Connect").font(.system(size: 8, weight: .medium)).lineLimit(1)
-            }
-        }
-        .frame(width: 54, height: 54)
-        .help(snapshot.map { "\(configuration.shopifyDisplayName) · \(configuration.shopifyMetric.title) · Updated \($0.fetchedAt.formatted(date: .omitted, time: .shortened))" }
-            ?? "Shopify · Connect an organization store")
+        BusinessDockFace(kind: "Shopify", title: configuration.shopifyDisplayName, metric: configuration.shopifyMetric.title, value: snapshot.map { ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: $0) }, context: configuration.shopifyPeriod.title)
     }
 }
 
@@ -43,93 +25,84 @@ private struct ShopifyPopoutView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    @ObservedObject private var setupDrafts = WidgetSetupDraftStore.shared
     @State private var connectedStores: [ShopifyConnectedStore] = []
-    @State private var accountNameDraft = ""
-    @State private var domainDraft = ""
-    @State private var clientIDDraft = ""
-    @State private var clientSecretDraft = ""
-    @State private var newAccountColor = DockProfileColor.green.rawValue
     @State private var isConnecting = false
     @State private var isRefreshing = false
+    @State private var refreshRequestID = UUID()
     @State private var isDisconnectConfirmationPresented = false
     @State private var errorMessage: String?
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var snapshot: ShopifySnapshot? { configuration.shopifySnapshot }
+    private var setupDraft: ShopifyConnectionDraft { setupDrafts.shopifyDraft(for: item.id) }
 
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: "bag.fill").foregroundStyle(shopifyColor(configuration.shopifyColor))
-                    TextField("Store name", text: displayNameBinding).textFieldStyle(.plain).font(.headline)
-                    Spacer(minLength: 4)
-                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing || configuration.shopifyStoreID.isEmpty)
-                    if isRefreshing { ProgressView().controlSize(.small) }
-                }
-
-                if let snapshot {
-                    Text("\(snapshot.storeName) · \(snapshot.storeDomain)")
-                        .font(.subheadline.weight(.medium)).lineLimit(1)
-                } else {
-                    Label("Connect a Shopify store", systemImage: "key.horizontal")
-                        .font(.callout.weight(.medium))
-                    Text("Use an app installed on a store in the same Shopify organization. Grant only read_orders; Shopify limits standard access to the last 60 days.")
-                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
-
-                if let snapshot {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: snapshot))
-                            .font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
-                        HStack(spacing: 6) {
-                            Text(configuration.shopifyMetric.title)
-                            Text("·")
-                            Text(configuration.shopifyMetric == .orders ? "orders" : snapshot.currency)
-                            Text("·")
-                            Text(snapshot.period.title)
-                        }
-                        .font(.caption).foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 2)
-                    if configuration.shopifyShowsChart { metricChart(snapshot) }
-                    breakdowns(snapshot)
-                }
-
-                controls
-                connectionControls
-
-                if let snapshot {
-                    HStack(spacing: 5) {
-                        Image(systemName: isStale ? "clock.badge.exclamationmark" : "checkmark.circle")
-                        Text(isStale ? "Showing last successful values" : "Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
-                        Text("· \(timeZoneLabel(snapshot.timeZoneID))")
-                    }
-                    .font(.caption2).foregroundStyle(isStale ? Color.orange : Color.gray)
-                    if snapshot.period != configuration.shopifyPeriod {
-                        Text("Last successful period: \(snapshot.period.title) · selected: \(configuration.shopifyPeriod.title)")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
-                if let errorMessage {
-                    Label(snapshot == nil ? errorMessage : "Refresh failed. Showing saved data. \(errorMessage)",
-                          systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-                }
-                Text("Order value uses Shopify's current order total after returns and discounts, including tax and shipping. Unpaid and fully returned orders count; test and canceled orders do not. This is order activity, not cash received.")
-                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "bag.fill").foregroundStyle(shopifyColor(configuration.shopifyColor))
+                TextField("Store name", text: displayNameBinding).textFieldStyle(.plain).font(.headline)
+                Spacer(minLength: 4)
+                Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing || configuration.shopifyStoreID.isEmpty)
+                if isRefreshing { ProgressView().controlSize(.small) }
             }
-            .frame(width: 375, alignment: .leading)
-            .frame(minHeight: 220, alignment: .topLeading)
+
+            if let snapshot {
+                Text("\(snapshot.storeName) · \(snapshot.storeDomain)")
+                    .font(.subheadline.weight(.medium)).lineLimit(1)
+            } else {
+                Label("Connect a Shopify store", systemImage: "key.horizontal")
+                    .font(.callout.weight(.medium))
+                Text("Use an app installed on a store in the same Shopify organization. Grant only read_orders; Shopify limits standard access to the last 60 days.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let snapshot {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: snapshot))
+                        .font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
+                    HStack(spacing: 6) {
+                        Text(configuration.shopifyMetric.title)
+                        Text("·")
+                        Text(configuration.shopifyMetric == .orders ? "orders" : snapshot.currency)
+                        Text("·")
+                        Text(snapshot.period.title)
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
+                if configuration.shopifyShowsChart { metricChart(snapshot) }
+                breakdowns(snapshot)
+            }
+
+            controls
+            connectionControls
+
+            if let snapshot {
+                HStack(spacing: 5) {
+                    Image(systemName: isStale ? "clock.badge.exclamationmark" : "checkmark.circle")
+                    Text(isStale ? "Showing last successful values" : "Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
+                    Text("· \(timeZoneLabel(snapshot.timeZoneID))")
+                }
+                .font(.caption2).foregroundStyle(isStale ? Color.orange : Color.gray)
+                if snapshot.period != configuration.shopifyPeriod {
+                    Text("Last successful period: \(snapshot.period.title) · selected: \(configuration.shopifyPeriod.title)")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            if let errorMessage {
+                Label(snapshot == nil ? errorMessage : "Refresh failed. Showing saved data. \(errorMessage)",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Order value uses Shopify's current order total after returns and discounts, including tax and shipping. Unpaid and fully returned orders count; test and canceled orders do not. This is order activity, not cash received.")
+                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 385, height: 480)
-        .task(id: "\(configuration.shopifyStoreID)|\(configuration.shopifyPeriod.rawValue)") {
+        .frame(width: 375, alignment: .leading)
+        .frame(minHeight: 220, alignment: .topLeading)
+        .task(id: "\(configuration.shopifyStoreID)|\(configuration.shopifyPeriod.rawValue)|\(configuration.shopifyDisplayName)") {
             guard !configuration.shopifyStoreID.isEmpty else { return }
             await refresh()
-            for await _ in RefreshScheduler.shared.ticks(every: 300) {
-                guard !Task.isCancelled else { return }
-                await refresh()
-            }
         }
         .onAppear(perform: reloadStores)
         .confirmationDialog("Disconnect \(configuration.shopifyDisplayName)?",
@@ -138,7 +111,7 @@ private struct ShopifyPopoutView: View {
             Button("Disconnect and Remove Credentials", role: .destructive) { disconnect() }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This removes the Shopify client secret and access token from this Mac's Keychain. It does not uninstall the app from Shopify.")
+            Text("This removes the Shopify client secret and access token from this Mac's Keychain and disconnects every MyDock widget using them. It does not uninstall the app from Shopify.")
         }
     }
 
@@ -182,14 +155,15 @@ private struct ShopifyPopoutView: View {
             Divider()
             Text("Connect a Shopify store").font(.caption.weight(.semibold))
             HStack(spacing: 7) {
-                TextField("Store name", text: $accountNameDraft).textFieldStyle(.roundedBorder)
-                Picker("Store color", selection: $newAccountColor) {
+                TextField("Store name", text: accountNameBinding).textFieldStyle(DockTextFieldStyle())
+                    .disabled(isConnecting)
+                Picker("Store color", selection: accountColorBinding) {
                     ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
-                }.labelsHidden().frame(width: 100)
+                }.labelsHidden().frame(width: 100).disabled(isConnecting)
             }
-            TextField("your-store.myshopify.com", text: $domainDraft).textFieldStyle(.roundedBorder)
-            TextField("App Client ID", text: $clientIDDraft).textFieldStyle(.roundedBorder)
-            SecureField("App Client Secret", text: $clientSecretDraft).textFieldStyle(.roundedBorder)
+            TextField("your-store.myshopify.com", text: domainBinding).textFieldStyle(DockTextFieldStyle()).disabled(isConnecting)
+            TextField("App Client ID", text: clientIDBinding).textFieldStyle(DockTextFieldStyle()).disabled(isConnecting)
+            SecureField("App Client Secret", text: clientSecretBinding).textFieldStyle(DockTextFieldStyle()).disabled(isConnecting)
             HStack {
                 Button {
                     Task { await connect() }
@@ -197,14 +171,48 @@ private struct ShopifyPopoutView: View {
                     if isConnecting { ProgressView().controlSize(.small) }
                     else { Text("Connect") }
                 }
-                .disabled(isConnecting || domainDraft.isEmpty || clientIDDraft.isEmpty || clientSecretDraft.isEmpty)
+                .disabled(isConnecting || setupDraft.domain.isEmpty || setupDraft.clientID.isEmpty || setupDraft.clientSecret.isEmpty)
+                Button("Clear Draft") { setupDrafts.clearDrafts(for: item.id) }
+                    .disabled(isConnecting || setupDraft.isPristine)
                 if !configuration.shopifyStoreID.isEmpty {
                     Button("Disconnect", role: .destructive) { isDisconnectConfirmationPresented = true }
                 }
             }
             Text("Create and install a Dev Dashboard app on a store in the same organization, with read_orders only. Shopify's client credentials grant works only for stores in that organization.")
                 .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("An unfinished form stays in memory for this widget until connected or cleared; the client secret is never written to profile data or backups.")
+                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private var accountNameBinding: Binding<String> {
+        Binding(get: { setupDraft.accountName }, set: { value in
+            setupDrafts.updateShopifyDraft(for: item.id) { $0.accountName = String(value.prefix(80)) }
+        })
+    }
+
+    private var domainBinding: Binding<String> {
+        Binding(get: { setupDraft.domain }, set: { value in
+            setupDrafts.updateShopifyDraft(for: item.id) { $0.domain = value }
+        })
+    }
+
+    private var clientIDBinding: Binding<String> {
+        Binding(get: { setupDraft.clientID }, set: { value in
+            setupDrafts.updateShopifyDraft(for: item.id) { $0.clientID = value }
+        })
+    }
+
+    private var clientSecretBinding: Binding<String> {
+        Binding(get: { setupDraft.clientSecret }, set: { value in
+            setupDrafts.updateShopifyDraft(for: item.id) { $0.clientSecret = value }
+        })
+    }
+
+    private var accountColorBinding: Binding<String> {
+        Binding(get: { setupDraft.color }, set: { value in
+            setupDrafts.updateShopifyDraft(for: item.id) { $0.color = value }
+        })
     }
 
     @ViewBuilder
@@ -309,23 +317,16 @@ private struct ShopifyPopoutView: View {
     }
 
     private func refresh() async {
-        let selectedID = configuration.shopifyStoreID
-        guard !isRefreshing, !selectedID.isEmpty else { return }
+        let requestID = UUID()
+        refreshRequestID = requestID
         isRefreshing = true
-        defer { isRefreshing = false }
-        do {
-            guard let account = ShopifyConnectionDirectory.stores().first(where: { $0.id == selectedID }),
-                  let credential = try ShopifyCredentialStore.read(storeID: selectedID) else { throw ShopifyDataError.invalidCredentials }
-            let result = try await ShopifyAPIProvider().snapshot(store: account, credential: credential, period: configuration.shopifyPeriod)
-            try ShopifyCredentialStore.write(result.credential, storeID: selectedID)
-            store.updateWidgetConfiguration(itemID: item.id, in: profileID) { value in
-                guard value.shopifyStoreID == selectedID, value.shopifyPeriod == result.snapshot.period else { return }
-                value.shopifyDisplayName = value.shopifyDisplayName.isEmpty ? account.name : value.shopifyDisplayName
-                value.shopifySnapshot = result.snapshot
-            }
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
+        defer { if refreshRequestID == requestID { isRefreshing = false } }
+        var currentItem = item
+        currentItem.widgetConfiguration = configuration
+        await store.widgetData.refresh(item: currentItem, profileID: profileID)
+        guard refreshRequestID == requestID, !Task.isCancelled else { return }
+        if let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: configuration) {
+            errorMessage = store.widgetData.errors[query]
         }
     }
 
@@ -334,23 +335,25 @@ private struct ShopifyPopoutView: View {
         isConnecting = true
         defer { isConnecting = false }
         errorMessage = nil
+        let draft = setupDraft
         do {
-            let connection = try await ShopifyAPIProvider().connect(domain: domainDraft,
-                                                                     clientID: clientIDDraft,
-                                                                     clientSecret: clientSecretDraft,
-                                                                     color: newAccountColor)
-            let requestedName = accountNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            let connection = try await ShopifyAPIProvider().connect(domain: draft.domain,
+                                                                     clientID: draft.clientID,
+                                                                     clientSecret: draft.clientSecret,
+                                                                     color: draft.color)
+            let requestedName = draft.accountName.trimmingCharacters(in: .whitespacesAndNewlines)
             let account = ShopifyConnectedStore(id: connection.store.id,
                                                 name: requestedName.isEmpty ? connection.store.name : requestedName,
                                                 domain: connection.store.domain,
                                                 timeZoneID: connection.store.timeZoneID,
                                                 currency: connection.store.currency,
                                                 color: connection.store.color)
+            guard !Task.isCancelled,
+                  let currentItem = store.state.profiles.first(where: { $0.id == profileID })?.items
+                    .first(where: { $0.id == item.id && $0.widgetKind == "Shopify" }),
+                  (currentItem.widgetConfiguration ?? WidgetConfiguration()).shopifyStoreID.isEmpty else { return }
             try ShopifyConnectionDirectory.save(account, credential: connection.credential)
-            accountNameDraft = ""
-            domainDraft = ""
-            clientIDDraft = ""
-            clientSecretDraft = ""
+            setupDrafts.clearDrafts(for: item.id)
             reloadStores()
             update {
                 $0.shopifyStoreID = account.id
@@ -359,6 +362,8 @@ private struct ShopifyPopoutView: View {
                 $0.shopifySnapshot = nil
             }
         } catch {
+            guard !Task.isCancelled else { return }
+            DiagnosticsService.shared.record(.shopifyConnectionFailed)
             errorMessage = error.localizedDescription
         }
     }
@@ -366,12 +371,17 @@ private struct ShopifyPopoutView: View {
     private func disconnect() {
         let selectedID = configuration.shopifyStoreID
         guard !selectedID.isEmpty else { return }
+        refreshRequestID = UUID()
+        isRefreshing = false
         do {
             try ShopifyConnectionDirectory.remove(storeID: selectedID)
             reloadStores()
-            update { $0.shopifyStoreID = ""; $0.shopifySnapshot = nil }
+            store.clearConnectionReferences(.shopify(selectedID))
             errorMessage = nil
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            DiagnosticsService.shared.record(.shopifyDisconnectionFailed)
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func reloadStores() { connectedStores = ShopifyConnectionDirectory.stores() }
@@ -404,13 +414,5 @@ private enum ShopifyMetricFormatter {
 }
 
 private func shopifyColor(_ name: String) -> Color {
-    switch DockProfileColor(rawValue: name) ?? .green {
-    case .blue: .blue
-    case .purple: .purple
-    case .teal: .teal
-    case .green: .green
-    case .orange: .orange
-    case .pink: .pink
-    case .red: .red
-    }
+    (DockProfileColor(rawValue: name) ?? .green).displayColor
 }

@@ -5,6 +5,8 @@ import Foundation
 enum ShortcutsServiceError: LocalizedError {
     case commandUnavailable
     case commandFailed(String)
+    case commandTimedOut
+    case outputTooLarge
     case alreadyRunning
     case invalidName
 
@@ -12,6 +14,8 @@ enum ShortcutsServiceError: LocalizedError {
         switch self {
         case .commandUnavailable: "The macOS Shortcuts command is unavailable."
         case .commandFailed(let message): message.isEmpty ? "The Shortcuts command failed." : message
+        case .commandTimedOut: "The Shortcuts catalog did not respond in time. Try again."
+        case .outputTooLarge: "The Shortcuts catalog returned more data than MyDock can safely read."
         case .alreadyRunning: "This shortcut is already running."
         case .invalidName: "Choose a shortcut first."
         }
@@ -32,30 +36,31 @@ enum ShortcutsCatalog {
     private static let commandURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
 
     static func list() async throws -> [String] {
-        try await Task.detached(priority: .userInitiated) {
-            ShortcutCatalogParser.parse(try runAndCapture(arguments: ["list"]))
-        }.value
+        ShortcutCatalogParser.parse(try await runAndCapture(arguments: ["list"]))
     }
 
-    private static func runAndCapture(arguments: [String]) throws -> String {
+    private static func runAndCapture(arguments: [String]) async throws -> String {
         guard FileManager.default.isExecutableFile(atPath: commandURL.path) else {
             throw ShortcutsServiceError.commandUnavailable
         }
-        let process = Process()
-        let output = Pipe()
-        let errors = Pipe()
-        process.executableURL = commandURL
-        process.arguments = arguments
-        process.standardOutput = output
-        process.standardError = errors
-        try process.run()
-        let outputData = output.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errors.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw ShortcutsServiceError.commandFailed(String(decoding: errorData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+        let captured: BoundedSubprocessOutput
+        do {
+            captured = try await BoundedSubprocessCapture.runCancellable(executableURL: commandURL,
+                                                                         arguments: arguments,
+                                                                         maximumOutputBytes: 4 * 1_024 * 1_024,
+                                                                         maximumErrorBytes: 128 * 1_024,
+                                                                         timeout: 20)
+        } catch BoundedSubprocessCaptureError.timedOut {
+            throw ShortcutsServiceError.commandTimedOut
+        } catch BoundedSubprocessCaptureError.outputLimitExceeded {
+            throw ShortcutsServiceError.outputTooLarge
+        } catch BoundedSubprocessCaptureError.outputReadFailed {
+            throw ShortcutsServiceError.commandFailed("MyDock could not safely read the Shortcuts catalog output.")
         }
-        return String(decoding: outputData, as: UTF8.self)
+        guard captured.terminationStatus == 0 else {
+            throw ShortcutsServiceError.commandFailed(String(decoding: captured.standardError, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return String(decoding: captured.standardOutput, as: UTF8.self)
     }
 }
 

@@ -15,14 +15,14 @@ struct KeyboardShortcutEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Keyboard Shortcut").font(.title2.bold())
+            Text("Keyboard Shortcut").font(.system(size: 21, weight: .semibold))
             Text("Switch to \(profileName) from any app.").foregroundStyle(.secondary)
 
             HStack {
                 Text(currentShortcut?.displayString ?? "No shortcut")
-                    .font(.system(size: 22, weight: .semibold, design: .rounded).monospaced())
+                    .font(.system(size: 20, weight: .medium).monospaced())
                     .frame(maxWidth: .infinity, minHeight: 48)
-                    .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+                    .background(DockDesign.input, in: RoundedRectangle(cornerRadius: 10))
                 if currentShortcut != nil {
                     Button("Clear") {
                         bindings.remove(for: profileID)
@@ -50,13 +50,13 @@ struct KeyboardShortcutEditor: View {
 
             HStack {
                 Spacer()
-                Button("Cancel", action: onClose)
+                Button(isRecording ? "Cancel" : "Done", action: onClose)
                 Button(isRecording ? "Listening…" : "Record Shortcut") { isRecording = true; message = nil }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(DockButtonStyle(primary: true))
             }
         }
-        .padding(22)
-        .frame(width: 430).frame(minHeight: 250)
+        .padding(24)
+        .frame(width: 430).frame(minHeight: 250).background(DockDesign.page).buttonStyle(DockButtonStyle())
     }
 
     private func capture(_ event: NSEvent) {

@@ -1,6 +1,6 @@
 # Installing a local MyDock build
 
-MyDock currently ships as an ad-hoc signed development bundle. It is not Developer ID signed or notarized, and there is no updater.
+MyDock currently ships as an ad-hoc signed development bundle. It is not Developer ID signed or notarized. Manual release discovery and Launch at Login are implemented; their installed/signed acceptance is pending.
 
 ## Build and launch
 
@@ -13,7 +13,7 @@ open build/MyDock.app
 
 The built app is `build/MyDock.app` in the repository, with a minimum system version of macOS 13. To install it for the current user, copy that bundle to `~/Applications`; to install it for all users, copy it to `/Applications` using Finder. Launch it from Applications or with `open ~/Applications/MyDock.app`.
 
-The verified September 27 release is also saved as `build/MyDock-Release.app` and `build/MyDock-Release.zip`. To build a separate bundle while another copy is open, run `./BuildMyDock.sh --output build/MyDock-Release.app`. The script refuses to overwrite a bundle that is running. Quit the older copy before opening the new release; if an older MyDock is still active, the new copy exits without opening the shared profile store or managing Apple's Dock.
+Use **`build/MyDock.app`** for all ongoing local development. It contains the latest redesign, audit and replacement/gallery fixes. Quit MyDock before rebuilding, then reopen the same path. The script refuses to overwrite a running bundle; launching a second copy exits before it opens the shared profile store or manages Apple's Dock. Do not create separately named candidate apps under `build/`. Isolated validation bundles can use `--output .build/visual-qa/MyDock.app` when needed. Older bundles are recoverably archived outside the repository; see [the archive index](history/README.md). Exact build checks and remaining acceptance gates are recorded in [the implementation ledger](IMPLEMENTATION_STATUS.md) and [canonical build evidence](RELEASE_AUDIT.md).
 
 The local bundle is ad-hoc signed and not notarized. If Gatekeeper blocks this locally built app, use Finder's Open action and approve it in Privacy & Security. Do not remove quarantine from an app build you did not create or inspect.
 
@@ -23,8 +23,20 @@ Quit the copy you are replacing, then rebuild its bundle to update. Profile data
 
 ## Signing for wider distribution
 
-For distribution outside this machine, sign the app with an Apple Developer ID certificate and notarize it. The ad-hoc signature produced by the build script is only for local development. The Xcode project's Release configuration enables the hardened runtime and includes an Apple Events entitlement; it still needs a full Xcode build, Developer ID signing, notarization, and final behavior checks. There is no updater.
+For distribution outside this machine, sign the app with an Apple Developer ID certificate and notarize it. The ad-hoc signature produced by the build script is only for local development. The Xcode project's Release configuration enables the hardened runtime and includes an Apple Events entitlement; it still needs a full Xcode build, Developer ID signing, notarization, and final behavior checks. The manual update checker opens a validated publisher release page; it does not download or replace the app executable.
 
 The repository also includes [an Xcode project and Focus filter build guide](XCODE_BUILD.md) for a full Xcode toolchain and Developer ID signing.
 
 See [permissions and data handling](PERMISSIONS.md) before enabling features that require additional system access.
+
+## Publisher distribution pipeline
+
+With full Xcode selected and XcodeGen available, run:
+
+```sh
+./ReleaseMyDock.sh "Developer ID Application: Publisher (TEAMID)" notary-keychain-profile ../dockX-releases/0.1.0
+```
+
+Use a fresh distribution output directory outside the repository; keep `build/` for the canonical development app. The script builds with full Xcode, requires extracted App Intents metadata, checks both architectures, signs with the hardened runtime and Apple Events entitlement, verifies the signature, submits/staples the app and DMG, assesses Gatekeeper and writes a SHA-256 checksum. A named notarization credential must already be stored in Keychain. No signing identity, account credentials or notarization success is supplied by this repository.
+
+Settings → General → Application lifecycle can register the installed app with Login Items and open approval settings when needed. Put the app in a stable Applications location before testing this. Update discovery requires the actual publisher's HTTPS GitHub repository URL and runs only on request. This workspace has no configured release repository or remote. See [the current implementation and acceptance ledger](IMPLEMENTATION_STATUS.md).

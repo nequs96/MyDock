@@ -11,36 +11,36 @@ struct WeatherWidgetProvider: DockWidgetProvider {
 }
 
 private struct WeatherCompactWidgetView: View {
+    @Environment(\.dockWidgetContentWidth) private var contentWidth
+    @Environment(\.widgetLayout) private var widgetLayout
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
     @State private var errorMessage: String?
+    @State private var refreshRequestID = UUID()
     @ObservedObject private var accessibility = AccessibilityDisplayState.shared
 
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    private var configuration: WidgetConfiguration {
+        currentConfiguration ?? item.widgetConfiguration ?? WidgetConfiguration()
+    }
+
+    private var currentConfiguration: WidgetConfiguration? {
+        store.state.profiles.first(where: { $0.id == profileID })?.items
+            .first(where: { $0.id == item.id && $0.widgetKind == "Weather" })?.widgetConfiguration
+    }
 
     var body: some View {
-        ZStack {
-            tileBackground
-            VStack(spacing: 2) {
-                if let forecast = configuration.cachedWeatherForecast {
-                    Image(systemName: WeatherCode.symbol(forecast.weatherCode, isDay: forecast.isDay))
-                        .font(.system(size: 18)).symbolRenderingMode(.multicolor)
-                    Text("\(Int(forecast.temperature.rounded()))°")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit()).lineLimit(1)
-                    Text(configuration.weatherLocation?.name ?? "Weather")
-                        .font(.system(size: 7, weight: .medium)).lineLimit(1).frame(maxWidth: 52)
-                } else {
-                    Image(systemName: "cloud.sun").font(.system(size: 20)).foregroundStyle(.tint)
-                    Text(configuration.weatherLocation == nil ? "Set city" : "Weather")
-                        .font(.system(size: 8, weight: .medium)).lineLimit(1).frame(maxWidth: 52)
-                }
-            }
-            .padding(3)
-        }
-        .frame(width: 54, height: 54)
+        WeatherDockFace(configuration: configuration)
+        .frame(width: contentWidth, height: 54)
         .help(tooltip)
-        .task(id: requestKey) { await refreshIfConfigured() }
+        .task(id: requestKey) {
+            await refreshIfConfigured()
+            for await _ in RefreshScheduler.shared.ticks(every: 10 * 60) {
+                guard !Task.isCancelled else { return }
+                await refreshIfConfigured()
+            }
+        }
+        .onDisappear { refreshRequestID = UUID() }
     }
 
     private var requestKey: String {
@@ -54,34 +54,28 @@ private struct WeatherCompactWidgetView: View {
         return "\(configuration.weatherLocation?.displayName ?? "Weather") · \(WeatherCode.description(forecast.weatherCode)) · Updated \(forecast.fetchedAt.formatted(date: .omitted, time: .shortened))"
     }
 
-    private var backgroundGradient: LinearGradient {
-        let colors: [Color] = configuration.weatherBackground == .themed
-            ? [Color.cyan.opacity(0.38), Color.blue.opacity(0.24)]
-            : [Color.clear, Color.clear]
-        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    @ViewBuilder private var tileBackground: some View {
-        if accessibility.reduceTransparency {
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(nsColor: .windowBackgroundColor))
-        } else if configuration.weatherBackground == .translucent {
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.ultraThinMaterial)
-        } else {
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(backgroundGradient)
-        }
-    }
-
     private func refreshIfConfigured() async {
         guard let location = configuration.weatherLocation else { return }
+        let requestedUnit = configuration.weatherUnit
+        let requestID = UUID()
+        refreshRequestID = requestID
         do {
-            let forecast = try await WeatherService.shared.forecast(for: location, unit: configuration.weatherUnit)
-            guard store.state.profiles.first(where: { $0.id == profileID })?.items.contains(where: { $0.id == item.id }) == true else { return }
+            let forecast = try await WeatherService.shared.forecast(for: location, unit: requestedUnit)
+            guard refreshRequestID == requestID, !Task.isCancelled,
+                  let current = currentConfiguration,
+                  current.weatherLocation?.id == location.id,
+                  current.weatherUnit == requestedUnit else { return }
             store.updateWidgetConfiguration(itemID: item.id, in: profileID) { value in
-                guard value.weatherLocation?.id == location.id, value.weatherUnit == configuration.weatherUnit else { return }
+                guard value.weatherLocation?.id == location.id, value.weatherUnit == requestedUnit else { return }
                 value.cachedWeatherForecast = forecast
             }
             errorMessage = nil
         } catch {
+            guard refreshRequestID == requestID, !Task.isCancelled,
+                  let current = currentConfiguration,
+                  current.weatherLocation?.id == location.id,
+                  current.weatherUnit == requestedUnit else { return }
+            DiagnosticsService.shared.record(.weatherRefreshFailed)
             errorMessage = error.localizedDescription
         }
     }
@@ -91,11 +85,14 @@ private struct WeatherPopoutWidgetView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
-    @State private var searchText = ""
-    @State private var isChangingLocation = false
-    @State private var searchResults: [WeatherLocation] = []
+    @ObservedObject private var setupDrafts = WidgetSetupDraftStore.shared
     @State private var isSearching = false
+    @State private var isLocating = false
     @State private var isLoading = false
+    @State private var refreshRequestID = UUID()
+    @State private var searchRequestID = UUID()
+    @State private var locationRequestID = UUID()
+    @State private var locationTask: Task<Void, Never>?
     @State private var errorMessage: String?
     @State private var unitSelection = WeatherTemperatureUnit.celsius.rawValue
     @State private var layoutSelection = WeatherWidgetLayout.current.rawValue
@@ -103,10 +100,13 @@ private struct WeatherPopoutWidgetView: View {
     @State private var backgroundSelection = WeatherBackground.themed.rawValue
     @ObservedObject private var accessibility = AccessibilityDisplayState.shared
 
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    private var configuration: WidgetConfiguration {
+        currentConfiguration ?? item.widgetConfiguration ?? WidgetConfiguration()
+    }
     private var location: WeatherLocation? { configuration.weatherLocation }
     private var forecast: WeatherForecast? { configuration.cachedWeatherForecast }
     private var requestKey: String { "\(location?.id ?? "unset")|\(configuration.weatherUnit.rawValue)" }
+    private var setupDraft: WeatherLocationDraft { setupDrafts.weatherDraft(for: item.id) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -124,14 +124,16 @@ private struct WeatherPopoutWidgetView: View {
                     Text(location.displayName).font(.callout.weight(.medium)).lineLimit(1)
                     Spacer()
                     Button("Change") {
-                        isChangingLocation = true
-                        searchText = ""
-                        searchResults = []
+                        setupDrafts.updateWeatherDraft(for: item.id) {
+                            $0.isChangingLocation = true
+                            $0.searchText = ""
+                            $0.searchResults = []
+                        }
                     }
                 }
             }
 
-            if location == nil || isChangingLocation {
+            if location == nil || setupDraft.isChangingLocation {
                 locationSearchSection
             }
 
@@ -165,7 +167,7 @@ private struct WeatherPopoutWidgetView: View {
         }
         .onChange(of: unitSelection) { rawValue in
             guard let value = WeatherTemperatureUnit(rawValue: rawValue) else { return }
-            updateConfiguration { $0.weatherUnit = value }
+            updateConfiguration { $0.selectWeatherUnit(value) }
         }
         .onChange(of: layoutSelection) { rawValue in
             guard let value = WeatherWidgetLayout(rawValue: rawValue) else { return }
@@ -176,10 +178,10 @@ private struct WeatherPopoutWidgetView: View {
             guard let value = WeatherBackground(rawValue: rawValue) else { return }
             updateConfiguration { $0.weatherBackground = value }
         }
-        .onChange(of: item.widgetConfiguration?.weatherUnit) { value in unitSelection = (value ?? .celsius).rawValue }
-        .onChange(of: item.widgetConfiguration?.weatherLayout) { value in layoutSelection = (value ?? .current).rawValue }
-        .onChange(of: item.widgetConfiguration?.weatherForecastHours) { value in forecastHours = value ?? 3 }
-        .onChange(of: item.widgetConfiguration?.weatherBackground) { value in backgroundSelection = (value ?? .themed).rawValue }
+        .onChange(of: configuration.weatherUnit) { unitSelection = $0.rawValue }
+        .onChange(of: configuration.weatherLayout) { layoutSelection = $0.rawValue }
+        .onChange(of: configuration.weatherForecastHours) { forecastHours = $0 }
+        .onChange(of: configuration.weatherBackground) { backgroundSelection = $0.rawValue }
         .task(id: requestKey) {
             await refreshIfConfigured()
             for await _ in RefreshScheduler.shared.ticks(every: 10 * 60) {
@@ -187,26 +189,43 @@ private struct WeatherPopoutWidgetView: View {
                 await refreshIfConfigured()
             }
         }
+        .onDisappear {
+            refreshRequestID = UUID()
+            searchRequestID = UUID()
+            locationRequestID = UUID()
+            locationTask?.cancel()
+            locationTask = nil
+            isLoading = false
+            isSearching = false
+            isLocating = false
+        }
     }
 
     @ViewBuilder private var locationSearchSection: some View {
         HStack(spacing: 7) {
-            TextField("Search for a city", text: $searchText)
-                .textFieldStyle(.roundedBorder)
+            TextField("Search for a city", text: searchTextBinding)
+                .textFieldStyle(DockTextFieldStyle())
                 .onSubmit(search)
             Button("Search", action: search).disabled(isSearching)
+            Button("Clear") { clearSearchDraft(keepChanging: location != nil && setupDraft.isChangingLocation) }
+                .disabled(setupDraft.searchText.isEmpty && setupDraft.searchResults.isEmpty)
+            if location != nil && setupDraft.isChangingLocation {
+                Button("Cancel", action: cancelLocationChange)
+            }
         }
         HStack {
             Button("Use Current Location", action: useCurrentLocation)
-                .buttonStyle(.bordered)
+                .buttonStyle(DockButtonStyle())
+                .disabled(isLocating)
             Text("Location permission is only requested if you choose this.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         if isSearching { ProgressView("Searching cities…") }
-        if !searchResults.isEmpty {
-            ScrollView {
+        if isLocating { ProgressView("Finding current location…") }
+        if !setupDraft.searchResults.isEmpty {
+            DockScrollView {
                 LazyVStack(spacing: 4) {
-                    ForEach(searchResults) { result in
+                    ForEach(setupDraft.searchResults) { result in
                         Button { select(result) } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -228,10 +247,23 @@ private struct WeatherPopoutWidgetView: View {
         }
     }
 
+    private var searchTextBinding: Binding<String> {
+        Binding(get: { setupDraft.searchText }, set: { value in
+            let newText = String(value.prefix(120))
+            guard newText != setupDraft.searchText else { return }
+            searchRequestID = UUID()
+            isSearching = false
+            setupDrafts.updateWeatherDraft(for: item.id) {
+                $0.searchText = newText
+                $0.searchResults = []
+            }
+        })
+    }
+
     private var settingsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Picker("Layout", selection: $layoutSelection) {
+                Picker("Popover content", selection: $layoutSelection) {
                     ForEach(WeatherWidgetLayout.allCases) { option in Text(option.title).tag(option.rawValue) }
                 }
                 .frame(maxWidth: 160)
@@ -309,7 +341,7 @@ private struct WeatherPopoutWidgetView: View {
 
     private func hourlyList(_ forecast: WeatherForecast) -> some View {
         let hours = forecast.hourly.filter { $0.timestamp > .now }.prefix(configuration.weatherForecastHours)
-        return ScrollView(.horizontal) {
+        return DockScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(Array(hours)) { hour in
                     VStack(spacing: 5) {
@@ -341,35 +373,93 @@ private struct WeatherPopoutWidgetView: View {
     }
 
     private func search() {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = setupDraft.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.count >= 2 else { errorMessage = WeatherServiceError.invalidSearch.localizedDescription; return }
+        let requestID = UUID()
+        searchRequestID = requestID
         isSearching = true
         errorMessage = nil
         Task {
-            defer { isSearching = false }
-            do { searchResults = try await WeatherService.shared.searchLocations(query) }
-            catch { searchResults = []; errorMessage = error.localizedDescription }
+            defer { if searchRequestID == requestID { isSearching = false } }
+            do {
+                let results = try await WeatherService.shared.searchLocations(query)
+                guard searchRequestID == requestID, !Task.isCancelled, widgetStillExists,
+                      setupDraft.searchText.trimmingCharacters(in: .whitespacesAndNewlines) == query else { return }
+                setupDrafts.updateWeatherDraft(for: item.id) { $0.searchResults = results }
+            } catch {
+                guard searchRequestID == requestID, !Task.isCancelled, widgetStillExists,
+                      setupDraft.searchText.trimmingCharacters(in: .whitespacesAndNewlines) == query else { return }
+                setupDrafts.updateWeatherDraft(for: item.id) { $0.searchResults = [] }
+                DiagnosticsService.shared.record(.weatherSearchFailed)
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
     private func select(_ location: WeatherLocation) {
-        searchResults = []
-        searchText = ""
+        guard widgetStillExists else { return }
+        searchRequestID = UUID()
+        locationRequestID = UUID()
+        locationTask?.cancel()
+        locationTask = nil
+        refreshRequestID = UUID()
+        isSearching = false
+        isLocating = false
+        isLoading = false
+        setupDrafts.clearDrafts(for: item.id)
         errorMessage = nil
         updateConfiguration { value in
             value.weatherLocation = location
             value.cachedWeatherForecast = nil
         }
-        isChangingLocation = false
+    }
+
+    private func clearSearchDraft(keepChanging: Bool) {
+        searchRequestID = UUID()
+        isSearching = false
+        setupDrafts.updateWeatherDraft(for: item.id) {
+            $0.searchText = ""
+            $0.searchResults = []
+            $0.isChangingLocation = keepChanging
+        }
+    }
+
+    private func cancelLocationChange() {
+        guard location != nil else { return }
+        searchRequestID = UUID()
+        locationRequestID = UUID()
+        locationTask?.cancel()
+        locationTask = nil
+        isSearching = false
+        isLocating = false
+        setupDrafts.clearDrafts(for: item.id)
     }
 
     private func useCurrentLocation() {
-        isLoading = true
+        let previousTask = locationTask
+        previousTask?.cancel()
+        let requestID = UUID()
+        locationRequestID = requestID
+        isLocating = true
         errorMessage = nil
-        Task { @MainActor in
-            defer { isLoading = false }
-            do { select(try await CurrentLocationService.shared.currentLocation()) }
-            catch { errorMessage = error.localizedDescription }
+        locationTask = Task { @MainActor in
+            if let previousTask { await previousTask.value }
+            defer {
+                if locationRequestID == requestID {
+                    isLocating = false
+                    locationTask = nil
+                }
+            }
+            guard !Task.isCancelled else { return }
+            do {
+                let currentLocation = try await CurrentLocationService.shared.currentLocation()
+                guard locationRequestID == requestID, !Task.isCancelled, widgetStillExists else { return }
+                select(currentLocation)
+            } catch {
+                guard locationRequestID == requestID, !Task.isCancelled, widgetStillExists else { return }
+                DiagnosticsService.shared.record(.weatherLocationFailed)
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -384,16 +474,33 @@ private struct WeatherPopoutWidgetView: View {
     private func loadForecast(force: Bool) async {
         guard let location else { return }
         let requestedUnit = configuration.weatherUnit
+        let requestID = UUID()
+        refreshRequestID = requestID
         isLoading = true
-        defer { isLoading = false }
+        defer { if refreshRequestID == requestID { isLoading = false } }
         do {
             let result = try await WeatherService.shared.forecast(for: location, unit: requestedUnit, forceRefresh: force)
-            guard configuration.weatherLocation?.id == location.id, configuration.weatherUnit == requestedUnit else { return }
+            guard refreshRequestID == requestID, !Task.isCancelled,
+                  let current = currentConfiguration,
+                  current.weatherLocation?.id == location.id,
+                  current.weatherUnit == requestedUnit else { return }
             updateConfiguration { $0.cachedWeatherForecast = result }
             errorMessage = nil
         } catch {
+            guard refreshRequestID == requestID, !Task.isCancelled,
+                  let current = currentConfiguration,
+                  current.weatherLocation?.id == location.id,
+                  current.weatherUnit == requestedUnit else { return }
+            DiagnosticsService.shared.record(.weatherRefreshFailed)
             errorMessage = error.localizedDescription
         }
+    }
+
+    private var widgetStillExists: Bool { currentConfiguration != nil }
+
+    private var currentConfiguration: WidgetConfiguration? {
+        store.state.profiles.first(where: { $0.id == profileID })?.items
+            .first(where: { $0.id == item.id && $0.widgetKind == "Weather" })?.widgetConfiguration
     }
 
     private func updateConfiguration(_ update: (inout WidgetConfiguration) -> Void) {
@@ -401,7 +508,7 @@ private struct WeatherPopoutWidgetView: View {
     }
 }
 
-private enum WeatherCode {
+enum WeatherCode {
     static func description(_ code: Int) -> String {
         switch code {
         case 0: "Clear sky"
@@ -436,7 +543,7 @@ private enum WeatherCode {
     }
 }
 
-private extension Date {
+extension Date {
     func formattedTime(in timeZoneIdentifier: String) -> String {
         let formatter = DateFormatter()
         formatter.locale = .current

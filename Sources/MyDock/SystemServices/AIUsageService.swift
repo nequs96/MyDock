@@ -26,11 +26,11 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable {
     var setupInstructions: String {
         switch self {
         case .codex: "Sign in to Codex with your ChatGPT account or install Codex CLI and run codex login. MyDock asks the local app-server for read-only account limits; it never starts a task."
-        case .claude: "Claude Code sends subscription rate-limit windows to its configured status line. Copy the JSON value into ~/.claude/settings.json under statusLine.command; it saves only quota percentages and reset times to ~/.claude/mydock-rate-limits.json. The command requires jq. Claude Code activity is read from local session usage records."
+        case .claude: "Find your Claude Code account on this Mac, then choose Enable Limits. Subscription limits sync through Claude Code’s status line while you use it. Local activity is read automatically."
         case .grok: "Grok subscription allowance is visible in Grok settings, but this build has no supported local quota reader. Activity is a local estimate from ~/.grok/sessions."
-        case .cursor: "Cursor shows personal usage in its dashboard, but MyDock has no documented personal allowance or local activity reader. Its team APIs do not provide individual plan allowance."
-        case .geminiCLI: "Gemini CLI shows session quota in /stats model. MyDock has no supported reader for that session output; Google documents no third-party reader for its OAuth subscription quota."
-        case .copilot: "MyDock has no supported individual Copilot allowance reader. GitHub's personal billing API reports usage but does not provide the included plan allowance needed for a remaining percentage."
+        case .cursor: "Cursor shows individual included usage and remaining allowance in its Spending dashboard. MyDock has no documented personal-account API reader for those values."
+        case .geminiCLI: "Gemini CLI's /stats model shows model usage and quota in the CLI. Google does not permit third-party tools to piggyback on Gemini CLI OAuth or backend services, so MyDock does not read private credentials or service caches."
+        case .copilot: "For a personal Copilot plan, save a fine-grained GitHub token with Plan read permission in Settings → Integrations, then set the monthly AI-credit allowance in this widget. MyDock reads only the official GitHub billing endpoint; organization-billed plans are not included."
         case .antigravity: "Antigravity CLI provides /usage in its own interface. MyDock does not yet read a supported local allowance source."
         }
     }
@@ -247,81 +247,22 @@ enum CodexRateLimitParser {
 enum CodexAppServerLimitReader {
     static func read(now: Date = .now) throws -> AIProviderLimitReading {
         guard let executable = executableURL() else { throw AIUsageError.codexCLIUnavailable }
-        let process = Process()
-        let input = Pipe()
-        let output = Pipe()
-        process.executableURL = executable
-        process.arguments = ["app-server", "--stdio"]
-        process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        process.environment = ProcessInfo.processInfo.environment
-        process.environment?["RUST_LOG"] = "off"
-        do { try process.run() }
-        catch { throw AIUsageError.codexCLIUnavailable }
-
-        let requests: [[String: Any]] = [
-            ["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["clientInfo": ["name": "mydock", "title": "MyDock", "version": "0.1"]]],
-            ["jsonrpc": "2.0", "method": "initialized", "params": [:]],
-            ["jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read", "params": [:]]
-        ]
-        do {
-            for request in requests {
-                var line = try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])
-                line.append(0x0A)
-                try input.fileHandleForWriting.write(contentsOf: line)
-            }
-            try input.fileHandleForWriting.close()
-        } catch {
-            process.terminate()
-            throw AIUsageError.codexResponseInvalid
-        }
-
-        let timeout = DispatchWorkItem { if process.isRunning { process.terminate() } }
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 12, execute: timeout)
-        let responseData = output.fileHandleForReading.readDataToEndOfFile()
-        timeout.cancel()
-        if process.isRunning { process.terminate() }
-        process.waitUntilExit()
-        guard responseData.count <= 2_000_000 else { throw AIUsageError.codexResponseInvalid }
-        for line in responseData.split(separator: 0x0A) {
-            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
-                  (object["id"] as? Int) == 2 else { continue }
-            if object["error"] != nil { throw AIUsageError.codexAuthenticationUnavailable }
-            return try CodexRateLimitParser.reading(from: Data(line), now: now)
-        }
-        if process.terminationReason == .uncaughtSignal { throw AIUsageError.codexAppServerTimedOut }
-        throw AIUsageError.codexAuthenticationUnavailable
+        let response = try CodexAccountRPC.request(executable: executable, method: "account/rateLimits/read")
+        return try CodexRateLimitParser.reading(from: response, now: now)
     }
 
-    private static func executableURL() -> URL? {
-        let fileManager = FileManager.default
-        var candidates: [URL] = []
-        if let path = ProcessInfo.processInfo.environment["PATH"] {
-            candidates += path.split(separator: ":").map { URL(fileURLWithPath: String($0), isDirectory: true).appendingPathComponent("codex") }
-        }
-        let home = fileManager.homeDirectoryForCurrentUser
-        candidates += ["/opt/homebrew/bin/codex", "/usr/local/bin/codex", "/usr/bin/codex"].map { URL(fileURLWithPath: $0) }
-        candidates += [".local/bin/codex", ".npm-global/bin/codex", "bin/codex"].map { home.appendingPathComponent($0) }
-        for appPath in ["/Applications/Codex.app", home.appendingPathComponent("Applications/Codex.app").path] {
-            for relative in ["Contents/Resources/codex", "Contents/MacOS/codex"] {
-                candidates.append(URL(fileURLWithPath: appPath).appendingPathComponent(relative))
-            }
-        }
-        return candidates.first { fileManager.isExecutableFile(atPath: $0.path) }
-    }
+    private static func executableURL() -> URL? { AIAccountService.executable(for: .codex) }
 }
 
 protocol AILimitProviderAdapter {
     var provider: AIProvider { get }
-    func read(now: Date) throws -> AIProviderLimitReading
+    func read(now: Date) async throws -> AIProviderLimitReading
 }
 
 struct CodexLimitAdapter: AILimitProviderAdapter {
     let provider: AIProvider = .codex
 
-    func read(now: Date) throws -> AIProviderLimitReading {
+    func read(now: Date) async throws -> AIProviderLimitReading {
         try CodexAppServerLimitReader.read(now: now)
     }
 }
@@ -329,13 +270,15 @@ struct CodexLimitAdapter: AILimitProviderAdapter {
 struct UnavailableLimitAdapter: AILimitProviderAdapter {
     let provider: AIProvider
 
-    func read(now: Date) throws -> AIProviderLimitReading {
+    func read(now: Date) async throws -> AIProviderLimitReading {
         let message: String
         switch provider {
-        case .grok, .cursor, .geminiCLI, .copilot, .antigravity:
+        case .grok, .cursor, .geminiCLI, .antigravity:
             message = "No supported personal allowance reader is available in this build."
         case .claude:
             message = "No Claude Code status-line snapshot has been received yet."
+        case .copilot:
+            message = "Add personal GitHub credentials and a monthly AI-credit allowance to use Copilot limits."
         case .codex:
             message = "Codex limits require the local app-server."
         }
@@ -393,8 +336,10 @@ struct ClaudeStatusLineLimitAdapter: AILimitProviderAdapter {
     let provider: AIProvider = .claude
     var homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
 
-    func read(now: Date) throws -> AIProviderLimitReading {
-        let url = homeDirectory.appendingPathComponent(".claude/mydock-rate-limits.json")
+    func read(now: Date) async throws -> AIProviderLimitReading {
+        let directory = homeDirectory == FileManager.default.homeDirectoryForCurrentUser
+            ? AIAccountService.claudeDirectory() : homeDirectory.appendingPathComponent(".claude")
+        let url = directory.appendingPathComponent("mydock-rate-limits.json")
         guard FileManager.default.fileExists(atPath: url.path) else {
             return AIProviderLimitReading(provider: .claude, availability: .setupRequired, plan: nil,
                                           windows: [], updatedAt: nil,
@@ -411,12 +356,16 @@ struct ClaudeStatusLineLimitAdapter: AILimitProviderAdapter {
 
 enum AILimitsCollector {
     static func collect(providers: [AIProvider], now: Date = .now,
-                        adapters: [any AILimitProviderAdapter] = defaultAdapters()) -> AILimitsSnapshot {
+                        copilotMonthlyCreditAllowance: Int? = nil,
+                        adapters: [any AILimitProviderAdapter]? = nil) async -> AILimitsSnapshot {
+        let adapters = adapters ?? defaultAdapters(copilotMonthlyCreditAllowance: copilotMonthlyCreditAllowance)
         let readers = Dictionary(adapters.map { ($0.provider, $0) }, uniquingKeysWith: { first, _ in first })
-        let readings = providers.map { provider -> AIProviderLimitReading in
+        var readings: [AIProviderLimitReading] = []
+        for provider in providers {
+            guard !Task.isCancelled else { break }
             let reader = readers[provider] ?? UnavailableLimitAdapter(provider: provider)
             do {
-                return try reader.read(now: now)
+                readings.append(try await reader.read(now: now))
             } catch {
                 let needsSetup: Bool
                 if let usageError = error as? AIUsageError {
@@ -424,20 +373,21 @@ enum AILimitsCollector {
                 } else {
                     needsSetup = false
                 }
-                return AIProviderLimitReading(provider: provider,
-                                              availability: needsSetup ? .setupRequired : .error,
-                                              plan: nil, windows: [], updatedAt: nil,
-                                              message: error.localizedDescription)
+                readings.append(AIProviderLimitReading(provider: provider,
+                                                       availability: needsSetup ? .setupRequired : .error,
+                                                       plan: nil, windows: [], updatedAt: nil,
+                                                       message: error.localizedDescription))
             }
         }
         return AILimitsSnapshot(fetchedAt: now, readings: readings)
     }
 
-    private static func defaultAdapters() -> [any AILimitProviderAdapter] {
+    private static func defaultAdapters(copilotMonthlyCreditAllowance: Int?) -> [any AILimitProviderAdapter] {
         AIProvider.allCases.map { provider in
             switch provider {
             case .codex: CodexLimitAdapter() as any AILimitProviderAdapter
             case .claude: ClaudeStatusLineLimitAdapter() as any AILimitProviderAdapter
+            case .copilot: GitHubCopilotLimitAdapter(monthlyAllowance: copilotMonthlyCreditAllowance) as any AILimitProviderAdapter
             default: UnavailableLimitAdapter(provider: provider) as any AILimitProviderAdapter
             }
         }
@@ -466,12 +416,16 @@ enum AIActivityReader {
         private var buffer = Data()
         private var reachedEOF = false
         private let maximumLineSize = 2_000_000
+        private let deadline = Date.now.addingTimeInterval(10)
+        private var bytesRead = 0
 
         init(url: URL) throws { handle = try FileHandle(forReadingFrom: url) }
         deinit { try? handle.close() }
 
         func nextLine() throws -> Data? {
             while true {
+                try Task.checkCancellation()
+                guard Date.now < deadline, bytesRead <= 32_000_000 else { throw CocoaError(.fileReadTooLarge) }
                 if let newline = buffer.firstIndex(of: 0x0A) {
                     let line = buffer.subdata(in: 0..<newline)
                     buffer.removeSubrange(0...newline)
@@ -485,7 +439,7 @@ enum AIActivityReader {
                 }
                 let next = try handle.read(upToCount: 64 * 1024) ?? Data()
                 if next.isEmpty { reachedEOF = true }
-                else { buffer.append(next) }
+                else { buffer.append(next); bytesRead += next.count }
             }
         }
     }
@@ -514,12 +468,15 @@ enum AIActivityReader {
         }
         var daily: [Date: MutablePoint] = [:]
         var sessionsByIDAndDay: Set<SessionActivity> = []
+        let deadline = Date.now.addingTimeInterval(10)
+        var budgetExceeded = false
         var processedFiles = 0
         var skippedFiles = 0
         let lowerBound = chartInterval.start
         let fileScan = dataFiles(in: source, modifiedAfter: lowerBound.addingTimeInterval(-30 * 86_400), maximumFiles: 10_000)
         let files = fileScan.files
         for file in files {
+            guard !Task.isCancelled, Date.now < deadline else { budgetExceeded = true; break }
             do {
                 switch provider {
                 case .codex: try parseCodex(file: file, calendar: calendar, interval: chartInterval, daily: &daily, sessions: &sessionsByIDAndDay)
@@ -554,7 +511,7 @@ enum AIActivityReader {
         }
         let available = processedFiles > 0 && (totals.sessions > 0 || totals.totalTokens > 0 || totals.requests > 0)
         let estimated = provider == .grok
-        let partial = estimated || skippedFiles > 0 || fileScan.hitLimit
+        let partial = estimated || skippedFiles > 0 || fileScan.hitLimit || budgetExceeded
         let sourceDescription: String
         switch provider {
         case .codex: sourceDescription = "Local Codex session event logs · total token deltas include cached input. This excludes ChatGPT conversations outside Codex."
@@ -569,7 +526,7 @@ enum AIActivityReader {
                                   available: available,
                                   estimated: estimated,
                                   partial: partial,
-                                  message: available ? (skippedFiles > 0 || fileScan.hitLimit ? "Some local records could not be read; totals are partial." : (estimated ? "Local estimate; not an exact provider billing total." : nil)) : (processedFiles == 0 ? "No supported local activity records were found." : "No provider usage counters were present in these records."),
+                                  message: available ? (skippedFiles > 0 || fileScan.hitLimit || budgetExceeded ? "Some local records could not be read; totals are partial." : (estimated ? "Local estimate; not an exact provider billing total." : nil)) : (processedFiles == 0 ? "No supported local activity records were found." : "No provider usage counters were present in these records."),
                                   points: points,
                                   totals: AIActivityDailyPoint(date: calendar.startOfDay(for: now), sessions: totals.sessions,
                                                                toolCalls: totals.toolCalls, totalTokens: totals.totalTokens,
@@ -591,7 +548,9 @@ enum AIActivityReader {
         guard let enumerator = fm.enumerator(at: directory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey],
                                               options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return ([], false) }
         var result: [URL] = []
+        let deadline = Date.now.addingTimeInterval(5)
         while let url = enumerator.nextObject() as? URL {
+            guard !Task.isCancelled, Date.now < deadline else { return (result, true) }
             guard ["jsonl", "json"].contains(url.pathExtension.lowercased()),
                   let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]),
                   values.isSymbolicLink != true,
@@ -715,8 +674,8 @@ enum AIActivityReader {
         sessions.insert(SessionActivity(id: file.deletingPathExtension().lastPathComponent, day: day))
     }
 
-    private static func grokCounters(_ value: Any, inUsageScope: Bool, savedContext: inout Int64, preCompaction: inout Int64, total: inout Int64) {
-        guard let object = value as? [String: Any] else { return }
+    private static func grokCounters(_ value: Any, inUsageScope: Bool, savedContext: inout Int64, preCompaction: inout Int64, total: inout Int64, depth: Int = 0) {
+        guard depth < 64, !Task.isCancelled, let object = value as? [String: Any] else { return }
         for (key, child) in object {
             let normalized = key.replacingOccurrences(of: "_", with: "").lowercased()
             let entersScope = inUsageScope || ["usage", "stats", "summary", "tokenusage", "usageinfo"].contains(normalized)
@@ -728,9 +687,9 @@ enum AIActivityReader {
                 default: break
                 }
             }
-            if entersScope, child is [String: Any] { grokCounters(child, inUsageScope: true, savedContext: &savedContext, preCompaction: &preCompaction, total: &total) }
+            if entersScope, child is [String: Any] { grokCounters(child, inUsageScope: true, savedContext: &savedContext, preCompaction: &preCompaction, total: &total, depth: depth + 1) }
             if entersScope, let rows = child as? [[String: Any]] {
-                for row in rows { grokCounters(row, inUsageScope: true, savedContext: &savedContext, preCompaction: &preCompaction, total: &total) }
+                for row in rows { grokCounters(row, inUsageScope: true, savedContext: &savedContext, preCompaction: &preCompaction, total: &total, depth: depth + 1) }
             }
         }
     }
@@ -763,10 +722,11 @@ enum AIActivityReader {
     }
 
     private static func integer(_ value: Any?) -> Int64? {
-        if let value = value as? Int64 { return value }
-        if let value = value as? Int { return Int64(value) }
-        if let value = value as? NSNumber { return value.int64Value }
-        if let value = value as? String { return Int64(value) }
-        return nil
+        let parsed: Int64?
+        if let value = value as? String { parsed = Int64(value) }
+        else if let value = value as? NSNumber { parsed = value.int64Value }
+        else { parsed = nil }
+        guard let parsed, (0...1_000_000_000_000).contains(parsed) else { return nil }
+        return parsed
     }
 }

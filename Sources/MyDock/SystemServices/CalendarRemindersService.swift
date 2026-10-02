@@ -5,6 +5,7 @@ enum CalendarRemindersServiceError: LocalizedError {
     case accessDenied
     case calendarUnavailable
     case reminderUnavailable
+    case reminderFetchFailed
     case noWritableReminderList
 
     var errorDescription: String? {
@@ -12,6 +13,7 @@ enum CalendarRemindersServiceError: LocalizedError {
         case .accessDenied: "Allow Calendar or Reminders access in System Settings to use this widget."
         case .calendarUnavailable: "That calendar is no longer available. Choose another calendar or show all calendars."
         case .reminderUnavailable: "That reminder is no longer available. Refresh the list and try again."
+        case .reminderFetchFailed: "Reminders could not be loaded. Check access and try again."
         case .noWritableReminderList: "There is no writable Reminders list available."
         }
     }
@@ -97,16 +99,20 @@ actor CalendarRemindersService {
 
     func calendarLists() throws -> [CalendarListSnapshot] {
         guard hasFullAccess(to: .event) else { throw CalendarRemindersServiceError.accessDenied }
-        return eventStore.calendars(for: .event)
+        let lists = eventStore.calendars(for: .event)
             .map { CalendarListSnapshot(id: $0.calendarIdentifier, title: $0.title) }
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        guard hasFullAccess(to: .event) else { throw CalendarRemindersServiceError.accessDenied }
+        return lists
     }
 
     func reminderLists() throws -> [ReminderListSnapshot] {
         guard hasFullAccess(to: .reminder) else { throw CalendarRemindersServiceError.accessDenied }
-        return eventStore.calendars(for: .reminder)
+        let lists = eventStore.calendars(for: .reminder)
             .map { ReminderListSnapshot(id: $0.calendarIdentifier, title: $0.title) }
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        guard hasFullAccess(to: .reminder) else { throw CalendarRemindersServiceError.accessDenied }
+        return lists
     }
 
     func events(calendarIDs: [String], includeAllDay: Bool, now: Date = .now) throws -> [CalendarEventSnapshot] {
@@ -121,7 +127,7 @@ actor CalendarRemindersService {
         }
         let end = Calendar.current.date(byAdding: .day, value: 7, to: now) ?? now.addingTimeInterval(7 * 86_400)
         let predicate = eventStore.predicateForEvents(withStart: now, end: end, calendars: selected)
-        return eventStore.events(matching: predicate)
+        let events = eventStore.events(matching: predicate)
             .filter { includeAllDay || !$0.isAllDay }
             .map { event in
                 let title = displayTitle(event.title)
@@ -139,6 +145,8 @@ actor CalendarRemindersService {
             .sorted { CalendarEventOrdering.precedes($0, $1, now: now) }
             .prefix(60)
             .map { $0 }
+        guard hasFullAccess(to: .event) else { throw CalendarRemindersServiceError.accessDenied }
+        return events
     }
 
     func reminders(calendarID: String) async throws -> [ReminderSnapshot] {
@@ -152,9 +160,9 @@ actor CalendarRemindersService {
             guard !(selected?.isEmpty ?? true) else { throw CalendarRemindersServiceError.calendarUnavailable }
         }
         let predicate = eventStore.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: selected)
-        return await withCheckedContinuation { continuation in
+        let snapshots: [ReminderSnapshot]? = await withCheckedContinuation { continuation in
             eventStore.fetchReminders(matching: predicate) { reminders in
-                let snapshots = (reminders ?? []).map { reminder in
+                let snapshots = reminders?.map { reminder in
                     let rawTitle = reminder.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     return ReminderSnapshot(
                         id: reminder.calendarItemIdentifier,
@@ -174,6 +182,10 @@ actor CalendarRemindersService {
                 continuation.resume(returning: snapshots)
             }
         }
+        guard hasFullAccess(to: .reminder) else { throw CalendarRemindersServiceError.accessDenied }
+        try Task.checkCancellation()
+        guard let snapshots else { throw CalendarRemindersServiceError.reminderFetchFailed }
+        return snapshots
     }
 
     func addReminder(title: String, calendarID: String) throws {

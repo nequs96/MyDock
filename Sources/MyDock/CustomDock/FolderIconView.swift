@@ -46,7 +46,7 @@ struct DockFolderIconView: View {
     }
 
     private var accessibilityLabel: String {
-        var parts = [item.title, "folder"]
+        var parts = [item.displayName, "folder"]
         if let letter = item.folderIconLetter, !letter.isEmpty { parts.append("letter \(letter)") }
         if let number = item.folderIconNumber, !number.isEmpty { parts.append("number \(number)") }
         return parts.joined(separator: ", ")

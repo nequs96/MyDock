@@ -30,42 +30,29 @@ private struct AILimitsCompactView: View {
         return configuration.aiLimitsProviderOrder.first(where: configuration.aiLimitsVisibleProviders.contains)
     }
 
+    @Environment(\.dockWidgetContentWidth) private var width
     var body: some View {
-        VStack(spacing: 1) {
-            Image(systemName: "gauge.with.dots.needle.67percent")
-                .font(.system(size: 14, weight: .medium)).foregroundStyle(.cyan)
-            if let provider = selectedProvider {
-                Text(provider.shortName).font(.system(size: 7, weight: .semibold)).lineLimit(1)
-                let reading = configuration.aiLimitsSnapshot?.reading(for: provider)
-                if let reading, !reading.windows.isEmpty {
-                    ForEach(Array(reading.windows.prefix(2))) { window in
-                        HStack(spacing: 2) {
-                            Text(window.durationMinutes.map(compactWindowTitle) ?? "Limit")
-                                .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                            Text(compactPercent(window, mode: configuration.aiLimitsRepresentation))
-                                .monospacedDigit().frame(alignment: .trailing)
-                        }
-                        .font(.system(size: 7, weight: .semibold))
-                    }
-                } else {
-                    Text("—").font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 3) {
+            WidgetHeader(kind: "AI Limits", title: selectedProvider?.shortName ?? "AI Limits")
+            if let provider = selectedProvider, let window = configuration.aiLimitsSnapshot?.reading(for: provider)?.windows.first {
+                MetricText(value: compactPercent(window, mode: configuration.aiLimitsRepresentation), unit: configuration.aiLimitsRepresentation == .remaining ? "left" : "used", size: 19)
+                if let percent = configuration.aiLimitsRepresentation == .remaining ? window.remainingPercent : window.usedPercent {
+                    UsageBar(fraction: Double(percent) / 100, color: WidgetPalette.accent("AI Limits"))
                 }
-            } else {
-                Text("No limits").font(.system(size: 7, weight: .medium)).lineLimit(1)
-            }
-        }
-        .frame(width: 54, height: 54)
-        .help(selectedProvider.flatMap { configuration.aiLimitsSnapshot?.reading(for: $0) }
-            .map { "\($0.provider.title) limits · " + $0.windows.map { limitLabel($0, mode: configuration.aiLimitsRepresentation) }.joined(separator: ", ") }
-            ?? "AI Limits · Refresh in the popout")
+            } else { Text("Set up").font(.system(size: 13, weight: .medium)) }
+        }.padding(.horizontal, 9).frame(width: width, height: 54)
+            .help("AI Limits · Open to see provider windows")
     }
 }
+
 
 private struct AILimitsPopoutView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
     @State private var isRefreshing = false
+    @State private var refreshRequestID = UUID()
+    @State private var activeRefreshTask: Task<AILimitsSnapshot, Never>?
     @State private var copiedClaudeStatusLineCommand = false
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
@@ -74,45 +61,52 @@ private struct AILimitsPopoutView: View {
         for provider in AIProvider.allCases where !result.contains(provider) { result.append(provider) }
         return result
     }
+    private var limitsRefreshKey: String {
+        orderedProviders.filter(configuration.aiLimitsVisibleProviders.contains)
+            .map(\.rawValue).joined(separator: ",") + "|\(configuration.aiCopilotMonthlyCreditAllowance ?? 0)"
+    }
 
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 11) {
-                HStack(spacing: 8) {
-                    Image(systemName: "gauge.with.dots.needle.67percent").foregroundStyle(.cyan)
-                    Text("AI Limits").font(.headline)
-                    Spacer()
-                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing)
-                    if isRefreshing { ProgressView().controlSize(.small) }
-                }
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 8) {
+                Image(systemName: "gauge.with.dots.needle.67percent").foregroundStyle(.cyan)
+                Text("AI Limits").font(.headline)
+                Spacer()
+                Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing)
+                if isRefreshing { ProgressView().controlSize(.small) }
+            }
 
-                controls
-                Divider()
-                if visibleReadings.isEmpty {
-                    Text(configuration.aiLimitsVisibleProviders.isEmpty
-                         ? "Turn on a provider to show its usage window here."
-                         : "Refreshing provider limits…")
-                        .font(.callout).foregroundStyle(.secondary)
-                } else {
-                    ForEach(visibleReadings) { reading in providerSection(reading) }
-                }
-                if let fetchedAt = configuration.aiLimitsSnapshot?.fetchedAt {
-                    Label("Updated \(fetchedAt.formatted(date: .omitted, time: .shortened))", systemImage: "clock")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-                Text("A dash means unavailable. MyDock reads Codex's local app-server rate-limit API without starting a task. It does not infer percentages or refresh limits by spending model tokens.")
-                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            ForEach(orderedProviders.filter { configuration.aiLimitsVisibleProviders.contains($0) && ($0 == .codex || $0 == .claude) }) { provider in
+                AIAccountConnectionView(provider: provider, allowsAccountActions: store.allowsSystemChanges,
+                                        showsLimitsSetup: true, refresh: { await refresh() })
             }
-            .frame(width: 375, alignment: .leading)
-            .frame(minHeight: 220, alignment: .topLeading)
+            controls
+            Divider()
+            if visibleReadings.isEmpty {
+                Text(configuration.aiLimitsVisibleProviders.isEmpty
+                     ? "Turn on a provider to show its usage window here."
+                     : "Refreshing provider limits…")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                ForEach(visibleReadings) { reading in providerSection(reading) }
+            }
+            if let fetchedAt = configuration.aiLimitsSnapshot?.fetchedAt {
+                Label("Updated \(fetchedAt.formatted(date: .omitted, time: .shortened))", systemImage: "clock")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Text("A dash means unavailable. MyDock reads Codex's local app-server rate-limit API without starting a task. It does not infer percentages or refresh limits by spending model tokens.")
+                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 385, height: 480)
-        .task(id: configuration.aiLimitsVisibleProviders.map(\.rawValue).joined(separator: ",")) {
+        .frame(width: 375, alignment: .leading)
+        .frame(minHeight: 220, alignment: .topLeading)
+        .task(id: limitsRefreshKey) {
             await refresh()
-            for await _ in RefreshScheduler.shared.ticks(every: 60) {
-                guard !Task.isCancelled else { return }
-                await refresh()
-            }
+        }
+        .onDisappear {
+            refreshRequestID = UUID()
+            activeRefreshTask?.cancel()
+            activeRefreshTask = nil
+            isRefreshing = false
         }
     }
 
@@ -120,7 +114,7 @@ private struct AILimitsPopoutView: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
                 Text("Layout").foregroundStyle(.secondary)
-                Picker("Layout", selection: layoutBinding) {
+                Picker("Limit display", selection: layoutBinding) {
                     ForEach(AILimitLayout.allCases) { Text($0.title).tag($0) }
                 }.labelsHidden()
                 Spacer()
@@ -146,6 +140,29 @@ private struct AILimitsPopoutView: View {
                         .buttonStyle(.borderless).disabled(orderedProviders.last == provider)
                 }
                 .font(.caption)
+                if provider == .copilot, configuration.aiLimitsVisibleProviders.contains(.copilot) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 6) {
+                            Text("Monthly AI-credit allowance")
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 4)
+                            TextField("Credits", value: copilotAllowanceBinding, format: .number)
+                                .textFieldStyle(DockTextFieldStyle())
+                                .frame(width: 86)
+                                .multilineTextAlignment(.trailing)
+                        }
+                        HStack(spacing: 5) {
+                            Text("Quick set:").foregroundStyle(.tertiary)
+                            allowancePreset("Pro", credits: 1_500)
+                            allowancePreset("Pro+", credits: 7_000)
+                            allowancePreset("Max", credits: 20_000)
+                        }
+                        Text("Match your personal GitHub plan. Copilot usage resets monthly.")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    .font(.caption2)
+                    .padding(.leading, 20)
+                }
             }
         }
         .font(.caption)
@@ -175,7 +192,7 @@ private struct AILimitsPopoutView: View {
                     limitWindow(window, provider: reading.provider)
                 }
             }
-            if reading.availability != .available {
+            if reading.availability != .available, reading.provider != .claude, reading.provider != .codex {
                 Text(reading.provider.setupInstructions)
                     .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
                 if let command = reading.provider.statusLineSetupCommand {
@@ -255,6 +272,19 @@ private struct AILimitsPopoutView: View {
     private var compactProviderBinding: Binding<AIProvider> {
         Binding(get: { configuration.aiLimitsCompactProvider }, set: { value in update { $0.aiLimitsCompactProvider = value } })
     }
+    private var copilotAllowanceBinding: Binding<Int> {
+        Binding(get: { configuration.aiCopilotMonthlyCreditAllowance ?? 0 }, set: { value in
+            update { configuration in
+                let bounded = min(1_000_000, max(0, value))
+                configuration.aiCopilotMonthlyCreditAllowance = bounded == 0 ? nil : bounded
+            }
+        })
+    }
+    private func allowancePreset(_ title: String, credits: Int) -> some View {
+        Button(title) { update { $0.aiCopilotMonthlyCreditAllowance = credits } }
+            .buttonStyle(.borderless)
+            .help("Set the monthly allowance to \(credits.formatted()) AI credits")
+    }
     private func visibleBinding(for provider: AIProvider) -> Binding<Bool> {
         Binding(get: { configuration.aiLimitsVisibleProviders.contains(provider) }, set: { enabled in
             update { value in
@@ -281,149 +311,117 @@ private struct AILimitsPopoutView: View {
         store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: body)
     }
     private func refresh() async {
-        guard !isRefreshing else { return }
+        let requestID = UUID()
+        refreshRequestID = requestID
         isRefreshing = true
-        defer { isRefreshing = false }
-        let providers = orderedProviders.filter(configuration.aiLimitsVisibleProviders.contains)
-        let now = Date.now
-        let next = await Task.detached(priority: .utility) {
-            AILimitsCollector.collect(providers: providers, now: now)
-        }.value
-        update { $0.aiLimitsSnapshot = next }
+        defer { if refreshRequestID == requestID { isRefreshing = false } }
+        var currentItem = item
+        currentItem.widgetConfiguration = configuration
+        await store.widgetData.refresh(item: currentItem, profileID: profileID)
     }
 }
 
-private struct AIActivityCompactView: View {
+struct AIActivityCompactView: View {
     var item: DockItem
+    var displayScale: CGFloat = 1
+    @Environment(\.dockWidgetContentWidth) private var width
+    @Environment(\.widgetLayout) private var layout
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-    private var snapshot: AIActivitySnapshot? { configuration.aiActivitySnapshot }
-
+    private var snapshot: AIActivitySnapshot? {
+        guard let snapshot = configuration.aiActivitySnapshot, snapshot.provider == configuration.aiActivityProvider,
+              snapshot.range == configuration.aiActivityRange else { return nil }
+        return snapshot
+    }
     var body: some View {
-        VStack(spacing: 2) {
-            Image(systemName: "chart.bar.xaxis").font(.system(size: 15, weight: .medium)).foregroundStyle(.cyan)
-            if let snapshot, snapshot.available {
-                Text(compactTokens(snapshot.totals.totalTokens)).font(.system(size: 9, weight: .semibold, design: .rounded).monospacedDigit())
-                    .lineLimit(1).minimumScaleFactor(0.65)
-                Text(configuration.aiActivityProvider.shortName).font(.system(size: 7, weight: .medium)).lineLimit(1)
+        VStack(alignment: .leading, spacing: layout == .trend ? 2 : 3) {
+            if width > 54 {
+                WidgetHeader(kind: "AI Activity", title: configuration.aiActivityProvider.shortName,
+                             trailing: layout == .compact ? nil : configuration.aiActivityRange.activityTitle,
+                             symbol: configuration.aiActivityProvider == .codex ? "terminal" : "sparkle")
+            }
+            if layout == .trend && width > 54 {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    MetricText(value: value, unit: snapshot?.available == true ? "tokens" : "", size: 19)
+                    Spacer(minLength: 2)
+                    if let secondary { Text(secondary).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1) }
+                }
+                if let snapshot, snapshot.available, snapshot.points.count > 1 {
+                    MicroSparkline(values: snapshot.points.map { Double($0.totalTokens) }, color: WidgetPalette.accent("AI Activity")).frame(height: 11)
+                }
             } else {
-                Text("Activity").font(.system(size: 8, weight: .medium)).lineLimit(1)
+                MetricText(value: value, unit: width > 54 && snapshot?.available == true ? "tokens" : "", size: layout == .compact ? 19 : 21)
+                if layout == .standard, let secondary { Text(secondary).font(.system(size: 8)).foregroundStyle(.secondary) }
             }
-            if snapshot?.partial == true || snapshot?.estimated == true {
-                Circle().fill(.orange).frame(width: 4, height: 4)
-            }
+        }.padding(.horizontal, width > 54 ? 9 : 4).frame(maxWidth: .infinity, alignment: .leading).frame(height: 54)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(configuration.aiActivityProvider.title) AI Activity")
+            .accessibilityValue(snapshot?.available == true ? snapshot!.tokensText + (secondary.map { ", " + $0 } ?? "") : "No local activity. Open for setup.")
+            .help(snapshot.map { "\($0.provider.title) · \($0.tokensText) · \($0.range.activityTitle). Based on available local logs. " + ($0.range == .today ? "Sparkline shows the last 7 days." : "") } ?? "Open to set up local activity")
+    }
+    private var value: String {
+        guard let snapshot, snapshot.available else { return snapshot == nil ? "Set up" : "No data" }
+        return AIActivityFormatting.tokens(snapshot.totals.totalTokens) + (snapshot.partial && !snapshot.estimated ? "+" : "")
+    }
+    private var secondary: String? {
+        guard let snapshot, snapshot.available else { return nil }
+        switch configuration.aiActivitySecondaryMetric {
+        case .sessions: return snapshot.totals.sessions > 0 ? "\(snapshot.totals.sessions.formatted()) sessions" : nil
+        case .toolCalls: return snapshot.totals.toolCalls > 0 ? "\(snapshot.totals.toolCalls.formatted()) tools" : nil
+        case .requests: return snapshot.totals.requests > 0 ? "\(snapshot.totals.requests.formatted()) requests" : nil
+        case .none: return nil
         }
-        .frame(width: 54, height: 54)
-        .help(snapshot.map { "\($0.provider.title) Activity · \($0.tokensText) · \($0.range.title)" } ?? "AI Activity · Open to refresh local history")
     }
 }
 
-private struct AIActivityPopoutView: View {
+/// A restrained native identity, without pretending an SF Symbol is a provider logo.
+struct AIProviderGlyph: View {
+    var provider: AIProvider
+    var body: some View {
+        Image(systemName: provider == .codex ? "terminal.fill" : provider == .claude ? "sparkle" : "sparkles")
+            .resizable().scaledToFit().foregroundStyle(.primary).accessibilityHidden(true)
+    }
+}
+
+struct AIActivityPopoutView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
-    @State private var isRefreshing = false
+    var accountOverride: AIAccountStatus? = nil
+    @State private var account: AIAccountStatus?
+    @State private var recoveryMessage: String?
 
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-    private var snapshot: AIActivitySnapshot? { configuration.aiActivitySnapshot }
-
+    private var configuration: WidgetConfiguration {
+        store.state.profiles.first(where: { $0.id == profileID })?.items.first(where: { $0.id == item.id })?.widgetConfiguration
+            ?? item.widgetConfiguration ?? WidgetConfiguration()
+    }
+    private var snapshot: AIActivitySnapshot? {
+        guard let snapshot = configuration.aiActivitySnapshot, snapshot.provider == configuration.aiActivityProvider,
+              snapshot.range == configuration.aiActivityRange else { return nil }
+        return snapshot
+    }
+    private var currentItem: DockItem { var result = item; result.widgetConfiguration = configuration; return result }
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: "chart.bar.xaxis").foregroundStyle(.cyan)
-                    Text("AI Activity").font(.headline)
-                    Spacer()
-                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing)
-                    if isRefreshing { ProgressView().controlSize(.small) }
-                }
-                HStack {
-                    Picker("Provider", selection: providerBinding) {
-                        ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
-                    }.labelsHidden()
-                    Picker("Date range", selection: rangeBinding) {
-                        ForEach(AIActivityRange.allCases) { Text($0.title).tag($0) }
-                    }.labelsHidden()
-                    Picker("Chart style", selection: chartStyleBinding) {
-                        ForEach(AIActivityChartStyle.allCases) { Text($0.title).tag($0) }
-                    }.labelsHidden()
-                }
-                if let snapshot {
-                    metricSummary(snapshot)
-                    if configuration.aiActivityChartStyle != .totals, snapshot.available { activityChart(snapshot) }
-                    Text(snapshot.sourceDescription).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    if let message = snapshot.message {
-                        Label(message, systemImage: snapshot.available ? "exclamationmark.triangle" : "info.circle")
-                            .font(.caption).foregroundStyle(snapshot.available ? Color.orange : Color.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                    Text("Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                } else {
-                    Text("Refresh to read local usage counters. MyDock does not retain prompts, tool contents, file paths, or session transcripts.")
-                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
+        AIActivitySummary(store: store, item: currentItem, account: accountOverride ?? account,
+                          recoveryMessage: recoveryMessage, refresh: refresh, recover: recover,
+                          provider: providerBinding, range: rangeBinding, chartStyle: chartStyleBinding)
+            .task(id: "\(configuration.aiActivityProvider.rawValue)|\(configuration.aiActivityRange.rawValue)") {
+                guard store.allowsSystemChanges else { return }
+                await store.widgetData.refresh(item: currentItem, profileID: profileID, force: false)
             }
-            .frame(width: 375, alignment: .leading)
-            .frame(minHeight: 220, alignment: .topLeading)
-        }
-        .frame(width: 385, height: 480)
-        .task(id: "\(configuration.aiActivityProvider.rawValue)|\(configuration.aiActivityRange.rawValue)") {
-            await refresh()
-            for await _ in RefreshScheduler.shared.ticks(every: 60) {
+            .task(id: "\(configuration.aiActivityProvider.rawValue)|\(snapshot?.available == true)") {
+                account = nil
+                let provider = configuration.aiActivityProvider
+                guard store.allowsSystemChanges, snapshot?.available != true, [.codex, .claude].contains(provider) else { return }
+                let worker = Task.detached(priority: .utility) { AIAccountService.detect(provider) }
+                let status = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
                 guard !Task.isCancelled else { return }
-                await refresh()
+                account = status
             }
-        }
     }
-
-    @ViewBuilder
-    private func metricSummary(_ snapshot: AIActivitySnapshot) -> some View {
-        HStack(alignment: .top, spacing: 15) {
-            activityMetric("Tokens", value: snapshot.tokensText)
-            activityMetric("Sessions", value: snapshot.totals.sessions.formatted())
-            activityMetric("Tool calls", value: snapshot.totals.toolCalls.formatted())
-            if snapshot.totals.requests > 0 { activityMetric("Requests", value: snapshot.totals.requests.formatted()) }
-            if let cost = snapshot.totals.reportedCostUSD { activityMetric("Reported cost", value: cost.formatted(.currency(code: "USD"))) }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func activityMetric(_ title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.system(size: 17, weight: .medium, design: .rounded).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.65)
-            Text(title).font(.caption2).foregroundStyle(.secondary)
-        }
-    }
-
-    @ViewBuilder
-    private func activityChart(_ snapshot: AIActivitySnapshot) -> some View {
-        switch configuration.aiActivityChartStyle {
-        case .sparkline:
-            Chart(snapshot.points) { point in
-                LineMark(x: .value("Day", point.date), y: .value("Tokens", point.totalTokens))
-                    .foregroundStyle(.cyan).interpolationMethod(.catmullRom)
-                AreaMark(x: .value("Day", point.date), y: .value("Tokens", point.totalTokens))
-                    .foregroundStyle(.cyan.opacity(0.12)).interpolationMethod(.catmullRom)
-            }
-            .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) { _ in AxisValueLabel(format: .dateTime.month(.abbreviated).day()) } }
-            .chartYAxis { AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) }
-            .frame(height: 110)
-            .accessibilityLabel("\(snapshot.provider.title) token activity by local day")
-        case .bars:
-            Chart(snapshot.points) { point in
-                BarMark(x: .value("Day", point.date), y: .value("Tokens", point.totalTokens))
-                    .foregroundStyle(.cyan.gradient)
-            }
-            .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) { _ in AxisValueLabel(format: .dateTime.month(.abbreviated).day()) } }
-            .chartYAxis { AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) }
-            .frame(height: 110)
-            .accessibilityLabel("\(snapshot.provider.title) token activity by local day")
-        case .totals:
-            EmptyView()
-        }
-    }
-
     private var providerBinding: Binding<AIProvider> {
-        Binding(get: { configuration.aiActivityProvider }, set: { value in update { $0.aiActivityProvider = value; $0.aiActivitySnapshot = nil } })
+        Binding(get: { configuration.aiActivityProvider }, set: { value in
+            update { $0.aiActivityProvider = value; $0.aiActivitySnapshot = nil }; account = nil; recoveryMessage = nil
+        })
     }
     private var rangeBinding: Binding<AIActivityRange> {
         Binding(get: { configuration.aiActivityRange }, set: { value in update { $0.aiActivityRange = value; $0.aiActivitySnapshot = nil } })
@@ -431,22 +429,183 @@ private struct AIActivityPopoutView: View {
     private var chartStyleBinding: Binding<AIActivityChartStyle> {
         Binding(get: { configuration.aiActivityChartStyle }, set: { value in update { $0.aiActivityChartStyle = value } })
     }
-    private func update(_ body: (inout WidgetConfiguration) -> Void) {
-        store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: body)
-    }
-    private func refresh() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        defer { isRefreshing = false }
-        let provider = configuration.aiActivityProvider
-        let range = configuration.aiActivityRange
-        let now = Date.now
-        let timeZone = TimeZone.current
-        let result = await Task.detached(priority: .utility) { AIActivityReader.read(provider: provider, range: range, now: now, timeZone: timeZone) }.value
-        update { value in
-            guard value.aiActivityProvider == provider, value.aiActivityRange == range else { return }
-            value.aiActivitySnapshot = result
+    private func update(_ body: (inout WidgetConfiguration) -> Void) { store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: body) }
+    private func refresh() { Task { await store.widgetData.refresh(item: currentItem, profileID: profileID) } }
+    private func recover() {
+        guard store.allowsSystemChanges else { return }
+        if configuration.aiActivityProvider == .codex,
+           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex"),
+           InstalledAppCatalog.validatedApplication(at: url) != nil { NSWorkspace.shared.open(url) }
+        else {
+            do { try AIAccountService.signIn(configuration.aiActivityProvider) }
+            catch { recoveryMessage = "Open \(configuration.aiActivityProvider.title) and sign in, then refresh." }
         }
+    }
+}
+
+private struct AIActivitySummary: View {
+    @ObservedObject var coordinator: WidgetDataCoordinator
+    let item: DockItem
+    let account: AIAccountStatus?
+    let recoveryMessage: String?
+    let refresh: () -> Void
+    let recover: () -> Void
+    let allowsActions: Bool
+    @Binding var provider: AIProvider
+    @Binding var range: AIActivityRange
+    @Binding var chartStyle: AIActivityChartStyle
+
+    init(store: ProfileStore, item: DockItem, account: AIAccountStatus?, recoveryMessage: String?, refresh: @escaping () -> Void,
+         recover: @escaping () -> Void, provider: Binding<AIProvider>, range: Binding<AIActivityRange>, chartStyle: Binding<AIActivityChartStyle>) {
+        coordinator = store.widgetData; self.item = item; self.account = account; self.recoveryMessage = recoveryMessage
+        self.refresh = refresh; self.recover = recover; allowsActions = store.allowsSystemChanges
+        _provider = provider; _range = range; _chartStyle = chartStyle
+    }
+    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    private var snapshot: AIActivitySnapshot? {
+        guard let s = configuration.aiActivitySnapshot, s.provider == provider, s.range == range else { return nil }
+        return s
+    }
+    private var query: WidgetDataQuery { WidgetDataQuery.make(kind: "AI Activity", configuration: configuration)! }
+    private var refreshing: Bool { coordinator.refreshing.contains(query) }
+    private var failed: Bool { coordinator.errors[query] != nil || (snapshot?.partial == true && snapshot?.available == false) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Local usage").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                Spacer()
+                if refreshing { ProgressView().controlSize(.mini).frame(width: 24, height: 24).help("Updating local activity") }
+                else {
+                    Button(action: refresh) { Image(systemName: "arrow.clockwise").frame(width: 24, height: 24) }
+                        .buttonStyle(.borderless).help("Refresh local activity").accessibilityLabel("Refresh AI Activity")
+                }
+                Menu {
+                    Picker("Provider", selection: $provider) {
+                        ForEach([AIProvider.codex, .claude, .grok]) { Text($0.title).tag($0) }
+                    }
+                    Divider()
+                    Picker("Chart", selection: $chartStyle) { ForEach(AIActivityChartStyle.allCases) { Text($0.title).tag($0) } }
+                } label: { Image(systemName: "ellipsis.circle").frame(width: 20, height: 24) }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Provider and chart options").accessibilityLabel("Activity options")
+            }
+            HStack(spacing: 7) {
+                AIProviderGlyph(provider: provider).frame(width: 16, height: 16)
+                Menu {
+                    ForEach([AIProvider.codex, .claude, .grok]) { value in Button(value.title) { provider = value } }
+                } label: { Text(provider.title).font(.system(size: 13, weight: .medium)) }
+                    .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Activity provider").accessibilityValue(provider.title)
+                Spacer()
+                Picker("Activity range", selection: $range) {
+                    ForEach(AIActivityRange.allCases) { Text($0.activityTitle).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 208).controlSize(.small)
+            }
+            if let s = snapshot, s.available {
+                metrics(s)
+                if chartStyle != .totals { chart(s) }
+                if s.totals.requests > 0 || s.totals.reportedCostUSD != nil {
+                    HStack {
+                        if s.totals.requests > 0 { Text("\(s.totals.requests.formatted()) requests") }
+                        Spacer()
+                        if let cost = s.totals.reportedCostUSD { Text("Reported cost \(cost.formatted(.currency(code: "USD")))") }
+                    }.font(.caption).foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Based on local \(provider.title) session logs.").font(.caption).foregroundStyle(.secondary)
+                    if s.partial || s.estimated {
+                        Label(s.estimated ? "Local estimate, not a billing total." : "Some records couldn’t be read. Totals may be incomplete.", systemImage: "info.circle")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }.help(s.sourceDescription)
+            } else { emptyState }
+            if let recoveryMessage { Text(recoveryMessage).font(.caption).foregroundStyle(.secondary) }
+            Divider()
+            HStack(spacing: 6) {
+                if failed {
+                    Image(systemName: "exclamationmark.circle").accessibilityHidden(true)
+                    Text(snapshot?.available == true ? "Refresh failed · saved activity shown" : "Local activity couldn’t be read")
+                } else if refreshing { Text(snapshot == nil ? "Reading local history…" : "Updating…") }
+                else if let s = snapshot { Text("Updated \(s.fetchedAt.formatted(date: .omitted, time: .shortened))") }
+                else { Text("Local activity only") }
+                Spacer(minLength: 0)
+                if failed { Button("Retry", action: refresh).buttonStyle(.borderless).disabled(refreshing) }
+            }.font(.caption).foregroundStyle(.secondary).accessibilityElement(children: .combine)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private func metrics(_ s: AIActivitySnapshot) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            metric("Tokens", value: AIActivityFormatting.tokens(s.totals.totalTokens) + (s.partial && !s.estimated ? "+" : ""), primary: true)
+                .help(s.tokensText + ". " + s.sourceDescription)
+            Spacer(minLength: 0)
+            metric("Sessions", value: AIActivityFormatting.tokens(Int64(s.totals.sessions)))
+            metric("Tool calls", value: AIActivityFormatting.tokens(Int64(s.totals.toolCalls)))
+        }.padding(14).background(WidgetDesign.inset, in: RoundedRectangle(cornerRadius: 14))
+    }
+    private func metric(_ title: String, value: String, primary: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value).font(.system(size: primary ? 30 : 22, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
+            Text(title).font(.caption).foregroundStyle(.secondary)
+        }.accessibilityElement(children: .combine)
+    }
+    private func chart(_ s: AIActivitySnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Token activity").font(.system(size: 12, weight: .medium))
+                Spacer()
+                Text(range == .today ? "Last 7 days" : range.activityDescription).font(.caption).foregroundStyle(.secondary)
+            }
+            Chart(s.points) { point in
+                if chartStyle == .bars {
+                    BarMark(x: .value("Day", point.date, unit: .day), y: .value("Tokens", point.totalTokens))
+                        .foregroundStyle(Color.accentColor.opacity(0.8)).cornerRadius(3)
+                } else {
+                    AreaMark(x: .value("Day", point.date), y: .value("Tokens", point.totalTokens)).foregroundStyle(Color.accentColor.opacity(0.10)).interpolationMethod(.linear)
+                    LineMark(x: .value("Day", point.date), y: .value("Tokens", point.totalTokens)).foregroundStyle(Color.accentColor).lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round)).interpolationMethod(.linear)
+                }
+            }
+            .chartYScale(domain: 0...max(1, Double(s.points.map(\.totalTokens).max() ?? 0) * 1.12))
+            .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) { _ in AxisValueLabel(format: .dateTime.month(.abbreviated).day()) } }
+            .chartYAxis {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { value in
+                    AxisGridLine().foregroundStyle(Color.primary.opacity(0.07))
+                    AxisValueLabel { if let tokens = value.as(Double.self) { Text(AIActivityFormatting.tokens(Int64(tokens))).font(.system(size: 10)) } }
+                }
+            }
+            .frame(height: 136).accessibilityLabel("\(provider.title) token activity by day, \(range == .today ? "last 7 days" : range.activityDescription)")
+        }
+    }
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: failed ? "exclamationmark.circle" : "chart.bar.xaxis").font(.system(size: 30, weight: .light)).foregroundStyle(.tertiary)
+            Text(emptyTitle).font(.system(size: 14, weight: .semibold))
+            Text(emptyDetail).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            if let account, account.state != .signedIn, [.codex, .claude].contains(provider), !refreshing {
+                Button(provider == .codex ? "Open Codex" : "Open Claude Code", action: recover).controlSize(.small).disabled(!allowsActions)
+                    .help("Open your provider to connect, then refresh local activity")
+            }
+        }.frame(maxWidth: .infinity).frame(minHeight: 176).padding(.horizontal, 22)
+    }
+    private var emptyTitle: String {
+        if refreshing && snapshot == nil { return "Loading activity" }
+        if failed { return "Activity unavailable" }
+        if let account, account.state != .signedIn { return "\(provider.title) account unavailable" }
+        return "No activity yet"
+    }
+    private var emptyDetail: String {
+        if refreshing && snapshot == nil { return "Reading session counters from this Mac." }
+        if failed { return "Local records couldn’t be read. Try refreshing." }
+        if let account, account.state != .signedIn { return "Open \(provider.title) to connect. Activity will appear here as you use it." }
+        if ![AIProvider.codex, .claude, .grok].contains(provider) { return "This provider has no supported local activity source. Choose another provider." }
+        return "Use \(provider.title) on this Mac, then refresh to see your local activity."
+    }
+}
+
+extension AIActivityRange {
+    var activityTitle: String {
+        switch self { case .today: "Today"; case .sevenDays: "7D"; case .thirtyDays: "30D"; case .monthToDate: "Month" }
+    }
+    var activityDescription: String {
+        switch self { case .today: "Today"; case .sevenDays: "Last 7 days"; case .thirtyDays: "Last 30 days"; case .monthToDate: "This month" }
     }
 }
 
@@ -475,17 +634,14 @@ private func compactPercent(_ window: AILimitWindow?, mode: AIUsageRepresentatio
     return value.map { "\($0)%" } ?? "—"
 }
 
-private func compactWindowTitle(_ minutes: Int) -> String {
-    switch minutes {
+private func compactWindowTitle(for window: AILimitWindow) -> String {
+    guard let minutes = window.durationMinutes else {
+        return window.name == "Monthly AI credits" ? "Month" : String(window.name.prefix(6))
+    }
+    return switch minutes {
     case 300: "5h"
     case 10_080: "7d"
     case let value where value >= 1_440: "\(value / 1_440)d"
     default: "\(minutes)m"
     }
-}
-
-private func compactTokens(_ value: Int64) -> String {
-    if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
-    if value >= 10_000 { return "\(value / 1_000)k" }
-    return value.formatted()
 }

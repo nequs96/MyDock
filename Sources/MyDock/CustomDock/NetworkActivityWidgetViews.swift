@@ -100,24 +100,20 @@ final class NetworkActivityMonitor: ObservableObject {
 }
 
 private struct NetworkActivityCompactWidgetView: View {
+    @Environment(\.dockWidgetContentWidth) private var contentWidth
     @StateObject private var monitor = NetworkActivityMonitor.shared
     @State private var subscriptionID = UUID()
 
     var body: some View {
-        VStack(spacing: 3) {
-            Image(systemName: "network").font(.system(size: 18)).foregroundStyle(.tint)
-            Text(rateText(monitor.aggregateDownloadRate))
-                .font(.system(size: 8, weight: .medium)).lineLimit(1)
-            Text(rateText(monitor.aggregateUploadRate))
-                .font(.system(size: 8, weight: .medium)).lineLimit(1)
-        }
-        .frame(width: 54, height: 54)
-        .onAppear { monitor.subscribe(subscriptionID) }
-        .onDisappear { monitor.unsubscribe(subscriptionID) }
-        .help("Network Activity")
+        NetworkDockFace(download: monitor.aggregateDownloadRate, upload: monitor.aggregateUploadRate, history: monitor.downloadHistory)
+            .frame(width: contentWidth, height: 54)
+            .onAppear { monitor.subscribe(subscriptionID) }
+            .onDisappear { monitor.unsubscribe(subscriptionID) }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Network Activity")
+            .accessibilityValue("Download \(rateText(monitor.aggregateDownloadRate)), upload \(rateText(monitor.aggregateUploadRate))")
     }
-
 }
+
 
 private struct NetworkActivityPopoutWidgetView: View {
     @StateObject private var monitor = NetworkActivityMonitor.shared
@@ -144,7 +140,7 @@ private struct NetworkActivityPopoutWidgetView: View {
                 Label("No active network interfaces", systemImage: "network.slash")
                     .foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 70)
             } else {
-                ScrollView {
+                DockScrollView {
                     LazyVStack(spacing: 6) {
                         ForEach(monitor.interfaces) { interface in
                             interfaceRow(interface)
@@ -154,7 +150,7 @@ private struct NetworkActivityPopoutWidgetView: View {
                 .frame(maxHeight: 250)
             }
         }
-        .frame(width: 470).frame(minHeight: 230, alignment: .topLeading)
+        .frame(width: 420).frame(minHeight: 230, alignment: .topLeading)
         .onAppear { monitor.subscribe(subscriptionID) }
         .onDisappear { monitor.unsubscribe(subscriptionID) }
     }

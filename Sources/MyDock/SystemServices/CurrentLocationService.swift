@@ -7,6 +7,7 @@ final class CurrentLocationService: NSObject, @preconcurrency CLLocationManagerD
 
     private let manager: CLLocationManager
     private var pendingContinuation: CheckedContinuation<WeatherLocation, Error>?
+    private var pendingRequestID: UUID?
     private var didRequestLocation = false
 
     private override init() {
@@ -18,19 +19,35 @@ final class CurrentLocationService: NSObject, @preconcurrency CLLocationManagerD
 
     func currentLocation() async throws -> WeatherLocation {
         guard pendingContinuation == nil else { throw WeatherServiceError.serviceUnavailable }
-        return try await withCheckedThrowingContinuation { continuation in
-            pendingContinuation = continuation
-            switch manager.authorizationStatus {
-            case .authorizedAlways, .authorizedWhenInUse:
-                requestLocationIfNeeded()
-            case .notDetermined:
-                manager.requestWhenInUseAuthorization()
-            case .denied, .restricted:
-                finish(.failure(WeatherServiceError.locationDenied))
-            @unknown default:
-                finish(.failure(WeatherServiceError.locationDenied))
+        let requestID = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                pendingContinuation = continuation
+                pendingRequestID = requestID
+                switch manager.authorizationStatus {
+                case .authorizedAlways, .authorizedWhenInUse:
+                    requestLocationIfNeeded()
+                case .notDetermined:
+                    manager.requestWhenInUseAuthorization()
+                case .denied, .restricted:
+                    finish(.failure(WeatherServiceError.locationDenied))
+                @unknown default:
+                    finish(.failure(WeatherServiceError.locationDenied))
+                }
             }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelRequest(id: requestID) }
         }
+    }
+
+    private func cancelRequest(id: UUID) {
+        guard pendingRequestID == id else { return }
+        manager.stopUpdatingLocation()
+        finish(.failure(CancellationError()))
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -69,6 +86,7 @@ final class CurrentLocationService: NSObject, @preconcurrency CLLocationManagerD
     private func finish(_ result: Result<WeatherLocation, Error>) {
         guard let continuation = pendingContinuation else { return }
         pendingContinuation = nil
+        pendingRequestID = nil
         didRequestLocation = false
         continuation.resume(with: result)
     }

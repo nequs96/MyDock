@@ -1,9 +1,10 @@
 import AppKit
+import EventKit
 import SwiftUI
 
 struct CalendarWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(CalendarCompactWidgetView(item: item))
+        AnyView(CalendarCompactWidgetView(store: store, item: item, profileID: profileID))
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
@@ -13,7 +14,7 @@ struct CalendarWidgetProvider: DockWidgetProvider {
 
 struct RemindersWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(RemindersCompactWidgetView(item: item))
+        AnyView(RemindersCompactWidgetView(store: store, item: item, profileID: profileID))
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
@@ -22,50 +23,122 @@ struct RemindersWidgetProvider: DockWidgetProvider {
 }
 
 private struct CalendarCompactWidgetView: View {
+    @Environment(\.dockWidgetContentWidth) private var contentWidth
+    @ObservedObject var store: ProfileStore
     var item: DockItem
+    var profileID: UUID
     @State private var events: [CalendarEventSnapshot] = []
     @State private var accessAvailable = false
+    @State private var errorMessage: String?
+    @State private var refreshRequestID = UUID()
 
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    private var configuration: WidgetConfiguration {
+        currentConfiguration() ?? item.widgetConfiguration ?? WidgetConfiguration()
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            VStack(spacing: 2) {
+            (contentWidth > 54 ? AnyLayout(HStackLayout(spacing: 9)) : AnyLayout(VStackLayout(spacing: 1))) {
                 if configuration.calendarLayout != .nextEvent {
-                    Text(context.date.formatted(.dateTime.weekday(.abbreviated)).uppercased())
-                        .font(.system(size: 8, weight: .bold)).foregroundStyle(.secondary)
-                    Text(context.date.formatted(.dateTime.day()))
-                        .font(.system(size: 24, weight: .semibold, design: .rounded).monospacedDigit())
+                    VStack(spacing: 1) {
+                        Text(context.date.formatted(.dateTime.weekday(.abbreviated)).uppercased())
+                            .font(.system(size: 7, weight: .bold)).foregroundStyle(.red)
+                        Text(context.date.formatted(.dateTime.day()))
+                            .font(.system(size: contentWidth > 54 || configuration.calendarLayout == .date ? 26 : 18, weight: .medium)).monospacedDigit()
+                    }
                 }
                 if configuration.calendarLayout != .date {
-                    if let next = CalendarEventOrdering.compactEvent(from: events) {
-                        Text(next.title).font(.system(size: 8, weight: .medium)).lineLimit(1).frame(maxWidth: 52)
-                        Text(next.timeDescription).font(.system(size: 8, weight: .regular)).foregroundStyle(.secondary)
-                    } else {
-                        Text(accessAvailable ? "No events" : "Calendar")
-                            .font(.system(size: 8, weight: .medium)).lineLimit(1).frame(maxWidth: 52)
+                    VStack(alignment: contentWidth > 54 ? .leading : .center, spacing: 3) {
+                        if let next = CalendarEventOrdering.compactEvent(from: events) {
+                            Text(next.title).font(.system(size: 9, weight: .semibold)).lineLimit(1)
+                            Text(next.timeDescription).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1)
+                        } else {
+                            Text(errorMessage != nil ? "Unavailable" : accessAvailable ? "No events" : "Calendar")
+                                .font(.system(size: 9, weight: .medium)).lineLimit(1)
+                            if contentWidth > 54 { Text(accessAvailable ? "Today" : "Choose calendars").font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1) }
+                        }
                     }
                 }
             }
-            .frame(width: 54, height: 54)
+            .padding(.horizontal, contentWidth > 54 ? 9 : 1)
+            .frame(width: contentWidth, height: 54)
         }
-        .task(id: item.widgetConfiguration) { await refreshIfAuthorized() }
-        .help("Calendar")
+        .task(id: configuration) {
+            await refreshIfAuthorized()
+            for await _ in RefreshScheduler.shared.ticks(every: 5 * 60) {
+                guard !Task.isCancelled else { return }
+                await refreshIfAuthorized()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
+            Task { await refreshIfAuthorized() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await refreshIfAuthorized() }
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            Task { await refreshIfAuthorized() }
+        }
+        .help(errorMessage ?? "Calendar")
     }
 
     private func refreshIfAuthorized() async {
-        guard configuration.calendarLayout != .date else { return }
-        guard await CalendarRemindersService.shared.hasCalendarAccess() else { return }
-        do {
-            events = try await CalendarRemindersService.shared.events(
-                calendarIDs: configuration.selectedCalendarIDs,
-                includeAllDay: configuration.calendarShowsAllDayEvents
-            )
-            accessAvailable = true
-        } catch {
-            accessAvailable = true
+        let selectedIDs = configuration.selectedCalendarIDs
+        let includeAllDay = configuration.calendarShowsAllDayEvents
+        let layout = configuration.calendarLayout
+        let requestID = UUID()
+        refreshRequestID = requestID
+        guard layout != .date else {
             events = []
+            accessAvailable = false
+            errorMessage = nil
+            return
         }
+        guard await CalendarRemindersService.shared.hasCalendarAccess() else {
+            guard requestIsCurrent(requestID, selectedIDs: selectedIDs,
+                                   includeAllDay: includeAllDay, layout: layout) else { return }
+            events = []
+            accessAvailable = false
+            errorMessage = "Calendar access is unavailable."
+            return
+        }
+        do {
+            let result = try await CalendarRemindersService.shared.events(calendarIDs: selectedIDs,
+                                                                         includeAllDay: includeAllDay)
+            let stillAuthorized = await CalendarRemindersService.shared.hasCalendarAccess()
+            guard requestIsCurrent(requestID, selectedIDs: selectedIDs,
+                                   includeAllDay: includeAllDay, layout: layout) else { return }
+            guard stillAuthorized else {
+                events = []
+                accessAvailable = false
+                errorMessage = "Calendar access is unavailable."
+                return
+            }
+            events = result
+            accessAvailable = true
+            errorMessage = nil
+        } catch {
+            guard requestIsCurrent(requestID, selectedIDs: selectedIDs,
+                                   includeAllDay: includeAllDay, layout: layout) else { return }
+            events = []
+            accessAvailable = false
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func currentConfiguration() -> WidgetConfiguration? {
+        guard let currentItem = store.state.profiles.first(where: { $0.id == profileID })?.items
+            .first(where: { $0.id == item.id }) else { return nil }
+        return currentItem.widgetConfiguration ?? WidgetConfiguration()
+    }
+
+    private func requestIsCurrent(_ requestID: UUID, selectedIDs: [String],
+                                  includeAllDay: Bool, layout: CalendarWidgetLayout) -> Bool {
+        guard refreshRequestID == requestID, !Task.isCancelled,
+              let current = currentConfiguration() else { return false }
+        return current.selectedCalendarIDs == selectedIDs
+            && current.calendarShowsAllDayEvents == includeAllDay
+            && current.calendarLayout == layout
     }
 }
 
@@ -77,10 +150,13 @@ private struct CalendarPopoutWidgetView: View {
     @State private var events: [CalendarEventSnapshot] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var refreshRequestID = UUID()
     @State private var layoutSelection = CalendarWidgetLayout.dateAndNextEvent
     @State private var showAllDaySelection = false
 
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    private var configuration: WidgetConfiguration {
+        currentConfiguration() ?? item.widgetConfiguration ?? WidgetConfiguration()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -113,14 +189,16 @@ private struct CalendarPopoutWidgetView: View {
             }
 
             if configuration.calendarLayout == .date {
-                HStack(spacing: 12) {
-                    Text(Date.now.formatted(.dateTime.day())).font(.system(size: 54, weight: .medium, design: .rounded))
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(Date.now.formatted(.dateTime.weekday(.wide))).font(.title3.weight(.semibold))
-                        Text(Date.now.formatted(.dateTime.month(.wide).year())).foregroundStyle(.secondary)
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    HStack(spacing: 12) {
+                        Text(context.date.formatted(.dateTime.day())).font(.system(size: 54, weight: .medium, design: .rounded))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(context.date.formatted(.dateTime.weekday(.wide))).font(.title3.weight(.semibold))
+                            Text(context.date.formatted(.dateTime.month(.wide).year())).foregroundStyle(.secondary)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             } else if isLoading {
                 ProgressView("Loading calendar…").frame(maxWidth: .infinity, minHeight: 90)
             } else if let errorMessage {
@@ -131,14 +209,16 @@ private struct CalendarPopoutWidgetView: View {
                     .frame(minHeight: 100)
             } else {
                 if configuration.calendarLayout == .dateAndNextEvent || configuration.calendarLayout == .agenda {
-                    HStack(spacing: 8) {
-                        Image(systemName: "calendar").foregroundStyle(.tint)
-                        Text(Date.now.formatted(date: .complete, time: .omitted)).font(.caption).foregroundStyle(.secondary)
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        HStack(spacing: 8) {
+                            Image(systemName: "calendar").foregroundStyle(.tint)
+                            Text(context.date.formatted(date: .complete, time: .omitted)).font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
                 let visibleEvents = configuration.calendarLayout == .nextEvent
                     ? Array(events.prefix(1)) : events
-                ScrollView {
+                DockScrollView {
                     LazyVStack(alignment: .leading, spacing: 7) {
                         ForEach(visibleEvents) { event in eventRow(event) }
                     }
@@ -159,7 +239,16 @@ private struct CalendarPopoutWidgetView: View {
             reload()
         }
         .onChange(of: item.widgetConfiguration?.calendarShowsAllDayEvents) { showAllDaySelection = $0 ?? false }
-        .task { await requestAndLoad() }
+        .task {
+            await requestAndLoad()
+            for await _ in RefreshScheduler.shared.ticks(every: 5 * 60) {
+                guard !Task.isCancelled else { return }
+                await requestAndLoad()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in reload() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in reload() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in reload() }
     }
 
     @ViewBuilder private func eventRow(_ event: CalendarEventSnapshot) -> some View {
@@ -171,7 +260,7 @@ private struct CalendarPopoutWidgetView: View {
             }
             Spacer(minLength: 4)
             if let url = event.meetingURL {
-                Button("Join") { NSWorkspace.shared.open(url) }.buttonStyle(.bordered)
+                Button("Join") { NSWorkspace.shared.open(url) }.buttonStyle(DockButtonStyle())
             }
         }
         .padding(8)
@@ -186,7 +275,7 @@ private struct CalendarPopoutWidgetView: View {
 
     private func updateLayout(_ layout: CalendarWidgetLayout) {
         updateConfiguration { $0.calendarLayout = layout }
-        if layout != .date { reload() }
+        reload()
     }
 
     private func toggleCalendar(_ id: String) {
@@ -209,52 +298,149 @@ private struct CalendarPopoutWidgetView: View {
     private func reload() { Task { await requestAndLoad() } }
 
     private func requestAndLoad() async {
-        guard configuration.calendarLayout != .date else { return }
+        let selectedIDs = configuration.selectedCalendarIDs
+        let includeAllDay = configuration.calendarShowsAllDayEvents
+        let layout = configuration.calendarLayout
+        let requestID = UUID()
+        refreshRequestID = requestID
+        guard layout != .date else {
+            isLoading = false
+            calendars = []
+            events = []
+            errorMessage = nil
+            return
+        }
         isLoading = true
-        defer { isLoading = false }
+        defer { if refreshRequestID == requestID { isLoading = false } }
         do {
             try await CalendarRemindersService.shared.requestCalendarAccess()
-            calendars = try await CalendarRemindersService.shared.calendarLists()
-            events = try await CalendarRemindersService.shared.events(
-                calendarIDs: configuration.selectedCalendarIDs,
-                includeAllDay: configuration.calendarShowsAllDayEvents
-            )
+            let fetchedCalendars = try await CalendarRemindersService.shared.calendarLists()
+            let fetchedEvents = try await CalendarRemindersService.shared.events(calendarIDs: selectedIDs,
+                                                                                includeAllDay: includeAllDay)
+            let stillAuthorized = await CalendarRemindersService.shared.hasCalendarAccess()
+            guard requestIsCurrent(requestID, selectedIDs: selectedIDs,
+                                   includeAllDay: includeAllDay, layout: layout) else { return }
+            guard stillAuthorized else { throw CalendarRemindersServiceError.accessDenied }
+            calendars = fetchedCalendars
+            events = fetchedEvents
             errorMessage = nil
         } catch {
+            guard requestIsCurrent(requestID, selectedIDs: selectedIDs,
+                                   includeAllDay: includeAllDay, layout: layout) else { return }
             errorMessage = error.localizedDescription
             calendars = []
             events = []
         }
     }
+
+    private func requestIsCurrent(_ requestID: UUID, selectedIDs: [String],
+                                  includeAllDay: Bool, layout: CalendarWidgetLayout) -> Bool {
+        guard refreshRequestID == requestID, !Task.isCancelled,
+              let current = currentConfiguration() else { return false }
+        return current.selectedCalendarIDs == selectedIDs
+            && current.calendarShowsAllDayEvents == includeAllDay
+            && current.calendarLayout == layout
+    }
+
+    private func currentConfiguration() -> WidgetConfiguration? {
+        guard let currentItem = store.state.profiles.first(where: { $0.id == profileID })?.items
+            .first(where: { $0.id == item.id }) else { return nil }
+        return currentItem.widgetConfiguration ?? WidgetConfiguration()
+    }
 }
 
 private struct RemindersCompactWidgetView: View {
+    @Environment(\.dockWidgetContentWidth) private var contentWidth
+    @ObservedObject var store: ProfileStore
     var item: DockItem
+    var profileID: UUID
     @State private var count = 0
     @State private var hasAccess = false
+    @State private var errorMessage: String?
+    @State private var refreshRequestID = UUID()
 
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    private var configuration: WidgetConfiguration {
+        currentConfiguration() ?? item.widgetConfiguration ?? WidgetConfiguration()
+    }
 
     var body: some View {
-        VStack(spacing: 4) {
-            Image(systemName: "checklist").font(.system(size: 21)).foregroundStyle(.tint)
-            Text(hasAccess ? "\(count) left" : "Reminders")
-                .font(.system(size: 8, weight: .medium)).lineLimit(1).frame(maxWidth: 52)
+        HStack(spacing: 8) {
+            VStack(spacing: 1) {
+                Image(systemName: "list.bullet.circle.fill").font(.system(size: 17)).foregroundStyle(.blue)
+                if hasAccess && errorMessage == nil { Text("\(count)").font(.system(size: 21, weight: .semibold)).monospacedDigit() }
+            }
+            if contentWidth > 54 {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(errorMessage != nil ? "Unavailable" : hasAccess ? "Reminders" : "Connect a list")
+                        .font(.system(size: 9, weight: .semibold)).lineLimit(1)
+                    Text(hasAccess ? "\(count) remaining" : "Click to set up")
+                        .font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
         }
-        .frame(width: 54, height: 54)
-        .task(id: configuration.selectedReminderCalendarID) { await refreshIfAuthorized() }
-        .help("Reminders")
+        .padding(.horizontal, contentWidth > 54 ? 9 : 0)
+        .frame(width: contentWidth, height: 54)
+        .task(id: configuration.selectedReminderCalendarID) {
+            await refreshIfAuthorized()
+            for await _ in RefreshScheduler.shared.ticks(every: 5 * 60) {
+                guard !Task.isCancelled else { return }
+                await refreshIfAuthorized()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
+            Task { await refreshIfAuthorized() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await refreshIfAuthorized() }
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            Task { await refreshIfAuthorized() }
+        }
+        .help(errorMessage ?? "Reminders")
     }
 
     private func refreshIfAuthorized() async {
-        guard await CalendarRemindersService.shared.hasRemindersAccess() else { return }
-        do {
-            count = try await CalendarRemindersService.shared.reminders(calendarID: configuration.selectedReminderCalendarID).count
-            hasAccess = true
-        } catch {
-            hasAccess = true
+        let selectedListID = configuration.selectedReminderCalendarID
+        let requestID = UUID()
+        refreshRequestID = requestID
+        guard await CalendarRemindersService.shared.hasRemindersAccess() else {
+            guard requestIsCurrent(requestID, selectedListID: selectedListID) else { return }
             count = 0
+            hasAccess = false
+            errorMessage = "Reminders access is unavailable."
+            return
         }
+        do {
+            let result = try await CalendarRemindersService.shared.reminders(calendarID: selectedListID)
+            let stillAuthorized = await CalendarRemindersService.shared.hasRemindersAccess()
+            guard requestIsCurrent(requestID, selectedListID: selectedListID) else { return }
+            guard stillAuthorized else {
+                count = 0
+                hasAccess = false
+                errorMessage = "Reminders access is unavailable."
+                return
+            }
+            count = result.count
+            hasAccess = true
+            errorMessage = nil
+        } catch {
+            guard requestIsCurrent(requestID, selectedListID: selectedListID) else { return }
+            count = 0
+            hasAccess = false
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func currentConfiguration() -> WidgetConfiguration? {
+        guard let currentItem = store.state.profiles.first(where: { $0.id == profileID })?.items
+            .first(where: { $0.id == item.id }) else { return nil }
+        return currentItem.widgetConfiguration ?? WidgetConfiguration()
+    }
+
+    private func requestIsCurrent(_ requestID: UUID, selectedListID: String) -> Bool {
+        guard refreshRequestID == requestID, !Task.isCancelled,
+              let current = currentConfiguration() else { return false }
+        return current.selectedReminderCalendarID == selectedListID
     }
 }
 
@@ -268,10 +454,16 @@ private struct RemindersPopoutWidgetView: View {
     @State private var lastCompletedIdentifier: String?
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var actionErrorMessage: String?
+    @State private var refreshRequestID = UUID()
     @State private var layoutSelection = RemindersWidgetLayout.list
     @State private var selectedList = ""
+    @State private var isAddingReminder = false
+    @State private var isChangingCompletion = false
 
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    private var configuration: WidgetConfiguration {
+        currentConfiguration() ?? item.widgetConfiguration ?? WidgetConfiguration()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
@@ -304,7 +496,7 @@ private struct RemindersPopoutWidgetView: View {
                     .frame(minHeight: 100)
             } else {
                 let shown = configuration.remindersLayout == .nextReminder ? Array(reminders.prefix(1)) : reminders
-                ScrollView {
+                DockScrollView {
                     LazyVStack(spacing: 5) {
                         ForEach(shown) { reminder in reminderRow(reminder) }
                     }
@@ -314,30 +506,44 @@ private struct RemindersPopoutWidgetView: View {
 
             HStack(spacing: 7) {
                 TextField("New reminder", text: $newReminderTitle)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(DockTextFieldStyle())
                     .onSubmit(addReminder)
                 Button("Add", action: addReminder)
-                    .buttonStyle(.borderedProminent).disabled(newReminderTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .buttonStyle(DockButtonStyle(primary: true))
+                    .disabled(isAddingReminder || newReminderTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            if isAddingReminder { ProgressView("Adding reminder…").font(.caption) }
             if let lastCompletedIdentifier {
                 Button("Undo completion") { undoCompletion(lastCompletedIdentifier) }
-                    .font(.caption).buttonStyle(.plain)
+                    .font(.caption).buttonStyle(.plain).disabled(isChangingCompletion)
+            }
+            if let actionErrorMessage {
+                Text(actionErrorMessage).font(.caption).foregroundStyle(.red)
             }
         }
         .frame(width: 410).frame(minHeight: 220, alignment: .topLeading)
         .onAppear { layoutSelection = configuration.remindersLayout }
         .onChange(of: layoutSelection) { updateLayout($0) }
-        .onChange(of: item.widgetConfiguration?.remindersLayout) { layoutSelection = $0 ?? .list }
+        .onChange(of: configuration.remindersLayout) { layoutSelection = $0 }
         .onAppear { selectedList = configuration.selectedReminderCalendarID }
         .onChange(of: selectedList) { updateList($0) }
-        .onChange(of: item.widgetConfiguration?.selectedReminderCalendarID) { selectedList = $0 ?? "" }
-        .task { await requestAndLoad() }
+        .onChange(of: configuration.selectedReminderCalendarID) { selectedList = $0 }
+        .task {
+            await requestAndLoad()
+            for await _ in RefreshScheduler.shared.ticks(every: 5 * 60) {
+                guard !Task.isCancelled else { return }
+                await requestAndLoad()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in reload() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in reload() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in reload() }
     }
 
     @ViewBuilder private func reminderRow(_ reminder: ReminderSnapshot) -> some View {
         HStack(spacing: 8) {
             Button { complete(reminder) } label: { Image(systemName: "circle") }
-                .buttonStyle(.plain).help("Mark complete")
+                .buttonStyle(.plain).help("Mark complete").disabled(isChangingCompletion)
             VStack(alignment: .leading, spacing: 2) {
                 Text(reminder.title).lineLimit(2)
                 if let dueDate = reminder.dueDate {
@@ -363,48 +569,94 @@ private struct RemindersPopoutWidgetView: View {
     private func reload() { Task { await requestAndLoad() } }
 
     private func requestAndLoad() async {
+        let selectedListID = configuration.selectedReminderCalendarID
+        let requestID = UUID()
+        refreshRequestID = requestID
         isLoading = true
-        defer { isLoading = false }
+        defer { if refreshRequestID == requestID { isLoading = false } }
         do {
             try await CalendarRemindersService.shared.requestRemindersAccess()
-            lists = try await CalendarRemindersService.shared.reminderLists()
-            reminders = try await CalendarRemindersService.shared.reminders(calendarID: configuration.selectedReminderCalendarID)
+            let fetchedLists = try await CalendarRemindersService.shared.reminderLists()
+            let fetchedReminders = try await CalendarRemindersService.shared.reminders(calendarID: selectedListID)
+            let stillAuthorized = await CalendarRemindersService.shared.hasRemindersAccess()
+            guard requestIsCurrent(requestID, selectedListID: selectedListID) else { return }
+            guard stillAuthorized else { throw CalendarRemindersServiceError.accessDenied }
+            lists = fetchedLists
+            reminders = fetchedReminders
             errorMessage = nil
         } catch {
+            guard requestIsCurrent(requestID, selectedListID: selectedListID) else { return }
             errorMessage = error.localizedDescription
             lists = []
             reminders = []
         }
     }
 
+    private func requestIsCurrent(_ requestID: UUID, selectedListID: String) -> Bool {
+        guard refreshRequestID == requestID, !Task.isCancelled,
+              let current = currentConfiguration() else { return false }
+        return current.selectedReminderCalendarID == selectedListID
+    }
+
+    private func currentConfiguration() -> WidgetConfiguration? {
+        guard let currentItem = store.state.profiles.first(where: { $0.id == profileID })?.items
+            .first(where: { $0.id == item.id }) else { return nil }
+        return currentItem.widgetConfiguration ?? WidgetConfiguration()
+    }
+
     private func addReminder() {
-        let title = newReminderTitle
+        guard !isAddingReminder else { return }
+        let title = newReminderTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        let targetListID = configuration.selectedReminderCalendarID
+        isAddingReminder = true
+        actionErrorMessage = nil
         Task {
             do {
-                try await CalendarRemindersService.shared.addReminder(title: title, calendarID: configuration.selectedReminderCalendarID)
-                newReminderTitle = ""
+                try await CalendarRemindersService.shared.addReminder(title: title, calendarID: targetListID)
+                if newReminderTitle.trimmingCharacters(in: .whitespacesAndNewlines) == title {
+                    newReminderTitle = ""
+                }
+                isAddingReminder = false
                 await requestAndLoad()
-            } catch { errorMessage = error.localizedDescription }
+            } catch {
+                isAddingReminder = false
+                actionErrorMessage = error.localizedDescription
+            }
         }
     }
 
     private func complete(_ reminder: ReminderSnapshot) {
+        guard !isChangingCompletion else { return }
+        isChangingCompletion = true
+        actionErrorMessage = nil
         Task {
             do {
                 try await CalendarRemindersService.shared.setReminderCompleted(identifier: reminder.id, completed: true)
                 lastCompletedIdentifier = reminder.id
+                isChangingCompletion = false
                 await requestAndLoad()
-            } catch { errorMessage = error.localizedDescription }
+            } catch {
+                isChangingCompletion = false
+                actionErrorMessage = error.localizedDescription
+            }
         }
     }
 
     private func undoCompletion(_ identifier: String) {
+        guard !isChangingCompletion else { return }
+        isChangingCompletion = true
+        actionErrorMessage = nil
         Task {
             do {
                 try await CalendarRemindersService.shared.setReminderCompleted(identifier: identifier, completed: false)
                 lastCompletedIdentifier = nil
+                isChangingCompletion = false
                 await requestAndLoad()
-            } catch { errorMessage = error.localizedDescription }
+            } catch {
+                isChangingCompletion = false
+                actionErrorMessage = error.localizedDescription
+            }
         }
     }
 }

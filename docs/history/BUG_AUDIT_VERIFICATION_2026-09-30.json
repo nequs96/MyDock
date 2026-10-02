@@ -1,0 +1,1081 @@
+{
+  "recorded_at": "2026-09-30T19:04:23.734567+00:00",
+  "workspace": "/Users/jakubjalowiecki/Documents/ChatGPT/dockX",
+  "scope": "Dock/app code, performance, isolated layout audit and targeted fixes; existing uncommitted work preserved",
+  "build_source_fingerprint": "47f91488033a4adbd71a3c979a65ec136ed2e9ed031f5d94c4689bcddd302be8",
+  "tests": {
+    "reported_tests": 205,
+    "suites": 14,
+    "result": "passed",
+    "opt_in_skipped_in_default_run": [
+      "recordComparableGeometryAndWriterScenarios",
+      "nativeApplyRestoreAndJournalRecovery"
+    ],
+    "synthetic_performance_case": "passed separately with filter",
+    "new_regression_cases": 14
+  },
+  "release": {
+    "binary": {
+      "path": "build/MyDockAudited.app/Contents/MacOS/MyDock",
+      "sha256": "02ddfe2d85a548d1022a43bfb38b45cf4ea818be3ecf52e8eb6164b9dc216ec5",
+      "bytes": 47437248
+    },
+    "info": {
+      "path": "build/MyDockAudited.app/Contents/Info.plist",
+      "sha256": "3c87aa7efdab6ee885100729c55cd1340aa5065518d63f10ebedee5693d9d616",
+      "bytes": 2054
+    },
+    "architectures": [
+      "x86_64",
+      "arm64"
+    ],
+    "minimum_macos": "13.0",
+    "ad_hoc_signature_valid": true
+  },
+  "preview": {
+    "binary": {
+      "path": "build/MyDockAuditPreview.app/Contents/MacOS/MyDock",
+      "sha256": "3510cfb74fbfffa5a08175b13bb2798b01c5f00d3db17bd322d9a5d6b2845353",
+      "bytes": 39548944
+    },
+    "info": {
+      "path": "build/MyDockAuditPreview.app/Contents/Info.plist",
+      "sha256": "0fc1064b7ff12b28c7cdf5e3592b5de7bc603fa5d2f6e324503d9a9517495e41",
+      "bytes": 2136
+    },
+    "minimum_macos": "14.0",
+    "isolated_store": true,
+    "ad_hoc_signature_valid": true
+  },
+  "visual": {
+    "layout_render_count": 41,
+    "render_application_launched": true,
+    "method": "DEBUG isolated native NSHostingView cache, scroll viewport flattening, sample cards",
+    "native_desktop_acceptance": false,
+    "blocker": "Computer-use tool returned locked Mac; unlock requested",
+    "not_established": [
+      "native chrome/compositor",
+      "scroll/input/drag behavior",
+      "keyboard/VoiceOver",
+      "real provider account/permission transitions",
+      "real native Dock mutation"
+    ],
+    "images": [
+      {
+        "path": ".build/audit-visual-qa/about.png",
+        "sha256": "adbbd321d2fa853606c369d594c84d84bcd7960f6a433ceda83e54ff6392edc3",
+        "bytes": 60051,
+        "pixels": [
+          840,
+          744
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/configure-Clock.png",
+        "sha256": "22d4b30c7edfa15d6c3297a89680bf804f5b942628945d5a10fd05c0419d13f4",
+        "bytes": 26331,
+        "pixels": [
+          976,
+          382
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/configure-Focus Timer.png",
+        "sha256": "637388ac020fb48f7447fde4c9987e192c0eead7d5c64e754d0ae5018fba4b01",
+        "bytes": 29969,
+        "pixels": [
+          976,
+          510
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/configure-Sticky Note.png",
+        "sha256": "710a26e97bae404931a683edb94551c70dffbbb3f9b50da6679ba2388d0703f1",
+        "bytes": 32233,
+        "pixels": [
+          976,
+          840
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/configure-sheet-Clock.png",
+        "sha256": "7d11fcd60330e4e0e6560f5d94f2f84036be5516e6edcd4c8035beb88b3a158c",
+        "bytes": 42104,
+        "pixels": [
+          976,
+          570
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/configure-sheet-Focus Timer.png",
+        "sha256": "0033501cd780998dac273f0c1c22a200834b551eea449aeb447a06238fbda03e",
+        "bytes": 47107,
+        "pixels": [
+          976,
+          698
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/configure-sheet-Sticky Note.png",
+        "sha256": "c6136a8e4c0751387090febcc10ebb3facaf797a1a4ce05f278e1036bb073738",
+        "bytes": 45382,
+        "pixels": [
+          976,
+          778
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/dock-bottom.png",
+        "sha256": "076195887962dc9b007e07ff100da2cdec61b40da313108774611022d397e58b",
+        "bytes": 88509,
+        "pixels": [
+          1440,
+          322
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/dock-left.png",
+        "sha256": "af334e68e8c14aa6fc476692d796e569694f69f879a7e3df6dcd1dd2a244aa2b",
+        "bytes": 63358,
+        "pixels": [
+          1440,
+          680
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/dock-overflow.png",
+        "sha256": "60c94949e9c96b7fc68da204a8a00d5702bbfd8715c416af471defb0a2df6a68",
+        "bytes": 47283,
+        "pixels": [
+          1440,
+          352
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/dock-right.png",
+        "sha256": "af334e68e8c14aa6fc476692d796e569694f69f879a7e3df6dcd1dd2a244aa2b",
+        "bytes": 63358,
+        "pixels": [
+          1440,
+          680
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/editor-dark-large.png",
+        "sha256": "5f611bb88719be75190cfe34a61f9dfe8c62c8fef86a3e00faf6c5599f2f34c1",
+        "bytes": 365309,
+        "pixels": [
+          2880,
+          1800
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/editor-dark-medium.png",
+        "sha256": "5ed7c4f066a9663d1393f97d6706ba321c74f5f8cbea781406e3abc26871e199",
+        "bytes": 335571,
+        "pixels": [
+          2320,
+          1520
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/editor-dark-small.png",
+        "sha256": "8296a5e0fb40af32fb76d2018ccbd3bc79cdbb60f10e94ac1280bf9332e2ed6b",
+        "bytes": 230847,
+        "pixels": [
+          1800,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/editor-empty.png",
+        "sha256": "b698cb8371570c7526f42ccfc4515f9ea36aa30c53d690e43c01b075fc2f1743",
+        "bytes": 101605,
+        "pixels": [
+          1800,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/editor-light.png",
+        "sha256": "9e2ef0a06e2db2df4e84f71e1e23d35642ca25f3bff8f12bb834f571654e9243",
+        "bytes": 339371,
+        "pixels": [
+          2320,
+          1520
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/gallery-empty.png",
+        "sha256": "f87ed35a10c680d3207ed89c183a5311464c55c8f44968dff3793292b0661ec7",
+        "bytes": 128826,
+        "pixels": [
+          1520,
+          1184
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/gallery-large.png",
+        "sha256": "2006a6449c551bc13b21859bcaae28f8227a077f1318aa515bebc93b7bcd7553",
+        "bytes": 333506,
+        "pixels": [
+          2400,
+          1600
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/gallery-medium.png",
+        "sha256": "fb6757c18dd018d61812aecc6883cefb60f91228e65f074e1c64334b2ede20d6",
+        "bytes": 232472,
+        "pixels": [
+          1920,
+          1360
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/gallery-search.png",
+        "sha256": "87fd163f50051b4308103945657083391a39fbd8c50a255f8f33b3466e4e2e90",
+        "bytes": 188601,
+        "pixels": [
+          1920,
+          1360
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/gallery-small.png",
+        "sha256": "a3f5cc2d797e7e0300ebf696fe607b60c20c4f9ee41cacfa29f3430f44f3940a",
+        "bytes": 170134,
+        "pixels": [
+          1520,
+          1184
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/onboarding-1.png",
+        "sha256": "d9cae9afa10b34520c0d80fbcea70711610784ca47b0fff2d28c031af4772aaa",
+        "bytes": 148971,
+        "pixels": [
+          1520,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/onboarding-2.png",
+        "sha256": "2c705081a04731a063c6185f7bc82b602e33b15266a037d411c24d4948c19eb3",
+        "bytes": 179522,
+        "pixels": [
+          1520,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/onboarding-3.png",
+        "sha256": "e8fd508cf4a11ffb3f8c0232e1ea239b677ab279d832e0cfbcfb08eb15dfdb53",
+        "bytes": 131225,
+        "pixels": [
+          1520,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/onboarding-4.png",
+        "sha256": "8d96208af3bfa23b61e3b70211d090575f4343b300bef201df98aab96401eebf",
+        "bytes": 176247,
+        "pixels": [
+          1520,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-appearance.png",
+        "sha256": "09cf8763b2e3f48b69604baeeabe933da46bc10a8d12b874cc8447637e014859",
+        "bytes": 301761,
+        "pixels": [
+          2320,
+          1520
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-behavior.png",
+        "sha256": "368502b114d8c39dad73905825fac031e9a831161684b2844003e972020e123e",
+        "bytes": 280619,
+        "pixels": [
+          2320,
+          1520
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-dock.png",
+        "sha256": "3b69ad0687729114d6e4027f84f250ff3cd4eaed9e489d0e0df3a1a3b290e314",
+        "bytes": 298200,
+        "pixels": [
+          2320,
+          1520
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-general.png",
+        "sha256": "6e8b0a3b54b0b4c3259837a8d04e1ab6025cd46a8abac14b4ca8acb0e38fa5af",
+        "bytes": 248234,
+        "pixels": [
+          2320,
+          1520
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-integrations.png",
+        "sha256": "997d15926e1def4fe5cb445f300beae620d706409931e71ca1fa47883f053491",
+        "bytes": 212152,
+        "pixels": [
+          2320,
+          1520
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-light.png",
+        "sha256": "23a1f160ef1a4e39db76f73f73ed05a20389caa6fe019e05870ec32215ddf9fd",
+        "bytes": 266171,
+        "pixels": [
+          2320,
+          1520
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-narrow-appearance.png",
+        "sha256": "ca906e725683595555ccbe47b2118dd7d8d86f96e856175ab435c86aac02fcbc",
+        "bytes": 231215,
+        "pixels": [
+          1800,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-narrow-behavior.png",
+        "sha256": "13766d9b343773d316fcda8fbd15eee8f69bf37154091f8b01b1ecbdfcda023b",
+        "bytes": 213861,
+        "pixels": [
+          1800,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-narrow-dock.png",
+        "sha256": "cc6330ec82ef71f3bda722b8dc0149ab577986144c7e992a90c993e10e8e1f32",
+        "bytes": 207146,
+        "pixels": [
+          1800,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-narrow-general.png",
+        "sha256": "ead53c89914dca97cc709607e40e413367fa9adcda53aa382477a548f8b99fde",
+        "bytes": 191582,
+        "pixels": [
+          1800,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-narrow-integrations.png",
+        "sha256": "21a45cf160ac61285cbf5e97027b383c3748e8b399bed9a977e2df67ff5a3117",
+        "bytes": 184779,
+        "pixels": [
+          1800,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-narrow-permissions.png",
+        "sha256": "1bbdf0e6f379dbce8e327a12274ee2379e59810473b39405ca56e6878665968f",
+        "bytes": 239477,
+        "pixels": [
+          1800,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-narrow-shortcuts.png",
+        "sha256": "07115a3b1dee1b5c2064c910e604faf25b9da42947166b01c311c5e21ca17019",
+        "bytes": 201110,
+        "pixels": [
+          1800,
+          1200
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-permissions.png",
+        "sha256": "576ab8a04ddf6cbc67de02b0b0021d2d838b7d927812ee4a7cedb11d5033c526",
+        "bytes": 329652,
+        "pixels": [
+          2320,
+          1520
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-shortcuts.png",
+        "sha256": "cc55d3f3eb1fb7f4d5e7ae5c024ef4eac38a13d91ef11fe935100c8fe454d971",
+        "bytes": 228450,
+        "pixels": [
+          2320,
+          1520
+        ]
+      },
+      {
+        "path": ".build/audit-visual-qa/settings-small.png",
+        "sha256": "13766d9b343773d316fcda8fbd15eee8f69bf37154091f8b01b1ecbdfcda023b",
+        "bytes": 213861,
+        "pixels": [
+          1800,
+          1200
+        ]
+      }
+    ]
+  },
+  "sources": [
+    {
+      "path": "Sources/MyDock/Backup/BackupManager.swift",
+      "sha256": "c921b6bd0c43862cb0a2c46a15b298e0e9c9a8b3ac7c388a778bf5d2e1acbb7c",
+      "bytes": 8000
+    },
+    {
+      "path": "Sources/MyDock/Core/Product.swift",
+      "sha256": "d9bf5dd10c585545b12e92dd084fd2d1a54d86cbaa98f3bfc969629f1f48d2bb",
+      "bytes": 201
+    },
+    {
+      "path": "Sources/MyDock/Core/SingleInstanceLock.swift",
+      "sha256": "dce6faf8cca978256cf9d890a95a842d86a41d19959942daaaea2ba10773cc5b",
+      "bytes": 1487
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/AIUsageWidgetViews.swift",
+      "sha256": "3997e3657a7e162034a1b64cc98304348a781b942b02ddeb97d7320a7ebaf909",
+      "bytes": 28570
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/AirDropWidgetViews.swift",
+      "sha256": "3e4fe445f9497dfeaac67325c09281052313336b5acf696cc5f14e3e5b13cef6",
+      "bytes": 12041
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/AlarmWidgetViews.swift",
+      "sha256": "5dc2c3ea78e895b0adeb1dd2d1d8a269aaaff220a9ae50d9834e639abbefd1b4",
+      "bytes": 10380
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/AppleWidgetCard.swift",
+      "sha256": "0a54c12bbff6506e22f1e71ae2345e25971d318c9ac975a0e6a16ebf2a5f04b2",
+      "bytes": 18838
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/CalendarRemindersWidgetViews.swift",
+      "sha256": "69459ff832ae0dec52d0c23291b64618b74125e9d881af79125eba6855082f3f",
+      "bytes": 31941
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/DockLayoutPreview.swift",
+      "sha256": "b5237553672beb450db3c08b7241dd57d1bc68f9b07cdc2f3089353880a002cb",
+      "bytes": 1535
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/FileThumbnailView.swift",
+      "sha256": "fa58ff97c2e37a1534a356feac168b38a42693596fef5aee11c2013af1e4edb9",
+      "bytes": 4884
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/FolderContentsPopout.swift",
+      "sha256": "7506840f549343a84098c5e1ea4eda516a1f7e159d087c949f264545813f6526",
+      "bytes": 4922
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/FolderIconView.swift",
+      "sha256": "d440de426e6239870729a02198e797583a72733a207872e4821f552e2eabec58",
+      "bytes": 2072
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/NetworkActivityWidgetViews.swift",
+      "sha256": "a9a908c4d0dca739653409b6bcbf04e7b8c33987b2deabf083e6b6fd12d4f225",
+      "bytes": 10363
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/NowPlayingWidgetViews.swift",
+      "sha256": "42a9f908b7f1924c2073e08f946fb0c3906fbbf14b4b7568731b556361cbefc2",
+      "bytes": 17707
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/PaddleWidgetViews.swift",
+      "sha256": "7c68bc8ef0d0c83cc17204f42f47cbb9d4bd5479161b10432cca94f782062d01",
+      "bytes": 18618
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/ShopifyWidgetViews.swift",
+      "sha256": "ecc22837df0f155b103876a22d106a08ba09031e3e952f670db04a499ba009f6",
+      "bytes": 22161
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/StockWidgetViews.swift",
+      "sha256": "8491793aaab4ef33ac887781a5622da398000846f6fab52268b9e9cfe0f1f780",
+      "bytes": 37820
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/StripeWidgetViews.swift",
+      "sha256": "103b13fb9d5a7046a8b5897e91d1c1af0ed3608adc69a562f45517b7ba18e941",
+      "bytes": 20011
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/SystemActivityWidgetViews.swift",
+      "sha256": "4b134d880861c39f3a0e84b7a8ac8b28c95c1d4f59903a6a3b0bd0d27b42a308",
+      "bytes": 20530
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/TrashWidgetViews.swift",
+      "sha256": "0256c5dfaf86982014fa8dfa33d17b2318cadc8740b0fc5481cca98254676a77",
+      "bytes": 3763
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/WeatherWidgetViews.swift",
+      "sha256": "228ecfb22dd6cc9f08ca6587d32ff81b729403fd1cd2a43a187520fdcd48263e",
+      "bytes": 31536
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/WidgetFreshnessView.swift",
+      "sha256": "620898c7a9189fe4f3aadf98e8ca6c64d95c77bb6a464a538cc00a3cc802c22a",
+      "bytes": 3169
+    },
+    {
+      "path": "Sources/MyDock/CustomDock/WidgetViews.swift",
+      "sha256": "fc689897fc8c72dd88c43b32d8ab697e587d8f21a3f788f603ee2fbc2576a292",
+      "bytes": 69967
+    },
+    {
+      "path": "Sources/MyDock/DockManagement/CustomDockWindowController.swift",
+      "sha256": "61d705e7ef9e42611fa9d2def0a8e1ff74c30633978b06a205ed461d967c1707",
+      "bytes": 80787
+    },
+    {
+      "path": "Sources/MyDock/DockManagement/DockSwitchFreezeProvider.swift",
+      "sha256": "ad06a12da71605976a355b2df5cd6128a3c0461e7191788b2cee61a86202ad9b",
+      "bytes": 3492
+    },
+    {
+      "path": "Sources/MyDock/DockManagement/NativeDockAutoHideController.swift",
+      "sha256": "83e4fe0eac01f0c06638bbd467687a76e0de0c4f6a88f9d8c47c43a0d1ea9c0c",
+      "bytes": 5535
+    },
+    {
+      "path": "Sources/MyDock/DockManagement/NativeDockAutoSaveMonitor.swift",
+      "sha256": "fe93026be8730a9c6464fc77bdd77cf07adf1cd488a4a847a18c4c8e03334260",
+      "bytes": 4683
+    },
+    {
+      "path": "Sources/MyDock/DockManagement/NativeDockController.swift",
+      "sha256": "2cb598a2963cb51bb6abfa3dea131b5f08792bba4136753789239a8dcfd15d7c",
+      "bytes": 16575
+    },
+    {
+      "path": "Sources/MyDock/Focus/FocusDockFilterIntent.swift",
+      "sha256": "ae89e78acf9b0347cf4f8562f36c99e7287ccdc008a111aa0caab34c839150de",
+      "bytes": 3454
+    },
+    {
+      "path": "Sources/MyDock/Models/DockModels.swift",
+      "sha256": "864f4a4d231ffc722799676eae9bda1b246dcf06f78794e1485add67da2a4248",
+      "bytes": 52286
+    },
+    {
+      "path": "Sources/MyDock/Models/DockRenderModel.swift",
+      "sha256": "3d23d018454f48a816f8ac29b7c0852ce0de405441761b610a34b312e1efbb9f",
+      "bytes": 6630
+    },
+    {
+      "path": "Sources/MyDock/Models/LocalClockFormatter.swift",
+      "sha256": "2483387e6a072839a318d5caa1672d13bcae381cb183b21cee5503f09b3c8f22",
+      "bytes": 864
+    },
+    {
+      "path": "Sources/MyDock/Models/ProfileAppearance.swift",
+      "sha256": "36b26fce743dcf633369f4f5e6ad97da497dadb22e3ee0c5190e015a5443b504",
+      "bytes": 2081
+    },
+    {
+      "path": "Sources/MyDock/Models/ProfileDraftMerge.swift",
+      "sha256": "e88c19c8445ad0b530e2e51f70410f39ae7116c7a33397c1e914cf7fcbd58287",
+      "bytes": 5808
+    },
+    {
+      "path": "Sources/MyDock/Models/ProfileSanitizer.swift",
+      "sha256": "85d209d47ec599298cf9ef22288fe2a8b20dd1c75e1d3cfae508e72cf6591575",
+      "bytes": 1547
+    },
+    {
+      "path": "Sources/MyDock/Models/ProfileSemanticValidator.swift",
+      "sha256": "e4e85b9ed16e1d0a804b5b5c4719e7fe869da8b2bbe1887e7f7b226f76909ec6",
+      "bytes": 4627
+    },
+    {
+      "path": "Sources/MyDock/Models/StopwatchClock.swift",
+      "sha256": "e32c256a04fa92b4a1897853977a03d372e264588d7c34ff7cc88c29199d5545",
+      "bytes": 1827
+    },
+    {
+      "path": "Sources/MyDock/Models/WorldClockCityCatalog.swift",
+      "sha256": "ee513462e02a58c11c9c4b5b21aeea447102e0cd5dc2d3e559f48428c6753b97",
+      "bytes": 2312
+    },
+    {
+      "path": "Sources/MyDock/MyDockApp.swift",
+      "sha256": "935effa16b63f1c9c7002832205f676b53256220175b23df4dde2c3fbff93c2e",
+      "bytes": 23918
+    },
+    {
+      "path": "Sources/MyDock/Persistence/ProfileLibrary.swift",
+      "sha256": "bd27d21962429b0665531301738cc5f180a9c269ff4dbe4f3e1b771dba789c01",
+      "bytes": 4269
+    },
+    {
+      "path": "Sources/MyDock/Persistence/ProfileStore.swift",
+      "sha256": "e5b84980b0bf96c2695eced91c5f52cd29a53485657c6cfc0446b0154c742a81",
+      "bytes": 26139
+    },
+    {
+      "path": "Sources/MyDock/Persistence/RevisionedStateWriter.swift",
+      "sha256": "9b59d7f5d271099f42fc7fadab11c99401248564a39d78246e344bf213daea80",
+      "bytes": 2127
+    },
+    {
+      "path": "Sources/MyDock/Services/DiagnosticsService.swift",
+      "sha256": "ff3765c1351089ac0549789937cd0b5bea51c0d9158cd58d3a5e1ab840eb5eb0",
+      "bytes": 7826
+    },
+    {
+      "path": "Sources/MyDock/Services/ProfileEditSessionCoordinator.swift",
+      "sha256": "ed02377c5979034f82e33ba551089aa23f32da4abed95103866a76bfd71b5ff6",
+      "bytes": 3800
+    },
+    {
+      "path": "Sources/MyDock/Services/WidgetDataCoordinator.swift",
+      "sha256": "e1ddc57c83b9397917f8b83b0281df5a41383a909d77831a401c1b76a0b47a11",
+      "bytes": 14982
+    },
+    {
+      "path": "Sources/MyDock/Services/WidgetLifecycleCoordinator.swift",
+      "sha256": "42a8d2a3352c437fa9628c0b777dabd048ca42895ca989f5b6e0b63dab9456ef",
+      "bytes": 3718
+    },
+    {
+      "path": "Sources/MyDock/Services/WidgetRefreshLimiter.swift",
+      "sha256": "c11708bde75617424bae9ac995bf1b4ec8a69229a54f89abf07ebd43ef39b9cd",
+      "bytes": 1267
+    },
+    {
+      "path": "Sources/MyDock/Services/WidgetSetupDraftStore.swift",
+      "sha256": "113ea9d529c98b7d030ec40ae1c97ca1936a73b38c31a86c8de8cbd403dba9a1",
+      "bytes": 4361
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/AIUsageService.swift",
+      "sha256": "06cb75320f59a5d150c5a461a3cb46c48413e181815b9ee4714af83e1a5703ad",
+      "bytes": 42274
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/AccessibilityDisplayState.swift",
+      "sha256": "8447e03c7eea98b655b8eeaa970533406a05527e3c31c5b5ba8ce97ef250c844",
+      "bytes": 1045
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/AlarmNotificationService.swift",
+      "sha256": "ab551812cc586a0640200ebde3600268d82b87f540f02c195a468117ac5db296",
+      "bytes": 12814
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/AppLauncher.swift",
+      "sha256": "da85cc05ab273a98125b1940431e0dd2365180dcbf2ddee862a34d7bda687b03",
+      "bytes": 4040
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/AppLifecycleService.swift",
+      "sha256": "ab33fa666940333b0f264610afa21a5d054f200971e5b63fcb8bf29563ca5629",
+      "bytes": 5432
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/BatteryReader.swift",
+      "sha256": "cf2f6221c537df9036e3d5a6564df3b854eb031250d4c5c4219b48708cb964aa",
+      "bytes": 1690
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/BoundedSubprocessCapture.swift",
+      "sha256": "08f266e86383cf0735fcb6689125f062b37809df9443ef3895a3680e65ef961a",
+      "bytes": 16892
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/CalendarRemindersService.swift",
+      "sha256": "f431bd0edc88fbf6656277f3ff459db02c33b31e1d74252f91d9cebee7bf61bc",
+      "bytes": 12414
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/CountdownNotificationService.swift",
+      "sha256": "49ba7ca039fb5f092d5d0cda234ead7cdd09c5ab36945a5049789fa5b22aedc2",
+      "bytes": 4987
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/CurrentLocationService.swift",
+      "sha256": "1c2ecdeecd9c5fd3c445e519dbd076744202e80d27e6d0b5abc6cc31816ccc42",
+      "bytes": 4157
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/DockBadgeService.swift",
+      "sha256": "7ca4ba32c4631d7b88667c576176efe4ca698d7d57aabe73a33af3743cf2ee92",
+      "bytes": 5171
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/FinancialCurrencyFormatter.swift",
+      "sha256": "ce863566c74cb9fbfb25821c387f231e275f9ac97a8998d51ed58733ac838d75",
+      "bytes": 832
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/FolderContentsReader.swift",
+      "sha256": "c7a529446fe43791e4a9260f052f22fbf1bdd697251edcba375e10efb3349ece",
+      "bytes": 928
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/GitHubCopilotService.swift",
+      "sha256": "e9658931577a734bba977ad78a7977819ab97109903165647fb40451100419a3",
+      "bytes": 12714
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/GlobalShortcutController.swift",
+      "sha256": "38564897c97831b80bd0f6842716f1e99b40ee16fd3744b46baca17cfd826c19",
+      "bytes": 7052
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/HydrationReminderService.swift",
+      "sha256": "e12c7bbcd94439c31508b7dc49eb835b735adb2e97c17b3170c8bdfa1520e6db",
+      "bytes": 3668
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/MarketDataService.swift",
+      "sha256": "d915f8fa4288e6f01d5dcb143abb504266d0fb3c51f079ef8e35b437157af7e2",
+      "bytes": 10353
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/NetworkActivityReader.swift",
+      "sha256": "487bac4865635934b542de8b1f9249f93a5910279a86b3881f3278bb32295541",
+      "bytes": 5389
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/NowPlayingArtwork.swift",
+      "sha256": "384f9df6a2e69047549f7db46a3b46908b459f48e226bd832cfbc150c48fc0ad",
+      "bytes": 4068
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/NowPlayingService.swift",
+      "sha256": "0a5cefee47945fa5a94ab0a739b85e601979decff5c8e8a1f9e2ee8241adf9d1",
+      "bytes": 15416
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/PaddleDataService.swift",
+      "sha256": "75f6e42e5a7902235530f120f5c123d64199e731b1faa1c8411fa33ec544d7b8",
+      "bytes": 18495
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/RefreshScheduler.swift",
+      "sha256": "df15d2bfcb817aaa3933965e9e5751be8ebd6990487a084bb61ed465ee5bda98",
+      "bytes": 2848
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/RunningApplications.swift",
+      "sha256": "09ae85bb71cb92e3815d82c31141551a19a7b06f57164d978d6df76b7ea940fd",
+      "bytes": 739
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/ShopifyDataService.swift",
+      "sha256": "18bd82cb073fccf2740f98e66d3b517919864f39f0247b6362d4c4fad3a9521b",
+      "bytes": 28560
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/ShortcutsService.swift",
+      "sha256": "527b5bb10047b31b5906654d697d314251a79ba8208f2da2fdac0fbe2b0c27ac",
+      "bytes": 5037
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/SiteFaviconFetcher.swift",
+      "sha256": "4781c3fd986121a10a56427c4c7786dddc0b5dc07c539c0de04dc4614b73e0aa",
+      "bytes": 9145
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/StripeDataService.swift",
+      "sha256": "95b984eba99f18ebea70b2c8f6aedc6a9bbd96b226bef0a3b74fe796104d988a",
+      "bytes": 22997
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/SystemActivityReader.swift",
+      "sha256": "6572a347dc4268a9ee88807e1e51ebcec551638024e27baa12c4454bb455046e",
+      "bytes": 12788
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/SystemDockVisibilityService.swift",
+      "sha256": "5714a9fa0539d1a65215c743c38dcaa60de3bfa4eabe384c71c4000d16358b3d",
+      "bytes": 3148
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/TrashService.swift",
+      "sha256": "ede2d7fb97b9c216d3c95ba5b797731fd6866541b184d8fc5fc72f0ac25b8633",
+      "bytes": 3712
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/WeatherService.swift",
+      "sha256": "65509be226582996f0805b12da86742e1b8209e9427085b99e83f777f9c6ca02",
+      "bytes": 10175
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/WidgetNotificationGenerationPolicy.swift",
+      "sha256": "04098aa099738d20f373b2ea33abfe34764ab3b8b946d8e2d434ff9a872f57ed",
+      "bytes": 754
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/WindowAccessibilityService.swift",
+      "sha256": "17533c40e4b3ef5b9094eddcb821bd85983c49cf7a9cfd1d621b9ffe006f60e6",
+      "bytes": 17796
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/WindowPreviewCache.swift",
+      "sha256": "eda06da30f8ab374c95b49d68d3508471b21895e8de155bf17bc3cd1f7a74cce",
+      "bytes": 7907
+    },
+    {
+      "path": "Sources/MyDock/SystemServices/WindowPreviewService.swift",
+      "sha256": "bd4fd5a2beb8996c9751d3a640d8190b195c2c5788c72c2e8acec7d11d780b64",
+      "bytes": 5263
+    },
+    {
+      "path": "Sources/MyDock/UI/AboutView.swift",
+      "sha256": "a65e4d965db0365ab6f31c0dda25691ae3c40f0d0829c8513af94b604a159660",
+      "bytes": 1271
+    },
+    {
+      "path": "Sources/MyDock/UI/AppLifecycleSettingsView.swift",
+      "sha256": "ed40b59a792828323ed5bde1934c502f4b806f1ce03888122938c195955abfbe",
+      "bytes": 2891
+    },
+    {
+      "path": "Sources/MyDock/UI/ConnectionsCenterView.swift",
+      "sha256": "563e4ec27d341205a55ad47aa72472dc0a19dd6547f478165fc7c997478a8f7c",
+      "bytes": 12193
+    },
+    {
+      "path": "Sources/MyDock/UI/DockDesign.swift",
+      "sha256": "f055dcb5abe4462a3a9e13ce490527988d8c27da50c50c3bbc408dca970f60ae",
+      "bytes": 15814
+    },
+    {
+      "path": "Sources/MyDock/UI/DockManagerView.swift",
+      "sha256": "232cae1599802e790f67104bb2158f0821a007e9242ab3405492a3565a4ec6c5",
+      "bytes": 66964
+    },
+    {
+      "path": "Sources/MyDock/UI/KeyboardShortcutEditor.swift",
+      "sha256": "078a7469663328620161e486e106bd5d16e2c2ac293cae3eab3add8a76f14ca2",
+      "bytes": 5199
+    },
+    {
+      "path": "Sources/MyDock/UI/MenuBarProfileTitle.swift",
+      "sha256": "a4d664f0ba71059e0db8c1e7fba5acf8af4bcfd45d4eb42e549c42139b6a5f2d",
+      "bytes": 2455
+    },
+    {
+      "path": "Sources/MyDock/UI/MenuBarView.swift",
+      "sha256": "2b1690fb7c61ac8792f0028f98ce4d22c0dfbad9bd836d6b9bba05a7cedbfb8e",
+      "bytes": 1913
+    },
+    {
+      "path": "Sources/MyDock/UI/OnboardingView.swift",
+      "sha256": "90fb0a0078f08558769c09d0e7276c50e4441e6a0585867df003c72046a632a1",
+      "bytes": 15613
+    },
+    {
+      "path": "Sources/MyDock/UI/PersonalPresetPicker.swift",
+      "sha256": "238c83ada68750b56e687673d34327e3c63dc489e6567f536f29b259aa18b09d",
+      "bytes": 2236
+    },
+    {
+      "path": "Sources/MyDock/UI/PremiumVisualQA.swift",
+      "sha256": "6678a84977b23bc937f2bc333a8ea8d7a53abb62450023b2b95ec8b462734f64",
+      "bytes": 7516
+    },
+    {
+      "path": "Sources/MyDock/UI/RecoveryCenterView.swift",
+      "sha256": "4fbfaf6d46e733fbf39560d4f306db91aff246094f2d9d988daf1179f313e0a0",
+      "bytes": 3034
+    },
+    {
+      "path": "Sources/MyDock/UI/SettingsSearchCatalog.swift",
+      "sha256": "687e5b79feb2aca331963d70ef91125fb9f698f96b74cfeda78a0ff3859f8685",
+      "bytes": 5931
+    },
+    {
+      "path": "Sources/MyDock/UI/SettingsView.swift",
+      "sha256": "88aaae993768e5d1af84fed0d72b855c698fc50cb6dd778cef86924234a19ff8",
+      "bytes": 67590
+    },
+    {
+      "path": "Sources/MyDock/UI/WidgetConfigurationSheet.swift",
+      "sha256": "f23c039ed30d52855c38cdad38efa1d2938cd3c0da229fcc835405ed2774cb68",
+      "bytes": 2811
+    },
+    {
+      "path": "Sources/MyDock/UI/WidgetLibraryTile.swift",
+      "sha256": "977d0f626782db0c4251e56452c5752af235db5701cd3b58340d55dacf78f021",
+      "bytes": 10257
+    },
+    {
+      "path": "Sources/MyDock/Widgets/TimeProgressCalculator.swift",
+      "sha256": "78102169de4ef10ae24c022cb3bf3a1050a6d283cb58f257a46bf95360e738b8",
+      "bytes": 614
+    }
+  ],
+  "tests_sources": [
+    {
+      "path": "Tests/MyDockTests/BoundedSubprocessCaptureTests.swift",
+      "sha256": "cfc967ebc9b93560ef7461e5d092553cf77e3777f65948cc4277ada1103bd20e",
+      "bytes": 7148
+    },
+    {
+      "path": "Tests/MyDockTests/DiagnosticsServiceTests.swift",
+      "sha256": "d3c215712f06e2f0541ffb4258b404d23f8198e17a1f26039f802c662947ccb5",
+      "bytes": 3159
+    },
+    {
+      "path": "Tests/MyDockTests/DisposableSystemAcceptanceTests.swift",
+      "sha256": "da08ba08962fac975ce7c18ab643579a1083350c7d358675dba1313c7fbb21e8",
+      "bytes": 1897
+    },
+    {
+      "path": "Tests/MyDockTests/DockAuditRegressionTests.swift",
+      "sha256": "163b8331dab07b2122713f7ed0652d016818bde56a68061b4367278ac6cccb89",
+      "bytes": 16923
+    },
+    {
+      "path": "Tests/MyDockTests/DockBadgePolicyTests.swift",
+      "sha256": "0481c4ea7824e451960f1e5cb36dcf37276f40d17b98a003db73cee43f2115cf",
+      "bytes": 1284
+    },
+    {
+      "path": "Tests/MyDockTests/GitHubCopilotBillingTests.swift",
+      "sha256": "80806a7f84a7b0b5b3f478a5c629fb4d9e4239c654f27e802fbe319e93d5b377",
+      "bytes": 5712
+    },
+    {
+      "path": "Tests/MyDockTests/PerformanceBaselineTests.swift",
+      "sha256": "2991e97d98fc5a3226047bbe2f8db0c50839e211f2d19040333d332d79109644",
+      "bytes": 4049
+    },
+    {
+      "path": "Tests/MyDockTests/ProductRuntimeTests.swift",
+      "sha256": "9f7a1e915f1e42b27e648f4a27a7ae9d73d8ffd757e27a2658f2aa6e8b149406",
+      "bytes": 9226
+    },
+    {
+      "path": "Tests/MyDockTests/ProfileEditingTests.swift",
+      "sha256": "11d8842d64eec635883d65ba0908c46bee0b2c757efd32315790e3be1dac5971",
+      "bytes": 6120
+    },
+    {
+      "path": "Tests/MyDockTests/ProfileStoreTests.swift",
+      "sha256": "61836f407924177d191970e93af4cb5b4acd7e56f346ee064b4282dc53527315",
+      "bytes": 174490
+    },
+    {
+      "path": "Tests/MyDockTests/RoadmapRegressionTests.swift",
+      "sha256": "baec186a3ddd68d326800ce2f82d42bc4087e94e571b4fe475ebeb307b2e3050",
+      "bytes": 7300
+    },
+    {
+      "path": "Tests/MyDockTests/SingleInstanceLockTests.swift",
+      "sha256": "0d3f181a9d0bc50b2ed46f1be14cf279db8ff29405db834bad8107b13f393dd8",
+      "bytes": 749
+    },
+    {
+      "path": "Tests/MyDockTests/WeatherServiceTests.swift",
+      "sha256": "0c464814f89020b3ff16b36f68f78a3da870216bf17ecc30bb8a2b6ef3212ebb",
+      "bytes": 4604
+    },
+    {
+      "path": "Tests/MyDockTests/WindowPreviewCacheTests.swift",
+      "sha256": "abad581f7b5a79c32cf2df844b91c2e712ac11e18d1b46cd3b08ba30fc42bdee",
+      "bytes": 5076
+    },
+    {
+      "path": "Tests/MyDockUITests/MyDockVisualPreviewUITests.swift",
+      "sha256": "c0e965431a0e89c099d85cdeb042d75092a67f4a91a45cd717b6a9707dbc28c6",
+      "bytes": 4210
+    }
+  ],
+  "evidence": [
+    {
+      "path": ".build/audit-tests.log",
+      "sha256": "611d4383599791c23c9dba0dc6a611e876f8495abcd3a8bb72691aa9e52635c3",
+      "bytes": 36416
+    },
+    {
+      "path": ".build/audit-build.log",
+      "sha256": "88d970416ac4b1234b4c8c17614d0f216d99f97cc2268dc195cffcf73cdfca7d",
+      "bytes": 612
+    },
+    {
+      "path": ".build/audit-render.log",
+      "sha256": "d89f3891c8c7196e32b6d9ef8f4187366e5349a8956ef5743465f22d45b9020a",
+      "bytes": 30
+    },
+    {
+      "path": ".build/audit-performance-before.json",
+      "sha256": "ed348422f97fac807bd15f55c2158d5d4a451d639c38b20c6fb5dd4db411f4c3",
+      "bytes": 906
+    },
+    {
+      "path": ".build/audit-performance-after.json",
+      "sha256": "f94cc420b1052d9d4476fee4cb962242a87ca5627e11e5773938c6a7f07bb4a3",
+      "bytes": 1145
+    },
+    {
+      "path": ".build/audit-performance-after.log",
+      "sha256": "e95fadd7a7aba69ebcf0bd933fc2b3ebd2b560207ef7859c505de06e33aa737a",
+      "bytes": 535
+    },
+    {
+      "path": "docs/BUG_AUDIT_2026-09-30.md",
+      "sha256": "6a842d270f0594bbe68e7286176e8b7ed1b201723d03a7473390ab89dc84690b",
+      "bytes": 13978
+    },
+    {
+      "path": "TestMyDock.sh",
+      "sha256": "39ab3ec7a7aed4dcc3e8bacda2640cda237f57cf62a0bca234e8ec8eed11e8d5",
+      "bytes": 758
+    },
+    {
+      "path": "GenerateXcodeProject.sh",
+      "sha256": "0217ddc2597ac0f73faf87d425a54ff53097705a84020b1880ddf1ee329a367d",
+      "bytes": 912
+    },
+    {
+      "path": "Package.swift",
+      "sha256": "569c921c4b2a9bec68de2a29706ac610d96a82cd9267cc18c92443812870acbf",
+      "bytes": 561
+    },
+    {
+      "path": "BuildMyDock.sh",
+      "sha256": "91ae61480647d22b9c4f6032798a7d1f61f679dae2a025e773754e844fc36aa9",
+      "bytes": 5700
+    },
+    {
+      "path": "project.yml",
+      "sha256": "18868c5a37f0d0f2187b40954fa19060342bb7f5bab9c3a4df47bec02efe77e5",
+      "bytes": 3538
+    },
+    {
+      "path": "MyDock.xcodeproj/project.pbxproj",
+      "sha256": "be68026a49a3df1076b0ae20665964a3e3bf1b93854fed74f00db6729a262ea0",
+      "bytes": 75813
+    }
+  ]
+}

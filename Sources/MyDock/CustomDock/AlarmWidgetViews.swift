@@ -12,23 +12,19 @@ struct AlarmWidgetProvider: DockWidgetProvider {
 
 private struct AlarmCompactWidgetView: View {
     var item: DockItem
+    @Environment(\.dockWidgetContentWidth) private var width
 
     private var alarms: [DockAlarm] { (item.widgetConfiguration ?? WidgetConfiguration()).alarms.filter(\.isEnabled) }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            VStack(spacing: 3) {
-                Image(systemName: alarms.isEmpty ? "alarm" : "alarm.fill")
-                    .font(.system(size: 19)).foregroundStyle(alarms.isEmpty ? Color.secondary : Color.orange)
+            VStack(alignment: .leading, spacing: 3) {
+                WidgetHeader(kind: "Alarm", title: "Alarm")
                 if let next = nextAlarm(from: alarms, now: context.date) {
-                    Text(next.date.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 9, weight: .semibold, design: .rounded).monospacedDigit()).lineLimit(1)
-                    Text(next.alarm.title).font(.system(size: 7)).lineLimit(1).frame(maxWidth: 52)
-                } else {
-                    Text("No alarm").font(.system(size: 8)).lineLimit(1)
-                }
-            }
-            .frame(width: 54, height: 54)
+                    MetricText(value: next.date.formatted(date: .omitted, time: .shortened), size: 18)
+                    if width >= 100 { Text(next.alarm.title).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1) }
+                } else { Text("No alarm").font(.system(size: 12)) }
+            }.padding(.horizontal, 9).frame(width: width, height: 54)
         }
         .help("Alarm")
     }
@@ -60,7 +56,7 @@ private struct AlarmPopoutWidgetView: View {
             HStack {
                 DatePicker("Time", selection: $alarmTime, displayedComponents: .hourAndMinute)
                     .labelsHidden()
-                TextField("Alarm name", text: $alarmTitle).textFieldStyle(.roundedBorder)
+                TextField("Alarm name", text: $alarmTitle).textFieldStyle(DockTextFieldStyle())
             }
             HStack(spacing: 5) {
                 Text("Repeat").font(.caption).foregroundStyle(.secondary)
@@ -81,7 +77,7 @@ private struct AlarmPopoutWidgetView: View {
                     Button("Once") { repeatWeekdays.removeAll() }.font(.caption).buttonStyle(.plain)
                 }
                 Spacer()
-                Button("Add Alarm", action: addAlarm).buttonStyle(.borderedProminent).disabled(isScheduling)
+                Button("Add Alarm", action: addAlarm).buttonStyle(DockButtonStyle(primary: true)).disabled(isScheduling)
             }
 
             if let operationMessage {
@@ -91,7 +87,7 @@ private struct AlarmPopoutWidgetView: View {
             if alarms.isEmpty {
                 Label("No alarms yet", systemImage: "alarm").foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 70)
             } else {
-                ScrollView {
+                DockScrollView {
                     LazyVStack(spacing: 6) {
                         ForEach(alarms) { alarm in alarmRow(alarm) }
                     }
@@ -129,17 +125,25 @@ private struct AlarmPopoutWidgetView: View {
                               minute: minute,
                               repeatWeekdays: repeatWeekdays.sorted(),
                               isEnabled: true)
+        let operationID = UUID()
+        AlarmNotificationService.begin(widgetID: item.id, alarmID: alarm.id, operationID: operationID)
         isScheduling = true
         operationMessage = nil
         Task { @MainActor in
             defer { isScheduling = false }
             do {
-                try await AlarmNotificationService.schedule(widgetID: item.id, alarm: alarm)
+                try await AlarmNotificationService.schedule(widgetID: item.id, alarm: alarm, operationID: operationID)
+                guard AlarmNotificationService.isCurrent(widgetID: item.id,
+                                                         alarmID: alarm.id,
+                                                         operationID: operationID) else { return }
                 update { $0.alarms.append(alarm) }
                 alarmTitle = ""
                 repeatWeekdays.removeAll()
                 operationMessage = "Alarm scheduled. macOS will deliver it even when MyDock is closed."
             } catch {
+                guard AlarmNotificationService.isCurrent(widgetID: item.id,
+                                                         alarmID: alarm.id,
+                                                         operationID: operationID) else { return }
                 var disabled = alarm
                 disabled.isEnabled = false
                 update { $0.alarms.append(disabled) }
@@ -152,20 +156,33 @@ private struct AlarmPopoutWidgetView: View {
         guard !busyAlarmIDs.contains(alarm.id) else { return }
         busyAlarmIDs.insert(alarm.id)
         operationMessage = nil
+        let operationID = UUID()
+        if enabled {
+            AlarmNotificationService.begin(widgetID: item.id, alarmID: alarm.id, operationID: operationID)
+        } else {
+            AlarmNotificationService.cancel(widgetID: item.id, alarm: alarm)
+        }
         Task { @MainActor in
             defer { busyAlarmIDs.remove(alarm.id) }
             if enabled {
                 var active = alarm
                 active.isEnabled = true
                 do {
-                    try await AlarmNotificationService.schedule(widgetID: item.id, alarm: active)
+                    try await AlarmNotificationService.schedule(widgetID: item.id,
+                                                                alarm: active,
+                                                                operationID: operationID)
+                    guard AlarmNotificationService.isCurrent(widgetID: item.id,
+                                                             alarmID: alarm.id,
+                                                             operationID: operationID) else { return }
                     setAlarmState(alarm.id, enabled: true)
                 } catch {
+                    guard AlarmNotificationService.isCurrent(widgetID: item.id,
+                                                             alarmID: alarm.id,
+                                                             operationID: operationID) else { return }
                     operationMessage = error.localizedDescription
                     setAlarmState(alarm.id, enabled: false)
                 }
             } else {
-                AlarmNotificationService.cancel(widgetID: item.id, alarm: alarm)
                 setAlarmState(alarm.id, enabled: false)
             }
         }

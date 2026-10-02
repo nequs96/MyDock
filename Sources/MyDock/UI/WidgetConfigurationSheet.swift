@@ -1,0 +1,59 @@
+import SwiftUI
+
+/// Fits short widget editors to their content and keeps longer ones within the
+/// workspace, with native scrolling and an always reachable dismiss control.
+struct WidgetConfigurationSheet: View {
+    @ObservedObject var store: ProfileStore
+    var item: DockItem
+    var profileID: UUID
+    var maximumHeight: CGFloat = 640
+    @Environment(\.dismiss) private var dismiss
+    @State private var contentHeight: CGFloat = 360
+
+    private var currentItem: DockItem {
+        store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id } ?? item
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DockDesign.Space.large) {
+            HStack {
+                WidgetEmblem(kind: currentItem.widgetKind ?? currentItem.title)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(currentItem.displayName).font(.system(size: 17, weight: .semibold))
+                    Text((WidgetRegistry.all.first { $0.name == currentItem.widgetKind }?.category.rawValue ?? "Dock") + " widget").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { dismiss() } label: { Image(systemName: "xmark") }
+                    .buttonStyle(DockButtonStyle(icon: true))
+                    .help("Close widget settings").accessibilityLabel("Close widget settings")
+            }
+            DockScrollView {
+                VStack(alignment: .leading, spacing: DockDesign.Space.large) {
+                    WidgetAppearanceControls(store: store, item: currentItem, profileID: profileID)
+                    Divider()
+                    WidgetPopout(store: store, item: currentItem, profileID: profileID, showsCustomize: false, showsHeader: false)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: WidgetConfigurationHeightKey.self, value: geometry.size.height)
+                })
+            }
+            .frame(height: min(contentHeight, max(220, maximumHeight - 92)))
+            .onPreferenceChange(WidgetConfigurationHeightKey.self) { height in
+                if height > 0 { contentHeight = height }
+            }
+        }
+        .padding(DockDesign.Space.section)
+        .frame(width: 488)
+        .background(WidgetDesign.surface)
+        .buttonStyle(DockButtonStyle())
+        .textFieldStyle(DockTextFieldStyle())
+        .onExitCommand { dismiss() }
+    }
+}
+
+private struct WidgetConfigurationHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}

@@ -69,12 +69,14 @@ enum FocusDockProfileActivator {
     static func activate(_ profileID: UUID) async throws {
         let store = ProfileStore.shared
         guard let profile = store.state.profiles.first(where: { $0.id == profileID }) else {
+            DiagnosticsService.shared.record(.focusProfileUnavailable)
             throw FocusDockProfileError.profileUnavailable
         }
         if profile.kind == .native {
             try await NativeDockController.shared.apply(profile)
-        }
-        store.activate(profileID)
+            store.recordAppliedNativeProfile(profileID)
+        } else { store.activate(profileID) }
+        DiagnosticsService.shared.record(.focusProfileApplied)
     }
 }
 

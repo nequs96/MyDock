@@ -52,10 +52,10 @@ private struct TrashPopoutWidgetView: View {
 
             HStack {
                 Button("Open Trash", action: TrashActions.openTrash)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(DockButtonStyle())
                 Spacer()
                 Button("Empty Trash…", role: .destructive) { confirmingEmpty = true }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(DockButtonStyle(primary: true))
                     .disabled(status.itemCount == 0 || status.errorMessage != nil)
             }
         }
@@ -74,14 +74,9 @@ private struct TrashPopoutWidgetView: View {
     }
 
     private func emptyTrash() {
-        do {
-            try TrashActions.emptyTrash()
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(1))
-                status.refresh()
-            }
-        } catch {
-            actionError = error.localizedDescription
+        Task { @MainActor in
+            do { try await TrashActions.emptyTrash(); status.refresh() }
+            catch { actionError = error.localizedDescription }
         }
     }
 }

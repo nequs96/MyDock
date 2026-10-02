@@ -1,0 +1,108 @@
+{
+  "verified_at_utc": "2026-09-30T10:09:19.624323+00:00",
+  "scope": "Apple-style UI rebuild following the completed local roadmap implementation",
+  "app_source_fingerprint_sha256": "5d8013606ee49715e1c32c1501f4391a3d61b78acd63a9c104bb62172a173b40",
+  "source_guard": "BuildMyDock.sh checks unchanged inputs after each architecture build",
+  "app_source_files": 98,
+  "design_changed_app_files": 16,
+  "app": "build/MyDockAppleDesign.app",
+  "zip": "build/MyDockAppleDesign.zip",
+  "preview": "build/MyDockAppleDesignPreview.app",
+  "artifact_sha256": {
+    "universal_executable": "750dce382387c8c6aac759ead291dd6669dcc3e0f83423c486e831494be44e3b",
+    "zip": "44dbf8a7e2b7d76c7e2541ca079db44b00ebb9bd981adcbf5d8c1b4fb5fa677f",
+    "archived_executable": "750dce382387c8c6aac759ead291dd6669dcc3e0f83423c486e831494be44e3b",
+    "preview_executable": "5e89f7d311069373d434568cab91a5fee3212dabaa002784871f6511dd77d252",
+    "app_icon": "e440d2cc6eeb22eae903d0f6e416557a32e5fae5d44a8dcf68557cc589f7620d"
+  },
+  "build": {
+    "architectures": [
+      "arm64",
+      "x86_64"
+    ],
+    "minimum_macos": "13.0",
+    "sdk": "26.4",
+    "signature": "ad-hoc",
+    "notarized": false,
+    "codesign_verified": true,
+    "plist_validated": true,
+    "archive_integrity_verified": true,
+    "archived_executable_matches": true,
+    "xcode_project_contains_all_app_sources": true,
+    "production_app_launched": false
+  },
+  "tests": {
+    "command": "./TestMyDock.sh",
+    "registered": 191,
+    "suites": 13,
+    "executed": 189,
+    "passed": 189,
+    "skipped": [
+      "recordComparableGeometryAndWriterScenarios()",
+      "nativeApplyRestoreAndJournalRecovery()"
+    ],
+    "result": "passed"
+  },
+  "preview_safety": {
+    "debug": true,
+    "minimum_macos": "14.0",
+    "isolated_store": true,
+    "system_changes_enabled": false,
+    "production_profiles_changed": false,
+    "apple_dock_changed": false,
+    "provider_credentials_changed": false
+  },
+  "native_preview_checks": [
+    "Manager/system typography",
+    "Settings grouped rows and visual finish choices",
+    "Single accessible switch labels",
+    "Light/dark Dock cards",
+    "Timer sample fits standard card",
+    "Widget gallery search, add-to-draft and discard",
+    "Preset gallery, review and atomic creation",
+    "Onboarding layout",
+    "About bundled icon and app-menu entry",
+    "Search sidebar matches control results and opens advanced appearance",
+    "Left-side scrolling clip and jump-to-start/end"
+  ],
+  "native_ui_capture_storage": "CUA inline observations; no persistent screenshot files saved",
+  "remaining_acceptance": [
+    "Complete all-widget popout, keyboard, VoiceOver and short-display matrix",
+    "Broader long-Dock, resize, contrast and Reduce Motion variants",
+    "Pointer group/endpoint drops",
+    "Production frame pacing and energy measurements",
+    "Disposable macOS native apply/recovery/replacement, notifications, permissions, Spaces/fullscreen and display matrix",
+    "Dedicated live provider account/offline/expiry/remapping tests",
+    "Full Xcode unit/UI tests and Focus metadata/discovery",
+    "Supported macOS and Intel runtime acceptance",
+    "Developer ID signing, notarization, install/update/login and CI"
+  ],
+  "reference_urls": [
+    "https://dockset.app/#included-title",
+    "https://dockset.app/manual/appearance"
+  ],
+  "logs": {
+    "tests": ".build/design-baseline-20260930/final-tests.log",
+    "universal_build": ".build/design-baseline-20260930/final-universal-build.log"
+  },
+  "design_patch": ".build/design-baseline-20260930/apple-design.patch",
+  "changed_files": [
+    "Sources/MyDock/CustomDock/AppleWidgetCard.swift",
+    "Sources/MyDock/CustomDock/CalendarRemindersWidgetViews.swift",
+    "Sources/MyDock/CustomDock/NetworkActivityWidgetViews.swift",
+    "Sources/MyDock/CustomDock/NowPlayingWidgetViews.swift",
+    "Sources/MyDock/CustomDock/SystemActivityWidgetViews.swift",
+    "Sources/MyDock/CustomDock/WeatherWidgetViews.swift",
+    "Sources/MyDock/CustomDock/WidgetViews.swift",
+    "Sources/MyDock/MyDockApp.swift",
+    "Sources/MyDock/UI/AboutView.swift",
+    "Sources/MyDock/UI/DockDesign.swift",
+    "Sources/MyDock/UI/DockManagerView.swift",
+    "Sources/MyDock/UI/OnboardingView.swift",
+    "Sources/MyDock/UI/PersonalPresetPicker.swift",
+    "Sources/MyDock/UI/SettingsSearchCatalog.swift",
+    "Sources/MyDock/UI/SettingsView.swift",
+    "Sources/MyDock/UI/WidgetLibraryTile.swift",
+    "Tests/MyDockTests/RoadmapRegressionTests.swift"
+  ]
+}

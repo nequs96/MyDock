@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AboutView: View {
@@ -5,17 +6,21 @@ struct AboutView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Image(systemName: "dock.rectangle")
-                .font(.system(size: 38, weight: .light))
-                .foregroundStyle(.white)
-                .frame(width: 76, height: 76)
-                .background(DockDesign.accent.gradient, in: RoundedRectangle(cornerRadius: 21))
-            Text(Product.name).font(.system(size: 32, weight: .medium, design: .serif))
+            Group {
+                if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+                   let icon = NSImage(contentsOf: url) {
+                    Image(nsImage: icon).resizable().scaledToFit()
+                } else {
+                    Image(systemName: "dock.rectangle").font(.system(size: 38, weight: .light))
+                        .foregroundStyle(DockDesign.accent)
+                }
+            }.frame(width: 80, height: 80).accessibilityHidden(true)
+            Text(Product.name).font(.system(size: 26, weight: .semibold))
             Text("Your Dock, arranged your way.")
                 .font(.subheadline).foregroundStyle(.secondary)
             Text("Version \(Product.marketingVersion) · macOS 13 or later")
                 .font(.caption).foregroundStyle(.tertiary)
-            Button("Replay setup…", action: onReplaySetup).buttonStyle(.borderedProminent)
+            Button("Replay setup…", action: onReplaySetup).buttonStyle(DockButtonStyle())
         }
         .padding(36).frame(minWidth: 400, minHeight: 340)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

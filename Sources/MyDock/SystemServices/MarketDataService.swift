@@ -30,6 +30,16 @@ enum MarketDataError: LocalizedError {
     }
 }
 
+enum MarketFinanceURL {
+    static func url(for symbol: String) -> URL? {
+        let normalized = symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard MarketDataParser.isValidSymbol(normalized),
+              var components = URLComponents(string: "https://finance.yahoo.com") else { return nil }
+        components.path = "/quote/\(normalized)"
+        return components.url
+    }
+}
+
 protocol MarketDataTransport: Sendable {
     func data(for request: URLRequest) async throws -> Data
 }

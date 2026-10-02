@@ -101,6 +101,12 @@ struct ShopifyCredential: Codable, Hashable {
     var tokenExpiresAt: Date
 }
 
+enum ShopifyCredentialUpdatePolicy {
+    static func mayRefresh(original: ShopifyCredential, current: ShopifyCredential?, registered: Bool, cancelled: Bool) -> Bool {
+        registered && !cancelled && current?.clientID == original.clientID && current?.clientSecret == original.clientSecret
+    }
+}
+
 struct ShopifyConnectedStore: Codable, Hashable, Identifiable {
     var id: String
     var name: String
@@ -494,6 +500,15 @@ enum ShopifySnapshotParser {
 }
 
 enum ShopifyCredentialStore {
+    @MainActor
+    static func writeRefreshed(_ credential: ShopifyCredential, replacing original: ShopifyCredential, storeID: String) throws {
+        let current = try read(storeID: storeID)
+        guard ShopifyCredentialUpdatePolicy.mayRefresh(original: original, current: current,
+            registered: ShopifyConnectionDirectory.stores().contains { $0.id == storeID }, cancelled: Task.isCancelled) else {
+            throw EditSessionSaveError.failed("This Shopify connection changed or was removed while refreshing. Its credentials were left untouched.")
+        }
+        try write(credential, storeID: storeID)
+    }
     private static var service: String { Product.bundleIdentifier + ".integration-credentials" }
     fileprivate static var directoryKey: String { Product.bundleIdentifier + ".shopify-connected-stores" }
 

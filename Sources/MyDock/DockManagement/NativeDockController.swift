@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import OSLog
 
@@ -82,13 +83,16 @@ final class FileDockTransactionJournal: DockTransactionJournal {
     }
 
     func begin(snapshot: [[String: Any]], profileID: UUID) throws {
+        guard !FileManager.default.fileExists(atPath: fileURL.path) else { throw NativeDockError.interruptedTransaction }
         let propertyList = try PropertyListSerialization.data(fromPropertyList: snapshot, format: .binary, options: 0)
         let record = Record(profileID: profileID, snapshot: propertyList)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(record)
-        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                               attributes: [.posixPermissions: 0o700])
         try data.write(to: fileURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 
     func pendingSnapshot() throws -> [[String: Any]]? {
@@ -96,7 +100,7 @@ final class FileDockTransactionJournal: DockTransactionJournal {
         do {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            let record = try decoder.decode(Record.self, from: Data(contentsOf: fileURL))
+            let record = try decoder.decode(Record.self, from: BackupManager.boundedArchiveData(from: fileURL))
             guard record.version == 1,
                   let tiles = try PropertyListSerialization.propertyList(from: record.snapshot, options: [], format: nil) as? [[String: Any]] else {
                 throw NativeDockError.interruptedTransaction
@@ -117,20 +121,17 @@ final class FileDockTransactionJournal: DockTransactionJournal {
 @MainActor
 final class ProcessDockRelauncher: DockRelaunching {
     func restartDock() async throws {
-        let status = try await Task.detached(priority: .utility) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
-            process.arguments = ["Dock"]
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus
-        }.value
+        let output = try await BoundedSubprocessCapture.runCancellable(executableURL: URL(fileURLWithPath: "/usr/bin/killall"),
+            arguments: ["Dock"], maximumOutputBytes: 4_096, maximumErrorBytes: 4_096, timeout: 5)
+        let status = output.terminationStatus
         guard status == 0 else { throw NativeDockError.preferencesUnavailable }
     }
 }
 
+enum NativeDockHealth: Equatable, Sendable { case ready, applying, recovering, recoveryRequired }
+
 @MainActor
-final class NativeDockController {
+final class NativeDockController: ObservableObject {
     static let shared = NativeDockController(freezeProvider: ScreenCaptureDockSwitchFreezeProvider {
         ProfileStore.shared.state.settings.smoothNativeDockSwitches
     })
@@ -139,38 +140,56 @@ final class NativeDockController {
     private let relauncher: DockRelaunching
     private let journal: DockTransactionJournal
     private let freezeProvider: DockSwitchFreezeProviding
-    private let gate = DockSystemOperationGate.shared
+    private let gate: DockSystemOperationGate
     private let logger = Logger(subsystem: Product.bundleIdentifier, category: "native-dock")
+    @Published private(set) var health: NativeDockHealth = .ready
+    @Published private(set) var recoveryError: String?
     private(set) var appliedGeneration: UInt64 = 0
     private(set) var lastAppliedSignatures: [String]?
 
     init(backend: DockPreferencesBackend = UserDefaultsDockPreferencesBackend(),
          relauncher: DockRelaunching = ProcessDockRelauncher(),
          journal: DockTransactionJournal = FileDockTransactionJournal(),
-         freezeProvider: DockSwitchFreezeProviding = NoDockSwitchFreezeProvider()) {
+         freezeProvider: DockSwitchFreezeProviding = NoDockSwitchFreezeProvider(),
+         gate: DockSystemOperationGate = .shared) {
         self.backend = backend
         self.relauncher = relauncher
         self.journal = journal
         self.freezeProvider = freezeProvider
+        self.gate = gate
+        do {
+            if try journal.pendingSnapshot() != nil { health = .recoveryRequired; recoveryError = NativeDockError.interruptedTransaction.localizedDescription }
+        } catch { health = .recoveryRequired; recoveryError = error.localizedDescription }
     }
 
-    func readCurrentItems() -> [DockItem] {
-        do { return NativeDockSerializer.items(from: try backend.readCurrentTiles()) }
-        catch {
-            logger.error("Could not read current Dock preferences")
-            return []
+    func readCurrentItems() throws -> [DockItem] {
+        let tiles = try backend.readCurrentTiles()
+        let items = NativeDockSerializer.items(from: tiles)
+        guard items.count == tiles.count else {
+            throw NativeDockError.unsupportedItem("An item in the current macOS Dock")
         }
+        return items
     }
 
     func apply(_ profile: DockProfile) async throws {
         guard profile.kind == .native else { throw NativeDockError.unsupportedItem(profile.name) }
         await gate.acquire()
+        DiagnosticsService.shared.record(.nativeApplyStarted)
         do {
+            // Cancelled requests waiting behind another Dock transaction must
+            // not change system preferences when their turn arrives.
+            try Task.checkCancellation()
+            guard try journal.pendingSnapshot() == nil else { throw NativeDockError.interruptedTransaction }
+            health = .applying
+            recoveryError = nil
             let snapshot = try backend.readCurrentTiles()
             let nextTiles = try NativeDockSerializer.tiles(for: profile.items, using: snapshot)
             try await transact(nextTiles, snapshot: snapshot, profileID: profile.id)
+            health = .ready
             await gate.release()
         } catch {
+            DiagnosticsService.shared.record(.nativeApplyFailed)
+            recordRecoveryFailureIfNeeded(error)
             await gate.release()
             throw error
         }
@@ -178,6 +197,7 @@ final class NativeDockController {
 
     func recoverInterruptedTransaction() async throws {
         await gate.acquire()
+        health = .recovering
         do {
             if let snapshot = try journal.pendingSnapshot() {
                 try backend.writeTiles(snapshot)
@@ -187,12 +207,23 @@ final class NativeDockController {
                 lastAppliedSignatures = NativeDockSerializer.signatures(from: snapshot)
                 appliedGeneration &+= 1
                 logger.notice("Recovered an interrupted native Dock transaction")
+                DiagnosticsService.shared.record(.nativeInterruptedRecoverySucceeded)
             }
+            health = .ready
+            recoveryError = nil
             await gate.release()
         } catch {
+            health = .recoveryRequired
+            recoveryError = error.localizedDescription
             await gate.release()
             throw error
         }
+    }
+
+    private func recordRecoveryFailureIfNeeded(_ error: Error) {
+        do { health = try journal.pendingSnapshot() == nil ? .ready : .recoveryRequired }
+        catch { health = .recoveryRequired }
+        recoveryError = health == .recoveryRequired ? error.localizedDescription : nil
     }
 
     private func transact(_ nextTiles: [[String: Any]], snapshot: [[String: Any]], profileID: UUID) async throws {
@@ -206,7 +237,8 @@ final class NativeDockController {
             lastAppliedSignatures = NativeDockSerializer.signatures(from: nextTiles)
             appliedGeneration &+= 1
             if let freezeSession { freezeProvider.end(freezeSession) }
-            logger.notice("Applied native Dock profile \(profileID.uuidString, privacy: .public)")
+            logger.notice("Applied native Dock profile")
+            DiagnosticsService.shared.record(.nativeApplySucceeded)
         } catch {
             let originalError = error.localizedDescription
             do {
@@ -217,6 +249,7 @@ final class NativeDockController {
             } catch {
                 if let freezeSession { freezeProvider.end(freezeSession) }
                 logger.fault("Native Dock apply and rollback both failed")
+                DiagnosticsService.shared.record(.nativeRollbackFailed)
                 throw NativeDockError.rollbackFailed(original: originalError, rollback: error.localizedDescription)
             }
             if let freezeSession { freezeProvider.end(freezeSession) }
