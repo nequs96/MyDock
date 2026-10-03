@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		187656A950EA4F96A3D37FFE /* ReliabilityDemandCancellationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99947DD757FF46D48ACE6E96 /* ReliabilityDemandCancellationTests.swift */; };
+		909DB57044354731B3FE9352 /* BoundedNativeFetch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A5E5F88665C48D78E80D062 /* BoundedNativeFetch.swift */; };
 		4AF58FB0032F4B07A3E1EC2F /* RegistryQualificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 935BE2ED0A474E97B8004669 /* RegistryQualificationTests.swift */; };
 		7691059B6ACD44B297D5F423 /* RequiredPersistenceCorrectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6231B65722B94D5C8EFB8290 /* RequiredPersistenceCorrectionTests.swift */; };
 		CE999B008B424E7B9D38A4A8 /* NativeBatch1ReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4752C90204374B0183840471 /* NativeBatch1ReviewTests.swift */; };
@@ -187,6 +189,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		99947DD757FF46D48ACE6E96 /* ReliabilityDemandCancellationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReliabilityDemandCancellationTests.swift; sourceTree = "<group>"; };
+		0A5E5F88665C48D78E80D062 /* BoundedNativeFetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoundedNativeFetch.swift; sourceTree = "<group>"; };
 		935BE2ED0A474E97B8004669 /* RegistryQualificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegistryQualificationTests.swift; sourceTree = "<group>"; };
 		6231B65722B94D5C8EFB8290 /* RequiredPersistenceCorrectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequiredPersistenceCorrectionTests.swift; sourceTree = "<group>"; };
 		4752C90204374B0183840471 /* NativeBatch1ReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBatch1ReviewTests.swift; sourceTree = "<group>"; };
@@ -366,6 +370,7 @@
 			children = (
 				BD1C3241C068010754E2F1FA /* AccessibilityDisplayState.swift */,
 				944B715C1680BE3116BEB704 /* AIAccountService.swift */,
+				0A5E5F88665C48D78E80D062 /* BoundedNativeFetch.swift */,
 				27912BE2312F4DE98F3B38AD /* BoundedHTTPFetch.swift */,
 				7A760EEBCA7ABE084C12A16C /* AIUsageService.swift */,
 				463ABA122EDE7DA7B5AD3029 /* AlarmNotificationService.swift */,
@@ -613,6 +618,7 @@
 			isa = PBXGroup;
 			children = (
 				61DCD87C32A87E2D34CAEC92 /* AIAccountTests.swift */,
+				99947DD757FF46D48ACE6E96 /* ReliabilityDemandCancellationTests.swift */,
 				935BE2ED0A474E97B8004669 /* RegistryQualificationTests.swift */,
 				6231B65722B94D5C8EFB8290 /* RequiredPersistenceCorrectionTests.swift */,
 				4752C90204374B0183840471 /* NativeBatch1ReviewTests.swift */,
@@ -791,6 +797,7 @@
 			files = (
 				3EBE7F9EE94EBFCE9D072A45 /* AIAccountConnectionView.swift in Sources */,
 				B779A24034E1A26C87372429 /* AIAccountService.swift in Sources */,
+				909DB57044354731B3FE9352 /* BoundedNativeFetch.swift in Sources */,
 				13FD0783155C49F69FE4B66D /* BoundedHTTPFetch.swift in Sources */,
 				5671D8BB6B8229AB517DB3E4 /* AIActivityPresentation.swift in Sources */,
 				DFC28BF5D1A1A77D894F61EB /* AIUsageService.swift in Sources */,
@@ -924,6 +931,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C8DE76227A453FB42BAA8AFF /* AIAccountTests.swift in Sources */,
+				187656A950EA4F96A3D37FFE /* ReliabilityDemandCancellationTests.swift in Sources */,
 				4AF58FB0032F4B07A3E1EC2F /* RegistryQualificationTests.swift in Sources */,
 				7691059B6ACD44B297D5F423 /* RequiredPersistenceCorrectionTests.swift in Sources */,
 				CE999B008B424E7B9D38A4A8 /* NativeBatch1ReviewTests.swift in Sources */,
