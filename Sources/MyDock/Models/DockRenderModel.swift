@@ -187,6 +187,26 @@ enum DockContinuousMagnification {
     }
 }
 
+/// H4/decision #10: pure decision for settings changes during an in-flight reveal/hide transition.
+enum DockTransitionPolicy {
+    struct Snapshot: Equatable { var visible: Bool; var style: DockAnimationStyle; var reduceMotion: Bool }
+    enum Action: Equatable { case none, startTransition, normalizeImmediately }
+    struct FinalState: Equatable { var alpha: CGFloat; var scale: CGFloat; var usesHiddenOffset: Bool }
+
+    /// `inFlight` is nil when no transition is running.
+    static func action(inFlight: Snapshot?, requested: Snapshot) -> Action {
+        guard let inFlight else { return .none }
+        if inFlight.visible != requested.visible { return .startTransition }
+        return inFlight.style != requested.style || inFlight.reduceMotion != requested.reduceMotion ? .normalizeImmediately : .none
+    }
+
+    static func finalState(_ snapshot: Snapshot) -> FinalState {
+        FinalState(alpha: snapshot.visible ? 1 : 0,
+                   scale: snapshot.reduceMotion ? 1 : DockPanelMotion.scale(visible: snapshot.visible, style: snapshot.style),
+                   usesHiddenOffset: !snapshot.visible && !snapshot.reduceMotion)
+    }
+}
+
 enum DockPanelMotion {
     static func scale(visible: Bool, style: DockAnimationStyle) -> CGFloat {
         style == .grow && !visible ? 0.94 : 1
