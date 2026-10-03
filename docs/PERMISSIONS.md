@@ -13,10 +13,15 @@ When the Now Playing popout reads Spotify artwork, MyDock requests the selected 
 | Calendar | Read selected calendars and events; identify supported meeting links. | Requested only when an event-based Calendar popout opens. Date-only and compact previews do not request access. Date-only view remains available after denial. |
 | Reminders | Read selected lists, add reminders, and mark them complete. | Requested only when the Reminders popout opens. The widget explains denial and does not access reminder data from compact previews before permission is granted. |
 | Location | Use current location for weather; city search should work without it. | Requested only after choosing “Use Current Location” in the Weather widget. Manual city search does not request location access. |
-| Automation / Apple Events | Read/control Apple Music or Spotify while a Now Playing tile or popout is visible; ask Finder to empty the home-folder Trash after confirmation. | Player access is requested only after a visible Now Playing tile or popout queries a running player. Finder Apple Events are used only after choosing Empty Trash and confirming the destructive action. |
+| Automation / Apple Events | Read/control Apple Music or Spotify while a Now Playing tile or popout is visible; ask Finder to empty the Trash after confirmation. Empty Trash is Finder-wide through Automation, not limited to MyDock items or the home-folder Trash. | Player access is requested only after a visible Now Playing tile or popout queries a running player. Finder Apple Events are used only after choosing Empty Trash and confirming the destructive action. |
 | Notifications | Hydration reminders, local alarm alerts, and Countdown completion alerts. | Hydration asks when Water reminders is enabled; turning it off cancels pending reminders. Alarms ask when adding or enabling; denial saves an alarm disabled. Countdown asks when started; denial leaves the countdown usable and explains that no completion alert can be delivered. Pause, reset, and removal cancel the scheduled countdown alert. |
 
 The Permissions tab displays current Accessibility, Screen Recording, Notifications, Calendar, Reminders, Location, and Automation status, with System Settings links and a Refresh Status action. The optional Apple Dock overlap setting reads only visible Dock process IDs and window bounds through Core Graphics; it does not capture window content or request Screen Recording. macOS does not expose a single readable Automation grant state, so MyDock describes the per-app prompt behavior. Denied hydration/alarm notifications leave the rest of MyDock usable and show a permission explanation. EventKit denial produces an in-widget explanation. Screen Recording is requested only from the optional native Dock switch effect or window preview setting; each feature falls back when access is unavailable.
+
+## Connected-service and Focus notes
+
+- Paddle requires an API key with the Metrics Read permission; keys without it cannot load Paddle metrics. Keys stay in the Keychain.
+- Focus filters require the Xcode-built app, which carries `Metadata.appintents`; the script-built `build/MyDock.app` does not expose the filter.
 
 ## Current app bundle usage strings
 

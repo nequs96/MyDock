@@ -6,6 +6,14 @@ import SwiftUI
 /// with an isolated ProfileStore; never starts the user's Dock or native controllers.
 @MainActor
 enum PremiumVisualQA {
+    static let semanticLayoutPageSize = 10
+
+    /// Registry-derived pages for the semantic layout export, so new families cannot be omitted.
+    static func semanticLayoutPages(kinds: [String] = WidgetRegistry.all.map(\.name), pageSize: Int = semanticLayoutPageSize) -> [[String]] {
+        let size = max(1, pageSize)
+        return stride(from: 0, to: kinds.count, by: size).map { Array(kinds[$0..<min($0 + size, kinds.count)]) }
+    }
+
     private static func exportToolsUI(to directory: URL, store: ProfileStore) async throws {
         let kinds = ["File Shelf", "Text Snippets", "Quick Links", "Unit Converter", "Color Picker"]
         let file = directory.appendingPathComponent("Example.txt")
@@ -348,9 +356,7 @@ enum PremiumVisualQA {
                 }
             }.padding(20).background(WidgetDesign.surface), name: "adaptive-long-metric-" + suffix,
                              size: NSSize(width: 550, height: 120), scheme: scheme, directory: directory)
-            let kinds = WidgetRegistry.all.map(\.name)
-            for page in 0..<3 {
-                let rows = Array(kinds.dropFirst(page * 10).prefix(10))
+            for (page, rows) in semanticLayoutPages().enumerated() {
                 try await render(VStack(alignment: .leading, spacing: 12) {
                     Text("Semantic layout samples · \(page + 1)").font(.system(size: 13, weight: .semibold))
                     ForEach(rows, id: \.self) { kind in
