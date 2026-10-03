@@ -6,6 +6,16 @@ This is the canonical current status. The original audit records the pre-impleme
 
 “Implemented” below means the code is present and has passed the listed local checks. It does not claim a live macOS, provider, or distribution scenario has passed when that scenario has not been run.
 
+## Corrective batch and design/architecture improvements — 3 October 2026
+
+The required corrective work and the authorized design/architecture packages from the [execution ledger](history/EXECUTION_LEDGER_2026-10-03.md) are integrated at git `6ead8ca`. **The ledger is the canonical record of what is still open: every finding (MD-\*), package (PR-\*), workflow (F\*), widget (W\*) and the native acceptance procedures H1–H9.** Implementation and verification are tracked separately there.
+
+`./TestMyDock.sh` reports **405 tests in 49 suites passed**, 0 failed, with five opt-ins skipped. The canonical `build/MyDock.app` was rebuilt and relaunched; see [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
+
+None of these changes has native, VoiceOver, live-account or Xcode/release acceptance. The OP-01–OP-07 opportunities and the other Batch 3 extensions are deferred pending a product decision.
+
+Sections below this one are dated evidence for earlier builds.
+
 ## Everyday Tools expansion
 
 The current source adds **File Shelf, Text Snippets, Quick Links, Unit Converter and Color Picker**, bringing the library to **35 families**. Everyday Tools appears first in Add Item. Saved file references/bookmarks, snippets, websites and palettes use existing validated profile persistence with backward-compatible defaults and bounded collections. File Shelf supports Dock/popout drops, Finder copy/paste, outward row drag, open/reveal and native sharing; snippets provide explicit clipboard capture and editing; links provide search/edit/open; conversion and color tools are fully implemented.

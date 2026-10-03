@@ -2299,3 +2299,148 @@ Gaps and verification:
 - `./BuildMyDock.sh` exit 0. Executable SHA-256 `c936b8eca17c9ad49832acdf0ddeaccc48db39e33b80a5d6a64fc7b4fcff7d6c`, universal x86_64 + arm64, strict ad-hoc signature valid.
 - Relaunched canonical `build/MyDock.app` (PID 84180).
 - No UI or native scenario was exercised by the coordinator.
+
+**N4 Native — merged 7266f3b (branch commit 7eb86be).**
+- Implemented:
+  - In isolated runs, `TrashStatus` neither watches nor opens the real `~/.Trash`; production behaviour is unchanged.
+  - `WindowDiscovery` signpost interval (no content).
+- Verification: 2 fixtures pass.
+
+**R4 Reliability — merged 6ead8ca (branch commit 30bdfba).** Coordinator review accepted it.
+
+Implemented:
+- **MD-E01:** routine mutations use the existing coalesced async writer (150 ms, revision guard, latest wins). The agent's report lists all call sites, each classified as either async or durable.
+- These stay synchronous and durable:
+  - `persistCandidate` paths.
+  - `flush()`: quit, retry, resize finish and edit-session save.
+  - `replaceProfiles`, `replaceProfile` and `replaceItems`, whose callers check the result.
+  - Profile deletion, activation and setup-mode changes.
+- `hasUnpersistedChanges` is set only after an actual failure.
+- The SettingsView notification-status read is skipped in isolated runs.
+- Accepted risk: a crash within 150 ms loses the last routine edit. Clean quit still waits for disk.
+
+Verification:
+- 5 fixtures pass.
+- Two legacy tests now flush before reading disk.
+- No latency measurement has been taken.
+
+**Xcode project.** R4 used the repository's canonical `./GenerateXcodeProject.sh` (xcodegen). The coordinator resolved the merge conflict by regenerating from the merged tree; every Swift source and test file is now listed. Correction to the earlier journal: the original gap was **8 sources and 15 test files** added since 24f9c76, not "9 sources plus 13 test files". An Xcode build is still blocked because full Xcode is absent.
+
+**Final coordinator integration (6ead8ca):**
+- `./TestMyDock.sh`: **405 tests in 49 suites passed, 0 failed, 5 opt-in skips**. Log: `.build/orchestrate/test-final2.log`.
+- MyDock was quit cleanly before the build and process exit was verified. `./BuildMyDock.sh` exit 0.
+  - Executable SHA-256: `801e1f6983367cc491c070fe9501313daf82f41826377eb2c26309a4e1b82ca0`.
+  - Universal binary; strict ad-hoc signature valid.
+- Canonical `build/MyDock.app` relaunched (PID 88725).
+- The previous baseline was archived as `history/RELEASE_EVIDENCE_PRE_CORRECTIVE_BATCH_2026-10-03.md` and `history/BUILD_BASELINE_PRE_CORRECTIVE_BATCH_2026-10-03.json`. RELEASE_AUDIT, BUILD_BASELINE (source fingerprint `9a056d5d…77dd6`) and IMPLEMENTATION_STATUS were refreshed.
+- No commit was pushed and nothing was published.
+
+## Final reconciliation — Claude coordinator, 3 October 2026
+
+**Status vocabulary.**
+- **Implemented** means code is present, coordinator-reviewed and merged.
+- **Fixture** means isolated `./TestMyDock.sh` fixtures pass on the final tree.
+- **Open** means native, VoiceOver, live-account or whole-task acceptance has not been run.
+- **Blocked** names the missing prerequisite.
+- **Deferred** means a product decision is needed.
+
+No item below is natively accepted.
+
+### MD findings (43)
+
+| ID | Implementation | Verification | Remaining |
+|---|---|---|---|
+| A01 | Implemented (envelope-first guard) | Fixture | Open: native relaunch with future file (H8) |
+| A02 | Implemented (candidate-first create/duplicate/import/Restore) | Fixture | Open: Restore UI failure on unwritable/limit fixture (H8) |
+| A03 | Implemented (per-provider domains at decode) | Fixture | Open: relaunch with imported extreme cache |
+| A04 | Implemented (bounded parsers in 5 providers + face formatter) | Fixture | — (live providers blocked) |
+| A05 | Implemented (durable note save, retained drafts, quit) | Fixture | Open: >1 MiB paste, close/quit UI (H5/H8) |
+| A06 | Implemented (private item-scoped drafts, Resume/Discard, recovery, pruning) | Fixture + review | Open: Escape/outside/profile switch/relaunch (H6) |
+| A07 | Implemented (15 s session undo) | Fixture | Deferred: persisted undo (retention decision) |
+| A08 | Partial (precise label, session lifetime stated) | Review | Deferred: persist preference (privacy decision) |
+| A09 | Implemented (all retained entries listed) | Review | Open: >10/25 entries scrolling, keyboard (H5) |
+| D01 | Implemented (on-demand discovery) | Fixture | Blocked: H1 (AX in disposable user) |
+| D02 | Implemented (raw/display title, AX-object resolution) | Fixture | Blocked: H1 |
+| D03 | Implemented (installed copy + PID/launch identity) | Fixture | Blocked: H1 (two app copies) |
+| D04 | Not implemented | — | Deferred (Batch 3 spatial insertion) |
+| D05 | Implemented (Locate/Retry/stale refresh) | Fixture | Open: H6 moved/ejected fixtures |
+| D06 | Implemented (honest Finder-wide copy) | Fixture | Blocked: H6 disposable volume/account |
+| S01 | Implemented (Cancel, stderr, quit cleanup) | Fixture (harmless script) | Open: real shortcuts (H7/H8) |
+| S02 | Implemented (loading/cancel/cap) | Fixture | Open: slow/network folder |
+| S03 | Implemented (deadlines, fix policy, EventKit cancel) | Fixture | Blocked: H7 permissions |
+| S04 | Implemented (startup/wake reconcile; Alarm-consistent disable) | Fixture | Blocked: H7 notifications |
+| S05 | Implemented for Dock + popouts; editor demand unwired | Fixture | Open: editor consumer; refresh counts natively |
+| P01–P10 | Implemented (see R2) | Fixture | Blocked: live accounts need separate authorization |
+| U01 | Implemented (task-first sheet) | Review | Open: H5 all 35 families at min size |
+| U02 | Implemented (Example labels: AddLibrary, CommandLibrary, gallery) | Review | Open: VoiceOver |
+| U03 | Implemented (Clock 104 pt, checklist fit) | Formatter fixtures | Open: locale/12–24 h/min-scale renders |
+| U04 | Implemented (compact header) | Review | Open: H5 minimum window |
+| U05 | Implemented (≥14 pt hit area) | Geometry fixture | Open: H2 pointer acquisition |
+| U06 | Implemented (shared DockAppearanceBounds) | Decode fixture | Open: inspector→Settings→relaunch 0/30 |
+| E01 | Implemented (routine async coalescing) | Fixture | Open: native main-thread latency |
+| E02 | Implemented (narrow signature) | Fixture + DEBUG counter | Open: Instruments trace |
+| Q01 | Implemented for all mutation-capable services; read-only/user-click sites listed in R1 report | Fixture | Blocked: disposable-user write trace |
+| Q02 | Partial (registry coverage test, all-35 QA pages) | Fixture | Blocked: Xcode UI suite; render export not rerun |
+| Q03 | Implemented (accurate runtime guidance) | Fixture; bundle lacks metadata confirmed | Blocked: H9 Focus discovery |
+| Q04 | Not implemented (tooling exists) | — | Blocked: full Xcode, Developer ID, notarization |
+| Q05 | Implemented (docs truthfulness, current evidence docs) | Review | — |
+
+### PR packages (20)
+
+| ID | Status |
+|---|---|
+| PR-01, PR-02, PR-03, PR-04, PR-14 | Implemented. PR-02's persisted undo is deferred; PR-14's editor demand is unwired. |
+| PR-05 | Implemented, partial. Isolation covers all mutation paths. The disposable-user trace is blocked. |
+| PR-06 | Implemented, partial: mode, status and first-run consequence copy. Capture and tutorial are deferred (Batch 3). |
+| PR-07 | Implemented, partial: named actions, Undo/Redo, truncation. Organize is deferred (Batch 3). |
+| PR-08 | Implemented, partial: task-first sheet and Example labels. The all-35 configuration check is open (H5). |
+| PR-09 | Implemented, partial: shared bounds, compact header, inspector clarity. Per-property overrides are deferred. |
+| PR-10 | Implemented, partial: D05, D06, AirDrop/Trash face routing. D04 is deferred. Drag, overflow and popout acceptance is open (H6). |
+| PR-11 | Implemented, partial: compact fit and AX labels. The full VoiceOver, locale and contrast sweep is open. |
+| PR-12 | Implemented, partial: transition normalization. Wallpaper, material and older-OS qualification is open (H3/H4). |
+| PR-13 | Partial: routine off-main writes and the AI cache semantic version. **Separating the runtime cache from authored state is unstarted** (Large, phased). |
+| PR-15 | Partial: tenant binding, partial flags, semantic version. **The connection health and provenance UI is unstarted.** |
+| PR-16 | Partial: full lists, precise label, session undo. Persisted privacy preference and masking are deferred. |
+| PR-17 | Partial: registry coverage test. **Typed registry, payload extraction and controller extraction are unstarted.** |
+| PR-18 | Partial: signposts and root counter. **No measurements have been taken** (H2/H8). |
+| PR-19 | Blocked: full Xcode, signing and notary identities. The Xcode project is now complete. |
+| PR-20 | Partial: docs and evidence truthfulness. **The in-app help and diagnostics review loop is unstarted.** |
+
+### Opportunities
+
+OP-01 to OP-07 are all **deferred** and await a product decision. Nothing was started. The same applies to MD-D04 spatial insertion, PR-06 capture/tutorial, PR-07 Organize, PR-09 per-property overrides, PR-16 shared-screen masking and the wider calendar/timer workflows.
+
+### Workflows F01–F41
+
+Every F record remains **open for whole-task/native acceptance**. Code changed in this phase for these records:
+- F01, F02, F03, F04, F05, F06, F07, F08, F09, F10, F11.
+- F13, F14, F15, F16, F19, F21, F22, F23, F24, F28, F30, F32, F33, F35, F38, F39.
+
+F12 changed through the PR-03 identity work. No code changed for F17, F18, F20, F25, F26, F27, F29, F31, F34, F36, F37, F40 or F41, apart from shared isolation guards. F37 local packaging is re-verified narrowly. F38 is blocked.
+
+### Widgets W01–W35
+
+All 35 registry families have a provider, a presentation option and a QA page slot (fixture). Every W-CHECK native/VoiceOver procedure remains **open**.
+
+Families changed in this phase:
+- **Providers:** W01 Stock, W02 Watchlist, W06 Weather, W11 Stripe, W12 Paddle, W13 Shopify, W22 Network, W23 AI Limits, W24 AI Activity.
+- **Lifecycle:** W03 Calendar (via Reminders and EventKit only: no change), W04 Reminders, W05 Now Playing, W10 Shortcuts, W20 Hydration, W21 System Activity.
+- **Product/native:** W08 Sticky Note, W14 Clock, W25 AirDrop, W26 Trash, W29 Checklist, W30 File Shelf, W31 Snippets, W32 Quick Links, W34 Color Picker, W35 App Folder.
+
+No family-specific change: W07, W09, W15–W19, W27, W28, W33. They received shared undo, isolation and QA coverage only.
+
+### Native/manual acceptance H1–H9
+
+**All 40 subprocedures were not executed by the coordinator.** They need a disposable macOS user or VM, explicit authorization for permissions, preferences and destructive actions, dedicated test accounts, and (for H9) full Xcode plus signing identities. The agents' handbacks above list the additional steps their changes introduced, for H1, H2, H4, H6, H7 and H9.
+
+### Accounting
+
+| Category | Completed | Partial | Blocked | Deferred | Unstarted |
+|---|---|---|---|---|---|
+| MD (43) | 37 implemented with fixtures | A08, Q01, Q02 | Q04; native acceptance for all | D04 | — |
+| PR (20) | 5 | 14 | PR-19 | Batch 3 subscopes | PR-13 cache separation; PR-15 health UI; PR-17 extraction; PR-20 help loop |
+| OP (7) | — | — | — | 7 | — |
+| F (41) / W (35) | Code and fixture work as listed | All | Native acceptance | Batch 3 extensions | — |
+| H1–H9 | — | — | 40 procedures | — | — |
+
+Every MD, PR, OP, F, W and H record is accounted for. No unverified behaviour is represented as passed.

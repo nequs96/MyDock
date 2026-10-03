@@ -1,27 +1,78 @@
 # Canonical MyDock build baseline
 
-Recorded **3 October 2026** (Europe/Warsaw), after installing the Dock interaction and Everyday Tools source. Source of truth remains `Sources/MyDock/`; canonical app remains **`build/MyDock.app`**.
+Recorded **3 October 2026** (Europe/Warsaw), after integrating the corrective batch and the design/architecture improvements tracked in the [execution ledger](history/EXECUTION_LEDGER_2026-10-03.md). The source of truth remains `Sources/MyDock/`, and the canonical app remains **`build/MyDock.app`** (git `6ead8ca`).
 
-## Current behavior
+## What changed since the preceding baseline
 
-Running app menus expose normal Quit App. Minimized-window tiles and known app windows expose Close Window using the native close button and existing Accessibility access. Direct resize uses a temporary profile-scoped preview, retains the hosting root and live monitors, caches icon sources across fractional sizes, and saves once on release.
+The [ledger](history/EXECUTION_LEDGER_2026-10-03.md) records each package, with separate implementation and verification fields. The following changes are implemented and covered by fixtures. None of them is natively accepted.
 
-Appearance exposes Clear/Frosted Liquid Glass and independent **0–100% Glass opacity**, preserving profile/global scope, tint, Undo, older snapshots and accessible opaque fallbacks. Rounded material/native-host masks retain transparent corners without the previous rectangular outer shadow. Embedded Settings uses visible wrapping section buttons. Behavior offers **Fade, Slide, Gentle grow**, an off switch and Preview; Reduce Motion suppresses effects. Grow keeps the viewport constant to avoid reflow during the effect.
+**State and recovery**
+- Future and oversized state files are refused before model decode, are left untouched, and disable saving.
+- Create, duplicate and Restore validate and persist before anything is published.
+- Sticky Note and snippet/link drafts survive rejected or failed saves, dismissal and relaunch.
+- Removals have a bounded 15-second undo.
+- Routine edits are coalesced off the main thread. Critical saves and quit still wait for disk.
 
-The adaptive widget system remains intact: semantic compositions, variable widths, independent layout/icon treatments and real metrics/empty states. The library now has **35 families**, including File Shelf, Text Snippets, Quick Links, Unit Converter and Color Picker. Existing user profiles, drafts, integrations and permissions are preserved.
+**Providers**
+- AI and market/billing/weather numbers are domain-bounded.
+- AI Activity deduplicates records, and its Sessions total counts distinct sessions.
+- One Claude config-directory resolver is used everywhere.
+- Shopify replaces credentials for the same store correctly, with bounded pagination.
+- Stripe fetches partial nested item lists or excludes them.
+- Paddle setup asks for `metrics.read`.
+- A network counter reset no longer produces a rate spike.
+- Response size is capped while streaming.
+- Changing tenant clears the old figures.
+
+**Native actions**
+- Window discovery for the context menu no longer depends on monitor toggles.
+- Window identity uses the raw title plus the installed-copy and launch identity, and resolves windows by native AX object.
+- The resize grip has a hit area of at least 14 pt.
+- A narrow presentation signature stops unrelated settings from re-rooting the Dock.
+- Mid-transition style or Off changes normalize the Dock immediately.
+- Performance signposts were added.
+
+**Lifecycle**
+- Shortcuts can be cancelled.
+- Folder popouts show loading, cancel obsolete work and cap their output.
+- Location and Reminders have deadlines.
+- Hydration reconciles its reminders at startup and on wake.
+- Refresh is driven by typed demand from popouts as well as the Dock.
+
+**Product**
+- Widget setup comes before appearance, and the Settings header is compact.
+- Edit, Activate and Apply are explained.
+- Workspace actions are labelled.
+- Example labels and VoiceOver labels were added.
+- The AirDrop and Trash provider faces are restored.
+- File Shelf has Locate and Retry.
+- The Trash dialog states its Finder-wide scope.
+- Focus guidance is accurate for CLI-built bundles.
+
+**Validation isolation**
+- `AppRuntimeEnvironment` sends isolated runs to a private root with memory-only defaults.
+- It blocks native effects and credentials, including the real `~/.claude`, the Codex app-server, AI logs and the Trash watcher.
+
+**Xcode project**
+- `MyDock.xcodeproj` was regenerated with `./GenerateXcodeProject.sh` and lists every source and test file. The previous project was missing 8 sources and 15 test files added since 24f9c76.
 
 ## Current verification
 
-- The user quit MyDock normally; process absence was verified before `./BuildMyDock.sh`. The canonical universal build succeeds (latest cached steps: 0.29s arm64 / 0.28s x86_64). Both slices declare macOS 13.0 minimum and SDK 26.4. Strict ad-hoc signature and app plist checks pass. Log `.build/utility-expansion-canonical-build.log`.
-- Final source and test hashes match the validated interaction working tree: **258 reported tests in 20 suites passed**, five explicit opt-ins skipped. No source/test changes required rerunning the same suite. Log `.build/dock-interaction-tests.log`. Source inputs predate the final executable.
-- **17 interaction renders** cover light/dark opacity levels, Settings navigation and the minimum embedded window; all four 6×6 corner regions of six native-host captures have alpha exactly zero. Directory `.build/visual-qa/dock-interaction-20261003/`. [The interaction report](history/DOCK_INTERACTION_2026-10-03.md) records inspections and limits.
-- **32 Everyday Tools renders** and their isolated persistence/provider tests remain evidence for the unchanged source. [Tools report](history/EVERYDAY_TOOLS_2026-10-03.md), [validation record](history/EVERYDAY_TOOLS_VALIDATION_2026-10-03.json).
-- Canonical app launched from `build/MyDock.app`; exact executable path verified (PID 28856). **Final CUA binding still fails with `Sky Computer Use native pipe startup failed`.** Native Close/save dialogs, drag frame pacing, reveal interruption, Finder/AirDrop/sampling, keyboard/VoiceOver and actual glass blur/refraction remain unverified. Bitmap exports do not prove native compositor appearance or animation smoothness.
+- `./TestMyDock.sh` (isolated): **405 tests in 49 suites passed, 0 failed, 5 explicit opt-ins skipped.** Log: `.build/orchestrate/test-final2.log`.
+- MyDock was quit with a normal quit Apple Event before building. The process exit was verified and no running bundle was overwritten.
+- `./BuildMyDock.sh` exited 0.
+  - Executable SHA-256: `801e1f6983367cc491c070fe9501313daf82f41826377eb2c26309a4e1b82ca0`.
+  - Universal x86_64 + arm64.
+  - `codesign --verify --strict` passes (ad-hoc).
+  - Log: `.build/orchestrate/build-final2.log`.
+- The canonical `build/MyDock.app` was relaunched (PID 88725). The coordinator did not exercise any UI or native scenario.
+- [BUILD_BASELINE.json](BUILD_BASELINE.json) records the source, test and app hashes. The source fingerprint is `9a056d5d…77dd6`.
 
-[BUILD_BASELINE.json](BUILD_BASELINE.json) records current source/test/app hashes and distinguishes current versus historical evidence. Host: Apple Silicon, macOS 27.0.1 (26A434), Swift 6.3. This is a local ad-hoc development build, not distribution or older-OS/Intel execution qualification.
+## Not verified
 
-## Earlier evidence
+- **Native acceptance has not been run.** That covers H1–H9 in the ledger: Close/Quit with unsaved documents, window identity with two installed copies, resize pointer feel and frame pacing, glass on real wallpaper, interrupted motion, VoiceOver, Finder/AirDrop/Trash, permissions, and native Dock preference restoration.
+- **No Xcode build has run** because full Xcode is absent. The App Intents metadata, the UI test suite, signing, notarization and Gatekeeper are all unverified.
+- **Live accounts were not used.** Stripe, Paddle, Shopify, market data, Claude, Codex and Copilot were checked against fixtures only.
+- **No production performance measurements.** The signposts exist, but no Instruments trace has been recorded.
 
-The preceding glass build's 246-test/17-render verification is preserved in [the preceding release audit](history/RELEASE_EVIDENCE_PRE_DOCK_INTERACTION_2026-10-03.md) and [glass report](history/GLASS_DOCK_2026-10-03.md). Earlier adaptive 34-render/native observations and 242-test/76-render reports remain dated evidence. Remaining acceptance is in [implementation status](IMPLEMENTATION_STATUS.md).
-
-The earlier clean-quit blocker is resolved. No running bundle was overwritten, force termination, native mutation/synthetic runtime opt-in, commit, push or publication occurred. Disposable validation bundles remain under `.build/visual-qa/`.
+This is a local ad-hoc development build, not a qualified distribution. The previous baseline is preserved in [history/RELEASE_EVIDENCE_PRE_CORRECTIVE_BATCH_2026-10-03.md](history/RELEASE_EVIDENCE_PRE_CORRECTIVE_BATCH_2026-10-03.md) and [history/BUILD_BASELINE_PRE_CORRECTIVE_BATCH_2026-10-03.json](history/BUILD_BASELINE_PRE_CORRECTIVE_BATCH_2026-10-03.json). Nothing was pushed or published.
