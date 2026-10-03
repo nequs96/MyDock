@@ -17,13 +17,15 @@ struct NativeApplicationIdentity: Hashable, Sendable {
     var processID: Int32
     var bundleIdentifier: String
     var bundleURL: URL
-    var launchDate: Date
+    /// Optional: some processes publish no launch date. PID, installed copy and
+    /// bundle identifier still must match; a published date is additionally compared.
+    var launchDate: Date?
 
     static func observing(_ app: NSRunningApplication) -> NativeApplicationIdentity? {
         guard AppRuntimeEnvironment.allowsNativeEffects, !app.isTerminated, let bundleIdentifier = app.bundleIdentifier,
-              let bundleURL = app.bundleURL, let launchDate = app.launchDate else { return nil }
+              let bundleURL = app.bundleURL else { return nil }
         return NativeApplicationIdentity(processID: app.processIdentifier, bundleIdentifier: bundleIdentifier,
-                                         bundleURL: bundleURL, launchDate: launchDate)
+                                         bundleURL: bundleURL, launchDate: app.launchDate)
     }
 
     func matches(_ current: NativeApplicationIdentity) -> Bool {
