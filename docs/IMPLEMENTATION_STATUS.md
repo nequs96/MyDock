@@ -8,9 +8,9 @@ This is the canonical current status. The original audit records the pre-impleme
 
 ## Corrective batch and design/architecture improvements — 3 October 2026
 
-The required corrective work and the authorized design/architecture packages from the [execution ledger](history/EXECUTION_LEDGER_2026-10-03.md) are integrated at git `6ead8ca`. **The ledger is the canonical record of what is still open: every finding (MD-\*), package (PR-\*), workflow (F\*), widget (W\*) and the native acceptance procedures H1–H9.** Implementation and verification are tracked separately there.
+The required corrective work and the authorized design/architecture packages from the [execution ledger](history/EXECUTION_LEDGER_2026-10-03.md) are integrated at git `f1c90b5` (including the 4 October follow-up wave). **The ledger is the canonical record of what is still open: every finding (MD-\*), package (PR-\*), workflow (F\*), widget (W\*) and the native acceptance procedures H1–H9.** Implementation and verification are tracked separately there.
 
-`./TestMyDock.sh` reports **405 tests in 49 suites passed**, 0 failed, with five opt-ins skipped. The canonical `build/MyDock.app` was rebuilt and relaunched; see [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
+`./TestMyDock.sh` reports **428 tests in 52 suites passed**, 0 failed, with five opt-ins skipped. The canonical `build/MyDock.app` was rebuilt and relaunched; see [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
 
 None of these changes has native, VoiceOver, live-account or Xcode/release acceptance. The OP-01–OP-07 opportunities and the other Batch 3 extensions are deferred pending a product decision.
 

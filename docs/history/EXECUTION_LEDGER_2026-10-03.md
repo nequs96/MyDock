@@ -2444,3 +2444,92 @@ No family-specific change: W07, W09, W15–W19, W27, W28, W33. They received sha
 | H1–H9 | — | — | 40 procedures | — | — |
 
 Every MD, PR, OP, F, W and H record is accounted for. No unverified behaviour is represented as passed.
+
+## Follow-up wave — 4 October 2026 (user: "go ahead" on the unfinished authorized packages)
+
+**R5 Reliability — merged 7ece4f2 (branch commit 66d555b).**
+- Implemented:
+  - **PR-17 typed registry:** a `WidgetCapabilities` descriptor for all 35 families covers layouts, default layout, connection, permissions, setup state, private content and refresh demand. `WidgetPresentationCatalog` is now a facade over the registry, and the stored family names are unchanged.
+  - Battery popout `.popout` demand.
+- Verification:
+  - A snapshot test proves presentation output for all 35 families is identical to the pre-refactor values. Provider keys equal registry names.
+  - The capability flags were coordinator spot-checked against the sanitizer and services. They are descriptive and not yet consumed by behaviour.
+
+**P4 Product — merged 0a1946d (branch commits 2d6c4f6, a22320a, abea944).**
+- Implemented:
+  - **PR-15:** a shared `DataSourceProvenance` footer in the Stripe, Paddle, Shopify, AI Limits and AI Activity popouts and in Connections rows. It shows the source, metric definition, last refresh, and stored/failed (sanitized)/partial/stale state, with no live health claims. "Connected" is renamed "Credentials saved".
+  - **MD-S05:** `.editor` demand while the configuration sheet is visible.
+  - **PR-20:** a privacy and limitations help section on Settings General and Integrations. The diagnostics export gains `buildNumber` and `hasIntentMetadata` (format v2).
+- Verification: a fixture proves that seeded private strings never appear in the diagnostics export.
+
+**N5 Native — merged 8aa10e3 (branch commits ad4ece9, 84790c3).**
+- Implemented: PR-17 controller extraction.
+  - `CustomDockWindowController.swift` went from 1,949 to 671 lines.
+  - New files: `CustomDockView.swift` (1,027), `DockPresentationPolicies.swift` (244), `DockItemContextMenus.swift` (17).
+- Verification: the coordinator confirmed this is a pure move. Diffing the sorted removed and added lines differs only in imports and two `private` → internal changes.
+- Not done: reveal/auto-hide monitoring is left in the controller, because it is interleaved with private state.
+
+**R6 Reliability — merged (branch commits 960b37d, ccbe5b2) plus coordinator fix f1c90b5.**
+
+Implemented (PR-13 phase 1):
+- Provider readings are persisted only in `runtime-cache.json`: stock, watchlist quotes, Stripe, Paddle, Shopify, AI Limits, AI Activity and weather forecast.
+- The cache is versioned, capped at 4 MiB and 2,000 entries, uses private permissions and coalesced atomic writes, and moves a corrupt file aside.
+- Readings are tagged with the identity they were fetched for, so they are hidden on a tenant, symbol or location mismatch.
+- Every state write strips readings, and a reading-only refresh never commits or writes `state.json`.
+- Backups always exclude readings.
+- On launch, a legacy file's embedded readings are merged into the cache (newer wins) and stripped once.
+- The schema version is unchanged and the old fields still decode. An older app sees a stripped file as "not refreshed yet".
+
+Deviation: the in-memory `WidgetConfiguration` still carries readings as a projection of the cache, so the roughly 100 view read sites and the edit-session merge are unchanged. Phase 2, which would move views to a cache resolver and remove the embedded fields, is **unstarted**.
+
+Coordinator fix: the launch strip now runs only after a successful cache flush.
+
+Verification:
+- 9 fixtures pass.
+- Five legacy backup round-trip assertions now expect no readings.
+- The canonical app migrated the user's real state on relaunch. Verified by metadata only: the process stayed alive, and `runtime-cache.json` was created with mode 0600 and no recovery or corrupt files. File contents were not read.
+
+**Coordinator integration (f1c90b5).**
+- `./TestMyDock.sh`: **428 tests in 52 suites passed, 0 failed, 5 opt-in skips**.
+- The Xcode project was regenerated with `./GenerateXcodeProject.sh` after each merge.
+- MyDock was quit cleanly and process exit verified. `./BuildMyDock.sh` exit 0. Executable SHA-256 `a35bb831bb9867b89c16478be5f0f78a78e84355ee6b4f83d5ed847becf591bd`, universal, strict ad-hoc signature valid. Relaunched as PID 98053.
+
+**Synthetic performance opt-in** (`MYDOCK_PERFORMANCE_OUTPUT`, SwiftPM Debug test, temp files only) — `.build/orchestrate/perf/synthetic-performance.json`:
+
+| Scenario | Result |
+|---|---|
+| Geometry, 7 widgets | 0.063 ms median |
+| Geometry, 30 widgets | 0.219 ms median |
+| Geometry, 60 widgets | 0.406 ms median |
+| Encode + atomic write, 50 profiles / 2,000 items | 111 ms |
+| 20 immediate appearance writes | 2,040 ms |
+| 20 coalesced writes + flush | 101 ms |
+
+These are writer and geometry timings only. They are not UI latency, frame pacing or energy, and H2/H8 Instruments measurements remain open.
+
+**Isolated render export** (DEBUG executable, `MYDOCK_VALIDATION_ROOT` + `MYDOCK_RENDER_QA`): default matrix 75 PNG, adaptive 36 PNG, tools 32 PNG, under `.build/visual-qa/corrective-batch-20261004*`. The coordinator inspected:
+- Adaptive layout page 4, which now includes the five previously omitted families.
+- The Clock Compact face, which no longer clips ("00:12").
+- The task-first Clock configuration sheet with collapsed Appearance.
+- The narrow Settings header, with all seven categories and a selected state.
+
+Bitmaps are not native compositor or VoiceOver acceptance.
+
+### Reconciliation update (supersedes the PR rows above where they differ)
+
+| ID | Status now |
+|---|---|
+| PR-13 | Phase 1 implemented (persisted cache separation, migration, backup exclusion). Phase 2 (view resolver, removing embedded fields, authored-only edit merge) unstarted. |
+| PR-15 | Implemented: provenance and freshness UI. Live connection testing is not claimed and live accounts are blocked. |
+| PR-17 | Implemented: typed registry with snapshot proof, plus controller extraction. Reveal-monitor extraction is not done. Capability flags are not yet consumed. |
+| PR-18 | Partial: signposts, plus synthetic writer/geometry numbers. Native Instruments measurements are open. |
+| PR-20 | Implemented: in-app privacy/limitations help and diagnostics privacy fixture. |
+| MD-S05 | Implemented, including the editor and Battery consumers. |
+| MD-Q02 | Partial: registry coverage test plus a fresh 143-image isolated render export. The Xcode UI suite is blocked. |
+
+Remaining unstarted authorized work:
+- PR-13 phase 2.
+- Reveal-monitor extraction.
+- Consumers for the capability flags.
+
+Everything else in Batches 1–2 is implemented or blocked on environment or native acceptance. OP-* and Batch 3 remain deferred.

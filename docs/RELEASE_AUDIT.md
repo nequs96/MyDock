@@ -1,6 +1,6 @@
 # Canonical MyDock build baseline
 
-Recorded **3 October 2026** (Europe/Warsaw), after integrating the corrective batch and the design/architecture improvements tracked in the [execution ledger](history/EXECUTION_LEDGER_2026-10-03.md). The source of truth remains `Sources/MyDock/`, and the canonical app remains **`build/MyDock.app`** (git `6ead8ca`).
+Recorded **3 October 2026** (Europe/Warsaw), after integrating the corrective batch and the design/architecture improvements tracked in the [execution ledger](history/EXECUTION_LEDGER_2026-10-03.md). The source of truth remains `Sources/MyDock/`, and the canonical app remains **`build/MyDock.app`** (git `f1c90b5`, 4 October 2026 follow-up wave included).
 
 ## What changed since the preceding baseline
 
@@ -61,12 +61,22 @@ The [ledger](history/EXECUTION_LEDGER_2026-10-03.md) records each package, with 
 - `./TestMyDock.sh` (isolated): **405 tests in 49 suites passed, 0 failed, 5 explicit opt-ins skipped.** Log: `.build/orchestrate/test-final2.log`.
 - MyDock was quit with a normal quit Apple Event before building. The process exit was verified and no running bundle was overwritten.
 - `./BuildMyDock.sh` exited 0.
-  - Executable SHA-256: `801e1f6983367cc491c070fe9501313daf82f41826377eb2c26309a4e1b82ca0`.
+  - Executable SHA-256: `a35bb831bb9867b89c16478be5f0f78a78e84355ee6b4f83d5ed847becf591bd`.
   - Universal x86_64 + arm64.
   - `codesign --verify --strict` passes (ad-hoc).
-  - Log: `.build/orchestrate/build-final2.log`.
-- The canonical `build/MyDock.app` was relaunched (PID 88725). The coordinator did not exercise any UI or native scenario.
-- [BUILD_BASELINE.json](BUILD_BASELINE.json) records the source, test and app hashes. The source fingerprint is `9a056d5d…77dd6`.
+  - Log: `.build/orchestrate/build-wave5.log`.
+- The canonical `build/MyDock.app` was relaunched (PID 98053). The coordinator did not exercise any UI or native scenario.
+- [BUILD_BASELINE.json](BUILD_BASELINE.json) records the source, test and app hashes. The source fingerprint is `a01678fe…fabe76`.
+
+## Follow-up wave (4 October 2026)
+
+- **Provider caches:** provider readings now persist only in a separate private `runtime-cache.json`. They are excluded from state, backups and history. Existing embedded readings are migrated once at launch (PR-13 phase 1).
+- **Provenance and help:** popouts and Connections show each reading's source, metric, freshness and state (PR-15). Settings has privacy and limitations help (PR-20).
+- **Refactors:** the widget capability registry is typed (PR-17), and the Dock controller is split into four files.
+- **Refresh demand:** editor previews and the Battery popout keep refreshing while the Dock is hidden.
+- **Evidence:**
+  - An isolated render export produced 143 PNGs under `.build/visual-qa/corrective-batch-20261004*`.
+  - A synthetic writer/geometry baseline is in `.build/orchestrate/perf/synthetic-performance.json`. These are not UI latency figures.
 
 ## Not verified
 
