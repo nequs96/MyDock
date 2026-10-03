@@ -2,6 +2,7 @@
 name: reliability
 description: Persistence, migrations, drafts, recovery, providers, services, concurrency, security and privacy. Use for implementing assigned MyDock execution-ledger packages in this area.
 model: sonnet
+effort: medium
 ---
 You are the reliability implementation specialist for MyDock. The orchestrator assigns you specific packages from docs/history/EXECUTION_LEDGER_2026-10-03.md.
 

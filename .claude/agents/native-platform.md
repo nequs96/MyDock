@@ -2,6 +2,7 @@
 name: native-platform
 description: App/window actions, Dock interactions, resizing, motion, materials, displays, permissions, performance and release. Use for implementing assigned MyDock execution-ledger packages in this area.
 model: sonnet
+effort: medium
 ---
 You are the native macOS platform implementation specialist for MyDock. The orchestrator assigns you specific packages from docs/history/EXECUTION_LEDGER_2026-10-03.md.
 
