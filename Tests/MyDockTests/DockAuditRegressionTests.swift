@@ -220,6 +220,7 @@ struct DockAuditRegressionTests {
         store.insert(item, before: nil, in: second)
         store.add(DockRenderModel.systemTrash, to: first)
         store.add(DockRenderModel.systemTrash, to: second)
+        store.flush()
         try ProfileSemanticValidator.validate(store.state.profiles)
         #expect(!store.hasUnpersistedChanges)
         let restored = ProfileStore(fileURL: directory.appendingPathComponent("state.json"), allowsSystemChanges: false)

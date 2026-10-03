@@ -756,7 +756,7 @@ struct SettingsView: View {
             appearanceProfileID.flatMap { id in store.customProfiles.first(where: { $0.id == id })?.appearance }, store.state.settings)
     }
 
-    private func updateAppearance(immediately: Bool = true, _ change: (inout AppSettings) -> Void) {
+    private func updateAppearance(immediately: Bool = false, _ change: (inout AppSettings) -> Void) {
         if !editingAppearanceContinuously { rememberAppearance() }
         var settings = appearanceSettings
         change(&settings)
@@ -956,7 +956,8 @@ struct SettingsView: View {
 
     @MainActor
     private func refreshPermissionStatuses() async {
-        let notificationSettings = await UNUserNotificationCenter.current().notificationSettings()
+        let notificationSettings = AppRuntimeEnvironment.allowsNativeEffects
+            ? await UNUserNotificationCenter.current().notificationSettings() : nil
         permissionRows = [
             PermissionOverviewRow(name: "Accessibility",
                                   status: WindowAccessibilityService.isTrusted() ? "Allowed — window controls are available." : "Not allowed — minimized-window controls are unavailable.",
@@ -965,7 +966,7 @@ struct SettingsView: View {
                                   status: CGPreflightScreenCaptureAccess() ? "Allowed — the optional switch effect can capture displays." : "Not allowed — native Dock switches continue without the visual freeze.",
                                   settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"),
             PermissionOverviewRow(name: "Notifications",
-                                  status: notificationStatus(notificationSettings.authorizationStatus),
+                                  status: notificationSettings.map { notificationStatus($0.authorizationStatus) } ?? "Unavailable in this isolated run.",
                                   settingsURL: "x-apple.systempreferences:com.apple.Notifications-Settings.extension"),
             PermissionOverviewRow(name: "Calendar",
                                   status: eventStatus(EKEventStore.authorizationStatus(for: .event)),
