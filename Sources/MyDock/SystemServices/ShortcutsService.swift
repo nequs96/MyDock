@@ -37,7 +37,7 @@ enum ShortcutsCatalog {
 
     static func list() async throws -> [String] {
         try AppRuntimeEnvironment.requireNativeEffects()
-        ShortcutCatalogParser.parse(try await runAndCapture(arguments: ["list"]))
+        return ShortcutCatalogParser.parse(try await runAndCapture(arguments: ["list"]))
     }
 
     private static func runAndCapture(arguments: [String]) async throws -> String {

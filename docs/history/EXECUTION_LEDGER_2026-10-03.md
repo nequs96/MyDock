@@ -2096,3 +2096,44 @@ Implementation status: in progress; no integrated tests/builds have run yet. Opt
 ### PR-08/09/11/16 — narrow truthful UI and compact presentation
 
 Implemented required subscopes for MD-A08/A09/U02/U03/U06. Product changed RecoveryCenterView, PersonalPresetPicker, AddLibrary, WidgetPrimitives and DockInspector; coordinator centralized spacing/corner/tint bounds and Clock Compact width104. History privacy describes process-session preference and exact retained/always-omitted content; all entries remain reachable through existing scroll hosts; fixtures are labeled Example. Three pure formatter fixtures cover locale/time text and adversarial temperatures. No tests/build/native verification have run yet. Actual scrolling beyond10, VoiceOver,12/24-hour locales/min-scale fit and appearance0/30 roundtrip remain open. No persistent privacy preference, optional redesign or collection undo was added.
+
+## Claude coordinator resumption — 3 October 2026
+
+Coordinator changed from the Codex session to Claude Code (`/orchestrate`). The user re-confirmed authorization for required corrective work (Batch 1) **and** design/architectural improvements (Batch 2); Batch 3/OP-* remain decision-gated. Codex's partial implementation was committed by the user as `6f94afd` ("Baseline before Claude agents"), together with the pre-existing uncommitted working tree from before the audit. The 223 planning-time input hashes (`.build/planning/coordinator-initial-state.json`) separate the two: 170 files are byte-identical to the planning snapshot; **53 pre-existing files changed and 6 files were added by the Codex implementation** (`AppRuntimeEnvironment.swift`, `DockUtilityDraftStore.swift`, `NativeInteractionCorrectionTests`, `ProductWorkflowCorrectionTests`, `RequiredPersistenceCorrectionTests`, `RuntimeIsolationTests`). Those edits were treated as unreviewed work in progress.
+
+### Verification of the Codex work in progress (coordinator, 6ea26e6 + integration fixes)
+
+- **It did not compile.** `ShortcutsCatalog.list()` lost its implicit return after a guard was inserted, and `AppRuntimeEnvironment.defaults` violated Swift 6 global-state isolation. The coordinator fixed both as small integration edits (`return`; `nonisolated(unsafe)` with a thread-safety comment).
+- `./TestMyDock.sh` (isolated `MYDOCK_VALIDATION_ROOT`) after those fixes: **286 tests, 278 passed, 5 skipped (the explicit opt-ins), 3 failed with 9 issues.** All 28 new Codex fixtures passed (RequiredPersistence 12, NativeInteraction 7, ProductWorkflow 7, RuntimeIsolation 2). Failures are pre-existing tests whose expectations encode the old behavior: `futureSchemaIsNeverOverwritten` (create is now candidate-first and publishes nothing on refusal), `appSettingsDecodeLegacyShapeAndPersistDesktopMode` (global decode now uses the shared 0–30/0–50/0–0.5 `DockAppearanceBounds`, MD-U06) and `dockSurfaceMetricsMatchRenderedTileGeometry` (Clock Compact 84→104, MD-U03). Logs: `.build/orchestrate/test-baseline-*.log`.
+- Integration defects found in review: `DockUtilityDraftStore.discardTargets(notIn:)` is never called (drafts of deleted widgets/profiles are never pruned); an unreadable drafts file sets `readable=false`, so every clean quit reports unsaved changes with no recovery path.
+
+| Entry | Codex implementation status | Verification status now |
+|---|---|---|
+| MD-A01 / PR-01 | Implemented: envelope-first state/backup version guard, oversized-file protection | Fixtures pass; one stale legacy test pending update; native relaunch open |
+| MD-A02 / PR-02 | Implemented: candidate-first kind-create/duplicate/import; Restore, duplicate and visual-QA callers migrated | Fixtures pass; Restore UI failure path not exercised natively |
+| MD-A03 | Partial: presentation guard on remaining percent only; no decode/import validation | No fixture yet |
+| MD-A04 | Partial: bounded Weather face formatter only; Market/Stripe/Paddle/Weather parsers unchanged | Formatter fixture passes; parser fixtures absent |
+| MD-A05 | Implemented: durable note save/flush, retained rejected drafts, Sticky Note error text, quit integration | Fixtures pass; large-paste/quit UI not exercised |
+| MD-A06 | Implemented: private item-scoped snippet/link draft store with Resume/Discard, quit flush | Fixture passes; pruning not wired; corrupt-file quit defect open |
+| MD-A08/A09/U02/U03/U06 | Implemented narrow subscopes (see journal above) | Formatter fixtures pass; two legacy expectations pending update; scrolling/VoiceOver/locale fit open |
+| MD-D01/D02/D03 / PR-03 | Implemented: on-demand window discovery, raw/display title split, installed-copy + PID lifetime identity, v2 preview-cache key | 7 pure fixtures pass; H1 native acceptance blocked (AX/disposable user) |
+| MD-Q01 / PR-05 | Partial: `AppRuntimeEnvironment` validation root, memory-only defaults, guards in ~32 files, isolated quit path | Isolation fixtures pass; disposable-user write trace not run |
+| Everything else | Unchanged from the planning ledger | — |
+
+### Execution plan (coordinator)
+
+Batch 1 and Batch 2 run in three waves. Each wave runs one worktree-isolated agent per specialist, with exclusive file ownership. The coordinator merges branches one at a time, reruns `./TestMyDock.sh`, builds `build/MyDock.app` and launches it.
+
+- **Wave 1**:
+  - R1 Reliability: finish PR-01/02/05 (stale tests, A03 per-provider domains, A04 parser bounds, draft pruning/recovery, isolation gaps).
+  - N1 Native: review and finish PR-03, plus MD-U05 and MD-E02.
+  - P1 Product: A06 UI verification, A07 bounded undo, U01 task-first configuration, U04 Settings density, AirDrop/Trash face routing, PR-11 accessibility labels.
+- **Wave 2**:
+  - R2: PR-04/15 provider correctness (MD-P01–P10).
+  - N2: PR-10 Shelf Locate/D05, Trash scope/D06, MD-Q03 Focus capability copy.
+  - P2: PR-06/07 mode clarity and named workspace actions, plus the PR-09 remainder.
+- **Wave 3**:
+  - R3: PR-14 deadlines, cancellation and demand (S01–S05), and PR-13/E01 routine-edit coalescing.
+  - N3: PR-18 instrumentation and PR-12 motion normalization.
+  - P3: PR-17 registry-derived QA matrix (Q02) and PR-20 evidence/docs (Q05).
+- **Not implemented, pending a product decision:** OP-01–OP-07, MD-D04 spatial insertion, PR-06 capture/tutorial, PR-07 Organize, PR-09 per-property overrides and PR-16 masking.

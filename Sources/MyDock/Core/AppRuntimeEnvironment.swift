@@ -41,7 +41,8 @@ enum AppRuntimeEnvironment {
             .appendingPathComponent("WindowPreviews", isDirectory: true)
     }
 
-    static let defaults: UserDefaults = isIsolated ? ValidationDefaults() : .standard
+    // UserDefaults is documented thread-safe; ValidationDefaults locks its storage.
+    nonisolated(unsafe) static let defaults: UserDefaults = isIsolated ? ValidationDefaults() : .standard
 
     static func requireNativeEffects() throws {
         guard allowsNativeEffects else { throw ValidationBoundaryError.nativeEffectsDisabled }
