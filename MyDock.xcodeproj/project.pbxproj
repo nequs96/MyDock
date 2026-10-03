@@ -21,6 +21,7 @@
 		0E86AFE89494F4C96BB007FB /* ReliabilityWave1Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D358FFA42AC40FB824020E /* ReliabilityWave1Tests.swift */; };
 		0EFB5A9561126D2649FF5026 /* NativeInteractionCorrectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 187F394EB74B0CC637A727A2 /* NativeInteractionCorrectionTests.swift */; };
 		0FC850633C4EC7FD1F62D099 /* WidgetPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34CBF7D59C47934E44D65B2 /* WidgetPresentation.swift */; };
+		108BB93DEB7BE22E3992C1BB /* DockItemContextMenus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB2654BD3B4F432A2D7179F /* DockItemContextMenus.swift */; };
 		116A1DA4F039E0AD50117B8D /* LocalClockFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21CFEE1F14847708B9EDFA1A /* LocalClockFormatter.swift */; };
 		13F0DF429E430F6048A50B14 /* RefreshScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42965F326E36376ED429CF6 /* RefreshScheduler.swift */; };
 		13FBF2F24DF8BB1AAFFCD5C2 /* ProfileDraftMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E45DC7D0CFFD7FAE8C764F0 /* ProfileDraftMerge.swift */; };
@@ -39,12 +40,14 @@
 		2ED347E3E21D3D06FD870176 /* ProductWorkflowCorrectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 235A6EF464B88B722984AF93 /* ProductWorkflowCorrectionTests.swift */; };
 		2FED9B373AC647DE7A34139C /* WorldClockCityCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736731CF7DA257570F336C15 /* WorldClockCityCatalog.swift */; };
 		2FEE4A831511584BA3E9861B /* WindowPreviewCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D618BECE2DD8E547051855C /* WindowPreviewCacheTests.swift */; };
+		3106C55831C037C688363F9D /* DockPresentationPolicies.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C287D457398950E81A53A5 /* DockPresentationPolicies.swift */; };
 		313999105E6A2DD9E9C7BAA8 /* DiagnosticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27892125A92FEAAD242BECB1 /* DiagnosticsService.swift */; };
 		320A81BA040EC69D34C580C0 /* ProfileSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F984DB1813FD4A6A142CA /* ProfileSanitizer.swift */; };
 		3270BA01236CF8A0D87FFE26 /* WidgetLibraryTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = E527C58C6168E5FE88D3B60E /* WidgetLibraryTile.swift */; };
 		39DB649498BFD4C1FBC2C470 /* CommandLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08F4F5518CAB6294D1E6647 /* CommandLibrary.swift */; };
 		3AB00530BF01A4D749332A4B /* DockManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6758F25C6EA73B904DA86066 /* DockManagerView.swift */; };
 		3B03938D926260A1E21BF2EC /* RunningApplications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7536B36501AFF71CA760CA15 /* RunningApplications.swift */; };
+		3CE2DB5C29E91498E020A6FA /* CustomDockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEDBAB5997B825251D922554 /* CustomDockView.swift */; };
 		3CF6F8931C29F391419FF7DB /* AppleWidgetCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CCDAA6C3625885871693F16 /* AppleWidgetCard.swift */; };
 		3D0CFD5D24775E41A08B8EFF /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62E043D8D750B7188E1DD502 /* SettingsView.swift */; };
 		3DAC46296B3371EBC32E7009 /* DockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D470722BB79311109DE0D2AA /* DockModels.swift */; };
@@ -234,6 +237,7 @@
 		3365272DF8136DA76925BCC7 /* FolderIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderIconView.swift; sourceTree = "<group>"; };
 		348899CA10515885D4B2596E /* ConnectionsCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsCenterView.swift; sourceTree = "<group>"; };
 		3659FE931E85AFEDF1736A3F /* FocusDockFilterIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusDockFilterIntent.swift; sourceTree = "<group>"; };
+		3AB2654BD3B4F432A2D7179F /* DockItemContextMenus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockItemContextMenus.swift; sourceTree = "<group>"; };
 		3D1F984DB1813FD4A6A142CA /* ProfileSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSanitizer.swift; sourceTree = "<group>"; };
 		3DDEB8903C269E742496D5AF /* MenuBarProfileTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarProfileTitle.swift; sourceTree = "<group>"; };
 		3EB5D4FEF7D060E8D2EE2874 /* SystemActivityReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemActivityReader.swift; sourceTree = "<group>"; };
@@ -350,6 +354,7 @@
 		E4391DEE41DFB03AEF70D857 /* WeatherService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherService.swift; sourceTree = "<group>"; };
 		E47778F8A12065845D562899 /* SingleInstanceLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SingleInstanceLock.swift; sourceTree = "<group>"; };
 		E527C58C6168E5FE88D3B60E /* WidgetLibraryTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetLibraryTile.swift; sourceTree = "<group>"; };
+		E6C287D457398950E81A53A5 /* DockPresentationPolicies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPresentationPolicies.swift; sourceTree = "<group>"; };
 		E7F36A53ED40B8A89B8D79DB /* DockAuditRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockAuditRegressionTests.swift; sourceTree = "<group>"; };
 		E91CBE858AEB6F9F89C19223 /* WidgetPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetPresentationTests.swift; sourceTree = "<group>"; };
 		EA80185A8000C9EAFD69AB90 /* DataSourceProvenance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataSourceProvenance.swift; sourceTree = "<group>"; };
@@ -370,6 +375,7 @@
 		FAE902F5D39367E85B976088 /* CountdownNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownNotificationService.swift; sourceTree = "<group>"; };
 		FB8C9F83CBB0CF6C312C4B08 /* AddLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddLibrary.swift; sourceTree = "<group>"; };
 		FC96B5EE49B3B69DD6C349CA /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
+		FEDBAB5997B825251D922554 /* CustomDockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomDockView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -623,7 +629,10 @@
 		E9DA3010726A12B82146FC64 /* DockManagement */ = {
 			isa = PBXGroup;
 			children = (
+				FEDBAB5997B825251D922554 /* CustomDockView.swift */,
 				60221CBE5C104420D68187FD /* CustomDockWindowController.swift */,
+				3AB2654BD3B4F432A2D7179F /* DockItemContextMenus.swift */,
+				E6C287D457398950E81A53A5 /* DockPresentationPolicies.swift */,
 				616B4F9ABB3E6AD721E9CB70 /* DockSwitchFreezeProvider.swift */,
 				A3E90093FE464742F6DF90E1 /* NativeDockAutoHideController.swift */,
 				21BB8DEFC665A3B140F40C4D /* NativeDockAutoSaveMonitor.swift */,
@@ -849,6 +858,7 @@
 				BFE3D7F801FD3E8342C742E4 /* ConnectionsCenterView.swift in Sources */,
 				028D2937292EB743DAD2A0A5 /* CountdownNotificationService.swift in Sources */,
 				7E0D4186A9CAAE3B7C32432D /* CurrentLocationService.swift in Sources */,
+				3CE2DB5C29E91498E020A6FA /* CustomDockView.swift in Sources */,
 				8E0C9AF5A97559D65C39FA21 /* CustomDockWindowController.swift in Sources */,
 				45C0C448414192B4AB6D353F /* DataSourceProvenance.swift in Sources */,
 				B98A77DFB7FE09D512698BBD /* DataSourceProvenanceView.swift in Sources */,
@@ -858,10 +868,12 @@
 				4E9BB60895D6E360B03C7506 /* DockCanvasDragSurface.swift in Sources */,
 				3F8083D806B67E984EDE0EBF /* DockDesign.swift in Sources */,
 				91257E3201B10270DEF0D437 /* DockInspector.swift in Sources */,
+				108BB93DEB7BE22E3992C1BB /* DockItemContextMenus.swift in Sources */,
 				F9535B70D67C9ECB3DF142CD /* DockLayoutPreview.swift in Sources */,
 				3AB00530BF01A4D749332A4B /* DockManagerView.swift in Sources */,
 				A2CBBC0E5FC42B906F01123E /* DockMaterialSurface.swift in Sources */,
 				3DAC46296B3371EBC32E7009 /* DockModels.swift in Sources */,
+				3106C55831C037C688363F9D /* DockPresentationPolicies.swift in Sources */,
 				F581CFE231439478F23A4C5E /* DockProfileStatus.swift in Sources */,
 				FA082EDF00317E8C0583780C /* DockRenderModel.swift in Sources */,
 				9A98F1FC8A8DEA925105C612 /* DockSwitchFreezeProvider.swift in Sources */,
