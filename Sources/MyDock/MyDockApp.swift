@@ -31,6 +31,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     private var stateObservation: AnyCancellable?
     private var persistenceObservation: AnyCancellable?
     private var shortcutObservation: AnyCancellable?
+    private var wakeReconcileObservation: AnyCancellable?
     private var windows: [String: NSWindow] = [:]
     private let workspaceNavigation = DockWorkspaceNavigation()
     private var pendingCustomMainMode: Bool?
@@ -175,7 +176,16 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             do { try await NativeDockController.shared.recoverInterruptedTransaction() }
             catch { NSLog("MyDock could not recover an interrupted Dock operation: %@", error.localizedDescription) }
             await AlarmNotificationService.reconcileSchedules(in: store)
+            await HydrationReminderService.reconcileSchedules(in: store)
         }
+        // Hydration reminders can be lost while the Mac sleeps or notification settings change.
+        wakeReconcileObservation = NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.didWakeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let store = self?.store else { return }
+                Task { @MainActor in await HydrationReminderService.reconcileSchedules(in: store) }
+            }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -248,6 +258,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        ShortcutExecutionService.shared.cancelAll()
         #if DEBUG
         if unitTestHost { return }
         if visualPreview || AppRuntimeEnvironment.isIsolated { try? FileManager.default.removeItem(at: previewDirectory); return }

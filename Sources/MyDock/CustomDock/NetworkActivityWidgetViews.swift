@@ -21,6 +21,8 @@ final class NetworkActivityMonitor: ObservableObject {
     @Published private(set) var hasCompletedRateSample = false
 
     private var subscribers = Set<UUID>()
+    private var visiblePopouts = Set<UUID>()
+    private var schedulerDemand: RefreshDemandToken?
     private var previousReading: NetworkCountersReading?
     private var samplingTask: Task<Void, Never>?
     private var dockIsVisible = false
@@ -28,13 +30,15 @@ final class NetworkActivityMonitor: ObservableObject {
     var aggregateDownloadRate: Double? { completeAggregate(\.receivedBytesPerSecond) }
     var aggregateUploadRate: Double? { completeAggregate(\.sentBytesPerSecond) }
 
-    func subscribe(_ identifier: UUID) {
+    func subscribe(_ identifier: UUID, popout: Bool = false) {
         subscribers.insert(identifier)
+        if popout { visiblePopouts.insert(identifier) }
         updateSamplingState()
     }
 
     func unsubscribe(_ identifier: UUID) {
         subscribers.remove(identifier)
+        visiblePopouts.remove(identifier)
         updateSamplingState()
     }
 
@@ -46,7 +50,8 @@ final class NetworkActivityMonitor: ObservableObject {
     func refreshNow() { Task { await sample() } }
 
     private func updateSamplingState() {
-        let shouldSample = SystemActivitySamplingPolicy.shouldSample(dockIsVisible: dockIsVisible,
+        RefreshScheduler.shared.setDemand(&schedulerDemand, kind: .popout, active: !visiblePopouts.isEmpty)
+        let shouldSample = SystemActivitySamplingPolicy.shouldSample(dockIsVisible: dockIsVisible || !visiblePopouts.isEmpty,
                                                                       subscriberCount: subscribers.count)
         guard shouldSample != (samplingTask != nil) else { return }
         if !shouldSample {
@@ -151,7 +156,7 @@ private struct NetworkActivityPopoutWidgetView: View {
             }
         }
         .frame(width: 420).frame(minHeight: 230, alignment: .topLeading)
-        .onAppear { monitor.subscribe(subscriptionID) }
+        .onAppear { monitor.subscribe(subscriptionID, popout: true) }
         .onDisappear { monitor.unsubscribe(subscriptionID) }
     }
 

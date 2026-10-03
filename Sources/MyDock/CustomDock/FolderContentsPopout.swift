@@ -7,8 +7,10 @@ struct FolderContentsPopout: View {
     var onClose: () -> Void
 
     @State private var directoryStack: [URL]
-    @State private var entries: [FolderContentsEntry] = []
+    @State private var listing: FolderContentsListing?
+    @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var requests = FolderLoadRequestTracker()
 
     init(folderURL: URL, folderName: String? = nil, onClose: @escaping () -> Void) {
         self.folderURL = folderURL
@@ -42,14 +44,21 @@ struct FolderContentsPopout: View {
             }
             .padding(12)
             Divider()
-            if let errorMessage {
+            if isLoading {
+                VStack(spacing: 10) {
+                    ProgressView()
+                    Text("Loading folder…").font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityElement(children: .combine)
+            } else if let errorMessage {
                 emptyState(title: "Folder unavailable", symbol: "folder.badge.questionmark", message: errorMessage)
-            } else if entries.isEmpty {
+            } else if listing?.isEmpty ?? true {
                 emptyState(title: "Empty folder", symbol: "folder", message: "This folder has no visible items.")
             } else {
                 DockScrollView {
                     LazyVStack(spacing: 2) {
-                        ForEach(entries) { entry in
+                        ForEach(listing?.entries ?? []) { entry in
                             Button {
                                 if entry.isDirectory {
                                     directoryStack.append(entry.url)
@@ -73,6 +82,10 @@ struct FolderContentsPopout: View {
                                 Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([entry.url]) }
                             }
                         }
+                        if let summary = listing?.omittedSummary {
+                            Text(summary).font(.caption).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity).padding(.vertical, 6)
+                        }
                     }
                     .padding(8)
                 }
@@ -95,17 +108,23 @@ struct FolderContentsPopout: View {
     }
 
     private func loadEntries(at url: URL) async {
+        let token = requests.begin()
+        // Clear rows from the previous folder so stale items are never shown for the new target.
+        listing = nil
+        errorMessage = nil
+        isLoading = true
         do {
-            let loadedEntries = try await Task.detached(priority: .userInitiated) {
-                try FolderContentsReader.entries(at: url)
-            }.value
-            guard currentURL == url else { return }
-            entries = loadedEntries
-            errorMessage = nil
+            let loaded = try await FolderContentsReader.load(at: url)
+            guard !Task.isCancelled, requests.isCurrent(token), currentURL == url else { return }
+            listing = loaded
+            isLoading = false
+        } catch is CancellationError {
+            return
         } catch {
-            guard currentURL == url else { return }
-            entries = []
+            guard !Task.isCancelled, requests.isCurrent(token), currentURL == url else { return }
+            listing = nil
             errorMessage = error.localizedDescription
+            isLoading = false
         }
     }
 }

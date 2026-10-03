@@ -65,40 +65,98 @@ enum ShortcutsCatalog {
     }
 }
 
+enum ShortcutRunMessages {
+    static let maximumStderrBytes = 16 * 1_024
+    static let maximumDetailCharacters = 240
+
+    static func completed() -> String { "Completed" }
+    static func cancelling() -> String { "Cancelling…" }
+    static func cancelled() -> String { "Cancelled" }
+    static func running() -> String { "Running…" }
+
+    /// A short, bounded failure message that includes the first useful stderr text.
+    static func failed(exitCode: Int32, standardError: Data) -> String {
+        let text = String(decoding: standardError.prefix(maximumStderrBytes), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let firstLines = text.split(whereSeparator: \.isNewline).prefix(2).joined(separator: " ")
+        let detail = firstLines.count > maximumDetailCharacters
+            ? String(firstLines.prefix(maximumDetailCharacters)) + "…"
+            : firstLines
+        let base = "Shortcut failed (exit code \(exitCode))."
+        return detail.isEmpty ? base : "\(base) \(detail)"
+    }
+}
+
 @MainActor
 final class ShortcutExecutionService: ObservableObject {
     static let shared = ShortcutExecutionService()
 
     @Published private(set) var statusByShortcut: [String: String] = [:]
-    private var runningProcesses: [UUID: (name: String, process: Process)] = [:]
+    @Published private(set) var runningNames: Set<String> = []
+    private var runs: [UUID: (name: String, task: Task<Void, Never>)] = [:]
+    private var cancelledRuns = Set<UUID>()
+    private let commandURL: URL
+    private let requiresNativeEffects: Bool
+
+    /// `commandURL` and `requiresNativeEffects` are injectable so fixtures can use a harmless script.
+    init(commandURL: URL = URL(fileURLWithPath: "/usr/bin/shortcuts"), requiresNativeEffects: Bool = true) {
+        self.commandURL = commandURL
+        self.requiresNativeEffects = requiresNativeEffects
+    }
+
+    func isRunning(_ name: String) -> Bool { runningNames.contains(name) }
 
     func run(_ shortcutName: String) throws {
-        try AppRuntimeEnvironment.requireNativeEffects()
+        if requiresNativeEffects { try AppRuntimeEnvironment.requireNativeEffects() }
         let name = shortcutName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw ShortcutsServiceError.invalidName }
-        guard !runningProcesses.values.contains(where: { $0.name == name }) else {
-            throw ShortcutsServiceError.alreadyRunning
-        }
-        let commandURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
+        guard !runningNames.contains(name) else { throw ShortcutsServiceError.alreadyRunning }
         guard FileManager.default.isExecutableFile(atPath: commandURL.path) else {
             throw ShortcutsServiceError.commandUnavailable
         }
 
-        let process = Process()
-        let processID = UUID()
-        process.executableURL = commandURL
-        process.arguments = ["run", name]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        process.terminationHandler = { [weak self] finishedProcess in
-            let result = finishedProcess.terminationStatus == 0
-                ? "Completed"
-                : "Shortcut failed (exit code \(finishedProcess.terminationStatus))."
-            Task { @MainActor [weak self] in self?.finish(processID: processID, name: name, result: result) }
+        let runID = UUID()
+        let commandURL = commandURL
+        runningNames.insert(name)
+        statusByShortcut[name] = ShortcutRunMessages.running()
+        // Interactive shortcuts may legitimately wait for the user, so there is no execution deadline.
+        // The run ends on exit, user Cancel or app quit.
+        let task = Task { @MainActor [weak self] in
+            let result: String
+            do {
+                let captured = try await BoundedSubprocessCapture.runCancellable(
+                    executableURL: commandURL,
+                    arguments: ["run", name],
+                    maximumOutputBytes: 8 * 1_024 * 1_024,
+                    maximumErrorBytes: ShortcutRunMessages.maximumStderrBytes,
+                    timeout: .infinity)
+                result = captured.terminationStatus == 0
+                    ? ShortcutRunMessages.completed()
+                    : ShortcutRunMessages.failed(exitCode: captured.terminationStatus, standardError: captured.standardError)
+            } catch is CancellationError {
+                result = ShortcutRunMessages.cancelled()
+            } catch BoundedSubprocessCaptureError.outputLimitExceeded {
+                result = "Shortcut was stopped because it produced more output than MyDock can read."
+            } catch {
+                result = "Shortcut could not run: \(error.localizedDescription)"
+            }
+            self?.finish(runID: runID, name: name, result: result)
         }
-        try process.run()
-        runningProcesses[processID] = (name, process)
-        statusByShortcut[name] = "Running…"
+        runs[runID] = (name, task)
+    }
+
+    /// Asks a running shortcut to stop. The child is terminated normally first and force-stopped after a short grace.
+    func cancel(_ name: String) {
+        for (runID, run) in runs where run.name == name {
+            cancelledRuns.insert(runID)
+            statusByShortcut[name] = ShortcutRunMessages.cancelling()
+            run.task.cancel()
+        }
+    }
+
+    /// Stops every running shortcut, for app quit.
+    func cancelAll() {
+        for name in Set(runs.values.map(\.name)) { cancel(name) }
     }
 
     func openShortcutsApp() {
@@ -107,8 +165,11 @@ final class ShortcutExecutionService: ObservableObject {
         NSWorkspace.shared.open(appURL)
     }
 
-    private func finish(processID: UUID, name: String, result: String) {
-        runningProcesses.removeValue(forKey: processID)
-        statusByShortcut[name] = result
+    private func finish(runID: UUID, name: String, result: String) {
+        guard runs.removeValue(forKey: runID) != nil else { return }
+        let wasCancelled = cancelledRuns.remove(runID) != nil
+        if !runs.values.contains(where: { $0.name == name }) { runningNames.remove(name) }
+        // A shortcut the user cancelled reports "Cancelled" even if the child exited non-zero.
+        statusByShortcut[name] = wasCancelled ? ShortcutRunMessages.cancelled() : result
     }
 }

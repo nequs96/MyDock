@@ -15,8 +15,45 @@ final class RefreshScheduler {
     private var subscriptions: [UUID: Subscription] = [:]
     private var timer: Timer?
     private var dockIsVisible = true
+    private var demand = RefreshDemandLedger()
+    /// Number of tick yields delivered to subscribers. Used by fixtures to prove zero work when idle.
+    private(set) var deliveredTickCount = 0
 
     private init() {}
+
+    /// Fixture entry point; production code uses `shared`.
+    static func makeForTesting(dockVisible: Bool) -> RefreshScheduler {
+        let scheduler = RefreshScheduler()
+        scheduler.dockIsVisible = dockVisible
+        return scheduler
+    }
+
+    /// True while the Dock or any other visible consumer (popout, editor) needs refreshes.
+    var isActive: Bool { RefreshDemandLedger.isActive(dockVisible: dockIsVisible, demand: demand) }
+    var subscriptionCount: Int { subscriptions.count }
+    var hasArmedTimer: Bool { timer != nil }
+
+    /// Registers a visible non-Dock consumer. Release the token when the consumer disappears.
+    func acquireDemand(_ kind: RefreshDemandKind) -> RefreshDemandToken {
+        let identifier = demand.acquire(kind)
+        scheduleNextTick()
+        return RefreshDemandToken(identifier: identifier, kind: kind)
+    }
+
+    func release(_ token: RefreshDemandToken?) {
+        guard let token, demand.release(token.identifier) else { return }
+        scheduleNextTick()
+    }
+
+    /// Acquires or releases `token` so that it is held exactly while `active` is true.
+    func setDemand(_ token: inout RefreshDemandToken?, kind: RefreshDemandKind, active: Bool) {
+        if active, token == nil {
+            token = acquireDemand(kind)
+        } else if !active, token != nil {
+            release(token)
+            token = nil
+        }
+    }
 
     func ticks(every interval: TimeInterval) -> AsyncStream<Date> {
         let normalizedInterval = RefreshSchedulePolicy.normalizedInterval(interval)
@@ -46,7 +83,7 @@ final class RefreshScheduler {
     private func scheduleNextTick() {
         timer?.invalidate()
         timer = nil
-        guard dockIsVisible, !subscriptions.isEmpty else { return }
+        guard isActive, !subscriptions.isEmpty else { return }
         let now = Date()
         let delay = subscriptions.values.map { $0.nextFire.timeIntervalSince(now) }.min() ?? 1
         let nextTimer = Timer(timeInterval: max(0.01, delay), repeats: false) { [weak self] _ in
@@ -56,12 +93,14 @@ final class RefreshScheduler {
         RunLoop.main.add(nextTimer, forMode: .common)
     }
 
-    private func fireDueSubscriptions() {
-        guard dockIsVisible else { return }
-        let now = Date()
+    private func fireDueSubscriptions() { fireDueSubscriptions(now: Date()) }
+
+    func fireDueSubscriptions(now: Date) {
+        guard isActive else { return }
         for identifier in Array(subscriptions.keys) {
             guard var subscription = subscriptions[identifier], subscription.nextFire <= now else { continue }
             subscription.continuation.yield(now)
+            deliveredTickCount += 1
             subscription.nextFire = now.addingTimeInterval(subscription.interval)
             subscriptions[identifier] = subscription
         }
@@ -73,5 +112,40 @@ enum RefreshSchedulePolicy {
     static func normalizedInterval(_ interval: TimeInterval) -> TimeInterval {
         guard interval.isFinite else { return 60 }
         return min(max(interval, 1), 24 * 60 * 60)
+    }
+}
+
+/// Kinds of visible consumer that justify refreshing while the Dock itself is hidden.
+enum RefreshDemandKind: Hashable, Sendable {
+    case popout
+    case editor
+}
+
+struct RefreshDemandToken: Equatable, Sendable {
+    let identifier: UUID
+    let kind: RefreshDemandKind
+}
+
+/// Pure bookkeeping of typed visible-consumer demand.
+struct RefreshDemandLedger: Equatable {
+    private(set) var tokens: [UUID: RefreshDemandKind] = [:]
+
+    var isEmpty: Bool { tokens.isEmpty }
+    func count(of kind: RefreshDemandKind) -> Int { tokens.values.filter { $0 == kind }.count }
+
+    mutating func acquire(_ kind: RefreshDemandKind) -> UUID {
+        let identifier = UUID()
+        tokens[identifier] = kind
+        return identifier
+    }
+
+    /// Returns false when the token was already released, so double release is harmless.
+    @discardableResult
+    mutating func release(_ identifier: UUID) -> Bool {
+        tokens.removeValue(forKey: identifier) != nil
+    }
+
+    static func isActive(dockVisible: Bool, demand: RefreshDemandLedger) -> Bool {
+        dockVisible || !demand.isEmpty
     }
 }

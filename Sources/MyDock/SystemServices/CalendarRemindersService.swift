@@ -6,6 +6,7 @@ enum CalendarRemindersServiceError: LocalizedError {
     case calendarUnavailable
     case reminderUnavailable
     case reminderFetchFailed
+    case reminderFetchTimedOut
     case noWritableReminderList
 
     var errorDescription: String? {
@@ -14,6 +15,7 @@ enum CalendarRemindersServiceError: LocalizedError {
         case .calendarUnavailable: "That calendar is no longer available. Choose another calendar or show all calendars."
         case .reminderUnavailable: "That reminder is no longer available. Refresh the list and try again."
         case .reminderFetchFailed: "Reminders could not be loaded. Check access and try again."
+        case .reminderFetchTimedOut: "Reminders did not respond in time. Try again."
         case .noWritableReminderList: "There is no writable Reminders list available."
         }
     }
@@ -57,6 +59,8 @@ struct ReminderSnapshot: Identifiable, Hashable, Sendable {
 /// immutable snapshots, and no personal calendar or reminder data is read until a widget is used.
 actor CalendarRemindersService {
     static let shared = CalendarRemindersService()
+    /// Upper bound for one EventKit reminders fetch; the native token is cancelled when it elapses.
+    static let reminderFetchTimeout: TimeInterval = 20
 
     private let eventStore = EKEventStore()
 
@@ -166,8 +170,9 @@ actor CalendarRemindersService {
             guard !(selected?.isEmpty ?? true) else { throw CalendarRemindersServiceError.calendarUnavailable }
         }
         let predicate = eventStore.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: selected)
-        let snapshots: [ReminderSnapshot]? = await withCheckedContinuation { continuation in
-            eventStore.fetchReminders(matching: predicate) { reminders in
+        let store = eventStore
+        let outcome: BoundedFetchOutcome<[ReminderSnapshot]?> = await BoundedNativeFetch.run(timeout: Self.reminderFetchTimeout) { complete in
+            let token = store.fetchReminders(matching: predicate) { reminders in
                 let snapshots = reminders?.map { reminder in
                     let rawTitle = reminder.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     return ReminderSnapshot(
@@ -185,8 +190,18 @@ actor CalendarRemindersService {
                     case (nil, nil): return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
                     }
                 }
-                continuation.resume(returning: snapshots)
+                complete(snapshots)
             }
+            // Cancelling or timing out releases the native fetch instead of leaving it queued.
+            nonisolated(unsafe) let fetchToken = token
+            nonisolated(unsafe) let fetchStore = store
+            return { fetchStore.cancelFetchRequest(fetchToken) }
+        }
+        let snapshots: [ReminderSnapshot]?
+        switch outcome {
+        case .value(let value): snapshots = value
+        case .cancelled: throw CancellationError()
+        case .timedOut: throw CalendarRemindersServiceError.reminderFetchTimedOut
         }
         guard hasFullAccess(to: .reminder) else { throw CalendarRemindersServiceError.accessDenied }
         try Task.checkCancellation()
