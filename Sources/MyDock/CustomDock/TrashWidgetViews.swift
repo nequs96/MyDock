@@ -39,8 +39,8 @@ private struct TrashCompactWidgetView: View {
         .frame(width: width, height: 54)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Trash")
-        .accessibilityValue(status.errorMessage ?? (status.itemCount == 0 ? "Empty" : "\(status.itemCount) items"))
-        .help(status.errorMessage ?? (status.itemCount == 0 ? "Trash is empty" : "\(status.itemCount) items in Trash"))
+        .accessibilityValue(status.errorMessage ?? (status.itemCount == 0 ? "Empty" : "\(status.itemCount) items in home Trash"))
+        .help(status.errorMessage ?? (status.itemCount == 0 ? "Home Trash is empty" : TrashCopy.countLabel(status.itemCount)))
     }
 }
 
@@ -55,9 +55,9 @@ private struct TrashPopoutWidgetView: View {
                 Image(systemName: status.errorMessage != nil ? "exclamationmark.triangle" : status.itemCount == 0 ? "trash" : "trash.fill")
                     .font(.system(size: 36)).foregroundColor(status.itemCount == 0 ? Color.secondary : Color.orange)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(status.errorMessage != nil ? "Trash Unavailable" : status.itemCount == 0 ? "Trash is Empty" : "\(status.itemCount) Items")
+                    Text(status.errorMessage != nil ? "Trash Unavailable" : status.itemCount == 0 ? "Home Trash is Empty" : "\(status.itemCount) Items")
                         .font(.title3.weight(.semibold))
-                    Text("Items in your home-folder Trash")
+                    Text(TrashCopy.countScope)
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -74,17 +74,18 @@ private struct TrashPopoutWidgetView: View {
                 Spacer()
                 Button("Empty Trash…", role: .destructive) { confirmingEmpty = true }
                     .buttonStyle(DockButtonStyle(primary: true))
+                    .help(TrashCopy.emptyHelp)
                     .disabled(status.itemCount == 0 || status.errorMessage != nil)
             }
         }
         .padding(.bottom, 4)
         .frame(width: 300)
         .task { status.refresh() }
-        .confirmationDialog("Permanently delete the items in your Trash?", isPresented: $confirmingEmpty, titleVisibility: .visible) {
-            Button("Empty Trash", role: .destructive, action: emptyTrash)
+        .confirmationDialog(TrashCopy.emptyConfirmationTitle, isPresented: $confirmingEmpty, titleVisibility: .visible) {
+            Button(TrashCopy.emptyButton, role: .destructive, action: emptyTrash)
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This cannot be undone. Finder may show its own confirmation before deleting items.")
+            Text(TrashCopy.emptyConfirmationMessage)
         }
         .alert("Trash", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
             Button("OK", role: .cancel) { actionError = nil }

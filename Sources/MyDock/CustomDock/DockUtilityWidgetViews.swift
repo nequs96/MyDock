@@ -87,6 +87,7 @@ struct FileShelfView: View {
                 Button("Add Files…", action: chooseFiles).disabled(entries.count >= FileShelfPolicy.capacity)
                 Spacer()
                 Text("\(entries.count) / \(FileShelfPolicy.capacity)").font(.caption).foregroundStyle(.secondary)
+                if entries.count > availableURLs.count { Button("Retry") { retryUnavailable() }.help("Check again, for example after reconnecting a drive") }
                 Button("Copy All") { copy(availableURLs) }.disabled(availableURLs.isEmpty)
             }
             if !entries.isEmpty {
@@ -123,6 +124,7 @@ struct FileShelfView: View {
                 Text(exists ? url.deletingLastPathComponent().abbreviatingWithTildeInPath : "Original unavailable · moved or deleted")
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }.frame(maxWidth: .infinity, alignment: .leading)
+            if !exists { Button("Locate…") { locate(entry) }.accessibilityLabel("Locate \(url.lastPathComponent)") }
             Button { copy([url]) } label: { Image(systemName: "doc.on.doc") }.disabled(!exists).accessibilityLabel("Copy \(url.lastPathComponent)")
             Button { remove(entry.id) } label: { Image(systemName: "minus.circle") }.accessibilityLabel("Remove \(url.lastPathComponent) from shelf")
         }.padding(.vertical, 9)
@@ -136,6 +138,7 @@ struct FileShelfView: View {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }.disabled(!exists)
                 Button("Copy File") { copy([url]) }.disabled(!exists)
+                if !exists { Button("Locate…") { locate(entry) }; Button("Retry") { retryUnavailable() } }
                 Button("Remove from Shelf") { remove(entry.id) }
             }
             .onDrag { AppRuntimeEnvironment.allowsNativeEffects && exists ? NSItemProvider(contentsOf: url) ?? NSItemProvider() : NSItemProvider() }
@@ -148,6 +151,30 @@ struct FileShelfView: View {
         guard panel.runModal() == .OK else { return }
         store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.shelfFiles = FileShelfPolicy.adding(panel.urls, to: $0.shelfFiles) }
         message = nil
+    }
+    private func locate(_ entry: ShelfFile) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { message = utilityIsolatedActionMessage; return }
+        let panel = NSOpenPanel()
+        panel.title = "Locate \(entry.resolvedURL.lastPathComponent)"; panel.prompt = "Use This File"
+        panel.canChooseFiles = true; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let chosen = panel.url else { return }
+        switch FileShelfPolicy.relocating(entry.id, to: chosen, in: entries) {
+        case .relocated:
+            store.updateWidgetConfiguration(itemID: item.id, in: profileID) {
+                if case let .relocated(updated) = FileShelfPolicy.relocating(entry.id, to: chosen, in: $0.shelfFiles) { $0.shelfFiles = updated }
+            }
+            message = "Shelf item now points to \(chosen.lastPathComponent)."
+        case let .duplicate(name): message = "\(name) is already on this shelf, so the missing item was left unchanged. Remove it or choose a different file."
+        case .notFound: message = "That file could not be found. The shelf item was left unchanged."
+        case .notFileURL: message = "Choose a file on this Mac. The shelf item was left unchanged."
+        }
+    }
+    private func retryUnavailable() {
+        if FileShelfPolicy.refreshingStaleBookmarks(entries) != nil {
+            store.updateWidgetConfiguration(itemID: item.id, in: profileID) { if let updated = FileShelfPolicy.refreshingStaleBookmarks($0.shelfFiles) { $0.shelfFiles = updated } }
+        }
+        let missing = entries.filter { !FileShelfPolicy.isAvailable($0) }.count
+        message = missing == 0 ? "All shelf items are available." : "\(missing) shelf item\(missing == 1 ? "" : "s") still unavailable. Reconnect the drive or use Locate…"
     }
     private func remove(_ id: UUID) {
         let pending = RemovedEntries.capture([id], from: entries, message: "Removed from the shelf. The original file was not deleted.")

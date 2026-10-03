@@ -272,7 +272,7 @@ struct SettingsView: View {
                     }
                 }
                 DockSettingSection(title: "Focus filters") {
-                    Text("In System Settings → Focus, choose a Focus, select Add Filter, then choose MyDock and a saved Dock profile. When that Focus turns off, MyDock leaves the last applied Dock selected.")
+                    Text(FocusFilterAvailability.guidance())
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 DockSettingSection(title: "Native Dock switching") {
