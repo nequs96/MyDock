@@ -179,10 +179,15 @@ struct ProfileStoreTests {
 
         let store = ProfileStore(fileURL: file)
         #expect(store.persistenceWarning != nil)
-        _ = store.createProfile(kind: .custom)
+        // Create is candidate-first: a refused create publishes nothing and returns no identity.
+        #expect(store.createProfile(kind: .custom) == nil)
+        #expect(store.state.profiles.isEmpty)
+        #expect(!store.hasUnpersistedChanges)
+        // The throwing API (used by every production caller) surfaces the protection reason.
+        #expect(throws: EditSessionSaveError.self) { try store.createProfileAndPersist(kind: .custom) }
+        #expect(store.state.profiles.isEmpty)
         #expect(try Data(contentsOf: file) == futureData)
-        #expect(store.persistenceError == store.persistenceWarning)
-        #expect(store.hasUnpersistedChanges)
+        #expect(store.persistenceWarning != nil)
         #expect(!store.canRetryPersistence)
     }
 
@@ -2498,9 +2503,10 @@ struct ProfileStoreTests {
         let unbounded = #"{"customDockSize":999,"customDockItemSpacing":50,"customDockCornerRadius":3,"customDockTintStrength":2}"#
         let restoredUnbounded = try JSONDecoder().decode(AppSettings.self, from: Data(unbounded.utf8))
         #expect(restoredUnbounded.customDockSize == 1.5)
-        #expect(restoredUnbounded.customDockItemSpacing == 18)
-        #expect(restoredUnbounded.customDockCornerRadius == 12)
-        #expect(restoredUnbounded.customDockTintStrength == 0.3)
+        // Global decode clamps to DockAppearanceBounds (spacing 0...30, corner 0...50, tint 0...0.5).
+        #expect(restoredUnbounded.customDockItemSpacing == 30)
+        #expect(restoredUnbounded.customDockCornerRadius == 3)
+        #expect(restoredUnbounded.customDockTintStrength == 0.5)
     }
 
     @Test func settingsSidebarKeepsLegacyDockPageAndPersistsNewPages() throws {
@@ -2518,14 +2524,15 @@ struct ProfileStoreTests {
 
     @Test func dockSurfaceMetricsMatchRenderedTileGeometry() {
         let items = [DockItem.widget("Clock"), DockItem.spacer(.small), DockItem.widget("Battery")]
+        // Clock Compact is 104 wide (MD-U03, was 84): +20 per Clock, scaled with the dock scale.
         var settings = AppSettings()
         settings.customDockWidgetStyle = .compact
-        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 222)
+        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 242)
         settings.customDockWidgetStyle = .cards
-        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 222)
+        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 242)
         settings.customDockItemSpacing = 14
-        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 234)
-        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1.5) == 350)
+        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 254)
+        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1.5) == 380)
         settings.customDockPosition = .left
         #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 168)
         settings.customDockPosition = .bottom
