@@ -298,7 +298,7 @@ final class ProfileStore: ObservableObject {
         do { try persistCandidate(nextState) } catch { }
     }
 
-    func updateSettings(immediately: Bool = true, _ update: (inout AppSettings) -> Void) {
+    func updateSettings(immediately: Bool = false, _ update: (inout AppSettings) -> Void) {
         var settings = state.settings
         update(&settings)
         guard settings != state.settings else { return }
@@ -307,7 +307,7 @@ final class ProfileStore: ObservableObject {
     }
 
     func setAppearance(_ appearance: ProfileAppearance?, for profileID: UUID,
-                       immediately: Bool = true, recordHistory: Bool = true) {
+                       immediately: Bool = false, recordHistory: Bool = true) {
         guard let index = state.profiles.firstIndex(where: { $0.id == profileID && $0.kind == .custom }),
               state.profiles[index].appearance != appearance else { return }
         do { try appearance?.validate() }
@@ -345,13 +345,13 @@ final class ProfileStore: ObservableObject {
     func renameProfile(_ id: UUID, to name: String) {
         guard let index = state.profiles.firstIndex(where: { $0.id == id }), !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         state.profiles[index].name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        commit()
+        commit(immediately: false)
     }
 
     func setProfileColor(_ id: UUID, to color: DockProfileColor) {
         guard let index = state.profiles.firstIndex(where: { $0.id == id }) else { return }
         state.profiles[index].color = color.rawValue
-        commit()
+        commit(immediately: false)
     }
 
     func add(_ item: DockItem, to profileID: UUID? = nil) {
@@ -359,7 +359,7 @@ final class ProfileStore: ObservableObject {
         guard let targetID, let index = state.profiles.firstIndex(where: { $0.id == targetID }) else { return }
         let insertedItem = itemWithUniqueIdentity(item)
         state.profiles[index].items.append(insertedItem)
-        commit()
+        commit(immediately: false)
     }
 
     func insert(_ item: DockItem, before targetID: UUID?, in profileID: UUID) {
@@ -369,7 +369,7 @@ final class ProfileStore: ObservableObject {
             ?? state.profiles[index].items.endIndex
         let insertedItem = itemWithUniqueIdentity(item)
         state.profiles[index].items.insert(insertedItem, at: target)
-        commit()
+        commit(immediately: false)
     }
 
     private func itemWithUniqueIdentity(_ item: DockItem) -> DockItem {
@@ -384,14 +384,14 @@ final class ProfileStore: ObservableObject {
         let items = DockItemOrderingPolicy.moving(state.profiles[index].items, ids: itemIDs, before: targetID)
         guard items != state.profiles[index].items else { return }
         state.profiles[index].items = items
-        commit()
+        commit(immediately: false)
     }
 
     func updateItem(_ itemID: UUID, in profileID: UUID, update: (inout DockItem) -> Void) {
         guard let profileIndex = state.profiles.firstIndex(where: { $0.id == profileID }),
               let itemIndex = state.profiles[profileIndex].items.firstIndex(where: { $0.id == itemID }) else { return }
         update(&state.profiles[profileIndex].items[itemIndex])
-        commit()
+        commit(immediately: false)
     }
 
     func addSpacer(_ kind: SpacerKind) {
@@ -411,7 +411,7 @@ final class ProfileStore: ObservableObject {
         removedItems.forEach { WidgetSetupDraftStore.shared.clearDrafts(for: $0.id) }
         state.profiles[index].items.removeAll { itemIDs.contains($0.id) }
         utilityDrafts.discardTargets(removedItemIDs: Set(removedItems.map(\.id)))
-        commit()
+        commit(immediately: false)
     }
 
     func moveItem(_ itemID: UUID, before targetID: UUID, in profileID: UUID) {
@@ -422,7 +422,7 @@ final class ProfileStore: ObservableObject {
         let item = state.profiles[profileIndex].items.remove(at: sourceIndex)
         let adjustedTarget = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
         state.profiles[profileIndex].items.insert(item, at: adjustedTarget)
-        commit()
+        commit(immediately: false)
     }
 
     func moveItems(_ itemIDs: Set<UUID>, direction: DockItemMoveDirection, in profileID: UUID) {
@@ -431,7 +431,7 @@ final class ProfileStore: ObservableObject {
         let items = DockItemOrderingPolicy.moving(state.profiles[profileIndex].items, ids: itemIDs, direction: direction)
         guard items.map(\.id) != state.profiles[profileIndex].items.map(\.id) else { return }
         state.profiles[profileIndex].items = items
-        commit()
+        commit(immediately: false)
     }
 
     func replaceProfiles(_ profiles: [DockProfile]) throws {

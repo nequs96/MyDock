@@ -328,6 +328,7 @@ struct ProfileStoreTests {
         store.add(last, to: profileID)
 
         store.removeItems([first.id, last.id], from: profileID)
+        store.flush()
 
         let restored = ProfileStore(fileURL: file)
         #expect(restored.state.profiles.first(where: { $0.id == profileID })?.items == [retained])
