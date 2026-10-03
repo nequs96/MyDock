@@ -95,6 +95,8 @@ private struct PaddlePopoutView: View {
                       systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
+            DataSourceProvenanceView(provenance: .paddle(snapshot: snapshot, localName: configuration.paddleDisplayName,
+                                                         metric: configuration.paddleMetric, error: errorMessage))
             Text("Net revenue is Paddle's reported revenue after tax and fees, before refunds and chargebacks. MRR is its current recurring run rate; ARR is MRR × 12, not a cash forecast. Paddle reports its primary balance currency and UTC-day series.")
                 .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }

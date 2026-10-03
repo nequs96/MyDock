@@ -545,6 +545,7 @@ struct SettingsView: View {
                         Text("\(store.customProfiles.count)").foregroundStyle(.secondary)
                     }
                 }
+                PrivacyHelpSection()
                 DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
                 DockSettingSection(title: "Diagnostics") {
                     Text("Export a redacted status report for troubleshooting. It contains app and macOS versions, item counts, appearance choices, save status, and recent event codes. It excludes profile names, app and file paths, URLs, note text, calendar content, credentials, and window images.")
@@ -637,6 +638,7 @@ struct SettingsView: View {
                     AIAccountConnectionView(provider: .claude, allowsAccountActions: store.allowsSystemChanges, showsLimitsSetup: true)
                 }
                 ConnectionsCenterView(store: store)
+                PrivacyHelpSection()
                 DockSettingSection(title: "Market data") {
                     integrationSummary("Alpha Vantage", symbol: "chart.line.uptrend.xyaxis", connected: marketAPIKeySaved)
                     DisclosureGroup("Manage API key", isExpanded: $marketConnectionExpanded) {

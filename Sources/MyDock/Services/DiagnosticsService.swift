@@ -109,6 +109,10 @@ struct DiagnosticReport: Codable {
     let formatVersion: Int
     let generatedAt: Date
     let appVersion: String
+    /// CFBundleVersion of the running bundle, or "unbundled" when run outside an app bundle.
+    let buildNumber: String
+    /// True when the bundle carries App Intents metadata, which identifies the Xcode-built app.
+    let hasIntentMetadata: Bool
     let stateSchemaVersion: Int
     let macOSMajorVersion: Int
     let macOSMinorVersion: Int
@@ -118,9 +122,15 @@ struct DiagnosticReport: Codable {
     let appearance: Appearance
     let recentEvents: [DiagnosticEvent]
 
+    static func currentBuildNumber(bundle: Bundle = .main) -> String {
+        (bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "unbundled"
+    }
+
     static func makeData(state: PersistentState, hasUnpersistedChanges: Bool,
                          persistenceWarningPresent: Bool, storageWritable: Bool,
                          events: [DiagnosticEvent], now: Date = .now,
+                         buildNumber: String = DiagnosticReport.currentBuildNumber(),
+                         hasIntentMetadata: Bool = FocusFilterAvailability.hasIntentMetadata(),
                          osVersion: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion) throws -> Data {
         let items = state.profiles.flatMap(\.items)
         let counts = Counts(nativeProfiles: state.profiles.filter { $0.kind == .native }.count,
@@ -132,8 +142,10 @@ struct DiagnosticReport: Codable {
                             spacers: items.filter { $0.type == .spacer }.count,
                             widgets: items.filter { $0.type == .widget }.count)
         let settings = state.settings
-        let report = DiagnosticReport(formatVersion: 1, generatedAt: now,
+        let report = DiagnosticReport(formatVersion: 2, generatedAt: now,
                                       appVersion: Product.marketingVersion,
+                                      buildNumber: buildNumber,
+                                      hasIntentMetadata: hasIntentMetadata,
                                       stateSchemaVersion: state.schemaVersion,
                                       macOSMajorVersion: osVersion.majorVersion,
                                       macOSMinorVersion: osVersion.minorVersion,

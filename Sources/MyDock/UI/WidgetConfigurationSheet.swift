@@ -10,6 +10,7 @@ struct WidgetConfigurationSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var contentHeight: CGFloat = 360
     @State private var showsAppearance = false
+    @State private var editorDemand = RefreshDemandHolder(kind: .editor)
 
     private var currentItem: DockItem {
         store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id } ?? item
@@ -57,7 +58,26 @@ struct WidgetConfigurationSheet: View {
         .buttonStyle(DockButtonStyle())
         .textFieldStyle(DockTextFieldStyle())
         .onExitCommand { dismiss() }
+        // Live previews keep refreshing while the Dock is hidden; the token is released when the editor goes away.
+        .onAppear { editorDemand.begin() }
+        .onDisappear { editorDemand.end() }
     }
+}
+
+/// Holds one typed refresh-demand token for exactly as long as a visible consumer asks for it.
+@MainActor
+final class RefreshDemandHolder {
+    private let kind: RefreshDemandKind
+    private let scheduler: RefreshScheduler
+    private var token: RefreshDemandToken?
+    var isHolding: Bool { token != nil }
+
+    init(kind: RefreshDemandKind, scheduler: RefreshScheduler = .shared) {
+        self.kind = kind; self.scheduler = scheduler
+    }
+
+    func begin() { scheduler.setDemand(&token, kind: kind, active: true) }
+    func end() { scheduler.setDemand(&token, kind: kind, active: false) }
 }
 
 private struct WidgetConfigurationHeightKey: PreferenceKey {
