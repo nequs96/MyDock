@@ -2245,3 +2245,57 @@ Verification:
 - Architectures x86_64 + arm64; `codesign --verify --strict` OK (ad-hoc).
 - Launched the canonical path (PID 74997); the process is running. No UI interaction or native scenario was performed by the coordinator.
 - N3 and later merges will be rebuilt at the next integration point.
+
+### Waves 2–3 journal (continued)
+
+**P3 Product — merged 02becee (branch commit 7bbd686).**
+
+Implemented:
+- **PR-17/MD-Q02:** `PremiumVisualQA.semanticLayoutPages` derives export pages from `WidgetRegistry`, so all 35 families are covered (previously the last 5 were omitted). `RegistryQualificationTests` asserts that every registry family has a provider, a presentation option and a QA page slot.
+- **MD-Q05:** ARCHITECTURE (envelope-first guard, 35 families, validation isolation section), ACCEPTANCE_TESTS (H1–H9 is the native source, nothing marked passed), PARITY_MATRIX, PERMISSIONS (Paddle metrics.read, Finder-wide Empty Trash, Focus needs the Xcode-built app) and README are corrected.
+
+Verification:
+- Coordinator confirmed that `build/MyDock.app/Contents/Resources` has no `Metadata.appintents`.
+- Dated test counts inside the docs remain historical.
+
+**R2 Reliability — merged c346baf (branch commit 4400780).** Coordinator review accepted it.
+
+Implemented:
+- **P01:** Claude deduplicated by message/request id with incremental counters and per-`tool_use` ids; Codex deduplicated per session cumulative point; unidentified repeats are marked partial.
+- **P02:** single `claudeDirectory(home:environment:)` resolver for account, limits and activity.
+- **P03:** Shopify `isSameStore` keeps the local ID and rejects a different store.
+- **P04:** page budget of 60, visited/advancing cursor checks, order-ID dedup, and `incompletePagination` with no partial total.
+- **P05:** `completingItems` makes up to 20 `/v1/subscription_items` expansions; a still-partial subscription is counted as unsupported.
+- **P06:** Paddle copy says Metrics → Read.
+- **P07:** `plausibleDelta` treats a decrease as a wrap only when it is plausible for a 32-bit counter; otherwise that interval has no rate.
+- **P08:** `BoundedHTTPFetch` streaming byte caps (Stripe/Paddle/Market 5 MB, Shopify 8 MB, Weather 2 MB) with a 60 s total limit.
+- **P09:** `ConnectionTenantPolicy` plus `clearPersistedSnapshots`. A Stripe `/v1/account` identity comparison clears only when the tenant changes; an unknown tenant or Paddle key change clears; the widget stays assigned.
+- **P10:** distinct session IDs across the range (daily points stay per-day); `semanticVersion` 2 forces old cached totals to recompute.
+
+Verification:
+- 28 fixtures pass.
+- Two legacy ProfileStoreTests expectations were changed for P10 (one session spanning two days = 1).
+- Live account smoke tests have not been run (they require dedicated authorized accounts).
+
+**R3 Reliability — merged 8d0870e (branch commit 609e6af).** Coordinator review accepted it.
+
+Implemented:
+- **S01:** Cancel Run (SIGTERM, then SIGKILL after grace), no deadline for interactive runs, bounded stderr in failures, `cancelAll` on terminate.
+- **S02:** explicit loading and unavailable states, latest-request token, per-entry cancellation, 300-row display cap.
+- **S03:** Location has a 45 s deadline and rejects fixes over 10 min old or worse than 5 km accuracy, with typed errors. Reminders go through the `BoundedNativeFetch` single-resume gate (20 s), which cancels the EventKit token.
+- **S04:** `HydrationReconcilePlanner` runs at startup and wake. It never prompts, removes duplicate and orphaned requests, and reschedules lost ones. When authorization is not granted it turns the saved enabled flag off. This deliberately matches the existing Alarm startup reconcile, so stored state never claims undeliverable reminders, and re-enabling prompts normally.
+- **S05:** `RefreshScheduler` typed demand tokens (`RefreshDemandLedger`). It ticks when the Dock is visible or any token is held, and stays idle otherwise. System Activity, Network and Now Playing popouts hold demand.
+
+Gaps and verification:
+- The `.editor` demand kind exists but no consumer is wired. Battery has no popout token.
+- One legacy Now Playing policy expectation was updated (hidden Dock plus popout → 5 s).
+- H7/H8 native steps are open.
+
+**Coordinator integration fix — Xcode project (ed8ebd6, e7d44cc).** `MyDock.xcodeproj` lists sources explicitly, and 9 sources plus 13 test files added since 24f9c76 (Codex and waves 1–3) were not registered. The Xcode/release build would therefore have failed, although SwiftPM was green. All files are now registered in their sibling group and build phase, and `plutil -lint` passes. **An Xcode build was not run: full Xcode is absent (xcodebuild refuses under CommandLineTools). This remains blocked under H9.**
+
+**Coordinator integration build (e7d44cc):**
+- `./TestMyDock.sh`: **398 tests in 47 suites passed, 0 failed, 5 opt-in skips.**
+- Clean quit of the running app via a quit Apple Event. The process exited normally, so MyDock's own restore-on-quit path ran.
+- `./BuildMyDock.sh` exit 0. Executable SHA-256 `c936b8eca17c9ad49832acdf0ddeaccc48db39e33b80a5d6a64fc7b4fcff7d6c`, universal x86_64 + arm64, strict ad-hoc signature valid.
+- Relaunched canonical `build/MyDock.app` (PID 84180).
+- No UI or native scenario was exercised by the coordinator.
