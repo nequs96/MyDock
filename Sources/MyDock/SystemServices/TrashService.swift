@@ -96,7 +96,31 @@ enum TrashActions {
     }
 
     static func emptyTrash() async throws {
-        _ = try await BoundedAutomationRunner.run("tell application id \"com.apple.finder\" to empty trash")
+        do {
+            _ = try await BoundedAutomationRunner.run("tell application id \"com.apple.finder\" to empty trash")
+        } catch {
+            throw TrashActionError.failed(TrashCopy.emptyFailureMessage(for: error))
+        }
+    }
+}
+
+/// User-facing Trash wording. Finder's `empty trash` covers every mounted volume, while MyDock counts and opens only ~/.Trash.
+enum TrashCopy {
+    static let countScope = "Items in your home Trash (~/.Trash)"
+    static let emptyConfirmationTitle = "Empty the Trash on all volumes?"
+    static let emptyConfirmationMessage = "This permanently deletes everything in Finder's Trash on all volumes, including items on external drives that are not counted here. It cannot be undone. Finder may show its own confirmation."
+    static let emptyButton = "Empty Trash on All Volumes"
+    static let emptyHelp = "Asks Finder to empty the Trash on all volumes. The count shows only your home Trash."
+
+    static func countLabel(_ count: Int) -> String { count == 1 ? "1 item in home Trash" : "\(count) items in home Trash" }
+
+    /// The automation runner reports every non-zero osascript exit the same way, so describe the likely causes without claiming one.
+    static func emptyFailureMessage(for error: Error) -> String {
+        if let known = error as? TrashActionError, case let .failed(message) = known { return message }
+        if error is NowPlayingParsingError {
+            return "Finder did not confirm that the Trash was emptied. Automation access for Finder may be denied (System Settings \u{2192} Privacy & Security \u{2192} Automation), or some items could not be deleted. Open Trash in Finder to check what remains."
+        }
+        return error.localizedDescription
     }
 }
 

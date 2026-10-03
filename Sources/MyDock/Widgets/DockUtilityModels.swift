@@ -10,10 +10,22 @@ struct ShelfFile: Codable, Hashable, Identifiable {
         bookmark = try? url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
-    var resolvedURL: URL {
-        guard let bookmark else { return url }
+    var resolvedURL: URL { resolution.url }
+
+    /// Resolved location plus whether the stored bookmark reported itself stale.
+    var resolution: (url: URL, isStale: Bool) {
+        guard let bookmark else { return (url, false) }
         var stale = false
-        return (try? URL(resolvingBookmarkData: bookmark, options: [.withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale)) ?? url
+        guard let resolved = try? URL(resolvingBookmarkData: bookmark, options: [.withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale) else { return (url, false) }
+        return (resolved, stale)
+    }
+
+    /// Points this entry at a new file while keeping its identity (and therefore title and position).
+    mutating func relocate(to newURL: URL) {
+        let normalized = newURL.standardizedFileURL
+        url = normalized
+        let data = try? normalized.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
+        bookmark = (data?.count ?? 0) > 65_536 ? nil : data
     }
 }
 
@@ -44,6 +56,46 @@ enum FileShelfPolicy {
             result.append(entry)
         }
         return result
+    }
+}
+
+extension FileShelfPolicy {
+    enum RelocationResult: Equatable {
+        case relocated([ShelfFile])
+        case duplicate(existingName: String)
+        case notFound
+        case notFileURL
+    }
+
+    /// Replaces one entry's URL and bookmark atomically. A file already kept by another entry is rejected and nothing changes.
+    static func relocating(_ id: UUID, to newURL: URL, in entries: [ShelfFile], fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) -> RelocationResult {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return .notFound }
+        guard newURL.isFileURL else { return .notFileURL }
+        let normalized = newURL.standardizedFileURL
+        guard fileExists(normalized) else { return .notFound }
+        if let other = entries.first(where: { $0.id != id && $0.resolvedURL.standardizedFileURL == normalized }) {
+            return .duplicate(existingName: other.resolvedURL.lastPathComponent)
+        }
+        var result = entries
+        result[index].relocate(to: normalized)
+        return .relocated(result)
+    }
+
+    /// Regenerates stale bookmarks for entries whose file resolves. Missing entries are kept untouched. Returns nil when nothing changed.
+    static func refreshingStaleBookmarks(_ entries: [ShelfFile], fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) -> [ShelfFile]? {
+        var result = entries
+        var changed = false
+        for index in result.indices {
+            let resolution = result[index].resolution
+            guard resolution.isStale, fileExists(resolution.url) else { continue }
+            result[index].relocate(to: resolution.url)
+            changed = true
+        }
+        return changed ? result : nil
+    }
+
+    static func isAvailable(_ entry: ShelfFile, fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) -> Bool {
+        fileExists(entry.resolvedURL)
     }
 }
 
