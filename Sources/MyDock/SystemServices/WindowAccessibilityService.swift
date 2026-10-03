@@ -4,6 +4,18 @@ import Combine
 import CoreGraphics
 import Foundation
 
+/// AX references identify the observed native object, including untitled windows.
+/// The reference is immutable; AX messaging is performed only on worker tasks.
+/// CF equality prevents a later same-title replacement receiving an old action.
+final class WindowAccessibilityObservation: @unchecked Sendable, Hashable {
+    let element: AXUIElement
+    init(_ element: AXUIElement) { self.element = element }
+    static func == (lhs: WindowAccessibilityObservation, rhs: WindowAccessibilityObservation) -> Bool {
+        CFEqual(lhs.element, rhs.element)
+    }
+    func hash(into hasher: inout Hasher) { hasher.combine(CFHash(element)) }
+}
+
 struct DockWindowDescriptor: Identifiable, Hashable, Sendable {
     var processID: pid_t
     var windowIndex: Int
@@ -12,15 +24,23 @@ struct DockWindowDescriptor: Identifiable, Hashable, Sendable {
     var title: String
     var isMinimized: Bool
     var accessibilityIdentifier: String?
+    var rawTitle: String? = nil
+    var applicationIdentity: NativeApplicationIdentity? = nil
+    var accessibilityObservation: WindowAccessibilityObservation? = nil
 
-    var id: String { "\(processID)-\(accessibilityIdentifier ?? "\(windowIndex):\(title)")" }
+    var identityTitle: String { rawTitle ?? title }
+    var id: String {
+        let lifetime = applicationIdentity.map { String($0.launchDate.timeIntervalSince1970) } ?? "legacy"
+        return "\(processID)-\(lifetime)-\(accessibilityIdentifier ?? "\(windowIndex):\(identityTitle)")"
+    }
 }
 
 enum WindowAccessibilityService {
-    static func isTrusted() -> Bool { AXIsProcessTrusted() }
+    static func isTrusted() -> Bool { AppRuntimeEnvironment.allowsNativeEffects && AXIsProcessTrusted() }
 
     static func requestAccessPrompt() -> Bool {
-        AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return false }
+        return AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
     }
 
     static func shouldMinimizeFocusedApp(toggleEnabled: Bool,
@@ -33,81 +53,170 @@ enum WindowAccessibilityService {
             && hasFocusedWindow
     }
 
+    enum WindowDiscoveryResult: Sendable {
+        case available([DockWindowDescriptor])
+        case permissionRequired
+        case applicationUnavailable
+        case unavailable
+    }
+
+    enum WindowMenuAction: Sendable, Equatable { case activate, close }
+    @MainActor private static var menuDiscoveryTask: Task<Void, Never>?
+
+    /// Explicit menu discovery is independent of background tile/minimize monitoring.
+    /// No permission request occurs here. The chooser contains fresh observations,
+    /// each revalidated again when its action is requested.
+    @MainActor
+    static func showWindowMenu(for identity: NativeApplicationIdentity, action: WindowMenuAction) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
+        let location = NSEvent.mouseLocation
+        menuDiscoveryTask?.cancel()
+        menuDiscoveryTask = Task {
+            let worker = Task.detached(priority: .userInitiated) { discoverWindows(for: identity) }
+            let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            guard !Task.isCancelled else { return }
+            switch result {
+            case .available(let windows):
+                guard currentApplication(matches: identity) != nil else {
+                    showDiscoveryMessage("Application unavailable", "The selected application stopped or restarted. Open its current menu and try again.")
+                    return
+                }
+                guard !windows.isEmpty else {
+                    showDiscoveryMessage("No accessible windows", "This application has no windows that macOS Accessibility currently exposes.")
+                    return
+                }
+                let menu = NSMenu(title: action == .close ? "Close Window" : "Windows")
+                let targets = windows.map { descriptor in
+                    WindowMenuTarget(descriptor: descriptor, action: action)
+                }
+                for target in targets {
+                    let title = action == .close ? target.descriptor.title
+                        : "\(target.descriptor.isMinimized ? "Restore" : "Activate"): \(target.descriptor.title)"
+                    let item = NSMenuItem(title: title, action: #selector(WindowMenuTarget.performAction(_:)), keyEquivalent: "")
+                    item.target = target
+                    menu.addItem(item)
+                }
+                // AppKit targets are weak. Keep every target alive while this menu tracks.
+                withExtendedLifetime(targets) { _ = menu.popUp(positioning: nil, at: location, in: nil) }
+            case .permissionRequired:
+                showDiscoveryMessage("Accessibility access needed", "Window actions need MyDock’s Accessibility access. Allow it in System Settings → Privacy & Security → Accessibility, then try again. Opening apps does not require this access.")
+            case .applicationUnavailable:
+                showDiscoveryMessage("Application unavailable", "The selected application stopped or restarted. Open its current menu and try again.")
+            case .unavailable:
+                showDiscoveryMessage("Windows unavailable", "The application did not provide a complete window list in time. Try again, or select its window directly in the application.")
+            }
+        }
+    }
+
+    @MainActor
+    private static func showDiscoveryMessage(_ title: String, _ message: String) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.runModal()
+    }
+
+    @MainActor
+    private final class WindowMenuTarget: NSObject {
+        let descriptor: DockWindowDescriptor
+        let action: WindowMenuAction
+        init(descriptor: DockWindowDescriptor, action: WindowMenuAction) {
+            self.descriptor = descriptor
+            self.action = action
+        }
+        @objc func performAction(_ sender: NSMenuItem) {
+            switch action {
+            case .activate: WindowAccessibilityService.activate(descriptor)
+            case .close: WindowAccessibilityService.close(descriptor)
+            }
+        }
+    }
+
+    static func currentApplication(matches identity: NativeApplicationIdentity) -> NSRunningApplication? {
+        guard AppRuntimeEnvironment.allowsNativeEffects, let app = NSRunningApplication(processIdentifier: identity.processID),
+              let current = NativeApplicationIdentity.observing(app), identity.matches(current) else { return nil }
+        return app
+    }
+
+    static func discoverWindows(for identity: NativeApplicationIdentity) -> WindowDiscoveryResult {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return .unavailable }
+        guard AXIsProcessTrusted() else { return .permissionRequired }
+        guard let app = currentApplication(matches: identity) else { return .applicationUnavailable }
+        return observedWindows(for: app, identity: identity, deadline: Date.now.addingTimeInterval(2))
+    }
+
     static func windows() -> [DockWindowDescriptor] {
-        guard AXIsProcessTrusted() else { return [] }
+        guard AppRuntimeEnvironment.allowsNativeEffects, AXIsProcessTrusted() else { return [] }
         var result: [DockWindowDescriptor] = []
         let deadline = Date.now.addingTimeInterval(2)
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && !app.isTerminated {
-            guard let bundleIdentifier = app.bundleIdentifier else { continue }
             if Task.isCancelled || Date.now >= deadline { break }
-            let applicationElement = AXUIElementCreateApplication(app.processIdentifier)
-            AXUIElementSetMessagingTimeout(applicationElement, 0.1)
-            var windowsValue: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(applicationElement, kAXWindowsAttribute as CFString, &windowsValue) == .success,
-                  let windows = windowsValue as? [AXUIElement] else { continue }
-            for (index, window) in windows.prefix(100).enumerated() {
-                if Task.isCancelled || Date.now >= deadline { break }
-                AXUIElementSetMessagingTimeout(window, 0.1)
-                var titleValue: CFTypeRef?
-                _ = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue)
-                let title = (titleValue as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                var identifierValue: CFTypeRef?
-                _ = AXUIElementCopyAttributeValue(window, kAXIdentifierAttribute as CFString, &identifierValue)
-                let identifier = (identifierValue as? String).flatMap { $0.isEmpty ? nil : $0 }
-                var minimizedValue: CFTypeRef?
-                _ = AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedValue)
-                let isMinimized = (minimizedValue as? NSNumber)?.boolValue ?? false
-                result.append(DockWindowDescriptor(processID: app.processIdentifier,
-                                                   windowIndex: index,
-                                                   bundleIdentifier: bundleIdentifier,
-                                                   applicationName: app.localizedName ?? bundleIdentifier,
-                                                   title: title.isEmpty ? (app.localizedName ?? "Window") : title,
-                                                   isMinimized: isMinimized,
-                                                   accessibilityIdentifier: identifier))
+            guard let identity = NativeApplicationIdentity.observing(app) else { continue }
+            if case .available(let windows) = observedWindows(for: app, identity: identity, deadline: deadline) {
+                result += windows
             }
         }
         return result.sorted {
-            if $0.applicationName.localizedCaseInsensitiveCompare($1.applicationName) != .orderedSame {
-                return $0.applicationName.localizedCaseInsensitiveCompare($1.applicationName) == .orderedAscending
-            }
-            return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            let order = $0.applicationName.localizedCaseInsensitiveCompare($1.applicationName)
+            return order == .orderedSame ? $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending : order == .orderedAscending
         }
     }
 
-    @discardableResult
-    static func minimizeFocusedWindow(of bundleIdentifier: String) async -> Bool {
-        await Task.detached(priority: .userInitiated) { minimizeFocusedWindowSynchronously(of: bundleIdentifier) }.value
+    private static func observedWindows(for app: NSRunningApplication, identity: NativeApplicationIdentity, deadline: Date) -> WindowDiscoveryResult {
+        let applicationElement = AXUIElementCreateApplication(identity.processID)
+        AXUIElementSetMessagingTimeout(applicationElement, 0.1)
+        var windowsValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(applicationElement, kAXWindowsAttribute as CFString, &windowsValue) == .success,
+              let windows = windowsValue as? [AXUIElement], windows.count <= 100 else { return .unavailable }
+        var result: [DockWindowDescriptor] = []
+        for (index, window) in windows.enumerated() {
+            guard !Task.isCancelled, Date.now < deadline else { return .unavailable }
+            AXUIElementSetMessagingTimeout(window, 0.1)
+            guard let rawTitle = stringAttribute(kAXTitleAttribute, on: window) else { return .unavailable }
+            let identifier = stringAttribute(kAXIdentifierAttribute, on: window).flatMap { $0.isEmpty ? nil : $0 }
+            var minimizedValue: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedValue)
+            let displayTitle = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            result.append(DockWindowDescriptor(processID: identity.processID, windowIndex: index,
+                bundleIdentifier: identity.bundleIdentifier, applicationName: app.localizedName ?? identity.bundleIdentifier,
+                title: displayTitle.isEmpty ? (app.localizedName ?? "Window") : displayTitle,
+                isMinimized: (minimizedValue as? NSNumber)?.boolValue ?? false,
+                accessibilityIdentifier: identifier, rawTitle: rawTitle, applicationIdentity: identity,
+                accessibilityObservation: WindowAccessibilityObservation(window)))
+        }
+        guard !Task.isCancelled, Date.now < deadline else { return .unavailable }
+        guard currentApplication(matches: identity) != nil else { return .applicationUnavailable }
+        return .available(result)
     }
 
-    private static func minimizeFocusedWindowSynchronously(of bundleIdentifier: String) -> Bool {
-        guard AXIsProcessTrusted(),
-              let app = NSWorkspace.shared.frontmostApplication else { return false }
-        let applicationElement = AXUIElementCreateApplication(app.processIdentifier)
-        AXUIElementSetMessagingTimeout(applicationElement, 0.2)
-        var focusedWindow: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(applicationElement, kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success,
-              let focusedWindow = focusedWindow,
-              CFGetTypeID(focusedWindow) == AXUIElementGetTypeID() else { return false }
-        guard shouldMinimizeFocusedApp(toggleEnabled: true,
-                                       clickedBundleIdentifier: bundleIdentifier,
-                                       frontmostBundleIdentifier: app.bundleIdentifier,
-                                       hasFocusedWindow: true) else { return false }
-        // AX attribute values are opaque CF references; the type-ID guard above validates this bridge.
-        let focusedWindowElement = focusedWindow as! AXUIElement
-        AXUIElementSetMessagingTimeout(focusedWindowElement, 0.2)
-        var minimizeButton: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(focusedWindowElement, kAXMinimizeButtonAttribute as CFString, &minimizeButton) == .success,
-              let minimizeButton = minimizeButton,
-              CFGetTypeID(minimizeButton) == AXUIElementGetTypeID() else { return false }
-        AXUIElementSetMessagingTimeout(minimizeButton as! AXUIElement, 0.2)
-        // The minimize-button value passed the same AXUIElement type-ID check.
-        return AXUIElementPerformAction(minimizeButton as! AXUIElement, kAXPressAction as CFString) == .success
+    @discardableResult
+    static func minimizeFocusedWindow(of identity: NativeApplicationIdentity) async -> Bool {
+        await Task.detached(priority: .userInitiated) {
+            guard AppRuntimeEnvironment.allowsNativeEffects, AXIsProcessTrusted(), currentApplication(matches: identity) != nil,
+                  let app = NSWorkspace.shared.frontmostApplication,
+                  let frontmost = NativeApplicationIdentity.observing(app), identity.matches(frontmost) else { return false }
+            let applicationElement = AXUIElementCreateApplication(identity.processID)
+            AXUIElementSetMessagingTimeout(applicationElement, 0.2)
+            var focusedWindow: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(applicationElement, kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success,
+                  let focusedWindow, CFGetTypeID(focusedWindow) == AXUIElementGetTypeID() else { return false }
+            let focusedWindowElement = focusedWindow as! AXUIElement
+            AXUIElementSetMessagingTimeout(focusedWindowElement, 0.2)
+            var minimizeButton: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(focusedWindowElement, kAXMinimizeButtonAttribute as CFString, &minimizeButton) == .success,
+                  let minimizeButton, CFGetTypeID(minimizeButton) == AXUIElementGetTypeID(),
+                  currentApplication(matches: identity) != nil else { return false }
+            AXUIElementSetMessagingTimeout(minimizeButton as! AXUIElement, 0.2)
+            return AXUIElementPerformAction(minimizeButton as! AXUIElement, kAXPressAction as CFString) == .success
+        }.value
     }
 
     static func activate(_ descriptor: DockWindowDescriptor) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         Task { @MainActor in
             let restored = await Task.detached(priority: .userInitiated) { activateSynchronously(descriptor) }.value
-            if !restored {
+            if !restored, AppRuntimeEnvironment.allowsNativeEffects {
                 let alert = NSAlert()
                 alert.messageText = "Window unavailable"
                 alert.informativeText = "MyDock could not identify this window uniquely or the app did not respond. Open the app and choose its window directly, then try again."
@@ -116,28 +225,69 @@ enum WindowAccessibilityService {
         }
     }
 
-    private static func activateSynchronously(_ descriptor: DockWindowDescriptor) -> Bool {
-        guard AXIsProcessTrusted(), NSRunningApplication(processIdentifier: descriptor.processID)?.bundleIdentifier == descriptor.bundleIdentifier else { return false }
+    static func close(_ descriptor: DockWindowDescriptor) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
+        Task { @MainActor in
+            // AXPress acknowledges the normal close request, not the document
+            // dialog outcome. The target app owns Save/Cancel and its lifetime.
+            let requestAccepted = await Task.detached(priority: .userInitiated) {
+                guard let window = resolvedWindow(descriptor) else { return false }
+                var value: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &value) == .success,
+                      let value, CFGetTypeID(value) == AXUIElementGetTypeID(),
+                      let identity = descriptor.applicationIdentity, currentApplication(matches: identity) != nil else { return false }
+                let button = value as! AXUIElement
+                AXUIElementSetMessagingTimeout(button, 0.2)
+                guard isTrusted(), currentApplication(matches: identity) != nil else { return false }
+                return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
+            }.value
+            if !requestAccepted, AppRuntimeEnvironment.allowsNativeEffects {
+                let alert = NSAlert()
+                alert.messageText = "Could not close window"
+                alert.informativeText = "Check MyDock’s Accessibility access, or open the app and close the window directly. The window may no longer be available."
+                alert.runModal()
+            }
+        }
+    }
+
+    private static func resolvedWindow(_ descriptor: DockWindowDescriptor) -> AXUIElement? {
+        guard AppRuntimeEnvironment.allowsNativeEffects, AXIsProcessTrusted(), let identity = descriptor.applicationIdentity,
+              descriptor.processID == identity.processID, descriptor.bundleIdentifier == identity.bundleIdentifier,
+              let observation = descriptor.accessibilityObservation,
+              currentApplication(matches: identity) != nil else { return nil }
         let appElement = AXUIElementCreateApplication(descriptor.processID)
         AXUIElementSetMessagingTimeout(appElement, 0.1)
         var windowsValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsValue) == .success,
-              let windows = windowsValue as? [AXUIElement] else { return false }
-        let candidates = windows.prefix(100).map { window in
+              let windows = windowsValue as? [AXUIElement], windows.count <= 100 else { return nil }
+        let deadline = Date.now.addingTimeInterval(2)
+        var candidates: [WindowRestoreCandidate] = []
+        for window in windows {
+            guard !Task.isCancelled, Date.now < deadline else { return nil }
             AXUIElementSetMessagingTimeout(window, 0.1)
-            return WindowRestoreCandidate(identifier: stringAttribute(kAXIdentifierAttribute, on: window),
-                                          title: stringAttribute(kAXTitleAttribute, on: window) ?? "")
+            guard let title = stringAttribute(kAXTitleAttribute, on: window) else { return nil }
+            candidates.append(WindowRestoreCandidate(identifier: stringAttribute(kAXIdentifierAttribute, on: window), title: title))
         }
-        guard let index = WindowRestoreIdentity.match(identifier: descriptor.accessibilityIdentifier, title: descriptor.title, candidates: candidates) else { return false }
-        let window = windows[index]
+        guard let index = WindowRestoreIdentity.match(identifier: descriptor.accessibilityIdentifier, title: descriptor.identityTitle, candidates: candidates) else { return nil }
+        guard !Task.isCancelled, Date.now < deadline, CFEqual(observation.element, windows[index]),
+              currentApplication(matches: identity) != nil else { return nil }
+        return windows[index]
+    }
+
+    private static func activateSynchronously(_ descriptor: DockWindowDescriptor) -> Bool {
+        guard let window = resolvedWindow(descriptor), let identity = descriptor.applicationIdentity,
+              let app = currentApplication(matches: identity) else { return false }
         var minimizedValue: CFTypeRef?
         _ = AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedValue)
+        guard isTrusted(), currentApplication(matches: identity) != nil else { return false }
         if (minimizedValue as? NSNumber)?.boolValue == true {
             guard AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse) == .success else { return false }
         }
         let raised = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
-        let activated = NSRunningApplication(processIdentifier: descriptor.processID)?.activate(options: [.activateIgnoringOtherApps]) == true
-        return raised || activated
+        guard currentApplication(matches: identity) != nil else { return false }
+        let activated = app.activate(options: [.activateIgnoringOtherApps])
+        // Application activation alone is not successful window selection.
+        return raised && activated
     }
 
     private static func stringAttribute(_ attribute: String, on element: AXUIElement) -> String? {
@@ -181,6 +331,7 @@ final class WindowAccessibilityMonitor: ObservableObject {
              await WindowPreviewCapturer.captureVisibleWindows(descriptors: $0, freshIDs: $1)
          },
          canCapture: @escaping @MainActor () -> Bool = {
+             guard AppRuntimeEnvironment.allowsNativeEffects else { return false }
              if #available(macOS 14.0, *) { return CGPreflightScreenCaptureAccess() }
              return false
          }) {
@@ -350,8 +501,9 @@ enum WindowRestoreIdentity {
     static func match(identifier: String?, title: String, candidates: [WindowRestoreCandidate]) -> Int? {
         if let identifier {
             let matches = candidates.indices.filter { candidates[$0].identifier == identifier }
-            if matches.count == 1 { return matches[0] }
-            if matches.count > 1 { return nil }
+            // A disappeared stable ID must not redirect an old action to a
+            // different window that happens to reuse its title.
+            return matches.count == 1 ? matches[0] : nil
         }
         let matches = candidates.indices.filter { candidates[$0].title == title }
         return matches.count == 1 ? matches[0] : nil

@@ -15,6 +15,7 @@
 		0D5BAFE0588699099D03B1E6 /* AirDropWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBCBC80CE6951461F8FDC15B /* AirDropWidgetViews.swift */; };
 		0DE44D56FF6A3422A8949C9F /* AppLifecycleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C52A26205134058EE4675264 /* AppLifecycleService.swift */; };
 		0E60ADF75B5706F345E1C898 /* PremiumVisualQA.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAF85853BEDADC21B497AF3A /* PremiumVisualQA.swift */; };
+		0FC850633C4EC7FD1F62D099 /* WidgetPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34CBF7D59C47934E44D65B2 /* WidgetPresentation.swift */; };
 		116A1DA4F039E0AD50117B8D /* LocalClockFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21CFEE1F14847708B9EDFA1A /* LocalClockFormatter.swift */; };
 		13F0DF429E430F6048A50B14 /* RefreshScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42965F326E36376ED429CF6 /* RefreshScheduler.swift */; };
 		13FBF2F24DF8BB1AAFFCD5C2 /* ProfileDraftMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E45DC7D0CFFD7FAE8C764F0 /* ProfileDraftMerge.swift */; };
@@ -43,6 +44,7 @@
 		3EBE7F9EE94EBFCE9D072A45 /* AIAccountConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31F8EE862F5A5783BC091AB5 /* AIAccountConnectionView.swift */; };
 		3F8083D806B67E984EDE0EBF /* DockDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AC348626F11E4CF151E4BE4 /* DockDesign.swift */; };
 		40C72F9E5E256C65225CF240 /* StockWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99186BF9921E1D5CDBFFC2 /* StockWidgetViews.swift */; };
+		41DF28BFD69A8E4552B44445 /* DockUtilityModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC2DAA28FFD845BD79C03B /* DockUtilityModels.swift */; };
 		4AE5974C9CE04E6BF56B9C31 /* ShortcutsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F59E8E5BF7CE0EFB4AD9692 /* ShortcutsService.swift */; };
 		4B02C2E71E772A62D2BD51FC /* FolderIconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3365272DF8136DA76925BCC7 /* FolderIconView.swift */; };
 		4E6D8CE1BECFE8359492F83F /* TrashService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DBC8E2E66C79D80425AE75B /* TrashService.swift */; };
@@ -91,12 +93,14 @@
 		A2CBBC0E5FC42B906F01123E /* DockMaterialSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1A4EEDB9341C84F66E8D66 /* DockMaterialSurface.swift */; };
 		A475CA25DEFE374CF9B42744 /* PaddleDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A362720EE164869D7D987E3 /* PaddleDataService.swift */; };
 		A69366058ECB1EC0AC71575C /* NowPlayingArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C27C41C4DB6A31E908A359 /* NowPlayingArtwork.swift */; };
+		A75A4619E29F94C0AEDB6347 /* WidgetPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E91CBE858AEB6F9F89C19223 /* WidgetPresentationTests.swift */; };
 		A7A5D10457A026634E759D1A /* CalendarRemindersWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA98B889C73D5EDECAB69896 /* CalendarRemindersWidgetViews.swift */; };
 		A8F7870C0237E100860062B3 /* BoundedSubprocessCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE7184BACE7410CA0F13DFAB /* BoundedSubprocessCaptureTests.swift */; };
 		A949B5813F4EA94E2132A197 /* NowPlayingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F7739C0D68A3CA8E3098B7 /* NowPlayingService.swift */; };
 		AB9080C30572BDAD0DE9E666 /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC96B5EE49B3B69DD6C349CA /* ProfileStore.swift */; };
 		B034C1A16BA09916D5994DB0 /* DiagnosticsServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B056D916ED6D0D8D66F2DA00 /* DiagnosticsServiceTests.swift */; };
 		B514CA0C8665C8879F92803C /* WidgetSetupDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10C8D3C773E8C2AF466DCE95 /* WidgetSetupDraftStore.swift */; };
+		B5E8737A0C41151E7CD8B64A /* WidgetPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90753AC9B4EEC6AAC062A325 /* WidgetPrimitives.swift */; };
 		B72AFBB5A78279E47505025B /* CodexAccountRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6C863C6F746C841BD569C5 /* CodexAccountRPC.swift */; };
 		B779A24034E1A26C87372429 /* AIAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 944B715C1680BE3116BEB704 /* AIAccountService.swift */; };
 		B7BDAC5902C74B9D8CE5AD7C /* GitHubCopilotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 096E9DBA97F4A384B7A35A04 /* GitHubCopilotService.swift */; };
@@ -136,6 +140,8 @@
 		F3966C536E638B97EDC932A5 /* StripeWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51088F3122DB5D13D0F9C40 /* StripeWidgetViews.swift */; };
 		F4C1B5C6C7F49A8859CAF97E /* SingleInstanceLockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 891F2782B98F97E60488485B /* SingleInstanceLockTests.swift */; };
 		F581CFE231439478F23A4C5E /* DockProfileStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81913F94F463C9DF77BA059 /* DockProfileStatus.swift */; };
+		F5D1599F3629431E621ACCC4 /* DockUtilityWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9BD2DD6D0CACDD0441DDB85 /* DockUtilityWidgetViews.swift */; };
+		F86485F16DE127145CD04F56 /* DockUtilityExpansionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE911CCE3F17E817C08D58A6 /* DockUtilityExpansionTests.swift */; };
 		F9535B70D67C9ECB3DF142CD /* DockLayoutPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89389BAE8CB75C819B69DE04 /* DockLayoutPreview.swift */; };
 		F9CC003830669CDA06F42006 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = D775FAF79BFB59E8B642EF42 /* AppIcon.icns */; };
 		F9EB5D7371E2070D2DA5AD1B /* BackupManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9477E75B67A51DC03E1F9722 /* BackupManager.swift */; };
@@ -219,6 +225,7 @@
 		6758F25C6EA73B904DA86066 /* DockManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockManagerView.swift; sourceTree = "<group>"; };
 		6B8FC47EB7D9EDF06D574C44 /* DockBadgePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockBadgePolicyTests.swift; sourceTree = "<group>"; };
 		706FD24F357E2FA17FD1D581 /* RevisionedStateWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevisionedStateWriter.swift; sourceTree = "<group>"; };
+		70CC2DAA28FFD845BD79C03B /* DockUtilityModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockUtilityModels.swift; sourceTree = "<group>"; };
 		736731CF7DA257570F336C15 /* WorldClockCityCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorldClockCityCatalog.swift; sourceTree = "<group>"; };
 		7536B36501AFF71CA760CA15 /* RunningApplications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningApplications.swift; sourceTree = "<group>"; };
 		78634E376E223FA8E4F34514 /* MyDockUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MyDockUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -235,6 +242,7 @@
 		8A03D094E02B011AB14C1DA2 /* RecoveryCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryCenterView.swift; sourceTree = "<group>"; };
 		8CCDAA6C3625885871693F16 /* AppleWidgetCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleWidgetCard.swift; sourceTree = "<group>"; };
 		8E45DC7D0CFFD7FAE8C764F0 /* ProfileDraftMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileDraftMerge.swift; sourceTree = "<group>"; };
+		90753AC9B4EEC6AAC062A325 /* WidgetPrimitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetPrimitives.swift; sourceTree = "<group>"; };
 		9252F582158031B5BE6A5EA6 /* WidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetViews.swift; sourceTree = "<group>"; };
 		93A8818898A1D2E99CC7FAAF /* StopwatchClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StopwatchClock.swift; sourceTree = "<group>"; };
 		944B715C1680BE3116BEB704 /* AIAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAccountService.swift; sourceTree = "<group>"; };
@@ -263,12 +271,14 @@
 		BD1C3241C068010754E2F1FA /* AccessibilityDisplayState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityDisplayState.swift; sourceTree = "<group>"; };
 		BD305EE8D421114DF62754DE /* PerformanceBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceBaselineTests.swift; sourceTree = "<group>"; };
 		C1CD485758A259B9E773C53B /* RoadmapRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoadmapRegressionTests.swift; sourceTree = "<group>"; };
+		C34CBF7D59C47934E44D65B2 /* WidgetPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetPresentation.swift; sourceTree = "<group>"; };
 		C3C1FCF383B6543D56BC9CF2 /* InstalledAppCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstalledAppCatalog.swift; sourceTree = "<group>"; };
 		C48ECB2A627715F75BC2A1EB /* AIUsageWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIUsageWidgetViews.swift; sourceTree = "<group>"; };
 		C52A26205134058EE4675264 /* AppLifecycleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleService.swift; sourceTree = "<group>"; };
 		C6C27C41C4DB6A31E908A359 /* NowPlayingArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingArtwork.swift; sourceTree = "<group>"; };
 		C6F36D2DAF74B9B7ED303CD3 /* UtilityWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UtilityWidgetViews.swift; sourceTree = "<group>"; };
 		C76F7AD36D004692FB1A8E63 /* ProfileEditSessionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileEditSessionCoordinator.swift; sourceTree = "<group>"; };
+		C9BD2DD6D0CACDD0441DDB85 /* DockUtilityWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockUtilityWidgetViews.swift; sourceTree = "<group>"; };
 		CD754067A5466BDC46784D7D /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		D1C9671A2DACBE584516FF0B /* LibrarySearchField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySearchField.swift; sourceTree = "<group>"; };
 		D3D0A97FC33578ACEF3480AE /* ProfileLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileLibrary.swift; sourceTree = "<group>"; };
@@ -278,6 +288,7 @@
 		D9C0B6F56E6BFD34552A485E /* MyDockTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MyDockTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DA98B889C73D5EDECAB69896 /* CalendarRemindersWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarRemindersWidgetViews.swift; sourceTree = "<group>"; };
 		DE7184BACE7410CA0F13DFAB /* BoundedSubprocessCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoundedSubprocessCaptureTests.swift; sourceTree = "<group>"; };
+		DE911CCE3F17E817C08D58A6 /* DockUtilityExpansionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockUtilityExpansionTests.swift; sourceTree = "<group>"; };
 		E030830768B2AEE03C513374 /* DockBadgeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockBadgeService.swift; sourceTree = "<group>"; };
 		E050EBD242DC6526F45B8596 /* AppLifecycleSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleSettingsView.swift; sourceTree = "<group>"; };
 		E42A2A828698ED3D13EEAF85 /* ProfileSemanticValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSemanticValidator.swift; sourceTree = "<group>"; };
@@ -285,6 +296,7 @@
 		E47778F8A12065845D562899 /* SingleInstanceLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SingleInstanceLock.swift; sourceTree = "<group>"; };
 		E527C58C6168E5FE88D3B60E /* WidgetLibraryTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetLibraryTile.swift; sourceTree = "<group>"; };
 		E7F36A53ED40B8A89B8D79DB /* DockAuditRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockAuditRegressionTests.swift; sourceTree = "<group>"; };
+		E91CBE858AEB6F9F89C19223 /* WidgetPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetPresentationTests.swift; sourceTree = "<group>"; };
 		EAA3D3A3F0C1DCBC454A3AAA /* KeyboardShortcutEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutEditor.swift; sourceTree = "<group>"; };
 		EBCBC80CE6951461F8FDC15B /* AirDropWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirDropWidgetViews.swift; sourceTree = "<group>"; };
 		EC62EC3F8ABE5C0D8808C9FA /* FolderContentsReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderContentsReader.swift; sourceTree = "<group>"; };
@@ -384,6 +396,7 @@
 		5400384F3FE4392CF0B3EEAB /* Widgets */ = {
 			isa = PBXGroup;
 			children = (
+				70CC2DAA28FFD845BD79C03B /* DockUtilityModels.swift */,
 				2C00D315B55785F3BD5242D1 /* QuickCalculator.swift */,
 				0CA117B97BC64AAEC29ED28C /* TimeProgressCalculator.swift */,
 			);
@@ -487,6 +500,7 @@
 				DA98B889C73D5EDECAB69896 /* CalendarRemindersWidgetViews.swift */,
 				89389BAE8CB75C819B69DE04 /* DockLayoutPreview.swift */,
 				4E1A4EEDB9341C84F66E8D66 /* DockMaterialSurface.swift */,
+				C9BD2DD6D0CACDD0441DDB85 /* DockUtilityWidgetViews.swift */,
 				60C9ED44F4FD476280E1D7EC /* FileThumbnailView.swift */,
 				974BECC1D427C16C9C949FDD /* FolderContentsPopout.swift */,
 				3365272DF8136DA76925BCC7 /* FolderIconView.swift */,
@@ -502,6 +516,7 @@
 				7CB4610863D5853F971E8C35 /* WeatherWidgetViews.swift */,
 				F97687DF796593F18057A331 /* WidgetAppearance.swift */,
 				0ABC50FAD404469AEF9A16FA /* WidgetFreshnessView.swift */,
+				90753AC9B4EEC6AAC062A325 /* WidgetPrimitives.swift */,
 				9252F582158031B5BE6A5EA6 /* WidgetViews.swift */,
 			);
 			path = CustomDock;
@@ -558,6 +573,7 @@
 				27618B6C5A0B18A92503A28D /* DisposableSystemAcceptanceTests.swift */,
 				E7F36A53ED40B8A89B8D79DB /* DockAuditRegressionTests.swift */,
 				6B8FC47EB7D9EDF06D574C44 /* DockBadgePolicyTests.swift */,
+				DE911CCE3F17E817C08D58A6 /* DockUtilityExpansionTests.swift */,
 				8504B54DA5060896FB259377 /* GitHubCopilotBillingTests.swift */,
 				96BD2A424B06C0839F15D21D /* InstalledAppCatalogTests.swift */,
 				BD305EE8D421114DF62754DE /* PerformanceBaselineTests.swift */,
@@ -567,6 +583,7 @@
 				C1CD485758A259B9E773C53B /* RoadmapRegressionTests.swift */,
 				891F2782B98F97E60488485B /* SingleInstanceLockTests.swift */,
 				033BF0CF7388EC380F3EB807 /* WeatherServiceTests.swift */,
+				E91CBE858AEB6F9F89C19223 /* WidgetPresentationTests.swift */,
 				52254D9F02684C0BDB5331E6 /* WidgetUtilityTests.swift */,
 				5D618BECE2DD8E547051855C /* WindowPreviewCacheTests.swift */,
 			);
@@ -586,6 +603,7 @@
 				3D1F984DB1813FD4A6A142CA /* ProfileSanitizer.swift */,
 				E42A2A828698ED3D13EEAF85 /* ProfileSemanticValidator.swift */,
 				93A8818898A1D2E99CC7FAAF /* StopwatchClock.swift */,
+				C34CBF7D59C47934E44D65B2 /* WidgetPresentation.swift */,
 				736731CF7DA257570F336C15 /* WorldClockCityCatalog.swift */,
 			);
 			path = Models;
@@ -753,6 +771,8 @@
 				F581CFE231439478F23A4C5E /* DockProfileStatus.swift in Sources */,
 				FA082EDF00317E8C0583780C /* DockRenderModel.swift in Sources */,
 				9A98F1FC8A8DEA925105C612 /* DockSwitchFreezeProvider.swift in Sources */,
+				41DF28BFD69A8E4552B44445 /* DockUtilityModels.swift in Sources */,
+				F5D1599F3629431E621ACCC4 /* DockUtilityWidgetViews.swift in Sources */,
 				757E66086572EE69B441E3CC /* FileThumbnailView.swift in Sources */,
 				77470E173C9080BA3A993DB6 /* FinancialCurrencyFormatter.swift in Sources */,
 				E919BD6595027C6E80F35667 /* FocusDockFilterIntent.swift in Sources */,
@@ -823,6 +843,8 @@
 				3270BA01236CF8A0D87FFE26 /* WidgetLibraryTile.swift in Sources */,
 				998CCEB5A73E85B7E3047D23 /* WidgetLifecycleCoordinator.swift in Sources */,
 				1865FBFDA798097CC66C46BB /* WidgetNotificationGenerationPolicy.swift in Sources */,
+				0FC850633C4EC7FD1F62D099 /* WidgetPresentation.swift in Sources */,
+				B5E8737A0C41151E7CD8B64A /* WidgetPrimitives.swift in Sources */,
 				D3F6B13101791465E9798554 /* WidgetRefreshLimiter.swift in Sources */,
 				B514CA0C8665C8879F92803C /* WidgetSetupDraftStore.swift in Sources */,
 				5AE9D055964926B98F82E0AE /* WidgetViews.swift in Sources */,
@@ -843,6 +865,7 @@
 				26255C7562356772318A0900 /* DisposableSystemAcceptanceTests.swift in Sources */,
 				CDCDFF98C1C8B63CAFFC1594 /* DockAuditRegressionTests.swift in Sources */,
 				1B8A1AC01115C0E2E289BD93 /* DockBadgePolicyTests.swift in Sources */,
+				F86485F16DE127145CD04F56 /* DockUtilityExpansionTests.swift in Sources */,
 				E567852E766478D0ECDFF267 /* GitHubCopilotBillingTests.swift in Sources */,
 				60E77179EAC671B2821C7C36 /* InstalledAppCatalogTests.swift in Sources */,
 				5B18BA8745F0A36357046C09 /* PerformanceBaselineTests.swift in Sources */,
@@ -852,6 +875,7 @@
 				E15F1873FC6B565D44295706 /* RoadmapRegressionTests.swift in Sources */,
 				F4C1B5C6C7F49A8859CAF97E /* SingleInstanceLockTests.swift in Sources */,
 				5660989F72E82026CE5A979D /* WeatherServiceTests.swift in Sources */,
+				A75A4619E29F94C0AEDB6347 /* WidgetPresentationTests.swift in Sources */,
 				A021490B4D7EEB393D092F91 /* WidgetUtilityTests.swift in Sources */,
 				2FEE4A831511584BA3E9861B /* WindowPreviewCacheTests.swift in Sources */,
 			);
@@ -949,7 +973,7 @@
 					"@loader_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "${MYDOCK_BUNDLE_IDENTIFIER}.uitests";
+				PRODUCT_BUNDLE_IDENTIFIER = app.mydock.MyDock.uitests;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 6.0;
 				TEST_TARGET_NAME = MyDock;
@@ -973,9 +997,9 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = "${MYDOCK_MARKETING_VERSION}";
-				PRODUCT_BUNDLE_IDENTIFIER = "${MYDOCK_BUNDLE_IDENTIFIER}";
-				PRODUCT_NAME = "${MYDOCK_PRODUCT_NAME}";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.mydock.MyDock;
+				PRODUCT_NAME = MyDock;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -997,7 +1021,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "${MYDOCK_BUNDLE_IDENTIFIER}.tests";
+				PRODUCT_BUNDLE_IDENTIFIER = app.mydock.MyDock.tests;
 				SDKROOT = macosx;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
@@ -1022,9 +1046,9 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = "${MYDOCK_MARKETING_VERSION}";
-				PRODUCT_BUNDLE_IDENTIFIER = "${MYDOCK_BUNDLE_IDENTIFIER}";
-				PRODUCT_NAME = "${MYDOCK_PRODUCT_NAME}";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.mydock.MyDock;
+				PRODUCT_NAME = MyDock;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -1101,7 +1125,7 @@
 					"@loader_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "${MYDOCK_BUNDLE_IDENTIFIER}.uitests";
+				PRODUCT_BUNDLE_IDENTIFIER = app.mydock.MyDock.uitests;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 6.0;
 				TEST_TARGET_NAME = MyDock;
@@ -1122,7 +1146,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "${MYDOCK_BUNDLE_IDENTIFIER}.tests";
+				PRODUCT_BUNDLE_IDENTIFIER = app.mydock.MyDock.tests;
 				SDKROOT = macosx;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;

@@ -87,8 +87,8 @@ struct DockRenderModel {
         entries.append(.insertion)
         if settings.showRunningApps {
             entries.append(.boundary("running"))
-            let pinned = Set(profile.items.compactMap(\.bundleIdentifier))
-            entries += runningApplications.filter { !pinned.contains($0.bundleIdentifier ?? "") }.map { .item($0, pinned: false) }
+            let pinned = Set(profile.items.filter { $0.type == .application }.compactMap { $0.url.map(InstalledApplicationIdentity.normalizedURL) })
+            entries += runningApplications.filter { item in item.url.map { !pinned.contains(InstalledApplicationIdentity.normalizedURL($0)) } ?? true }.map { .item($0, pinned: false) }
         }
         let minimized = windows.filter(\.isMinimized)
         if settings.showMinimizedWindows, !minimized.isEmpty {
@@ -143,7 +143,7 @@ enum RuntimeDockApplications {
         }
         return RunningApplicationFilter.visible(descriptors, excluding: []).map { descriptor in
             var item = DockItem.application(at: descriptor.bundleURL)
-            item.id = RuntimeDockIdentity.uuid("running:\(descriptor.bundleIdentifier)")
+            item.id = RuntimeDockIdentity.uuid("running:\(descriptor.id)")
             item.title = descriptor.name
             item.bundleIdentifier = descriptor.bundleIdentifier
             return item
@@ -162,6 +162,19 @@ enum DockContinuousMagnification {
 }
 
 enum DockPanelMotion {
+    static func scale(visible: Bool, style: DockAnimationStyle) -> CGFloat {
+        style == .grow && !visible ? 0.94 : 1
+    }
+    static func duration(visible: Bool, enabled: Bool, reduceMotion: Bool) -> Double {
+        enabled && !reduceMotion ? (visible ? 0.20 : 0.14) : 0
+    }
+    static func transitionFrame(from frame: NSRect, position: DockPosition, style: DockAnimationStyle) -> NSRect {
+        switch style {
+        case .fade: return frame
+        case .slide: return hiddenFrame(from: frame, position: position)
+        case .grow: return frame
+        }
+    }
     static func hiddenFrame(from frame: NSRect, position: DockPosition) -> NSRect {
         switch position {
         case .bottom: frame.offsetBy(dx: 0, dy: -8)

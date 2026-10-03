@@ -193,6 +193,8 @@ struct AddLibrary: View {
         return VStack(alignment: .leading, spacing: 9) {
             WidgetCardPreview(kind: widget.name, width: CGFloat(WidgetPresentationCatalog.width(for: widget.name, layout: WidgetPresentationCatalog.defaultLayout(for: widget.name))), displayScale: 1.1)
                 .frame(maxWidth: .infinity).frame(height: 78).accessibilityHidden(true)
+            Text("Example").font(.caption2).foregroundStyle(.secondary)
+                .accessibilityLabel("Example preview for \(widget.name)")
             itemCaption(entry)
             Text(widget.description).font(.caption).foregroundStyle(.secondary).lineLimit(2).frame(height: 30, alignment: .topLeading)
         }.padding(10).background(isSelected(entry.id) ? Color.accentColor.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 8))

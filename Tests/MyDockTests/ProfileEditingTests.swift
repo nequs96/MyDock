@@ -52,7 +52,7 @@ struct ProfileEditingTests {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         let store = ProfileStore(fileURL: file)
-        let id = store.createProfile(kind: .custom, name: "Work")
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Work")
         let original = try #require(store.activeCustomProfile)
         var draft = DockProfileDraft(profile: original)
         draft.update { $0.name = "Draft" }
@@ -69,7 +69,7 @@ struct ProfileEditingTests {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         let store = ProfileStore(fileURL: file)
-        let first = store.createProfile(kind: .native)
+        let first = try store.createProfileAndPersist(kind: .native)
         #expect(store.state.settings.activeNativeProfileID == nil)
         store.recordAppliedNativeProfile(first)
         _ = store.createProfile(kind: .native)
@@ -126,8 +126,8 @@ struct WorkspaceAutosaveTests {
     @Test func editsCoalesceAndIndependentProfilesSurviveNavigation() async throws {
         let (store, directory) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let a = store.createProfile(kind: .custom, name: "A")
-        let b = store.createProfile(kind: .custom, name: "B")
+        let a = try store.createProfileAndPersist(kind: .custom, name: "A")
+        let b = try store.createProfileAndPersist(kind: .custom, name: "B")
         for (id, name) in [(a, "First edit"), (b, "Other Dock"), (a, "Latest edit")] {
             let original = try #require(store.state.profiles.first { $0.id == id })
             var draft = store.editSessions.drafts[id] ?? DockProfileDraft(profile: original)
@@ -145,7 +145,7 @@ struct WorkspaceAutosaveTests {
     @Test func failedAutosaveRetainsDraftAndRetryRecovers() async throws {
         let (store, directory) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let id = store.createProfile(kind: .custom, name: "Original")
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Original")
         let original = try #require(store.state.profiles.first { $0.id == id })
         var draft = DockProfileDraft(profile: original)
         draft.update { $0.name = "" }
@@ -165,7 +165,7 @@ struct WorkspaceAutosaveTests {
     @Test func discardCancelsPendingAutosave() async throws {
         let (store, directory) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let id = store.createProfile(kind: .custom, name: "Original")
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Original")
         var draft = DockProfileDraft(profile: try #require(store.state.profiles.first { $0.id == id }))
         draft.update { $0.name = "Discard me" }
         store.editSessions.set(draft, for: id)

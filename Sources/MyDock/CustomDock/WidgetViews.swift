@@ -11,6 +11,11 @@ protocol DockWidgetProvider {
 @MainActor
 enum WidgetProviderRegistry {
     private static let providers: [String: any DockWidgetProvider] = [
+        "File Shelf": FileShelfWidgetProvider(),
+        "Text Snippets": SavedCollectionWidgetProvider(kind: "Text Snippets"),
+        "Quick Links": SavedCollectionWidgetProvider(kind: "Quick Links"),
+        "Unit Converter": UnitConverterWidgetProvider(),
+        "Color Picker": ColorPickerWidgetProvider(),
         "Disk Space": DiskSpaceWidgetProvider(),
         "Calculator": CalculatorWidgetProvider(),
         "Quick Checklist": QuickChecklistWidgetProvider(),
@@ -70,7 +75,7 @@ struct WidgetCompactView: View {
             } else {
                 WidgetContainer(width: width, kind: kind) { content }
                     .environment(\.dockWidgetContentWidth, width)
-                    .environment(\.widgetLayout, settings.customDockPosition == .bottom ? layout : .compact)
+                    .environment(\.widgetLayout, settings.customDockPosition == .bottom ? layout : WidgetPresentationCatalog.options(for: kind).first?.layout == .icon ? .icon : .compact)
                     .environment(\.widgetIconAppearance, configuration.iconAppearance)
             }
         }.overlay(alignment: .topTrailing) {
@@ -565,22 +570,7 @@ private struct WorldClockCompactView: View {
     var item: DockItem
     private var timeZone: TimeZone { TimeZone(identifier: item.widgetConfiguration?.worldClockTimeZoneID ?? "Europe/Warsaw") ?? .current }
 
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
-            VStack(alignment: contentWidth > 54 ? .leading : .center, spacing: 2) {
-                Text(formattedTime(context.date, timeZone: timeZone))
-                    .font(.system(size: contentWidth > 54 ? 21 : 13, weight: .medium).monospacedDigit())
-                    .lineLimit(1).minimumScaleFactor(0.65)
-                Text(timeZone.abbreviation(for: context.date) ?? "World")
-                    .font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
-                if !configuration.worldClockAdditionalTimeZoneIDs.isEmpty {
-                    Text("+\(configuration.worldClockAdditionalTimeZoneIDs.count)")
-                        .font(.system(size: 7, weight: .medium)).foregroundStyle(.secondary)
-                }
-            }.padding(.horizontal, contentWidth > 54 ? 9 : 0)
-                .frame(maxWidth: .infinity, alignment: contentWidth > 54 ? .leading : .center)
-        }
-    }
+    var body: some View { WorldClockDockFace(configuration: configuration) }
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
 }
@@ -1402,6 +1392,7 @@ private struct StickyNotePopoutView: View {
     var profileID: UUID
     @State private var noteDraft = ""
     @State private var noteSaveTask: Task<Void, Never>?
+    @State private var noteSaveError: String?
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
 
@@ -1429,13 +1420,17 @@ private struct StickyNotePopoutView: View {
                         saveNote(value)
                     }
                 }
+            if let noteSaveError {
+                Text(noteSaveError).font(.caption).foregroundStyle(.red)
+                    .accessibilityLabel("Note not saved. " + noteSaveError)
+            }
             Picker("Note", selection: noteBackgroundBinding) {
                 ForEach(NoteBackground.allCases) { background in Text(background.title).tag(background) }
             }
             .labelsHidden()
             .pickerStyle(.segmented)
         }
-        .onAppear { noteDraft = configuration.noteText }
+        .onAppear { noteDraft = WidgetSetupDraftStore.shared.noteDraft(for: item.id, in: profileID) ?? configuration.noteText }
         .onDisappear {
             noteSaveTask?.cancel()
             saveNote(noteDraft)
@@ -1449,8 +1444,10 @@ private struct StickyNotePopoutView: View {
     }
 
     private func saveNote(_ text: String) {
-        store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.noteText = text }
-        WidgetSetupDraftStore.shared.noteWasSaved(text, for: item.id)
+        do {
+            try WidgetSetupDraftStore.shared.saveNote(text, for: item.id, in: profileID, to: store)
+            noteSaveError = nil
+        } catch { noteSaveError = error.localizedDescription + " Your draft is retained." }
     }
 }
 
@@ -1488,7 +1485,7 @@ func stopwatchText(_ interval: TimeInterval) -> String {
         : String(format: "%02d:%02d", minutes, remainingSeconds)
 }
 
-private func formattedTime(_ date: Date, timeZone: TimeZone) -> String {
+func formattedTime(_ date: Date, timeZone: TimeZone) -> String {
     let formatter = DateFormatter()
     formatter.locale = .current
     formatter.timeZone = timeZone
@@ -1496,7 +1493,7 @@ private func formattedTime(_ date: Date, timeZone: TimeZone) -> String {
     return formatter.string(from: date)
 }
 
-private func formattedDate(_ date: Date, timeZone: TimeZone) -> String {
+func formattedDate(_ date: Date, timeZone: TimeZone) -> String {
     let formatter = DateFormatter()
     formatter.locale = .current
     formatter.timeZone = timeZone

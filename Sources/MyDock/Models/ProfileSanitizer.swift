@@ -6,6 +6,8 @@ enum ProfileSanitizer {
         for index in copy.items.indices {
             guard var c = copy.items[index].widgetConfiguration else { continue }
             if !includeNotes { c.noteText = ""; c.checklistEntries = [] }
+            c.shelfFiles = []; c.quickLinks = []
+            if !includeNotes { c.textSnippets = [] }
             c.stripeAccountID = ""; c.stripeSnapshot = nil
             c.paddleAccountID = ""; c.paddleSnapshot = nil
             c.shopifyStoreID = ""; c.shopifySnapshot = nil

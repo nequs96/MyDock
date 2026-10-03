@@ -523,9 +523,11 @@ struct DockManagerView: View {
 
     private func duplicateProfile(_ profile: DockProfile) {
         guard saveDraft() else { return }
-        let existingIDs = Set(store.state.profiles.map(\.id))
-        store.duplicateProfile(profile.id)
-        if let copy = store.state.profiles.last(where: { !existingIDs.contains($0.id) }) { switchToProfile(copy.id); beginRename(copy) }
+        do {
+            let id = try store.duplicateProfile(profile.id)
+            guard let copy = store.state.profiles.first(where: { $0.id == id }) else { return }
+            switchToProfile(copy.id); beginRename(copy)
+        } catch { dockOperationMessage = error.localizedDescription }
     }
 
     private func beginRename(_ profile: DockProfile) {

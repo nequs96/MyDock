@@ -18,7 +18,7 @@ struct PersonalPresetPicker: View {
                 Text("Save a Dock as a preset or import one to keep it here.")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
-            ForEach(library.entries.prefix(10)) { entry in
+            ForEach(library.entries) { entry in
                 HStack {
                     Button(entry.profile.name) { select(ProfileSanitizer.newIdentity(entry.profile)) }
                     Spacer()

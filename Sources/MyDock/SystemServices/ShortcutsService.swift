@@ -36,6 +36,7 @@ enum ShortcutsCatalog {
     private static let commandURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
 
     static func list() async throws -> [String] {
+        try AppRuntimeEnvironment.requireNativeEffects()
         ShortcutCatalogParser.parse(try await runAndCapture(arguments: ["list"]))
     }
 
@@ -72,6 +73,7 @@ final class ShortcutExecutionService: ObservableObject {
     private var runningProcesses: [UUID: (name: String, process: Process)] = [:]
 
     func run(_ shortcutName: String) throws {
+        try AppRuntimeEnvironment.requireNativeEffects()
         let name = shortcutName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw ShortcutsServiceError.invalidName }
         guard !runningProcesses.values.contains(where: { $0.name == name }) else {

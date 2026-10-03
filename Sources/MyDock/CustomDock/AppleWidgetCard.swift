@@ -56,20 +56,34 @@ struct WidgetCardPreview: View {
         case "Disk Space": DiskDockFace(snapshot: .init(name: "Startup disk", totalBytes: 500_000_000_000, availableBytes: 128_000_000_000))
         case "Weather": WeatherDockFace(configuration: weatherSample)
         case "Now Playing": MediaDockFace(title: "Dreams", artist: "Fleetwood Mac", artwork: nil, isPlaying: true)
+        case "World Clock": WorldClockDockFace(configuration: WidgetConfiguration())
+        case "Reminders": RemindersDockFace(count: 3, context: "Weekend errands")
+        case "Stripe", "Paddle", "Shopify": BusinessDockFace(kind: kind, title: kind, metric: "Revenue", value: "$2.4K", context: "Today")
+        case "Alarm":
+            VStack(alignment: .leading, spacing: 3) { WidgetHeader(kind: kind, title: "Alarm"); MetricText(value: "07:30", size: 18); if selected == .standard { Text("Morning").font(.system(size: 8)).foregroundStyle(.secondary) } }.padding(.horizontal, 9)
         case "Calendar":
             HStack(spacing: 8) {
-                VStack(spacing: 0) { Text("THU").font(.system(size: 8, weight: .bold)).foregroundStyle(.secondary); Text("1").font(.system(size: 26, weight: .medium)) }
+                VStack(spacing: 0) { HStack(spacing: 3) { WidgetIcon(kind: kind, size: 9); Text("THU").font(.system(size: 8, weight: .bold)).foregroundStyle(.secondary) }; Text("1").font(.system(size: 26, weight: .medium)) }
                 if selected == .wide { VStack(alignment: .leading, spacing: 3) { Text("Design review").font(.system(size: 10, weight: .semibold)); Text("10:30 AM").font(.system(size: 9)).foregroundStyle(.secondary) } }
             }.padding(.horizontal, 9)
         case "AI Limits":
-            VStack(alignment: .leading, spacing: 3) { WidgetHeader(kind: kind, title: "Claude"); MetricText(value: "72%", unit: "left", size: 19); UsageBar(fraction: 0.72, color: WidgetPalette.accent(kind)) }.padding(.horizontal, 9)
+            VStack(alignment: .leading, spacing: 3) { WidgetHeader(kind: kind, title: "Claude"); MetricText(value: "72%", unit: "left", size: 19); if selected == .standard { Text("Session window").font(.system(size: 8)).foregroundStyle(.secondary) }; UsageBar(fraction: 0.72, color: WidgetPalette.accent(kind)) }.padding(.horizontal, 9)
         default: LocalWidgetDockFace(item: sampleItem)
         }
     }
     private var sampleItem: DockItem {
         var item = DockItem.widget(kind)
         if kind == "Sticky Note" { item.widgetConfiguration?.noteText = "Make something great.\nTake a little break." }
+        if kind == "File Shelf" { item.widgetConfiguration?.shelfFiles = [ShelfFile(url: URL(fileURLWithPath: "/Sample/Presentation.pdf")), ShelfFile(url: URL(fileURLWithPath: "/Sample/Photo.jpg"))] }
+        if kind == "Text Snippets" { item.widgetConfiguration?.textSnippets = [TextSnippet(title: "Email reply", text: "Thanks for getting in touch."), TextSnippet(title: "Delivery address", text: "123 Example Street")] }
+        if kind == "Quick Links" { item.widgetConfiguration?.quickLinks = [QuickLink(title: "Project workspace", url: URL(string: "https://example.com")!)] }
         if kind == "Quick Checklist" { item.widgetConfiguration?.checklistEntries = [QuickChecklistEntry(title: "Plan the weekend"), QuickChecklistEntry(title: "Pick up groceries"), QuickChecklistEntry(title: "Book appointment")] }
+        if kind == "Stock" || kind == "Watchlist" {
+            let snapshot = StockMarketSnapshot(symbol: "AAPL", points: [181.2, 182.5, 181.8, 185.1, 184.3, 186.2, 185.9].enumerated().map { index, value in StockMarketPoint(date: .now.addingTimeInterval(Double(index - 6) * 86400), close: value, volume: 0) }, currency: "USD", fetchedAt: .now)
+            item.widgetConfiguration?.stockSymbol = "AAPL"
+            item.widgetConfiguration?.stockSnapshot = snapshot
+            if kind == "Watchlist" { item.widgetConfiguration?.watchlistStocks = [.init(symbol: "AAPL", name: "Apple", currency: "USD", snapshot: snapshot)] }
+        }
         return item
     }
     private var weatherSample: WidgetConfiguration {

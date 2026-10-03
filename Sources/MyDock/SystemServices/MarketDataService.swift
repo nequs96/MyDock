@@ -176,6 +176,7 @@ enum MarketAPIKeyStore {
     private static var service: String { Product.bundleIdentifier + ".integration-credentials" }
 
     static func read() throws -> String? {
+        guard AppRuntimeEnvironment.allowsCredentials else { return nil }
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -188,6 +189,7 @@ enum MarketAPIKeyStore {
     }
 
     static func write(_ value: String) throws {
+        try AppRuntimeEnvironment.requireCredentials()
         let data = Data(value.utf8)
         let status = SecItemUpdate(baseQuery as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecItemNotFound {
@@ -202,6 +204,7 @@ enum MarketAPIKeyStore {
     }
 
     static func delete() throws {
+        try AppRuntimeEnvironment.requireCredentials()
         let status = SecItemDelete(baseQuery as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status) }
     }

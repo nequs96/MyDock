@@ -47,6 +47,7 @@ final class UserDefaultsDockPreferencesBackend: DockPreferencesBackend {
     private let key = "persistent-apps"
 
     func readCurrentTiles() throws -> [[String: Any]] {
+        try AppRuntimeEnvironment.requireNativeEffects()
         guard let defaults = UserDefaults(suiteName: domain) else {
             throw NativeDockError.preferencesUnavailable
         }
@@ -58,6 +59,7 @@ final class UserDefaultsDockPreferencesBackend: DockPreferencesBackend {
     }
 
     func writeTiles(_ tiles: [[String: Any]]) throws {
+        try AppRuntimeEnvironment.requireNativeEffects()
         guard let defaults = UserDefaults(suiteName: domain) else { throw NativeDockError.preferencesUnavailable }
         defaults.set(tiles, forKey: key)
         guard defaults.synchronize() else { throw NativeDockError.preferencesUnavailable }
@@ -76,8 +78,7 @@ final class FileDockTransactionJournal: DockTransactionJournal {
     private let fileURL: URL
 
     init(fileURL: URL? = nil) {
-        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
+        let root = AppRuntimeEnvironment.applicationSupportDirectory.deletingLastPathComponent()
         self.fileURL = fileURL ?? root.appendingPathComponent(Product.name, isDirectory: true)
             .appendingPathComponent("Transactions/native-dock.json")
     }
@@ -121,6 +122,7 @@ final class FileDockTransactionJournal: DockTransactionJournal {
 @MainActor
 final class ProcessDockRelauncher: DockRelaunching {
     func restartDock() async throws {
+        try AppRuntimeEnvironment.requireNativeEffects()
         let output = try await BoundedSubprocessCapture.runCancellable(executableURL: URL(fileURLWithPath: "/usr/bin/killall"),
             arguments: ["Dock"], maximumOutputBytes: 4_096, maximumErrorBytes: 4_096, timeout: 5)
         let status = output.terminationStatus

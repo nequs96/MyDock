@@ -339,6 +339,7 @@ enum PaddleAPIKeyStore {
     }
 
     static func read(accountID: String) throws -> String? {
+        guard AppRuntimeEnvironment.allowsCredentials else { return nil }
         var query = baseQuery(accountID: accountID)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -351,6 +352,7 @@ enum PaddleAPIKeyStore {
     }
 
     static func write(_ value: String, accountID: String) throws {
+        try AppRuntimeEnvironment.requireCredentials()
         guard isBillingKey(value) else { throw PaddleDataError.billingKeyRequired }
         let data = Data(value.utf8)
         let query = baseQuery(accountID: accountID)
@@ -367,6 +369,7 @@ enum PaddleAPIKeyStore {
     }
 
     static func delete(accountID: String) throws {
+        try AppRuntimeEnvironment.requireCredentials()
         let status = SecItemDelete(baseQuery(accountID: accountID) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status) }
     }
@@ -385,13 +388,13 @@ enum PaddleAPIKeyStore {
 }
 
 enum PaddleConnectionDirectory {
-    static func accounts(defaults: UserDefaults = .standard) -> [PaddleConnectedAccount] {
+    static func accounts(defaults: UserDefaults = AppRuntimeEnvironment.defaults) -> [PaddleConnectedAccount] {
         guard let data = defaults.data(forKey: PaddleAPIKeyStore.directoryKey),
               let accounts = try? JSONDecoder().decode([PaddleConnectedAccount].self, from: data) else { return [] }
         return accounts
     }
 
-    static func save(_ account: PaddleConnectedAccount, key: String, defaults: UserDefaults = .standard) throws {
+    static func save(_ account: PaddleConnectedAccount, key: String, defaults: UserDefaults = AppRuntimeEnvironment.defaults) throws {
         try PaddleAPIKeyStore.write(key, accountID: account.id)
         var accounts = self.accounts(defaults: defaults)
         accounts.removeAll { $0.id == account.id }
@@ -399,14 +402,14 @@ enum PaddleConnectionDirectory {
         if let data = try? JSONEncoder().encode(accounts) { defaults.set(data, forKey: PaddleAPIKeyStore.directoryKey) }
     }
 
-    static func update(_ account: PaddleConnectedAccount, defaults: UserDefaults = .standard) {
+    static func update(_ account: PaddleConnectedAccount, defaults: UserDefaults = AppRuntimeEnvironment.defaults) {
         var accounts = self.accounts(defaults: defaults)
         guard let index = accounts.firstIndex(where: { $0.id == account.id }) else { return }
         accounts[index] = account
         if let data = try? JSONEncoder().encode(accounts) { defaults.set(data, forKey: PaddleAPIKeyStore.directoryKey) }
     }
 
-    static func remove(accountID: String, defaults: UserDefaults = .standard) throws {
+    static func remove(accountID: String, defaults: UserDefaults = AppRuntimeEnvironment.defaults) throws {
         try PaddleAPIKeyStore.delete(accountID: accountID)
         let remaining = accounts(defaults: defaults).filter { $0.id != accountID }
         if let data = try? JSONEncoder().encode(remaining) { defaults.set(data, forKey: PaddleAPIKeyStore.directoryKey) }

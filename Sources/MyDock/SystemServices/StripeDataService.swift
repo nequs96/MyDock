@@ -406,6 +406,7 @@ enum StripeAPIKeyStore {
     }
 
     static func read(accountID: String) throws -> String? {
+        guard AppRuntimeEnvironment.allowsCredentials else { return nil }
         var query = baseQuery(accountID: accountID)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -418,6 +419,7 @@ enum StripeAPIKeyStore {
     }
 
     static func write(_ value: String, accountID: String) throws {
+        try AppRuntimeEnvironment.requireCredentials()
         guard isRestrictedKey(value) else { throw StripeDataError.restrictedKeyRequired }
         let data = Data(value.utf8)
         let query = baseQuery(accountID: accountID)
@@ -434,6 +436,7 @@ enum StripeAPIKeyStore {
     }
 
     static func delete(accountID: String) throws {
+        try AppRuntimeEnvironment.requireCredentials()
         let status = SecItemDelete(baseQuery(accountID: accountID) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status) }
     }
@@ -464,13 +467,13 @@ struct StripeConnectedAccount: Codable, Hashable, Identifiable {
 }
 
 enum StripeConnectionDirectory {
-    static func accounts(defaults: UserDefaults = .standard) -> [StripeConnectedAccount] {
+    static func accounts(defaults: UserDefaults = AppRuntimeEnvironment.defaults) -> [StripeConnectedAccount] {
         guard let data = defaults.data(forKey: StripeAPIKeyStore.directoryKeyForDirectory),
               let accounts = try? JSONDecoder().decode([StripeConnectedAccount].self, from: data) else { return [] }
         return accounts
     }
 
-    static func save(_ account: StripeConnectedAccount, key: String, defaults: UserDefaults = .standard) throws {
+    static func save(_ account: StripeConnectedAccount, key: String, defaults: UserDefaults = AppRuntimeEnvironment.defaults) throws {
         try StripeAPIKeyStore.write(key, accountID: account.id)
         var accounts = self.accounts(defaults: defaults)
         accounts.removeAll { $0.id == account.id }
@@ -480,7 +483,7 @@ enum StripeConnectionDirectory {
         }
     }
 
-    static func update(_ account: StripeConnectedAccount, defaults: UserDefaults = .standard) {
+    static func update(_ account: StripeConnectedAccount, defaults: UserDefaults = AppRuntimeEnvironment.defaults) {
         var accounts = self.accounts(defaults: defaults)
         guard let index = accounts.firstIndex(where: { $0.id == account.id }) else { return }
         accounts[index] = account
@@ -489,7 +492,7 @@ enum StripeConnectionDirectory {
         }
     }
 
-    static func remove(accountID: String, defaults: UserDefaults = .standard) throws {
+    static func remove(accountID: String, defaults: UserDefaults = AppRuntimeEnvironment.defaults) throws {
         try StripeAPIKeyStore.delete(accountID: accountID)
         let remaining = accounts(defaults: defaults).filter { $0.id != accountID }
         if let data = try? JSONEncoder().encode(remaining) {

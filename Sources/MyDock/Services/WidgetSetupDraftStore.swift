@@ -88,17 +88,34 @@ final class WidgetSetupDraftStore: ObservableObject {
         noteDrafts[itemID] = (profileID, text)
     }
 
-    func noteWasSaved(_ text: String, for itemID: UUID) {
+    func noteDraft(for itemID: UUID, in profileID: UUID) -> String? {
+        guard let draft = noteDrafts[itemID], draft.profileID == profileID else { return nil }
+        return draft.text
+    }
+
+    /// Retain the current input until the candidate has actually reached durable storage.
+    func saveNote(_ text: String, for itemID: UUID, in profileID: UUID, to store: ProfileStore) throws {
+        // An obsolete debounce completion must not overwrite a newer pending edit.
+        if let draft = noteDrafts[itemID], draft.profileID != profileID || draft.text != text { return }
+        updateNoteDraft(text, for: itemID, in: profileID)
+        try store.updateWidgetConfigurationAndPersist(itemID: itemID, in: profileID) { $0.noteText = text }
+        noteWasSaved(text, for: itemID)
+    }
+
+    private func noteWasSaved(_ text: String, for itemID: UUID) {
         if noteDrafts[itemID]?.text == text { noteDrafts.removeValue(forKey: itemID) }
     }
 
-    func flushNotes(to store: ProfileStore) {
+    @discardableResult
+    func flushNotes(to store: ProfileStore) -> Result<Void, Error> {
         let pending = noteDrafts
-        noteDrafts.removeAll()
-        for (itemID, draft) in pending {
-            store.updateWidgetConfiguration(itemID: itemID, in: draft.profileID) { $0.noteText = draft.text }
+        do {
+            try store.persistNoteDrafts(pending.map { (itemID: $0.key, profileID: $0.value.profileID, text: $0.value.text) })
+            for (itemID, draft) in pending { noteWasSaved(draft.text, for: itemID) }
+            return .success(())
+        } catch {
+            return .failure(error)
         }
-        if !pending.isEmpty { store.flush() }
     }
 
     func clearDrafts(for itemID: UUID) {

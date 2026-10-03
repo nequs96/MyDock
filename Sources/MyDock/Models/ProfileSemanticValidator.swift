@@ -37,6 +37,19 @@ enum ProfileSemanticValidator {
                 .allSatisfy({ $0.isFinite && (0...maximumElapsed).contains($0) }) else {
             throw ProfileValidationError.invalid("timer duration or elapsed time is outside the supported range")
         }
+        guard config.shelfFiles.count <= FileShelfPolicy.capacity,
+              Set(config.shelfFiles.map(\.id)).count == config.shelfFiles.count,
+              config.shelfFiles.allSatisfy({ $0.url.isFileURL && $0.url.absoluteString.utf8.count <= 32_768 && ($0.bookmark?.count ?? 0) <= 65_536 }),
+              config.textSnippets.count <= 50,
+              Set(config.textSnippets.map(\.id)).count == config.textSnippets.count,
+              config.textSnippets.allSatisfy({ $0.title.utf8.count <= 400 && $0.text.utf8.count <= 40_000 }),
+              config.quickLinks.count <= 50,
+              Set(config.quickLinks.map(\.id)).count == config.quickLinks.count,
+              config.quickLinks.allSatisfy({ $0.title.utf8.count <= 400 && $0.url.absoluteString.utf8.count <= 8_192 && DockLinkPolicy.validatedURL($0.url.absoluteString) != nil }),
+              config.savedColors.count <= 24, Set(config.savedColors).count == config.savedColors.count,
+              config.savedColors.allSatisfy({ HexColor.components($0) != nil }) else {
+            throw ProfileValidationError.invalid("file shelf, snippets, links or palette exceeds supported limits")
+        }
         guard config.checklistEntries.count <= 100,
               Set(config.checklistEntries.map(\.id)).count == config.checklistEntries.count,
               config.checklistEntries.allSatisfy({ $0.title.utf8.count <= 2_000 }) else {

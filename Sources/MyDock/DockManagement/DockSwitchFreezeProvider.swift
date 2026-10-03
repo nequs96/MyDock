@@ -29,7 +29,7 @@ final class ScreenCaptureDockSwitchFreezeProvider: DockSwitchFreezeProviding {
     }
 
     func beginIfEnabled() async -> UUID? {
-        guard isEnabled(), #available(macOS 14.0, *), CGPreflightScreenCaptureAccess() else { return nil }
+        guard AppRuntimeEnvironment.allowsNativeEffects, isEnabled(), #available(macOS 14.0, *), CGPreflightScreenCaptureAccess() else { return nil }
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             var captures: [(NSScreen, CGImage)] = []

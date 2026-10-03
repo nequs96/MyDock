@@ -82,7 +82,7 @@ struct ProfileStoreTests {
         let file = directory.appendingPathComponent("state.json")
 
         let first = ProfileStore(fileURL: file)
-        let profileID = first.createProfile(kind: .custom, name: "Research")
+        let profileID = try first.createProfileAndPersist(kind: .custom, name: "Research")
         first.add(.widget("Clock"), to: profileID)
         first.add(.spacer(.small), to: profileID)
         first.setProfileColor(profileID, to: .teal)
@@ -110,7 +110,7 @@ struct ProfileStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appendingPathComponent("state.json")
         let store = ProfileStore(fileURL: file)
-        let profileID = store.createProfile(kind: .custom, name: "Workspace")
+        let profileID = try store.createProfileAndPersist(kind: .custom, name: "Workspace")
         store.setSetupMode(.customMain)
 
         store.setActiveCustomProfile(nil)
@@ -124,7 +124,7 @@ struct ProfileStoreTests {
         #expect(restored.customProfiles.contains(where: { $0.id == profileID }))
     }
 
-    @Test func failedProfileSaveKeepsDraftAvailableForRetry() throws {
+    @Test func failedProfileCreationDoesNotPublishAndCanBeRetried() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -136,16 +136,17 @@ struct ProfileStoreTests {
         #expect(store.persistenceError != nil)
         #expect(store.hasUnpersistedChanges)
         #expect(store.canRetryPersistence)
-        #expect(store.state.profiles.contains(where: { $0.id == profileID }))
+        #expect(profileID == nil)
+        #expect(store.state.profiles.isEmpty)
 
         try FileManager.default.removeItem(at: blockedParent)
         try FileManager.default.createDirectory(at: blockedParent, withIntermediateDirectories: true)
-        store.commit()
+        let savedID = try store.createProfileAndPersist(kind: .custom, name: "Draft survives")
 
         #expect(store.persistenceError == nil)
         #expect(!store.hasUnpersistedChanges)
         #expect(ProfileStore(fileURL: blockedParent.appendingPathComponent("state.json"))
-            .state.profiles.contains(where: { $0.id == profileID }))
+            .state.profiles.contains(where: { $0.id == savedID }))
     }
 
     @Test func corruptProfileDataIsPreservedBeforeNewStateIsWritten() throws {
@@ -207,10 +208,10 @@ struct ProfileStoreTests {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    @Test func moveItemPreservesOrderAndSpacerIdentity() {
+    @Test func moveItemPreservesOrderAndSpacerIdentity() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
-        let profileID = store.createProfile(kind: .custom)
+        let profileID = try store.createProfileAndPersist(kind: .custom)
         let one = DockItem.widget("Clock")
         let small = DockItem.spacer(.small)
         let regular = DockItem.spacer(.regular)
@@ -227,10 +228,10 @@ struct ProfileStoreTests {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    @Test func insertItemPlacesRunningAppBeforeDockTarget() {
+    @Test func insertItemPlacesRunningAppBeforeDockTarget() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
-        let profileID = store.createProfile(kind: .custom)
+        let profileID = try store.createProfileAndPersist(kind: .custom)
         let first = DockItem.widget("Clock")
         let target = DockItem.widget("Weather")
         let inserted = DockItem.application(at: URL(fileURLWithPath: "/Applications/Preview.app"))
@@ -268,13 +269,13 @@ struct ProfileStoreTests {
         #expect(draft.profile == original)
     }
 
-    @Test func dockProfileDraftBecomesCleanAfterExplicitSave() {
+    @Test func dockProfileDraftBecomesCleanAfterExplicitSave() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appendingPathComponent("state.json")
         let store = ProfileStore(fileURL: file)
-        let profileID = store.createProfile(kind: .custom, name: "Before")
+        let profileID = try store.createProfileAndPersist(kind: .custom, name: "Before")
         let original = store.state.profiles.first { $0.id == profileID }!
         var draft = DockProfileDraft(profile: original)
         draft.update {
@@ -291,10 +292,10 @@ struct ProfileStoreTests {
         #expect(restored.state.profiles.first { $0.id == profileID } == draft.profile)
     }
 
-    @Test func movingSelectedItemsKeepsTheirOrderAndMovesAsAGroup() {
+    @Test func movingSelectedItemsKeepsTheirOrderAndMovesAsAGroup() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
-        let profileID = store.createProfile(kind: .custom)
+        let profileID = try store.createProfileAndPersist(kind: .custom)
         let items = ["A", "B", "C", "D", "E"].map(DockItem.widget)
         items.forEach { store.add($0, to: profileID) }
         let selected = [items[1].id, items[3].id]
@@ -313,7 +314,7 @@ struct ProfileStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appendingPathComponent("state.json")
         let store = ProfileStore(fileURL: file)
-        let profileID = store.createProfile(kind: .custom, name: "Work")
+        let profileID = try store.createProfileAndPersist(kind: .custom, name: "Work")
         let first = DockItem.widget("Clock")
         let retained = DockItem.spacer(.small)
         let last = DockItem.widget("Battery")
@@ -335,7 +336,7 @@ struct ProfileStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appendingPathComponent("state.json")
         let store = ProfileStore(fileURL: file)
-        let profileID = store.createProfile(kind: .custom, name: "Notes")
+        let profileID = try store.createProfileAndPersist(kind: .custom, name: "Notes")
         let note = DockItem.widget("Sticky Note")
         store.add(note, to: profileID)
         store.updateWidgetConfiguration(itemID: note.id, in: profileID) {
@@ -761,11 +762,11 @@ struct ProfileStoreTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
-        let profileID = store.createProfile(kind: .custom, name: "Morning")
+        let profileID = try store.createProfileAndPersist(kind: .custom, name: "Morning")
         var alarmItem = DockItem.widget("Alarm")
         alarmItem.widgetConfiguration?.alarms = [DockAlarm(title: "Wake", hour: 7, minute: 0, repeatWeekdays: [2], isEnabled: true)]
         store.add(alarmItem, to: profileID)
-        store.duplicateProfile(profileID)
+        try store.duplicateProfile(profileID)
 
         let copy = store.state.profiles.last
         #expect(copy?.items.first?.id != alarmItem.id)
@@ -777,7 +778,7 @@ struct ProfileStoreTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
-        let profileID = store.createProfile(kind: .custom, name: "Widgets")
+        let profileID = try store.createProfileAndPersist(kind: .custom, name: "Widgets")
         var note = DockItem.widget("Sticky Note")
         note.widgetConfiguration?.noteText = "Keep this detail"
         store.add(note, to: profileID)
@@ -836,7 +837,7 @@ struct ProfileStoreTests {
             try? FileManager.default.removeItem(at: directory)
         }
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
-        let profileID = store.createProfile(kind: .custom, name: "Setup drafts")
+        let profileID = try store.createProfileAndPersist(kind: .custom, name: "Setup drafts")
         var stripeWidget = DockItem.widget("Stripe")
         stripeWidget.id = itemID
         store.add(stripeWidget, to: profileID)
@@ -860,7 +861,7 @@ struct ProfileStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appendingPathComponent("state.json")
         let store = ProfileStore(fileURL: file)
-        let profileID = store.createProfile(kind: .custom, name: "Notes")
+        let profileID = try store.createProfileAndPersist(kind: .custom, name: "Notes")
         let note = DockItem.widget("Sticky Note")
         store.add(note, to: profileID)
         let drafts = WidgetSetupDraftStore.shared
@@ -868,7 +869,7 @@ struct ProfileStoreTests {
 
         drafts.updateNoteDraft("Older edit", for: note.id, in: profileID)
         drafts.updateNoteDraft("Latest edit", for: note.id, in: profileID)
-        drafts.noteWasSaved("Older edit", for: note.id)
+        try drafts.saveNote("Older edit", for: note.id, in: profileID, to: store)
         #expect(drafts.hasPendingNotes)
         drafts.flushNotes(to: store)
         #expect(!drafts.hasPendingNotes)
@@ -887,8 +888,8 @@ struct ProfileStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appendingPathComponent("state.json")
         let store = ProfileStore(fileURL: file)
-        let firstProfile = store.createProfile(kind: .custom, name: "First finance Dock")
-        let secondProfile = store.createProfile(kind: .custom, name: "Second finance Dock")
+        let firstProfile = try store.createProfileAndPersist(kind: .custom, name: "First finance Dock")
+        let secondProfile = try store.createProfileAndPersist(kind: .custom, name: "Second finance Dock")
 
         func connectedWidget(_ kind: String, id: String) -> DockItem {
             var item = DockItem.widget(kind)
@@ -941,15 +942,15 @@ struct ProfileStoreTests {
         #expect(items[shopifySecond.id]?.widgetConfiguration?.shopifyStoreID == "")
     }
 
-    @Test func duplicatingProfileResetsCountdownRunState() {
+    @Test func duplicatingProfileResetsCountdownRunState() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
-        let profileID = store.createProfile(kind: .custom, name: "Timers")
+        let profileID = try store.createProfileAndPersist(kind: .custom, name: "Timers")
         var countdown = DockItem.widget("Countdown")
         countdown.widgetConfiguration?.countdownDurationSeconds = 600
         countdown.widgetConfiguration?.startCountdown(at: Date(timeIntervalSince1970: 100))
         store.add(countdown, to: profileID)
-        store.duplicateProfile(profileID)
+        try store.duplicateProfile(profileID)
 
         let copiedConfiguration = store.state.profiles.last?.items.first?.widgetConfiguration
         #expect(copiedConfiguration?.countdownDurationSeconds == 600)
@@ -958,17 +959,17 @@ struct ProfileStoreTests {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    @Test func duplicatingDateCountdownKeepsTargetConfiguration() {
+    @Test func duplicatingDateCountdownKeepsTargetConfiguration() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
-        let profileID = store.createProfile(kind: .custom, name: "Deadlines")
+        let profileID = try store.createProfileAndPersist(kind: .custom, name: "Deadlines")
         let target = Date(timeIntervalSince1970: 2_000_000_000)
         var countdown = DockItem.widget("Countdown")
         countdown.widgetConfiguration?.setCountdownTarget(target)
         store.add(countdown, to: profileID)
 
-        store.duplicateProfile(profileID)
+        try store.duplicateProfile(profileID)
 
         let copiedItem = store.state.profiles.last?.items.first
         #expect(copiedItem?.id != countdown.id)
@@ -1692,7 +1693,7 @@ struct ProfileStoreTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
-        let profileID = store.createProfile(kind: .native, name: "Work")
+        let profileID = try store.createProfileAndPersist(kind: .native, name: "Work")
         let appURL = URL(fileURLWithPath: "/System/Applications/Calculator.app")
         let pinnedApp = DockItem(type: .application, title: "Calculator", url: appURL)
         store.replaceItems([pinnedApp], in: profileID)

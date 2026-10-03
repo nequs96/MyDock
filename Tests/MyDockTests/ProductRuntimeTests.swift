@@ -102,7 +102,7 @@ struct ProductRuntimeTests {
         let existingWindows = Set(application.windows.map(\.windowNumber))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"), allowsSystemChanges: false)
-        let id = store.createProfile(kind: .custom, name: "Presentation regression")
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Presentation regression")
         store.add(.widget("Clock"), to: id)
         store.updateSettings {
             $0.setupMode = .both
@@ -214,7 +214,7 @@ struct ProductRuntimeTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
-        let id = store.createProfile(kind: .custom)
+        let id = try store.createProfileAndPersist(kind: .custom)
         let first = DockItem.widget("AI Limits"), second = DockItem.widget("AI Limits")
         store.add(first, to: id); store.add(second, to: id)
         var count = 0
@@ -238,7 +238,7 @@ struct ProductRuntimeTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
-        let id = store.createProfile(kind: .custom)
+        let id = try store.createProfileAndPersist(kind: .custom)
         let item = DockItem.widget("Sticky Note"); store.add(item, to: id)
         store.updateWidgetConfiguration(itemID: item.id, in: id) { $0.noteText = "Old" }
         store.updateWidgetConfiguration(itemID: item.id, in: id) { $0.noteText = "Newest" }

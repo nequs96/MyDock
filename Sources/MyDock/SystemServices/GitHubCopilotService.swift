@@ -25,6 +25,7 @@ enum GitHubCopilotCredentialStore {
     private static var service: String { Product.bundleIdentifier + ".integration-credentials" }
 
     static func read() throws -> GitHubCopilotCredentials? {
+        guard AppRuntimeEnvironment.allowsCredentials else { return nil }
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -44,6 +45,7 @@ enum GitHubCopilotCredentialStore {
     }
 
     static func write(username: String, token: String) throws {
+        try AppRuntimeEnvironment.requireCredentials()
         let normalizedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard GitHubCopilotUsernamePolicy.isValid(normalizedUsername), !normalizedToken.isEmpty else {
@@ -64,6 +66,7 @@ enum GitHubCopilotCredentialStore {
     }
 
     static func delete() throws {
+        try AppRuntimeEnvironment.requireCredentials()
         let status = SecItemDelete(baseQuery as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw GitHubCopilotCredentialError.keychain(status)

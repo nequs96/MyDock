@@ -5,6 +5,11 @@ final class RevisionedStateWriter: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.mydock.state-writer", qos: .utility)
     private let lock = NSLock()
     private var latestRevision: UInt64 = 0
+    private let persistState: @Sendable (PersistentState, URL) throws -> Void
+
+    init(persistState: (@Sendable (PersistentState, URL) throws -> Void)? = nil) {
+        self.persistState = persistState ?? { try Self.persist($0, to: $1) }
+    }
 
     private func announce(_ revision: UInt64) {
         lock.lock(); latestRevision = max(latestRevision, revision); lock.unlock()
@@ -18,7 +23,7 @@ final class RevisionedStateWriter: @unchecked Sendable {
         announce(revision)
         let work: @Sendable () -> Void = { [self] in
             guard isCurrent(revision) else { return }
-            completion(Result { try Self.persist(state, to: url) })
+            completion(Result { try persistState(state, url) })
         }
         if immediately { queue.sync(execute: work) }
         else { queue.asyncAfter(deadline: .now() + .milliseconds(150), execute: work) }
@@ -26,10 +31,10 @@ final class RevisionedStateWriter: @unchecked Sendable {
 
     func writeImmediately(_ state: PersistentState, to url: URL, revision: UInt64) throws {
         announce(revision)
-        try queue.sync { try Self.persist(state, to: url) }
+        try queue.sync { try persistState(state, url) }
     }
 
-    private static func persist(_ state: PersistentState, to url: URL) throws {
+    static func persist(_ state: PersistentState, to url: URL) throws {
         try ProfileSemanticValidator.validate(state.profiles)
         try ProfileAppearance(settings: state.settings).validate()
         let encoder = JSONEncoder()

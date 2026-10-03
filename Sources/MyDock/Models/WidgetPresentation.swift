@@ -43,13 +43,15 @@ enum WidgetPresentationCatalog {
         case "Network Activity": return [option(.compact, 100, "Download and upload"), option(.trend, 170, "Rates and download history")]
         case "Battery": return [option(.compact, 90, "Charge and battery shape"), option(.wide, 156, "Mac and available accessories")]
         case "Disk Space": return [option(.compact, 104, "Free space and capacity bar"), option(.wide, 158, "Available and total capacity")]
-        case "Clock": return [option(.compact, 84, "Local time"), option(.standard, 112, "Time and date")]
+        case "Clock": return [option(.compact, 104, "Local time"), option(.standard, 112, "Time and date")]
         case "World Clock": return [option(.compact, 88, "Primary city"), option(.wide, 164, "City and time zone")]
         case "Weather": return [option(.compact, 92, "Temperature and condition"), option(.standard, 132, "Place and current weather"), option(.wide, 184, "Upcoming hours", title: "Forecast")]
         case "Now Playing": return [option(.compact, 112, "Artwork and track"), option(.wide, 186, "Track and artist", title: "Track")]
         case "Focus Timer", "Countdown", "Stopwatch": return [option(.compact, 88, "Timer and state"), option(.standard, 124, "Time and progress")]
         case "Calendar", "Reminders", "Quick Checklist": return [option(.compact, 88, "At a glance"), option(.wide, 154, "Next item and count")]
         case "Stock", "Watchlist": return [option(.compact, 108, "Ticker and price"), option(.trend, 176, "Price and market history")]
+        case "File Shelf", "Text Snippets", "Quick Links": return [option(.compact, 96, "Saved item count"), option(.wide, 164, "Count and most recent item")]
+        case "Unit Converter", "Color Picker": return [option(.icon, 54, "Quick tool"), option(.compact, 104, "Tool and identity")]
         case "Sticky Note": return [option(.standard, 120, "A short note"), option(.wide, 176, "More of your note")]
         case "AirDrop", "Trash", "Calculator", "Shortcuts", "App Folder": return [option(.icon, 54, "Quick action"), option(.compact, 88, "Action and identity")]
         default: return [option(.compact, 88, "Essential information"), option(.standard, 124, "More context")]
@@ -59,7 +61,7 @@ enum WidgetPresentationCatalog {
         switch kind {
         case "AI Activity", "Weather", "Sticky Note": .standard
         case "Now Playing": .wide
-        case "AirDrop", "Trash", "Calculator", "Shortcuts", "App Folder": .icon
+        case "AirDrop", "Trash", "Calculator", "Shortcuts", "App Folder", "Unit Converter", "Color Picker": .icon
         default: .compact
         }
     }

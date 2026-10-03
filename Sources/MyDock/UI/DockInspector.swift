@@ -35,7 +35,7 @@ struct DockAppearanceInspector: View {
                 }
                 HStack {
                     Text("Spacing").foregroundStyle(.secondary)
-                    Slider(value: Binding(get: { settings.customDockItemSpacing }, set: { value in edit { $0.spacing = value } }), in: 0...30, onEditingChanged: { if !$0 { store.flush() } })
+                    Slider(value: Binding(get: { settings.customDockItemSpacing }, set: { value in edit { $0.spacing = value } }), in: DockAppearanceBounds.itemSpacing, onEditingChanged: { if !$0 { store.flush() } })
                         .accessibilityLabel("Item spacing")
                     Picker("Theme", selection: Binding(get: { settings.customDockTheme }, set: { value in edit { $0.theme = value }; store.flush() })) {
                         ForEach(CustomDockTheme.allCases) { Text($0.title).tag($0) }

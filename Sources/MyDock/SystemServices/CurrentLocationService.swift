@@ -18,6 +18,7 @@ final class CurrentLocationService: NSObject, @preconcurrency CLLocationManagerD
     }
 
     func currentLocation() async throws -> WeatherLocation {
+        try AppRuntimeEnvironment.requireNativeEffects()
         guard pendingContinuation == nil else { throw WeatherServiceError.serviceUnavailable }
         let requestID = UUID()
         return try await withTaskCancellationHandler {

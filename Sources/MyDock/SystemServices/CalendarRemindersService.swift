@@ -64,6 +64,7 @@ actor CalendarRemindersService {
     func hasRemindersAccess() -> Bool { hasFullAccess(to: .reminder) }
 
     func requestCalendarAccess() async throws {
+        try AppRuntimeEnvironment.requireNativeEffects()
         if hasFullAccess(to: .event) { return }
         let granted: Bool
         do {
@@ -81,6 +82,7 @@ actor CalendarRemindersService {
     }
 
     func requestRemindersAccess() async throws {
+        try AppRuntimeEnvironment.requireNativeEffects()
         if hasFullAccess(to: .reminder) { return }
         let granted: Bool
         do {
@@ -98,6 +100,7 @@ actor CalendarRemindersService {
     }
 
     func calendarLists() throws -> [CalendarListSnapshot] {
+        try AppRuntimeEnvironment.requireNativeEffects()
         guard hasFullAccess(to: .event) else { throw CalendarRemindersServiceError.accessDenied }
         let lists = eventStore.calendars(for: .event)
             .map { CalendarListSnapshot(id: $0.calendarIdentifier, title: $0.title) }
@@ -107,6 +110,7 @@ actor CalendarRemindersService {
     }
 
     func reminderLists() throws -> [ReminderListSnapshot] {
+        try AppRuntimeEnvironment.requireNativeEffects()
         guard hasFullAccess(to: .reminder) else { throw CalendarRemindersServiceError.accessDenied }
         let lists = eventStore.calendars(for: .reminder)
             .map { ReminderListSnapshot(id: $0.calendarIdentifier, title: $0.title) }
@@ -116,6 +120,7 @@ actor CalendarRemindersService {
     }
 
     func events(calendarIDs: [String], includeAllDay: Bool, now: Date = .now) throws -> [CalendarEventSnapshot] {
+        try AppRuntimeEnvironment.requireNativeEffects()
         guard hasFullAccess(to: .event) else { throw CalendarRemindersServiceError.accessDenied }
         let available = eventStore.calendars(for: .event)
         let selected: [EKCalendar]?
@@ -150,6 +155,7 @@ actor CalendarRemindersService {
     }
 
     func reminders(calendarID: String) async throws -> [ReminderSnapshot] {
+        try AppRuntimeEnvironment.requireNativeEffects()
         guard hasFullAccess(to: .reminder) else { throw CalendarRemindersServiceError.accessDenied }
         let available = eventStore.calendars(for: .reminder)
         let selected: [EKCalendar]?
@@ -189,6 +195,7 @@ actor CalendarRemindersService {
     }
 
     func addReminder(title: String, calendarID: String) throws {
+        try AppRuntimeEnvironment.requireNativeEffects()
         guard hasFullAccess(to: .reminder) else { throw CalendarRemindersServiceError.accessDenied }
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
@@ -208,6 +215,7 @@ actor CalendarRemindersService {
     }
 
     func setReminderCompleted(identifier: String, completed: Bool) throws {
+        try AppRuntimeEnvironment.requireNativeEffects()
         guard hasFullAccess(to: .reminder) else { throw CalendarRemindersServiceError.accessDenied }
         guard let reminder = eventStore.calendarItem(withIdentifier: identifier) as? EKReminder else {
             throw CalendarRemindersServiceError.reminderUnavailable

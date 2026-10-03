@@ -8,7 +8,7 @@ final class LaunchAtLoginController: ObservableObject {
     @Published private(set) var enabled = false
     @Published private(set) var requiresApproval = false
     @Published private(set) var errorMessage: String?
-    var isAvailable: Bool { Bundle.main.bundleIdentifier == Product.bundleIdentifier && Bundle.main.bundleURL.pathExtension == "app" }
+    var isAvailable: Bool { AppRuntimeEnvironment.allowsNativeEffects && Bundle.main.bundleIdentifier == Product.bundleIdentifier && Bundle.main.bundleURL.pathExtension == "app" }
     private init() { refresh() }
     func refresh() {
         enabled = isAvailable && [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
@@ -23,7 +23,7 @@ final class LaunchAtLoginController: ObservableObject {
         } catch { errorMessage = error.localizedDescription }
         refresh()
     }
-    func openApprovalSettings() { SMAppService.openSystemSettingsLoginItems() }
+    func openApprovalSettings() { if AppRuntimeEnvironment.allowsNativeEffects { SMAppService.openSystemSettingsLoginItems() } }
 }
 
 struct ReleaseRepository: Equatable {

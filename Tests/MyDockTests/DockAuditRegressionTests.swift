@@ -7,6 +7,79 @@ import UniformTypeIdentifiers
 
 @MainActor
 struct DockAuditRegressionTests {
+    @Test func resizePreviewDoesNotPublishOrPersistProfileChangesUntilDragEnds() throws {
+        let (store, directory) = fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let id = try store.createProfileAndPersist(kind: .custom)
+        let file = directory.appendingPathComponent("state.json")
+        let original = try Data(contentsOf: file)
+        var statePublications = 0
+        let observation = store.$state.dropFirst().sink { _ in statePublications += 1 }
+        for sample in 0..<200 { store.previewDockSize(0.65 + Double(sample) / 250, for: id) }
+        #expect(statePublications == 0)
+        #expect(!store.isSaving)
+        #expect(try Data(contentsOf: file) == original)
+        #expect(store.state.settings.customDockSize == 1)
+        #expect(abs(store.effectiveSettings(profileID: id).customDockSize - 1.446) < 0.000001)
+        store.finishDockResize(for: id)
+        #expect(statePublications == 1)
+        #expect(store.dockResizePreview == nil)
+        #expect(abs(ProfileStore(fileURL: file, allowsSystemChanges: false).state.settings.customDockSize - 1.446) < 0.000001)
+        withExtendedLifetime(observation) {}
+    }
+
+    @Test func resizePreviewKeepsProfileScopeAndRejectsInvalidSamples() throws {
+        let (store, directory) = fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let local = try store.createProfileAndPersist(kind: .custom)
+        let other = try store.createProfileAndPersist(kind: .custom)
+        store.setAppearance(ProfileAppearance(settings: store.state.settings), for: local)
+        store.previewDockSize(1.3, for: local)
+        store.previewDockSize(.nan, for: local)
+        store.previewDockSize(2, for: local)
+        #expect(store.effectiveSettings(profileID: local).customDockSize == 1.3)
+        #expect(store.effectiveSettings(profileID: other).customDockSize == 1)
+        store.finishDockResize(for: other)
+        #expect(store.dockResizePreview?.profileID == local)
+        store.finishDockResize(for: local)
+        #expect(store.state.settings.customDockSize == 1)
+        #expect(store.effectiveSettings(profileID: local).customDockSize == 1.3)
+    }
+
+    @Test func glassOpacityAndMotionMigrateAndRoundTripWithoutResettingAppearance() throws {
+        var settings = AppSettings()
+        settings.customDockGlassOpacity = 0.62
+        settings.dockAnimationsEnabled = false
+        settings.dockAnimationStyle = .grow
+        #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings)) == settings)
+        var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(ProfileAppearance(settings: settings))) as? [String: Any])
+        legacy.removeValue(forKey: "glassOpacity")
+        let migrated = try JSONDecoder().decode(ProfileAppearance.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(migrated.applying(to: settings).customDockGlassOpacity == 0)
+        #expect(migrated.material == settings.customDockMaterial)
+        let bounded = try JSONDecoder().decode(AppSettings.self, from: Data("{\"customDockGlassOpacity\":2,\"dockAnimationStyle\":\"future-style\"}".utf8))
+        #expect(bounded.customDockGlassOpacity == 1)
+        #expect(bounded.dockAnimationsEnabled)
+        #expect(bounded.dockAnimationStyle == .slide)
+        let empty = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
+        #expect(empty.customDockGlassOpacity == 0)
+        var invalid = ProfileAppearance(settings: settings); invalid.glassOpacity = .infinity
+        #expect(throws: ProfileValidationError.self) { try invalid.validate() }
+    }
+
+    @Test func dockMotionRespectsOffAndReduceMotionWithDistinctRevealGeometry() {
+        let frame = NSRect(x: 100, y: 50, width: 500, height: 98)
+        for position in DockPosition.allCases {
+            #expect(DockPanelMotion.transitionFrame(from: frame, position: position, style: .fade) == frame)
+            #expect(DockPanelMotion.transitionFrame(from: frame, position: position, style: .slide) == DockPanelMotion.hiddenFrame(from: frame, position: position))
+            #expect(DockPanelMotion.transitionFrame(from: frame, position: position, style: .grow) == frame)
+            #expect(DockPanelMotion.scale(visible: false, style: .grow) < 1)
+            #expect(DockPanelMotion.scale(visible: true, style: .grow) == 1)
+        }
+        #expect(DockPanelMotion.duration(visible: true, enabled: false, reduceMotion: false) == 0)
+        #expect(DockPanelMotion.duration(visible: false, enabled: true, reduceMotion: true) == 0)
+        #expect(DockPanelMotion.duration(visible: true, enabled: true, reduceMotion: false) > 0)
+    }
     @Test func profileMorphSharesSemanticTilesWithoutCollidingWithRepeatedItems() {
         var app = DockItem.application(at: URL(fileURLWithPath: "/Applications/Example.app"))
         app.bundleIdentifier = "app.example"
@@ -139,8 +212,8 @@ struct DockAuditRegressionTests {
     @Test func pinningTheSameRuntimeItemInDifferentProfilesPersistsUniqueIdentities() throws {
         let (store, directory) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let first = store.createProfile(kind: .custom, name: "First")
-        let second = store.createProfile(kind: .custom, name: "Second")
+        let first = try store.createProfileAndPersist(kind: .custom, name: "First")
+        let second = try store.createProfileAndPersist(kind: .custom, name: "Second")
         var item = DockItem.application(at: URL(fileURLWithPath: "/Applications/Example.app"))
         item.id = RuntimeDockIdentity.uuid("running:app.example")
         store.add(item, to: first)
@@ -158,7 +231,7 @@ struct DockAuditRegressionTests {
     @Test func deletingAProfileRemovesItsUnsavableDraft() throws {
         let (store, directory) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let id = store.createProfile(kind: .custom)
+        let id = try store.createProfileAndPersist(kind: .custom)
         var draft = DockProfileDraft(profile: try #require(store.activeCustomProfile))
         draft.update { $0.name = "Unsaved draft" }
         store.editSessions.set(draft, for: id)
@@ -171,8 +244,8 @@ struct DockAuditRegressionTests {
     @Test func directResizeKeepsProfileOverridesAndGlobalInheritanceSeparate() throws {
         let (store, directory) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let local = store.createProfile(kind: .custom, name: "Local")
-        let inherited = store.createProfile(kind: .custom, name: "Inherited")
+        let local = try store.createProfileAndPersist(kind: .custom, name: "Local")
+        let inherited = try store.createProfileAndPersist(kind: .custom, name: "Inherited")
         var appearance = ProfileAppearance(settings: store.state.settings)
         appearance.size = 0.8
         appearance.material = .dark
@@ -222,7 +295,7 @@ struct DockAuditRegressionTests {
     @Test func sharedRefreshFailureIsPublishedOnce() async throws {
         let (store, directory) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let id = store.createProfile(kind: .custom)
+        let id = try store.createProfileAndPersist(kind: .custom)
         let first = DockItem.widget("AI Limits"), second = DockItem.widget("AI Limits")
         store.add(first, to: id)
         store.add(second, to: id)
@@ -305,7 +378,7 @@ struct DockAuditRegressionTests {
     @Test func hiddenTimersFinishAfterClockOrWakeReconciliation() async throws {
         let (store, directory) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let hidden = store.createProfile(kind: .custom, name: "Hidden")
+        let hidden = try store.createProfileAndPersist(kind: .custom, name: "Hidden")
         let focus = DockItem.widget("Focus Timer"), countdown = DockItem.widget("Countdown")
         store.add(focus, to: hidden)
         store.add(countdown, to: hidden)
@@ -396,7 +469,7 @@ struct DockAuditRegressionTests {
     @Test func nativeAutoSaveRetainsErrorsAndRetriesFailedDiskWrites() async throws {
         let (store, directory) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let profile = store.createProfile(kind: .native)
+        let profile = try store.createProfileAndPersist(kind: .native)
         store.updateSettings { $0.automaticallySaveNativeDockChanges = true }
         let backend = AuditDockBackend()
         let controller = NativeDockController(backend: backend, relauncher: AuditRelauncher(), journal: AuditDockJournal())

@@ -46,10 +46,10 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             && Bundle.main.bundleIdentifier?.hasSuffix("VisualPreview") == true)
     private let countdownVisualPreview = ProcessInfo.processInfo.environment["MYDOCK_COUNTDOWN_VISUAL_PREVIEW"] == "1"
         || Bundle.main.bundleIdentifier == Product.bundleIdentifier + "CountdownVisualPreview"
-    private let previewDirectory = FileManager.default.temporaryDirectory
+    private let previewDirectory = (AppRuntimeEnvironment.validationRoot ?? FileManager.default.temporaryDirectory)
         .appendingPathComponent("MyDock-VisualPreview-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
     private lazy var previewStore = ProfileStore(fileURL: previewDirectory.appendingPathComponent("state.json"), allowsSystemChanges: false)
-    private var store: ProfileStore { visualPreview ? previewStore : ProfileStore.shared }
+    private var store: ProfileStore { AppRuntimeEnvironment.isIsolated ? previewStore : ProfileStore.shared }
     #else
     private lazy var store = ProfileStore.shared
     #endif
@@ -70,7 +70,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             }
             return
         }
-        if visualPreview {
+        if visualPreview || AppRuntimeEnvironment.isIsolated {
             if let dark = ProcessInfo.processInfo.environment["MYDOCK_VISUAL_DARK"] {
                 NSApplication.shared.appearance = NSAppearance(named: dark == "1" ? .darkAqua : .aqua)
             }
@@ -80,7 +80,20 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
                 $0.customDockPosition = previewPosition
                 $0.customDockTheme = ProcessInfo.processInfo.environment["MYDOCK_VISUAL_DARK"] == "0" ? .light : .dark
             }
-            let id = store.createProfile(kind: .custom, name: "Everyday")
+            guard let id = try? store.createProfileAndPersist(kind: .custom, name: "Everyday") else {
+                NSApplication.shared.terminate(nil); return
+            }
+            let adaptivePreview = ProcessInfo.processInfo.environment["MYDOCK_ADAPTIVE_PREVIEW"] == "1"
+            if adaptivePreview {
+                for bundle in ["com.apple.finder", "com.apple.Safari"] {
+                    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) { store.add(.application(at: url), to: id) }
+                }
+                store.add(.spacer(.small), to: id)
+                for kind in ["AI Activity", "System Activity", "Network Activity", "Disk Space", "Battery", "Clock"] { store.add(.widget(kind), to: id) }
+                SystemActivityMonitor.shared.setDockVisible(true)
+                NetworkActivityMonitor.shared.setDockVisible(true)
+
+            } else {
             store.add(.widget("Clock"), to: id)
             store.add(.widget("Weather"), to: id)
             store.add(.widget("Focus Timer"), to: id)
@@ -88,6 +101,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             if ProcessInfo.processInfo.environment["MYDOCK_WIDGET_PREVIEW"] == "1" {
                 for kind in ["System Activity", "AI Limits", "Disk Space", "Calculator", "Quick Checklist"] { store.add(.widget(kind), to: id) }
                 store.add(AIActivityPreviewData.item(), to: id)
+            }
             }
             if countdownVisualPreview {
                 var countdown = DockItem.widget("Countdown")
@@ -98,7 +112,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             showManager(nil)
             showWindow(id: "visual-preview", title: "Custom Dock Preview",
                        root: VisualDockPreviewSurface(store: store, profileID: id),
-                       size: NSSize(width: countdownVisualPreview ? 960 : 620,
+                       size: NSSize(width: adaptivePreview ? 1180 : countdownVisualPreview ? 960 : 620,
                                     height: countdownVisualPreview ? 560 : 420))
             showManager(nil)
             return
@@ -181,20 +195,24 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         if abortingDuplicateLaunch { return .terminateNow }
         DiagnosticsService.shared.record(.quitRequested)
         quitWithoutSaving = false
-        WidgetSetupDraftStore.shared.flushNotes(to: store)
+        let noteResult = WidgetSetupDraftStore.shared.flushNotes(to: store)
+        let utilitySaved = store.utilityDrafts.flush()
         guard store.editSessions.resolveBeforeQuitting() else { return .terminateCancel }
         store.flush()
-        if store.hasUnpersistedChanges {
+        if store.hasUnpersistedChanges || WidgetSetupDraftStore.shared.hasPendingNotes || !utilitySaved {
             let alert = NSAlert()
             alert.messageText = "MyDock changes are not saved"
-            alert.informativeText = store.persistenceError ?? "MyDock could not save its latest changes."
+            let noteError: String? = { if case .failure(let error) = noteResult { return error.localizedDescription }; return nil }()
+            alert.informativeText = noteError ?? store.utilityDrafts.errorMessage ?? store.persistenceError ?? "MyDock could not save its latest changes."
             alert.addButton(withTitle: "Retry Save")
             alert.addButton(withTitle: "Cancel Quit")
             alert.addButton(withTitle: "Quit Without Saving")
             switch alert.runModal() {
             case .alertFirstButtonReturn:
+                WidgetSetupDraftStore.shared.flushNotes(to: store)
+                let draftsSaved = store.utilityDrafts.flush()
                 store.commit()
-                guard !store.hasUnpersistedChanges else {
+                guard !store.hasUnpersistedChanges, !WidgetSetupDraftStore.shared.hasPendingNotes, draftsSaved else {
                     DiagnosticsService.shared.record(.quitCancelled)
                     return .terminateCancel
                 }
@@ -209,7 +227,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             }
         }
         #if DEBUG
-        if visualPreview { return .terminateNow }
+        if visualPreview || AppRuntimeEnvironment.isIsolated { return .terminateNow }
         #endif
         guard NativeDockAutoHideController.shared.hasPendingRestore else { return .terminateNow }
         Task { @MainActor in
@@ -232,7 +250,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     func applicationWillTerminate(_ notification: Notification) {
         #if DEBUG
         if unitTestHost { return }
-        if visualPreview { try? FileManager.default.removeItem(at: previewDirectory); return }
+        if visualPreview || AppRuntimeEnvironment.isIsolated { try? FileManager.default.removeItem(at: previewDirectory); return }
         #endif
         if !abortingDuplicateLaunch { DiagnosticsService.shared.record(.appTerminated) }
         guard !quitWithoutSaving else { return }
@@ -241,6 +259,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
 
     private func synchronizeCustomMainMode(_ enabled: Bool) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         guard enabled != lastCustomMainModeAttempt || pendingCustomMainMode != nil else { return }
         pendingCustomMainMode = enabled
         guard customMainModeTask == nil else { return }
@@ -444,8 +463,8 @@ private struct VisualDockPreviewSurface: View {
             ZStack {
                 LinearGradient(colors: [DockDesign.accent.opacity(0.16), DockDesign.page],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
-                DockLayoutPreview(store: store, profile: profile, maximumSideLength: 360)
-                    .frame(width: horizontal ? min(length + 20, 560) : 118 * scale)
+                DockLayoutPreview(store: store, profile: profile, maximumSideLength: 360, usesLiveData: ProcessInfo.processInfo.environment["MYDOCK_ADAPTIVE_PREVIEW"] == "1")
+                    .frame(width: horizontal ? min(length + 20, ProcessInfo.processInfo.environment["MYDOCK_ADAPTIVE_PREVIEW"] == "1" ? 1120 : 560) : 118 * scale)
             }
         }
     }

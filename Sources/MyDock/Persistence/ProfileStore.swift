@@ -2,11 +2,27 @@ import Combine
 import Foundation
 import OSLog
 
+enum WidgetConfigurationUpdateResult: Equatable {
+    case accepted
+    case unchanged
+    case rejected(String)
+    case missingTarget
+}
+
+enum WidgetConfigurationMutationError: LocalizedError {
+    case missingTarget
+    var errorDescription: String? {
+        "This widget was removed or is unavailable. Your unfinished note has been kept."
+    }
+}
+
 @MainActor
 final class ProfileStore: ObservableObject {
     static let shared = ProfileStore()
 
     @Published private(set) var state: PersistentState
+    struct DockResizePreview: Equatable { let profileID: UUID; let size: Double }
+    @Published private(set) var dockResizePreview: DockResizePreview?
     @Published private(set) var persistenceError: String?
     @Published private(set) var persistenceWarning: String?
     @Published private(set) var hasUnpersistedChanges = false
@@ -16,36 +32,42 @@ final class ProfileStore: ObservableObject {
     lazy var widgetLifecycle = WidgetLifecycleCoordinator(store: self)
     lazy var history = ProfileLibrary(fileURL: fileURL.deletingLastPathComponent().appendingPathComponent("history.json"), retentionDays: 14)
     lazy var personalPresets = ProfileLibrary(fileURL: fileURL.deletingLastPathComponent().appendingPathComponent("presets.json"), maximumEntries: 50)
+    lazy var utilityDrafts = DockUtilityDraftStore(fileURL: fileURL.deletingLastPathComponent()
+        .appendingPathComponent("utility-drafts", isDirectory: true).appendingPathComponent("drafts.json"))
 
     private let fileURL: URL
     let allowsSystemChanges: Bool
     private let logger = Logger(subsystem: Product.bundleIdentifier, category: "persistence")
     private var storageWritable = true
-    private let writer = RevisionedStateWriter()
+    private let writer: RevisionedStateWriter
     private var revision: UInt64 = 0
     @Published private(set) var isSaving = false
     var canRetryPersistence: Bool { storageWritable }
 
-    init(fileURL: URL? = nil, allowsSystemChanges: Bool = true) {
-        self.allowsSystemChanges = allowsSystemChanges
-        let supportRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        let support = supportRoot.appendingPathComponent(Product.name, isDirectory: true)
+    init(fileURL: URL? = nil, allowsSystemChanges: Bool = true, stateWriter: RevisionedStateWriter? = nil) {
+        self.allowsSystemChanges = allowsSystemChanges && AppRuntimeEnvironment.allowsNativeEffects
+        let support = AppRuntimeEnvironment.applicationSupportDirectory
         self.fileURL = fileURL ?? support.appendingPathComponent("state.json")
+        self.writer = stateWriter ?? RevisionedStateWriter()
         if FileManager.default.fileExists(atPath: self.fileURL.path) {
             do {
                 let data = try BackupManager.boundedArchiveData(from: self.fileURL)
-                var loaded = try JSONDecoder().decode(PersistentState.self, from: data)
-                guard loaded.schemaVersion <= Product.stateSchemaVersion else {
+                let schemaVersion = try BackupManager.stateSchemaVersion(in: data)
+                guard schemaVersion.map({ $0 <= Product.stateSchemaVersion }) ?? true else {
                     self.state = PersistentState()
                     self.storageWritable = false
                     self.persistenceWarning = "This MyDock data was created by a newer version. It was left untouched, and saving is disabled to protect it."
                     return
                 }
+                var loaded = try JSONDecoder().decode(PersistentState.self, from: data)
                 try ProfileSemanticValidator.validate(loaded.profiles)
                 try ProfileAppearance(settings: loaded.settings).validate()
                 loaded.schemaVersion = Product.stateSchemaVersion
                 self.state = loaded
+            } catch BackupError.tooLarge {
+                self.state = PersistentState()
+                self.storageWritable = false
+                self.persistenceWarning = "Saved MyDock data exceeds the supported size. It was left untouched, and saving is disabled to protect it."
             } catch {
                 self.state = PersistentState()
                 let recoveryURL = self.fileURL.appendingPathExtension("recovery-\(UUID().uuidString)")
@@ -74,7 +96,13 @@ final class ProfileStore: ObservableObject {
     }
 
     @discardableResult
-    func createProfile(kind: DockProfileKind, name: String? = nil) -> UUID {
+    func createProfile(kind: DockProfileKind, name: String? = nil) -> UUID? {
+        try? createProfileAndPersist(kind: kind, name: name)
+    }
+
+    /// A returned identity always belongs to a durably saved profile.
+    @discardableResult
+    func createProfileAndPersist(kind: DockProfileKind, name: String? = nil) throws -> UUID {
         let baseName = name ?? (kind == .custom ? "Custom Dock" : "macOS Dock")
         var candidate = baseName
         var suffix = 2
@@ -83,12 +111,13 @@ final class ProfileStore: ObservableObject {
             suffix += 1
         }
         let profile = DockProfile(name: candidate, kind: kind)
-        state.profiles.append(profile)
+        var next = state
+        next.profiles.append(profile)
         if kind == .custom {
-            state.settings.activeCustomProfileID = profile.id
-            if state.settings.setupMode == .nativeOnly { state.settings.setupMode = .both }
+            next.settings.activeCustomProfileID = profile.id
+            if next.settings.setupMode == .nativeOnly { next.settings.setupMode = .both }
         }
-        commit()
+        try persistCandidate(next)
         return profile.id
     }
 
@@ -115,15 +144,18 @@ final class ProfileStore: ObservableObject {
         return profile.id
     }
 
-    func duplicateProfile(_ id: UUID) {
-        guard let original = state.profiles.first(where: { $0.id == id }) else { return }
+    @discardableResult
+    func duplicateProfile(_ id: UUID) throws -> UUID {
+        guard let original = state.profiles.first(where: { $0.id == id }) else { throw ProfileDraftMergeError.profileRemoved }
         var copy = original
         copy.id = UUID()
         copy.name = "\(original.name) Copy"
         copy.createdAt = .now
         copy.items = original.items.map(copyItemForDuplication)
-        state.profiles.append(copy)
-        commit()
+        var candidate = state
+        candidate.profiles.append(copy)
+        try persistCandidate(candidate)
+        return copy.id
     }
 
     @discardableResult
@@ -270,6 +302,19 @@ final class ProfileStore: ObservableObject {
     }
 
     /// A direct Dock resize follows the active profile's existing inheritance choice.
+    func previewDockSize(_ size: Double, for profileID: UUID) {
+        guard size.isFinite, (0.65...1.5).contains(size), customProfiles.contains(where: { $0.id == profileID }) else { return }
+        let preview = DockResizePreview(profileID: profileID, size: size)
+        if preview != dockResizePreview { dockResizePreview = preview }
+    }
+
+    func finishDockResize(for profileID: UUID) {
+        guard let preview = dockResizePreview, preview.profileID == profileID else { return }
+        setDockSize(preview.size, for: profileID, recordHistory: true)
+        dockResizePreview = nil
+        flush()
+    }
+
     func setDockSize(_ size: Double, for profileID: UUID, recordHistory: Bool = false) {
         guard size.isFinite, (0.65...1.5).contains(size),
               let profile = customProfiles.first(where: { $0.id == profileID }) else { return }
@@ -424,17 +469,52 @@ final class ProfileStore: ObservableObject {
         }
     }
 
-    func updateWidgetConfiguration(itemID: UUID, in profileID: UUID, update: (inout WidgetConfiguration) -> Void) {
+    /// Accepted and unchanged describe in-memory state, not durable success.
+    @discardableResult
+    func updateWidgetConfiguration(itemID: UUID, in profileID: UUID, update: (inout WidgetConfiguration) -> Void) -> WidgetConfigurationUpdateResult {
+        guard storageWritable else { return .rejected(persistenceWarning ?? "Saving is disabled to protect this data.") }
         guard let profileIndex = state.profiles.firstIndex(where: { $0.id == profileID }),
               let itemIndex = state.profiles[profileIndex].items.firstIndex(where: { $0.id == itemID }),
-              state.profiles[profileIndex].items[itemIndex].type == .widget else { return }
+              state.profiles[profileIndex].items[itemIndex].type == .widget else { return .missingTarget }
         var configuration = state.profiles[profileIndex].items[itemIndex].widgetConfiguration ?? WidgetConfiguration()
         update(&configuration)
         do { try ProfileSemanticValidator.validate(configuration) }
-        catch { persistenceWarning = error.localizedDescription; return }
-        guard configuration != state.profiles[profileIndex].items[itemIndex].widgetConfiguration else { return }
+        catch { persistenceWarning = error.localizedDescription; return .rejected(error.localizedDescription) }
+        guard configuration != state.profiles[profileIndex].items[itemIndex].widgetConfiguration else { return .unchanged }
         state.profiles[profileIndex].items[itemIndex].widgetConfiguration = configuration
         commit(immediately: false)
+        return .accepted
+    }
+
+    /// Critical Save/dismissal boundaries validate and write before acknowledging input.
+    func updateWidgetConfigurationAndPersist(itemID: UUID, in profileID: UUID, update: (inout WidgetConfiguration) -> Void) throws {
+        var candidate = state
+        try updateWidgetConfiguration(in: &candidate, itemID: itemID, profileID: profileID, update: update)
+        try persistCandidate(candidate)
+    }
+
+    /// One failed note keeps the complete pending batch recoverable, without partial publication.
+    func persistNoteDrafts(_ drafts: [(itemID: UUID, profileID: UUID, text: String)]) throws {
+        guard !drafts.isEmpty else { return }
+        var candidate = state
+        for draft in drafts {
+            try updateWidgetConfiguration(in: &candidate, itemID: draft.itemID, profileID: draft.profileID) { $0.noteText = draft.text }
+        }
+        try persistCandidate(candidate)
+    }
+
+    private func updateWidgetConfiguration(in candidate: inout PersistentState, itemID: UUID, profileID: UUID,
+                                           update: (inout WidgetConfiguration) -> Void) throws {
+        guard let profileIndex = candidate.profiles.firstIndex(where: { $0.id == profileID }),
+              let itemIndex = candidate.profiles[profileIndex].items.firstIndex(where: { $0.id == itemID }),
+              candidate.profiles[profileIndex].items[itemIndex].type == .widget else {
+            throw WidgetConfigurationMutationError.missingTarget
+        }
+        var configuration = candidate.profiles[profileIndex].items[itemIndex].widgetConfiguration ?? WidgetConfiguration()
+        update(&configuration)
+        do { try ProfileSemanticValidator.validate(configuration) }
+        catch { persistenceWarning = error.localizedDescription; throw error }
+        candidate.profiles[profileIndex].items[itemIndex].widgetConfiguration = configuration
     }
 
     func clearConnectionReferences(_ connection: WidgetConnectionReference) {
@@ -453,9 +533,10 @@ final class ProfileStore: ObservableObject {
         commit()
     }
 
-    func importProfiles(_ profiles: [DockProfile]) {
-        state.profiles.append(contentsOf: profiles)
-        commit()
+    func importProfiles(_ profiles: [DockProfile]) throws {
+        var candidate = state
+        candidate.profiles.append(contentsOf: profiles)
+        try persistCandidate(candidate)
     }
 
     private func persistCandidate(_ candidate: PersistentState) throws {

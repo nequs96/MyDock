@@ -6,8 +6,62 @@ import SwiftUI
 /// with an isolated ProfileStore; never starts the user's Dock or native controllers.
 @MainActor
 enum PremiumVisualQA {
+    private static func exportToolsUI(to directory: URL, store: ProfileStore) async throws {
+        let kinds = ["File Shelf", "Text Snippets", "Quick Links", "Unit Converter", "Color Picker"]
+        let file = directory.appendingPathComponent("Example.txt")
+        try Data("Disposable File Shelf preview".utf8).write(to: file)
+        var items = kinds.map(DockItem.widget)
+        items[0].widgetConfiguration?.shelfFiles = [ShelfFile(url: file), ShelfFile(url: URL(fileURLWithPath: "/missing/Old Design.pdf"))]
+        items[1].widgetConfiguration?.textSnippets = [TextSnippet(title: "A friendly reply", text: "Thanks for reaching out. I’ll take a look and get back to you tomorrow."), TextSnippet(title: "Project handoff", text: "Designs are ready for review.\nPlease leave your feedback in the project workspace.")]
+        items[2].widgetConfiguration?.quickLinks = [QuickLink(title: "Project workspace", url: URL(string: "https://example.com/project")!), QuickLink(title: "Reading list", url: URL(string: "https://example.org/reading")!)]
+        items[4].widgetConfiguration?.savedColors = ["#5EA3A8", "#C49961", "#CF809A", "#729DC6", "#7954AA", "#FFFFFF", "#333333"]
+        let profile = DockProfile(name: "Everyday Tools", kind: .custom, items: items)
+        let id = try store.createProfile(profile)
+        for scheme in [ColorScheme.dark, .light] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            store.updateSettings { $0.customDockPosition = .bottom; $0.customDockWidgetStyle = .cards; $0.showRunningApps = false; $0.showTrash = false }
+            try await render(AddLibrary(store: store, profile: profile, initialCategory: "Widgets", add: { _ in }, switchProfile: { _ in }, newDock: {}, settings: {}, browse: { _ in }, close: {}), name: "tools-library-" + suffix, size: NSSize(width: 920, height: 740), scheme: scheme, directory: directory)
+            try await render(VStack(alignment: .leading, spacing: 18) {
+                ForEach(kinds, id: \.self) { kind in
+                    HStack(spacing: 16) {
+                        Text(kind).font(.caption).frame(width: 100, alignment: .leading)
+                        ForEach(WidgetPresentationCatalog.options(for: kind)) { option in
+                            WidgetCardPreview(kind: kind, width: option.width, layout: option.layout)
+                        }
+                    }
+                }
+            }.padding(24).background(WidgetDesign.surface), name: "tools-layouts-" + suffix, size: NSSize(width: 500, height: 430), scheme: scheme, directory: directory)
+            for item in items {
+                let kind = item.widgetKind!
+                let name = kind.lowercased().replacingOccurrences(of: " ", with: "-")
+                try await render(WidgetConfigurationSheet(store: store, item: item, profileID: id), name: "tools-configure-" + name + "-" + suffix, size: NSSize(width: 488, height: 660), scheme: scheme, directory: directory)
+                try await render(WidgetPopout(store: store, item: item, profileID: id, showsCustomize: false).padding(20).background(WidgetDesign.surface), name: "tools-popout-" + name + "-" + suffix, size: NSSize(width: 460, height: 600), scheme: scheme, directory: directory)
+                if ["File Shelf", "Text Snippets", "Quick Links"].contains(kind) {
+                    let empty = DockItem.widget(kind)
+                    try await render(WidgetPopout(store: store, item: empty, profileID: id, showsCustomize: false).padding(20).background(WidgetDesign.surface), name: "tools-empty-" + name + "-" + suffix, size: NSSize(width: 460, height: 430), scheme: scheme, directory: directory)
+                }
+            }
+            store.updateSettings { $0.customDockPosition = .left }
+            try await render(HStack(spacing: 14) {
+                ForEach(items) { item in WidgetCompactView(store: store, item: item, profileID: id, sampleMode: true, presentationSettings: store.state.settings) }
+            }.padding(20).background(WidgetDesign.surface), name: "tools-side-" + suffix, size: NSSize(width: 390, height: 100), scheme: scheme, directory: directory)
+        }
+    }
+
     static func export(to directory: URL, store: ProfileStore) async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if ProcessInfo.processInfo.environment["MYDOCK_INTERACTION_QA"] == "1" {
+            try await exportInteractionUI(to: directory, store: store)
+            return
+        }
+        if ProcessInfo.processInfo.environment["MYDOCK_TOOLS_QA"] == "1" {
+            try await exportToolsUI(to: directory, store: store)
+            return
+        }
+        if ProcessInfo.processInfo.environment["MYDOCK_GLASS_QA"] == "1" {
+            try await exportGlassUI(to: directory, store: store)
+            return
+        }
         if ProcessInfo.processInfo.environment["MYDOCK_ADAPTIVE_QA"] == "1" {
             try await exportAdaptiveUI(to: directory, store: store)
             return
@@ -21,14 +75,14 @@ enum PremiumVisualQA {
             return
         }
         let names = ["System Activity", "Clock", "AI Limits"]
-        let everyday = store.createProfile(kind: .custom, name: "Everyday")
+        let everyday = try store.createProfileAndPersist(kind: .custom, name: "Everyday")
         for bundle in ["com.apple.finder", "com.microsoft.VSCode", "com.apple.Terminal"] {
             if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) { store.add(.application(at: url), to: everyday) }
         }
         for name in names { store.add(.widget(name), to: everyday) }
-        _ = store.createProfile(kind: .custom, name: "Work")
-        _ = store.createProfile(kind: .custom, name: "Minimal")
-        _ = store.createProfile(kind: .native, name: "Essentials")
+        _ = try store.createProfileAndPersist(kind: .custom, name: "Work")
+        _ = try store.createProfileAndPersist(kind: .custom, name: "Minimal")
+        _ = try store.createProfileAndPersist(kind: .native, name: "Essentials")
         store.activate(everyday)
         store.updateSettings { $0.onboardingComplete = true; $0.showRunningApps = false; $0.showTrash = false; $0.customDockTheme = .dark }
         for (name, size) in [("small", NSSize(width: 900, height: 600)), ("medium", NSSize(width: 1160, height: 760)), ("large", NSSize(width: 1440, height: 900))] {
@@ -44,7 +98,7 @@ enum PremiumVisualQA {
                 try await render(DockManagerView(store: store, initialSelection: [item.id]), name: "editor-selected-item",
                                  size: NSSize(width: 900, height: 600), scheme: .dark, directory: directory)
             }
-            let blank = store.createProfile(kind: .custom, name: "New Dock")
+            let blank = try store.createProfileAndPersist(kind: .custom, name: "New Dock")
             store.activate(blank)
             try await render(DockManagerView(store: store), name: "editor-empty-dock", size: NSSize(width: 780, height: 600), scheme: .dark, directory: directory)
             store.activate(everyday)
@@ -144,8 +198,117 @@ enum PremiumVisualQA {
         }
     }
 
+    private static func exportInteractionUI(to directory: URL, store: ProfileStore) async throws {
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Dock interactions")
+        store.updateSettings {
+            $0.onboardingComplete = true; $0.showRunningApps = false; $0.showTrash = false
+            $0.customDockMaterial = .liquidGlassClear; $0.customDockTintStrength = 0
+        }
+        for bundle in ["com.apple.finder", "com.apple.Safari"] {
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) { store.add(.application(at: url), to: id) }
+        }
+        store.add(AIActivityPreviewData.item(), to: id); store.add(.widget("System Activity"), to: id)
+        store.activate(id)
+        let profile = store.state.profiles.first { $0.id == id }!
+        for scheme in [ColorScheme.light, .dark] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            store.updateSettings { $0.customDockTheme = scheme == .dark ? .dark : .light }
+            for opacity in [0.0, 0.5, 1.0] {
+                store.updateSettings { $0.customDockGlassOpacity = opacity }
+                try await render(ZStack {
+                    LinearGradient(colors: [.blue.opacity(0.65), .orange.opacity(0.45)], startPoint: .leading, endPoint: .trailing)
+                    DockLayoutPreview(store: store, profile: profile).padding(24)
+                }, name: "opacity-\(Int(opacity * 100))-\(suffix)", size: NSSize(width: 660, height: 160), scheme: scheme, directory: directory)
+                try await renderTransparentDock(store: store, profile: profile, name: "opacity-\(Int(opacity * 100))-\(suffix)-corners", directory: directory)
+            }
+            try await render(SettingsView(store: store, initialPage: .appearance, embeddedInWorkspace: true, sidebarVisible: false), name: "navigation-appearance-\(suffix)", size: NSSize(width: 820, height: 1200), scheme: scheme, directory: directory)
+            try await render(SettingsView(store: store, initialPage: .behavior, embeddedInWorkspace: true, sidebarVisible: false), name: "navigation-behavior-\(suffix)", size: NSSize(width: 820, height: 1200), scheme: scheme, directory: directory)
+        }
+        store.updateSettings { $0.lastSettingsPage = .appearance }
+        try await render(DockManagerView(store: store, showsSettings: true), name: "navigation-minimum", size: NSSize(width: 780, height: 700), scheme: .light, directory: directory)
+    }
+
+    private static func exportGlassUI(to directory: URL, store: ProfileStore) async throws {
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Glass Dock preview")
+        store.updateSettings {
+            $0.onboardingComplete = true; $0.showRunningApps = false; $0.showTrash = false
+            $0.customDockCornerRadius = 22; $0.customDockTintStrength = 0
+        }
+        for bundle in ["com.apple.finder", "com.apple.Safari"] {
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) { store.add(.application(at: url), to: id) }
+        }
+        store.add(AIActivityPreviewData.item(), to: id)
+        store.add(.widget("System Activity"), to: id)
+        store.activate(id)
+        let profile = store.state.profiles.first { $0.id == id }!
+        for scheme in [ColorScheme.dark, .light] {
+            for material in [CustomDockMaterial.liquidGlassClear, .liquidGlass] {
+                store.updateSettings {
+                    $0.customDockMaterial = material; $0.customDockTheme = scheme == .dark ? .dark : .light
+                }
+                let name = "glass-\(material.rawValue)-\(scheme == .dark ? "dark" : "light")"
+                try await render(ZStack {
+                    LinearGradient(colors: [Color(red: 0.25, green: 0.42, blue: 0.62), Color(red: 0.60, green: 0.45, blue: 0.31)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    HStack(spacing: 40) {
+                        ForEach(0..<8) { _ in Rectangle().fill(.white.opacity(0.16)).frame(width: 35).rotationEffect(.degrees(25)) }
+                    }
+                    DockLayoutPreview(store: store, profile: profile).padding(24)
+                }, name: name, size: NSSize(width: 660, height: 160), scheme: scheme, directory: directory)
+                try await renderTransparentDock(store: store, profile: profile, name: name + "-corners", directory: directory)
+            }
+        }
+        for position in [DockPosition.left, .right] {
+            store.updateSettings { $0.customDockPosition = position }
+            for material in [CustomDockMaterial.liquidGlassClear, .liquidGlass] {
+                store.updateSettings { $0.customDockMaterial = material }
+                try await renderTransparentDock(store: store, profile: profile, name: "glass-\(material.rawValue)-\(position.rawValue)-corners", directory: directory)
+            }
+        }
+        store.updateSettings { $0.customDockPosition = .bottom }
+        for material in [CustomDockMaterial.frosted, .solid, .dark] {
+            store.updateSettings { $0.customDockMaterial = material }
+            try await renderTransparentDock(store: store, profile: profile, name: "glass-\(material.rawValue)-corners", directory: directory)
+        }
+        store.updateSettings { $0.customDockMaterial = .liquidGlass }
+        try await render(DockLayoutPreview(store: store, profile: profile).padding(24), name: "glass-reduce-transparency", size: NSSize(width: 660, height: 160), scheme: .light, directory: directory, contrast: .increased, reduceTransparency: true)
+        try await render(SettingsView(store: store, initialPage: .appearance), name: "glass-appearance-settings", size: NSSize(width: 1100, height: 900), scheme: .light, directory: directory)
+    }
+
+    /// Uses the production native host in a transparent, shadowless panel.
+    /// Corner alpha catches a rectangular backing that a wallpaper render hides.
+    private static func renderTransparentDock(store: ProfileStore, profile: DockProfile, name: String, directory: URL) async throws {
+        let size = store.state.settings.customDockPosition == .bottom ? NSSize(width: 530, height: 98) : NSSize(width: 98, height: 340)
+        let panel = NSPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.backgroundColor = .clear; panel.isOpaque = false; panel.hasShadow = false; panel.isReleasedWhenClosed = false
+        panel.appearance = NSAppearance(named: store.state.settings.customDockTheme == .dark ? .darkAqua : .aqua)
+        let host = DockSurfaceHostingView(rootView: CustomDockView(store: store, profile: profile, isPreview: true, openSettings: { _ in }).environment(\.dockSnapshotRendering, true))
+        host.surfaceCornerRadius = CGFloat(store.state.settings.customDockCornerRadius)
+        host.frame = NSRect(origin: .zero, size: size)
+        panel.contentView = host
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(350))
+        host.layoutSubtreeIfNeeded()
+        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { throw CocoaError(.fileWriteUnknown) }
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        var visiblePixelCount = 0
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: 8) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: 8) {
+                if (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.1 { visiblePixelCount += 1 }
+            }
+        }
+        guard visiblePixelCount > 50 else { throw NSError(domain: "MyDockGlassQA", code: 2, userInfo: [NSLocalizedDescriptionKey: "Empty corner fixture in \(name)"]) }
+        for (x, y) in [(0, 0), (bitmap.pixelsWide - 1, 0), (0, bitmap.pixelsHigh - 1), (bitmap.pixelsWide - 1, bitmap.pixelsHigh - 1)] {
+            guard let color = bitmap.colorAt(x: x, y: y), color.alphaComponent < 0.01 else {
+                throw NSError(domain: "MyDockGlassQA", code: 1, userInfo: [NSLocalizedDescriptionKey: "Opaque panel corner in \(name) at \(x),\(y)"])
+            }
+        }
+        guard let png = bitmap.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
+        try png.write(to: directory.appendingPathComponent(name + ".png"))
+        panel.close()
+    }
+
     private static func exportAdaptiveUI(to directory: URL, store: ProfileStore) async throws {
-        let id = store.createProfile(kind: .custom, name: "Adaptive widget studio")
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Adaptive widget studio")
         store.updateSettings { $0.onboardingComplete = true; $0.showRunningApps = false; $0.showTrash = false; $0.customDockWidgetStyle = .cards; $0.customDockItemSpacing = 9 }
         for bundle in ["com.apple.finder", "com.apple.Safari", "com.openai.chat"] {
             if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) { store.add(.application(at: url), to: id) }
@@ -161,10 +324,30 @@ enum PremiumVisualQA {
         let profile = store.state.profiles.first { $0.id == id }!
         for scheme in [ColorScheme.dark, .light] {
             let suffix = scheme == .dark ? "dark" : "light"
+            store.updateSettings { $0.customDockTheme = scheme == .dark ? .dark : .light }
             try await render(VStack(alignment: .leading, spacing: 20) {
                 Text("Mixed Dock · illustrative fixtures").font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
                 DockLayoutPreview(store: store, profile: profile)
             }.padding(24).background(DockDesign.page), name: "adaptive-mixed-" + suffix, size: NSSize(width: 1340, height: 210), scheme: scheme, directory: directory)
+            try await render(VStack(alignment: .leading, spacing: 18) {
+                Text("Narrow side Dock faces · illustrative fixtures").font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 14) {
+                    ForEach(["AI Activity", "System Activity", "Network Activity", "Weather", "Battery", "Now Playing", "Clock", "Shortcuts"], id: \.self) { kind in
+                        WidgetCardPreview(kind: kind, width: 54, layout: WidgetPresentationCatalog.options(for: kind).first?.layout ?? .compact)
+                    }
+                }
+            }.padding(20).background(WidgetDesign.surface), name: "adaptive-narrow-" + suffix,
+                             size: NSSize(width: 610, height: 150), scheme: scheme, directory: directory)
+            var longAI = AIActivityPreviewData.item()
+            longAI.widgetConfiguration?.aiActivitySnapshot?.totals.totalTokens = 153_107_477
+            longAI.widgetConfiguration?.aiActivitySnapshot?.partial = true
+            try await render(HStack(spacing: 18) {
+                ForEach(WidgetPresentationCatalog.options(for: "AI Activity")) { option in
+                    WidgetContainer(width: CGFloat(option.width), kind: "AI Activity") { AIActivityCompactView(item: longAI) }
+                        .environment(\.widgetLayout, option.layout).environment(\.dockWidgetContentWidth, CGFloat(option.width))
+                }
+            }.padding(20).background(WidgetDesign.surface), name: "adaptive-long-metric-" + suffix,
+                             size: NSSize(width: 550, height: 120), scheme: scheme, directory: directory)
             let kinds = WidgetRegistry.all.map(\.name)
             for page in 0..<3 {
                 let rows = Array(kinds.dropFirst(page * 10).prefix(10))
@@ -216,7 +399,7 @@ enum PremiumVisualQA {
     }
 
     private static func exportWidgetUI(to directory: URL, store: ProfileStore) async throws {
-        let id = store.createProfile(kind: .custom, name: "Widget studio")
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Widget studio")
         store.updateSettings { $0.onboardingComplete = true; $0.showRunningApps = false; $0.showTrash = false }
         for definition in WidgetRegistry.all {
             var item = DockItem.widget(definition.name)
@@ -255,7 +438,7 @@ enum PremiumVisualQA {
     }
 
     private static func exportFocusedUI(to directory: URL, store: ProfileStore) async throws {
-        let id = store.createProfile(kind: .custom, name: "Everyday")
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Everyday")
         store.add(.widget("Clock"), to: id)
         store.updateSettings { $0.onboardingComplete = true; $0.showRunningApps = false; $0.showTrash = false }
         let scan = await InstalledAppCatalog.scan()

@@ -30,6 +30,8 @@ enum CountdownNotificationService {
     static func schedule(itemID: UUID, operationID: UUID, fireDate: Date) async throws {
         guard isCurrent(itemID: itemID, operationID: operationID) else { return }
         guard isFutureTarget(fireDate) else { throw CountdownNotificationError.targetExpired }
+        try AppRuntimeEnvironment.requireNativeEffects()
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let center = UNUserNotificationCenter.current()
         var settings = await center.notificationSettings()
         guard isCurrent(itemID: itemID, operationID: operationID) else { return }
@@ -69,6 +71,7 @@ enum CountdownNotificationService {
     static func cancel(itemID: UUID) {
         generations.begin(itemID: itemID, operationID: UUID())
         let prefix = notificationID(itemID: itemID)
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: [prefix])
         center.removeDeliveredNotifications(withIdentifiers: [prefix])

@@ -12,9 +12,16 @@ struct DockMaterialSurface: View {
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: CGFloat(settings.customDockCornerRadius), style: .continuous) }
     var body: some View {
         ZStack {
+            if !reduceTransparency && [.liquidGlass, .liquidGlassClear].contains(settings.customDockMaterial) {
+                shape.fill(Color(nsColor: .windowBackgroundColor).opacity(settings.customDockGlassOpacity))
+            }
             surface
             if !reduceTransparency { shape.fill(color.opacity(settings.customDockTintStrength)) }
-        }.overlay(shape.strokeBorder(DockDesign.Outline.color(contrast), lineWidth: DockDesign.Outline.dockWidth(contrast)))
+        }
+        // Glass owns its edge lighting. Keep its backing layers inside the
+        // surface rather than casting a shadow from the rectangular host.
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(DockDesign.Outline.color(contrast), lineWidth: DockDesign.Outline.dockWidth(contrast)))
         .environment(\.colorScheme, settings.customDockTheme == .dark ? .dark : settings.customDockTheme == .light ? .light : settings.customDockMaterial == .dark ? .dark : systemAppearance.scheme)
     }
     @ViewBuilder private var surface: some View {

@@ -96,12 +96,23 @@ struct SettingsView: View {
                 Divider()
             }
             if !sidebarVisible {
-                HStack {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("Settings").font(.system(size: 20, weight: .semibold))
-                    Spacer()
-                    Picker("Settings category", selection: $selectedPage) {
-                        ForEach(MyDockSettingsPage.allCases) { Text($0.title).tag($0) }
-                    }.labelsHidden().frame(width: 180)
+                    // Keep every section visible, wrapping on narrow windows.
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 125, maximum: 180), spacing: 4, alignment: .leading)], alignment: .leading, spacing: 4) {
+                            ForEach(MyDockSettingsPage.allCases) { page in
+                                Button { selectedPage = page } label: {
+                                    Label(page.title, systemImage: page.symbol)
+                                        .font(.system(size: 12, weight: selectedPage == page ? .semibold : .medium))
+                                        .foregroundStyle(selectedPage == page ? Color.primary : Color.secondary)
+                                        .lineLimit(1)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 11).padding(.vertical, 8)
+                                        .background(selectedPage == page ? DockDesign.control : .clear, in: RoundedRectangle(cornerRadius: 8))
+                                }.buttonStyle(.plain)
+                                    .accessibilityAddTraits(selectedPage == page ? .isSelected : [])
+                            }
+                    }
                 }.padding(.horizontal, 32).padding(.vertical, 16)
                 Divider()
             }
@@ -289,7 +300,7 @@ struct SettingsView: View {
                                 return
                             }
                             if !CGPreflightScreenCaptureAccess() {
-                                let accessRequestStarted = CGRequestScreenCaptureAccess()
+                                let accessRequestStarted = AppRuntimeEnvironment.allowsNativeEffects && CGRequestScreenCaptureAccess()
                                 screenCaptureMessage = accessRequestStarted
                                     ? "Allow MyDock in System Settings → Privacy & Security → Screen Recording. Relaunch MyDock after granting access."
                                     : "Allow MyDock in System Settings → Privacy & Security → Screen Recording. Dock switching remains available without the effect."
@@ -342,7 +353,8 @@ struct SettingsView: View {
                     HStack {
                         appearancePreset("Minimal", material: .solid, tint: 0.03)
                         appearancePreset("Soft frost", material: .frosted, tint: 0.06)
-                        appearancePreset("Liquid glass", material: .liquidGlass, tint: 0.04)
+                        appearancePreset("Clear glass", material: .liquidGlassClear, tint: 0)
+                        appearancePreset("Frosted glass", material: .liquidGlass, tint: 0.02)
                         appearancePreset("Midnight", material: .dark, tint: 0.10)
                     }
                     if let profile = appearanceProfileID.flatMap({ id in store.customProfiles.first { $0.id == id } }) ?? store.activeCustomProfile {
@@ -374,6 +386,27 @@ struct SettingsView: View {
                         })) {
                             ForEach(CustomDockWidgetStyle.allCases) { style in Text(style.title).tag(style) }
                         }
+                    }
+                    if [.liquidGlass, .liquidGlassClear].contains(appearanceSettings.customDockMaterial) {
+                        SettingsControlRow(title: "Glass finish") {
+                            Picker("Glass finish", selection: Binding(get: { appearanceSettings.customDockMaterial }, set: { value in
+                                updateAppearance { $0.customDockMaterial = value }
+                            })) {
+                                Text("Clear").tag(CustomDockMaterial.liquidGlassClear)
+                                Text("Frosted").tag(CustomDockMaterial.liquidGlass)
+                            }.pickerStyle(.segmented).frame(width: 220)
+                        }
+                        HStack {
+                            Text("Glass opacity")
+                            Spacer()
+                            Text("\(Int((appearanceSettings.customDockGlassOpacity * 100).rounded()))%").monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        Slider(value: Binding(get: { appearanceSettings.customDockGlassOpacity }, set: { value in
+                            updateAppearance { $0.customDockGlassOpacity = value }
+                        }), in: 0...1).accessibilityLabel("Glass opacity")
+                        HStack { Text("Clear"); Spacer(); Text("Opaque") }.font(.caption).foregroundStyle(.secondary)
+                        Text("Keep more wallpaper visible, or give icons a quieter background. Tint strength adjusts the color separately.")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     Text("Configure each widget’s layout and icon separately. Side Docks use a narrow presentation.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -419,7 +452,7 @@ struct SettingsView: View {
                         .onChange(of: store.state.settings.showWindowPreviews) { enabled in
                             guard enabled else { windowPreviewMessage = nil; return }
                             if !CGPreflightScreenCaptureAccess() {
-                                _ = CGRequestScreenCaptureAccess()
+                                if AppRuntimeEnvironment.allowsNativeEffects { _ = CGRequestScreenCaptureAccess() }
                                 windowPreviewMessage = "Allow MyDock in System Settings → Privacy & Security → Screen Recording, then relaunch it."
                             } else {
                                 windowPreviewMessage = "Visible windows will be captured while the Custom Dock is shown."
@@ -467,6 +500,19 @@ struct SettingsView: View {
                         Button("Accessibility Settings…", action: openAccessibilitySettings)
                     }
                     Toggle("Magnification", isOn: Binding(get: { store.state.settings.magnificationEnabled }, set: { value in store.updateSettings { $0.magnificationEnabled = value } }))
+                }
+                DockSettingSection(title: "Dock animations") {
+                    Toggle("Animate Dock appearance", isOn: Binding(get: { store.state.settings.dockAnimationsEnabled }, set: { value in store.updateSettings { $0.dockAnimationsEnabled = value } }))
+                    SettingsControlRow(title: "Reveal effect") {
+                        Picker("Reveal effect", selection: Binding(get: { store.state.settings.dockAnimationStyle }, set: { value in store.updateSettings { $0.dockAnimationStyle = value } })) {
+                            ForEach(DockAnimationStyle.allCases) { Text($0.title).tag($0) }
+                        }.disabled(!store.state.settings.dockAnimationsEnabled)
+                    }
+                    Text("Used when the Dock appears or hides. Reduce Motion in macOS turns these effects off.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Preview animation", systemImage: "play.fill") {
+                        NotificationCenter.default.post(name: CustomDockWindowController.animationPreviewNotification, object: store)
+                    }.disabled(!store.state.settings.dockAnimationsEnabled || store.state.settings.setupMode == .nativeOnly || store.activeCustomProfile == nil)
                 }
                 }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -737,17 +783,24 @@ struct SettingsView: View {
     }
 
     private func appearancePreset(_ title: String, material: CustomDockMaterial, tint: Double) -> some View {
-        Button {
+        var previewSettings = appearanceSettings
+        previewSettings.customDockMaterial = material
+        previewSettings.customDockTintStrength = tint
+        previewSettings.customDockGlassOpacity = material == .liquidGlass ? 0.15 : 0
+        previewSettings.customDockCornerRadius = 9
+        return Button {
             updateAppearance {
                 $0.customDockMaterial = material
                 $0.customDockTintStrength = tint
+                $0.customDockGlassOpacity = material == .liquidGlass ? 0.15 : 0
                 $0.customDockCornerRadius = 22
             }
         } label: {
             VStack(spacing: 7) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 9)
-                        .fill(material == .dark ? Color(white: 0.14) : material == .solid ? DockDesign.control : DockDesign.hover)
+                    // A visible backdrop makes the material's clarity legible.
+                    LinearGradient(colors: [Color(red: 0.35, green: 0.48, blue: 0.66), Color(red: 0.66, green: 0.52, blue: 0.40)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    DockMaterialSurface(settings: previewSettings, color: .blue).padding(3)
                     HStack(spacing: 5) {
                         ForEach(["folder.fill", "clock.fill", "calendar"], id: \.self) { symbol in
                             Image(systemName: symbol).font(.system(size: 13))
@@ -755,7 +808,7 @@ struct SettingsView: View {
                                 .frame(width: 20, height: 24)
                         }
                     }
-                }.frame(height: 43)
+                }.frame(height: 43).clipShape(RoundedRectangle(cornerRadius: 9))
                 Text(title).font(.system(size: 10, weight: .medium))
                     .lineLimit(1).minimumScaleFactor(0.85)
             }.padding(7).frame(maxWidth: .infinity)
@@ -799,7 +852,7 @@ struct SettingsView: View {
             }
             Slider(value: Binding(get: { appearanceSettings.customDockItemSpacing }, set: { value in
                 updateAppearance(immediately: false) { $0.customDockItemSpacing = value }
-            }), in: 4...18, step: 1, onEditingChanged: appearanceSliderEditingChanged)
+            }), in: DockAppearanceBounds.itemSpacing, step: 1, onEditingChanged: appearanceSliderEditingChanged)
             DisclosureGroup("Advanced appearance", isExpanded: $advancedAppearanceExpanded) {
                 VStack(spacing: 12) {
                     HStack {
@@ -809,7 +862,7 @@ struct SettingsView: View {
                     }
                     Slider(value: Binding(get: { appearanceSettings.customDockCornerRadius }, set: { value in
                         updateAppearance(immediately: false) { $0.customDockCornerRadius = value }
-                    }), in: 12...32, step: 1, onEditingChanged: appearanceSliderEditingChanged)
+                    }), in: DockAppearanceBounds.cornerRadius, step: 1, onEditingChanged: appearanceSliderEditingChanged)
                     HStack {
                         Text("Profile tint")
                         Spacer()
@@ -817,7 +870,7 @@ struct SettingsView: View {
                     }
                     Slider(value: Binding(get: { appearanceSettings.customDockTintStrength }, set: { value in
                         updateAppearance(immediately: false) { $0.customDockTintStrength = value }
-                    }), in: 0...0.3, step: 0.01, onEditingChanged: appearanceSliderEditingChanged)
+                    }), in: DockAppearanceBounds.tintStrength, step: 0.01, onEditingChanged: appearanceSliderEditingChanged)
                 }.padding(.top, 12)
             }
             Button("Restore appearance defaults") {
@@ -868,7 +921,7 @@ struct SettingsView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let report = try BackupManager.readArchive(from: url)
-            store.importProfiles(report.importedProfiles)
+            try store.importProfiles(report.importedProfiles)
             var message = "Restored \(report.importedProfiles.count) profile(s)."
             if !report.missingItems.isEmpty {
                 message += " Missing apps or paths: " + report.missingItems.joined(separator: "; ")

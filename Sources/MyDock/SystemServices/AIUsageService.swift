@@ -73,8 +73,9 @@ struct AILimitWindow: Codable, Hashable, Identifiable {
     var id: String { name }
 
     var remainingPercent: Int? {
-        guard let usedPercent else { return nil }
-        return max(0, min(100, 100 - usedPercent))
+        guard let usedPercent, usedPercent >= 0 else { return nil }
+        guard usedPercent < 100 else { return 0 }
+        return 100 - usedPercent
     }
 }
 

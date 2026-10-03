@@ -58,6 +58,9 @@ enum AIAccountService {
     }
 
     static func detect(_ provider: AIProvider) -> AIAccountStatus {
+        guard AppRuntimeEnvironment.allowsCredentials else {
+            return .init(state: .unavailable, message: "Account detection is disabled in isolated validation.")
+        }
         guard let executable = executable(for: provider) else {
             return .init(state: .notInstalled, message: provider == .claude
                          ? "Install Claude Code to read usage from this Mac"
@@ -93,6 +96,7 @@ enum AIAccountService {
 
     /// A Terminal window keeps interactive login prompts reachable. No credentials are copied into MyDock.
     @MainActor static func signIn(_ provider: AIProvider) throws {
+        try AppRuntimeEnvironment.requireNativeEffects()
         guard let executable = executable(for: provider) else {
             let address = provider == .codex ? "https://developers.openai.com/codex/cli" : "https://code.claude.com/docs/en/quickstart"
             NSWorkspace.shared.open(URL(string: address)!)

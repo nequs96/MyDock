@@ -24,13 +24,13 @@ enum WindowPreviewMatchingPolicy {
 
     static func matchedWindowIDs(descriptors: [DockWindowDescriptor],
                                  candidates: [WindowPreviewCandidate]) -> [String: CGWindowID] {
-        let eligibleDescriptors = descriptors.filter { !$0.isMinimized && !$0.title.isEmpty }
+        let eligibleDescriptors = descriptors.filter { !$0.isMinimized && !$0.identityTitle.isEmpty }
         let eligibleCandidates = candidates.filter {
             $0.isOnScreen && $0.width.isFinite && $0.height.isFinite && $0.width >= 40 && $0.height >= 40
                 && !$0.title.isEmpty
         }
         let byDescriptorKey = Dictionary(grouping: eligibleDescriptors) {
-            Key(processID: $0.processID, title: normalizedTitle($0.title))
+            Key(processID: $0.processID, title: normalizedTitle($0.identityTitle))
         }
         let byCandidateKey = Dictionary(grouping: eligibleCandidates) {
             Key(processID: $0.processID, title: normalizedTitle($0.title))
@@ -54,7 +54,7 @@ enum WindowPreviewMatchingPolicy {
 enum WindowPreviewCapturer {
     static func captureVisibleWindows(descriptors: [DockWindowDescriptor],
                                       freshIDs: Set<String>) async -> WindowPreviewBatch {
-        guard #available(macOS 14.0, *), CGPreflightScreenCaptureAccess(), !Task.isCancelled else {
+        guard AppRuntimeEnvironment.allowsNativeEffects, #available(macOS 14.0, *), CGPreflightScreenCaptureAccess(), !Task.isCancelled else {
             return WindowPreviewBatch()
         }
         do {

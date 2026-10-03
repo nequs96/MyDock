@@ -5,8 +5,8 @@ struct AppLifecycleSettingsView: View {
     @ObservedObject private var login = LaunchAtLoginController.shared
     @StateObject private var updates = UpdateCheckService()
     @State private var updateSourceExpanded = false
-    @AppStorage(MyDockInterfaceAppearance.preferenceKey) private var interfaceAppearance = "system"
-    @AppStorage("app.mydock.release-repository") private var repositoryURL = ""
+    @AppStorage(MyDockInterfaceAppearance.preferenceKey, store: AppRuntimeEnvironment.defaults) private var interfaceAppearance = "system"
+    @AppStorage("app.mydock.release-repository", store: AppRuntimeEnvironment.defaults) private var repositoryURL = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             DockSettingSection(title: "Application") {

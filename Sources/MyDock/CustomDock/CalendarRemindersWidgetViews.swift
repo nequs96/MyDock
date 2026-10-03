@@ -24,6 +24,7 @@ struct RemindersWidgetProvider: DockWidgetProvider {
 
 private struct CalendarCompactWidgetView: View {
     @Environment(\.dockWidgetContentWidth) private var contentWidth
+    @Environment(\.widgetLayout) private var dockLayout
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
@@ -39,15 +40,18 @@ private struct CalendarCompactWidgetView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             (contentWidth > 54 ? AnyLayout(HStackLayout(spacing: 9)) : AnyLayout(VStackLayout(spacing: 1))) {
-                if configuration.calendarLayout != .nextEvent {
+                if configuration.calendarLayout != .nextEvent || dockLayout == .compact {
                     VStack(spacing: 1) {
-                        Text(context.date.formatted(.dateTime.weekday(.abbreviated)).uppercased())
-                            .font(.system(size: 7, weight: .bold)).foregroundStyle(.red)
+                        HStack(spacing: 3) {
+                            WidgetIcon(kind: "Calendar", size: 9)
+                            Text(context.date.formatted(.dateTime.weekday(.abbreviated)).uppercased())
+                                .font(.system(size: 7, weight: .bold)).foregroundStyle(.secondary)
+                        }
                         Text(context.date.formatted(.dateTime.day()))
                             .font(.system(size: contentWidth > 54 || configuration.calendarLayout == .date ? 26 : 18, weight: .medium)).monospacedDigit()
                     }
                 }
-                if configuration.calendarLayout != .date {
+                if configuration.calendarLayout != .date && dockLayout == .wide {
                     VStack(alignment: contentWidth > 54 ? .leading : .center, spacing: 3) {
                         if let next = CalendarEventOrdering.compactEvent(from: events) {
                             Text(next.title).font(.system(size: 9, weight: .semibold)).lineLimit(1)
@@ -364,21 +368,8 @@ private struct RemindersCompactWidgetView: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            VStack(spacing: 1) {
-                Image(systemName: "list.bullet.circle.fill").font(.system(size: 17)).foregroundStyle(.blue)
-                if hasAccess && errorMessage == nil { Text("\(count)").font(.system(size: 21, weight: .semibold)).monospacedDigit() }
-            }
-            if contentWidth > 54 {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(errorMessage != nil ? "Unavailable" : hasAccess ? "Reminders" : "Connect a list")
-                        .font(.system(size: 9, weight: .semibold)).lineLimit(1)
-                    Text(hasAccess ? "\(count) remaining" : "Click to set up")
-                        .font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-        }
-        .padding(.horizontal, contentWidth > 54 ? 9 : 0)
+        RemindersDockFace(count: hasAccess && errorMessage == nil ? count : nil,
+                          context: errorMessage != nil ? "Unavailable" : hasAccess ? "Selected reminders" : "Choose a list")
         .frame(width: contentWidth, height: 54)
         .task(id: configuration.selectedReminderCalendarID) {
             await refreshIfAuthorized()

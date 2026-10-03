@@ -31,11 +31,13 @@ private struct AILimitsCompactView: View {
     }
 
     @Environment(\.dockWidgetContentWidth) private var width
+    @Environment(\.widgetLayout) private var layout
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             WidgetHeader(kind: "AI Limits", title: selectedProvider?.shortName ?? "AI Limits")
             if let provider = selectedProvider, let window = configuration.aiLimitsSnapshot?.reading(for: provider)?.windows.first {
                 MetricText(value: compactPercent(window, mode: configuration.aiLimitsRepresentation), unit: configuration.aiLimitsRepresentation == .remaining ? "left" : "used", size: 19)
+                if layout == .standard { Text(window.name).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1) }
                 if let percent = configuration.aiLimitsRepresentation == .remaining ? window.remainingPercent : window.usedPercent {
                     UsageBar(fraction: Double(percent) / 100, color: WidgetPalette.accent("AI Limits"))
                 }
@@ -113,7 +115,7 @@ private struct AILimitsPopoutView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text("Layout").foregroundStyle(.secondary)
+                Text("Limit display").foregroundStyle(.secondary)
                 Picker("Limit display", selection: layoutBinding) {
                     ForEach(AILimitLayout.allCases) { Text($0.title).tag($0) }
                 }.labelsHidden()
@@ -333,10 +335,10 @@ struct AIActivityCompactView: View {
         return snapshot
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: layout == .trend ? 2 : 3) {
-            if width > 54 {
+        VStack(alignment: .leading, spacing: 2) {
+            if width > 0 {
                 WidgetHeader(kind: "AI Activity", title: configuration.aiActivityProvider.shortName,
-                             trailing: layout == .compact ? nil : configuration.aiActivityRange.activityTitle,
+                             trailing: layout == .compact || width <= 54 ? nil : configuration.aiActivityRange.activityTitle,
                              symbol: configuration.aiActivityProvider == .codex ? "terminal" : "sparkle")
             }
             if layout == .trend && width > 54 {
@@ -346,11 +348,11 @@ struct AIActivityCompactView: View {
                     if let secondary { Text(secondary).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1) }
                 }
                 if let snapshot, snapshot.available, snapshot.points.count > 1 {
-                    MicroSparkline(values: snapshot.points.map { Double($0.totalTokens) }, color: WidgetPalette.accent("AI Activity")).frame(height: 11)
+                    MicroSparkline(values: snapshot.points.map { Double($0.totalTokens) }, color: WidgetPalette.accent("AI Activity")).frame(height: 8)
                 }
             } else {
-                MetricText(value: value, unit: width > 54 && snapshot?.available == true ? "tokens" : "", size: layout == .compact ? 19 : 21)
-                if layout == .standard, let secondary { Text(secondary).font(.system(size: 8)).foregroundStyle(.secondary) }
+                MetricText(value: value, unit: width > 54 && snapshot?.available == true ? "tokens" : "", size: layout == .compact ? 18 : 19)
+                if layout == .standard && width > 54, let secondary { Text(secondary).font(.system(size: 8)).foregroundStyle(.secondary) }
             }
         }.padding(.horizontal, width > 54 ? 9 : 4).frame(maxWidth: .infinity, alignment: .leading).frame(height: 54)
             .accessibilityElement(children: .ignore)
@@ -365,9 +367,9 @@ struct AIActivityCompactView: View {
     private var secondary: String? {
         guard let snapshot, snapshot.available else { return nil }
         switch configuration.aiActivitySecondaryMetric {
-        case .sessions: return snapshot.totals.sessions > 0 ? "\(snapshot.totals.sessions.formatted()) sessions" : nil
-        case .toolCalls: return snapshot.totals.toolCalls > 0 ? "\(snapshot.totals.toolCalls.formatted()) tools" : nil
-        case .requests: return snapshot.totals.requests > 0 ? "\(snapshot.totals.requests.formatted()) requests" : nil
+        case .sessions: return snapshot.totals.sessions > 0 ? "\(snapshot.totals.sessions.formatted()) \(snapshot.totals.sessions == 1 ? "session" : "sessions")" : nil
+        case .toolCalls: return snapshot.totals.toolCalls > 0 ? "\(snapshot.totals.toolCalls.formatted()) \(snapshot.totals.toolCalls == 1 ? "tool" : "tools")" : nil
+        case .requests: return snapshot.totals.requests > 0 ? "\(snapshot.totals.requests.formatted()) \(snapshot.totals.requests == 1 ? "request" : "requests")" : nil
         case .none: return nil
         }
     }

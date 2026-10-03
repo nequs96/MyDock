@@ -513,6 +513,7 @@ enum ShopifyCredentialStore {
     fileprivate static var directoryKey: String { Product.bundleIdentifier + ".shopify-connected-stores" }
 
     static func read(storeID: String) throws -> ShopifyCredential? {
+        guard AppRuntimeEnvironment.allowsCredentials else { return nil }
         var query = baseQuery(storeID: storeID)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -525,6 +526,7 @@ enum ShopifyCredentialStore {
     }
 
     static func write(_ credential: ShopifyCredential, storeID: String) throws {
+        try AppRuntimeEnvironment.requireCredentials()
         let data = try JSONEncoder().encode(credential)
         let query = baseQuery(storeID: storeID)
         let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
@@ -538,6 +540,7 @@ enum ShopifyCredentialStore {
     }
 
     static func delete(storeID: String) throws {
+        try AppRuntimeEnvironment.requireCredentials()
         let status = SecItemDelete(baseQuery(storeID: storeID) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status) }
     }
@@ -556,13 +559,13 @@ enum ShopifyCredentialStore {
 }
 
 enum ShopifyConnectionDirectory {
-    static func stores(defaults: UserDefaults = .standard) -> [ShopifyConnectedStore] {
+    static func stores(defaults: UserDefaults = AppRuntimeEnvironment.defaults) -> [ShopifyConnectedStore] {
         guard let data = defaults.data(forKey: ShopifyCredentialStore.directoryKey),
               let stores = try? JSONDecoder().decode([ShopifyConnectedStore].self, from: data) else { return [] }
         return stores
     }
 
-    static func save(_ store: ShopifyConnectedStore, credential: ShopifyCredential, defaults: UserDefaults = .standard) throws {
+    static func save(_ store: ShopifyConnectedStore, credential: ShopifyCredential, defaults: UserDefaults = AppRuntimeEnvironment.defaults) throws {
         try ShopifyCredentialStore.write(credential, storeID: store.id)
         var values = stores(defaults: defaults)
         values.removeAll { $0.id == store.id }
@@ -570,14 +573,14 @@ enum ShopifyConnectionDirectory {
         if let data = try? JSONEncoder().encode(values) { defaults.set(data, forKey: ShopifyCredentialStore.directoryKey) }
     }
 
-    static func update(_ store: ShopifyConnectedStore, defaults: UserDefaults = .standard) {
+    static func update(_ store: ShopifyConnectedStore, defaults: UserDefaults = AppRuntimeEnvironment.defaults) {
         var values = stores(defaults: defaults)
         guard let index = values.firstIndex(where: { $0.id == store.id }) else { return }
         values[index] = store
         if let data = try? JSONEncoder().encode(values) { defaults.set(data, forKey: ShopifyCredentialStore.directoryKey) }
     }
 
-    static func remove(storeID: String, defaults: UserDefaults = .standard) throws {
+    static func remove(storeID: String, defaults: UserDefaults = AppRuntimeEnvironment.defaults) throws {
         try ShopifyCredentialStore.delete(storeID: storeID)
         let remaining = stores(defaults: defaults).filter { $0.id != storeID }
         if let data = try? JSONEncoder().encode(remaining) { defaults.set(data, forKey: ShopifyCredentialStore.directoryKey) }

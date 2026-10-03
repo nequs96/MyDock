@@ -24,6 +24,8 @@ enum HydrationReminderService {
     }
 
     static func schedule(itemID: UUID, operationID: UUID, intervalMinutes: Int) async throws {
+        try AppRuntimeEnvironment.requireNativeEffects()
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let center = UNUserNotificationCenter.current()
         guard generations.isCurrent(itemID: itemID, operationID: operationID) else { return }
         guard try await center.requestAuthorization(options: [.alert, .sound]) else {
@@ -58,6 +60,7 @@ enum HydrationReminderService {
 
     static func cancel(itemID: UUID, operationID: UUID) {
         generations.begin(itemID: itemID, operationID: operationID)
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let center = UNUserNotificationCenter.current()
         let prefix = notificationPrefix(for: itemID)
         center.removePendingNotificationRequests(withIdentifiers: [prefix])

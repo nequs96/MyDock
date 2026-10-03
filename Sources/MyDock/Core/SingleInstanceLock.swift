@@ -10,8 +10,7 @@ final class SingleInstanceLock {
     private let descriptor: Int32
 
     init(fileURL: URL? = nil) throws {
-        let supportRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
+        let supportRoot = AppRuntimeEnvironment.applicationSupportDirectory.deletingLastPathComponent()
         let directory = supportRoot.appendingPathComponent(Product.name, isDirectory: true)
         let url = fileURL ?? directory.appendingPathComponent("instance.lock")
         do {

@@ -1,4 +1,37 @@
+import AppKit
 import Foundation
+
+/// An installed copy is distinct from both its bundle identifier and its process.
+enum InstalledApplicationIdentity {
+    static func normalizedURL(_ url: URL) -> URL {
+        url.resolvingSymlinksInPath().standardizedFileURL
+    }
+
+    static func key(bundleIdentifier: String, bundleURL: URL) -> String {
+        bundleIdentifier + "|" + normalizedURL(bundleURL).absoluteString
+    }
+}
+
+/// A temporary observation. Never persist this as an application launch target.
+struct NativeApplicationIdentity: Hashable, Sendable {
+    var processID: Int32
+    var bundleIdentifier: String
+    var bundleURL: URL
+    var launchDate: Date
+
+    static func observing(_ app: NSRunningApplication) -> NativeApplicationIdentity? {
+        guard AppRuntimeEnvironment.allowsNativeEffects, !app.isTerminated, let bundleIdentifier = app.bundleIdentifier,
+              let bundleURL = app.bundleURL, let launchDate = app.launchDate else { return nil }
+        return NativeApplicationIdentity(processID: app.processIdentifier, bundleIdentifier: bundleIdentifier,
+                                         bundleURL: bundleURL, launchDate: launchDate)
+    }
+
+    func matches(_ current: NativeApplicationIdentity) -> Bool {
+        processID == current.processID && bundleIdentifier == current.bundleIdentifier
+            && launchDate == current.launchDate
+            && InstalledApplicationIdentity.normalizedURL(bundleURL) == InstalledApplicationIdentity.normalizedURL(current.bundleURL)
+    }
+}
 
 struct RunningApplicationDescriptor: Equatable, Identifiable {
     var bundleIdentifier: String
@@ -7,14 +40,17 @@ struct RunningApplicationDescriptor: Equatable, Identifiable {
     var isRegularApplication: Bool
     var isTerminated: Bool
 
-    var id: String { bundleIdentifier }
+    var id: String { InstalledApplicationIdentity.key(bundleIdentifier: bundleIdentifier, bundleURL: bundleURL) }
 }
 
 enum RunningApplicationFilter {
     static func visible(_ applications: [RunningApplicationDescriptor], excluding pinnedBundleIdentifiers: Set<String>) -> [RunningApplicationDescriptor] {
-        var seen = pinnedBundleIdentifiers
+        var seen: Set<String> = []
         return applications
-            .filter { $0.isRegularApplication && !$0.isTerminated && seen.insert($0.bundleIdentifier).inserted }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .filter { $0.isRegularApplication && !$0.isTerminated && !pinnedBundleIdentifiers.contains($0.bundleIdentifier) && seen.insert($0.id).inserted }
+            .sorted {
+                let order = $0.name.localizedCaseInsensitiveCompare($1.name)
+                return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+            }
     }
 }

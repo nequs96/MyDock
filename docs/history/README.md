@@ -32,3 +32,12 @@ It retains the source tree before cleanup and Git working-tree patch/status. `le
 The archive is not an active build workspace. Saved profiles and credentials remain in their existing system locations. Existing source changes were preserved and were not reset or committed during cleanup.
 
 - [Widget presentation, icon styles and utilities — 1 October 2026](WIDGET_PRESENTATION_AND_UTILITIES_2026-10-01.md): 30 widget popovers, three local tools, 242 tests and 76 final renders; native interaction limits recorded.
+
+- [Adaptive widget presentation — 3 October 2026](ADAPTIVE_WIDGET_PRESENTATION_2026-10-03.md): independent layouts/icon treatments, variable widths, migration, 246 tests and 34 final renders; native observations and remaining acceptance.
+
+- [Liquid Glass and rounded panel corners — 3 October 2026](GLASS_DOCK_2026-10-03.md): Clear/Frosted controls, native-host alpha checks and compositing limitations; [preceding build](BUILD_BASELINE_PRE_GLASS_DOCK_2026-10-03.json) and [preceding release evidence](RELEASE_EVIDENCE_PRE_GLASS_DOCK_2026-10-03.md).
+
+- [Dock interactions and settings — 3 October 2026](DOCK_INTERACTION_2026-10-03.md): Close/Quit menus, transient resize, glass opacity, visible navigation and selectable animations; tests, renders and clean-quit installation dependency. [Preceding build](BUILD_BASELINE_PRE_DOCK_INTERACTION_2026-10-03.json) and [release evidence](RELEASE_EVIDENCE_PRE_DOCK_INTERACTION_2026-10-03.md).
+
+- [Everyday Tools widgets — 3 October 2026](EVERYDAY_TOOLS_2026-10-03.md): five new widget families, isolated tests/renders, and canonical installation/native acceptance status.
+- [Everyday Tools validation evidence](EVERYDAY_TOOLS_VALIDATION_2026-10-03.json): source/test and universal executable hashes, plus successful canonical installation and launch confirmation.

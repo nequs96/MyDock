@@ -23,6 +23,7 @@ final class UserDefaultsDockAutoHideBackend: DockAutoHidePreferencesBackend {
     private let domain = "com.apple.dock"
 
     func readVisibilitySettings() throws -> NativeDockVisibilitySettings {
+        try AppRuntimeEnvironment.requireNativeEffects()
         guard let defaults = UserDefaults(suiteName: domain) else { throw NativeDockError.preferencesUnavailable }
         let values = defaults.persistentDomain(forName: domain) ?? [:]
         let delay = (values["autohide-delay"] as? NSNumber)?.doubleValue
@@ -33,6 +34,7 @@ final class UserDefaultsDockAutoHideBackend: DockAutoHidePreferencesBackend {
     }
 
     func writeVisibilitySettings(_ settings: NativeDockVisibilitySettings) throws {
+        try AppRuntimeEnvironment.requireNativeEffects()
         guard let defaults = UserDefaults(suiteName: domain), settings.revealDelay?.isFinite != false else {
             throw NativeDockError.preferencesUnavailable
         }
@@ -88,7 +90,7 @@ final class NativeDockAutoHideController: ObservableObject {
 
     init(backend: DockAutoHidePreferencesBackend = UserDefaultsDockAutoHideBackend(),
          relauncher: DockRelaunching = ProcessDockRelauncher(),
-         defaults: UserDefaults = .standard) {
+         defaults: UserDefaults = AppRuntimeEnvironment.defaults) {
         self.backend = backend
         self.relauncher = relauncher
         self.defaults = defaults

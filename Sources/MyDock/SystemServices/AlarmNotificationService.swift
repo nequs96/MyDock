@@ -55,6 +55,8 @@ enum AlarmNotificationService {
 
     static func schedule(widgetID: UUID, alarm: DockAlarm, operationID: UUID) async throws {
         guard isCurrent(widgetID: widgetID, alarmID: alarm.id, operationID: operationID) else { return }
+        try AppRuntimeEnvironment.requireNativeEffects()
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         guard isCurrent(widgetID: widgetID, alarmID: alarm.id, operationID: operationID) else { return }
@@ -124,6 +126,7 @@ enum AlarmNotificationService {
         if currentOperations[widgetID]?.isEmpty == true { currentOperations.removeValue(forKey: widgetID) }
         let identifiers = legacyIDs(widgetID: widgetID, alarmID: alarm.id)
             + (previousOperation.map { operationIDs(widgetID: widgetID, alarmID: alarm.id, operationID: $0) } ?? [])
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
@@ -137,6 +140,7 @@ enum AlarmNotificationService {
             legacyIDs(widgetID: widgetID, alarmID: alarmID)
                 + (previous[alarmID].map { operationIDs(widgetID: widgetID, alarmID: alarmID, operationID: $0) } ?? [])
         }
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
@@ -144,6 +148,7 @@ enum AlarmNotificationService {
     }
 
     static func reconcileSchedules(in store: ProfileStore) async {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let center = UNUserNotificationCenter.current()
         let authorization = await center.notificationSettings().authorizationStatus
         let pending = await center.pendingNotificationRequests()
@@ -203,11 +208,13 @@ enum AlarmNotificationService {
     }
 
     private static func removeOperationRequests(widgetID: UUID, alarmID: UUID, operationID: UUID) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         UNUserNotificationCenter.current().removePendingNotificationRequests(
             withIdentifiers: operationIDs(widgetID: widgetID, alarmID: alarmID, operationID: operationID))
     }
 
     private static func removeObsoleteRequests(widgetID: UUID, alarmID: UUID?) async {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let center = UNUserNotificationCenter.current()
         let pending = await center.pendingNotificationRequests()
         center.removePendingNotificationRequests(withIdentifiers: obsoleteIdentifiers(

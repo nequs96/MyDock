@@ -21,6 +21,12 @@ enum CustomDockTheme: String, Codable, CaseIterable, Identifiable {
     var title: String { rawValue.capitalized }
 }
 
+enum DockAnimationStyle: String, Codable, CaseIterable, Identifiable {
+    case fade, slide, grow
+    var id: String { rawValue }
+    var title: String { switch self { case .fade: "Fade"; case .slide: "Slide"; case .grow: "Gentle grow" } }
+}
+
 enum CustomDockMaterial: String, Codable, CaseIterable, Identifiable {
     case frosted
     case solid
@@ -34,7 +40,7 @@ enum CustomDockMaterial: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .solid: "Solid · no glass"
         case .frosted: "Frosted"
-        case .liquidGlass: "Liquid Glass · Regular"
+        case .liquidGlass: "Liquid Glass · Frosted"
         case .liquidGlassClear: "Liquid Glass · Clear"
         case .dark: "Dark"
         }
@@ -383,6 +389,10 @@ struct WidgetConfiguration: Codable, Hashable {
     var iconAppearance: WidgetIconAppearance
     var aiActivitySecondaryMetric: AIActivitySecondaryMetric
     var systemSecondaryMetric: SystemSecondaryMetric
+    var shelfFiles: [ShelfFile]
+    var textSnippets: [TextSnippet]
+    var quickLinks: [QuickLink]
+    var savedColors: [String]
     var checklistEntries: [QuickChecklistEntry]
     var noteText: String
     var noteBackground: NoteBackground
@@ -474,6 +484,7 @@ struct WidgetConfiguration: Codable, Hashable {
     var cachedWeatherForecast: WeatherForecast?
 
     private enum CodingKeys: String, CodingKey {
+        case shelfFiles, textSnippets, quickLinks, savedColors
         case cardWidth, iconStyle, checklistEntries, widgetLayout, iconAppearance, aiActivitySecondaryMetric, systemSecondaryMetric
         case noteText, noteBackground, focusDurationSeconds, focusElapsedBeforeStart, focusStartedAt
         case worldClockTimeZoneID, worldClockAdditionalTimeZoneIDs, stockSymbol, stockName, stockCurrency, stockRange
@@ -504,6 +515,10 @@ struct WidgetConfiguration: Codable, Hashable {
         iconAppearance = .soft
         aiActivitySecondaryMetric = .sessions
         systemSecondaryMetric = .memory
+        shelfFiles = []
+        textSnippets = []
+        quickLinks = []
+        savedColors = []
         checklistEntries = []
         noteText = ""
         noteBackground = .yellow
@@ -606,6 +621,10 @@ struct WidgetConfiguration: Codable, Hashable {
         }
         aiActivitySecondaryMetric = try values.decodeIfPresent(AIActivitySecondaryMetric.self, forKey: .aiActivitySecondaryMetric) ?? .sessions
         systemSecondaryMetric = try values.decodeIfPresent(SystemSecondaryMetric.self, forKey: .systemSecondaryMetric) ?? .memory
+        shelfFiles = try values.decodeIfPresent([ShelfFile].self, forKey: .shelfFiles) ?? []
+        textSnippets = try values.decodeIfPresent([TextSnippet].self, forKey: .textSnippets) ?? []
+        quickLinks = try values.decodeIfPresent([QuickLink].self, forKey: .quickLinks) ?? []
+        savedColors = try values.decodeIfPresent([String].self, forKey: .savedColors) ?? []
         checklistEntries = try values.decodeIfPresent([QuickChecklistEntry].self, forKey: .checklistEntries) ?? []
         noteText = try values.decodeIfPresent(String.self, forKey: .noteText) ?? ""
         noteBackground = try values.decodeIfPresent(NoteBackground.self, forKey: .noteBackground) ?? .yellow
@@ -1093,6 +1112,9 @@ struct AppSettings: Codable, Equatable {
     var customDockItemSpacing: Double = 8
     var customDockCornerRadius: Double = 24
     var customDockTintStrength: Double = 0.08
+    var customDockGlassOpacity: Double = 0
+    var dockAnimationsEnabled = true
+    var dockAnimationStyle: DockAnimationStyle = .slide
     var customDockWidgetStyle: CustomDockWidgetStyle = .cards
     var showWidgetLabels = true
     var customDockDisplayID: UInt32?
@@ -1117,6 +1139,7 @@ struct AppSettings: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case customDockTheme
+        case customDockGlassOpacity, dockAnimationsEnabled, dockAnimationStyle
         case setupMode, activeNativeProfileID, activeCustomProfileID, customDockPosition, customDockSize
         case customDockItemSpacing, customDockCornerRadius, customDockTintStrength, customDockWidgetStyle, showWidgetLabels
         case customDockDisplayID, automaticallyHideCustomDock, showRevealHandle, hideCustomDockWhenSystemDockAppears, customDockDesktopMode, customDockMaterial, smoothNativeDockSwitches, showRunningApps
@@ -1129,14 +1152,17 @@ struct AppSettings: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         customDockTheme = try values.decodeIfPresent(CustomDockTheme.self, forKey: .customDockTheme) ?? .system
+        customDockGlassOpacity = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockGlassOpacity), default: 0, range: 0...1)
+        dockAnimationsEnabled = try values.decodeIfPresent(Bool.self, forKey: .dockAnimationsEnabled) ?? true
+        dockAnimationStyle = (try? values.decodeIfPresent(DockAnimationStyle.self, forKey: .dockAnimationStyle)) ?? .slide
         setupMode = try values.decodeIfPresent(SetupMode.self, forKey: .setupMode) ?? .both
         activeNativeProfileID = try values.decodeIfPresent(UUID.self, forKey: .activeNativeProfileID)
         activeCustomProfileID = try values.decodeIfPresent(UUID.self, forKey: .activeCustomProfileID)
         customDockPosition = try values.decodeIfPresent(DockPosition.self, forKey: .customDockPosition) ?? .bottom
         customDockSize = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockSize), default: 1, range: 0.65...1.5)
-        customDockItemSpacing = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockItemSpacing), default: 8, range: 4...18)
-        customDockCornerRadius = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockCornerRadius), default: 24, range: 12...32)
-        customDockTintStrength = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockTintStrength), default: 0.08, range: 0...0.3)
+        customDockItemSpacing = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockItemSpacing), default: 8, range: DockAppearanceBounds.itemSpacing)
+        customDockCornerRadius = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockCornerRadius), default: 24, range: DockAppearanceBounds.cornerRadius)
+        customDockTintStrength = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockTintStrength), default: 0.08, range: DockAppearanceBounds.tintStrength)
         customDockWidgetStyle = try values.decodeIfPresent(CustomDockWidgetStyle.self, forKey: .customDockWidgetStyle) ?? .cards
         showWidgetLabels = try values.decodeIfPresent(Bool.self, forKey: .showWidgetLabels) ?? true
         customDockDisplayID = try values.decodeIfPresent(UInt32.self, forKey: .customDockDisplayID)
@@ -1181,6 +1207,7 @@ struct PersistentState: Codable {
 }
 
 enum WidgetCategory: String, CaseIterable {
+    case utilities = "Everyday Tools"
     case productivity = "Productivity"
     case system = "System"
     case time = "Time"
@@ -1227,8 +1254,13 @@ enum WidgetRegistry {
         .init(name: "AirDrop", symbol: airDropSymbol, category: .system, description: "Send files with AirDrop."),
         .init(name: "Trash", symbol: "trash", category: .system, description: "Open Trash and empty it after confirmation."),
         .init(name: "Disk Space", symbol: "internaldrive", category: .system, description: "Keep an eye on available startup disk space."),
-        .init(name: "Calculator", symbol: "plus.forwardslash.minus", category: .productivity, description: "Calculate expressions without leaving your Dock."),
-        .init(name: "Quick Checklist", symbol: "checklist", category: .productivity, description: "Keep a small, private checklist without an account."),
+        .init(name: "Calculator", symbol: "plus.forwardslash.minus", category: .utilities, description: "Calculate expressions without leaving your Dock."),
+        .init(name: "Quick Checklist", symbol: "checklist", category: .utilities, description: "Keep a small, private checklist without an account."),
+        .init(name: "File Shelf", symbol: "tray.and.arrow.down", category: .utilities, description: "Drop files, keep them for later, copy or share with AirDrop."),
+        .init(name: "Text Snippets", symbol: "doc.on.clipboard", category: .utilities, description: "Save reusable text and copy it when you need it."),
+        .init(name: "Quick Links", symbol: "link", category: .utilities, description: "Keep your favorite websites in one small collection."),
+        .init(name: "Unit Converter", symbol: "arrow.left.arrow.right", category: .utilities, description: "Convert length, weight, temperature, volume, speed and data."),
+        .init(name: "Color Picker", symbol: "eyedropper", category: .utilities, description: "Pick a screen color, copy HEX or RGB, and save a palette."),
         .init(name: "App Folder", symbol: "square.grid.2x2", category: .productivity, description: "Group apps together.")
     ]
 }

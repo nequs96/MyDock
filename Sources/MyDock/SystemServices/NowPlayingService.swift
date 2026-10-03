@@ -318,6 +318,7 @@ final class NowPlayingMonitor: ObservableObject {
 
 enum BoundedAutomationRunner {
     static func run(_ source: String, sourceForm: Bool = false, maximumBytes: Int = 65_536) async throws -> String {
+        try AppRuntimeEnvironment.requireNativeEffects()
         let output = try await BoundedSubprocessCapture.runCancellable(
             executableURL: URL(fileURLWithPath: "/usr/bin/osascript"),
             arguments: ["-s", sourceForm ? "s" : "h", "-e", source],

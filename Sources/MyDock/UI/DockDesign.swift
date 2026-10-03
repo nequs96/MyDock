@@ -113,14 +113,14 @@ enum MyDockInterfaceAppearance: String, CaseIterable, Identifiable {
     var colorScheme: ColorScheme? { switch self { case .system: nil; case .dark: .dark; case .light: .light } }
     var native: NSAppearance? { switch self { case .system: nil; case .dark: NSAppearance(named: .darkAqua); case .light: NSAppearance(named: .aqua) } }
     static let preferenceKey = "app.mydock.interface-appearance"
-    static var current: Self { Self(rawValue: UserDefaults.standard.string(forKey: preferenceKey) ?? "system") ?? .system }
+    static var current: Self { Self(rawValue: AppRuntimeEnvironment.defaults.string(forKey: preferenceKey) ?? "system") ?? .system }
 }
 
 /// The floating Dock's System theme follows macOS independently of the editor.
 @MainActor
 final class DockSystemAppearance: ObservableObject {
     static let shared = DockSystemAppearance()
-    @Published private(set) var scheme: ColorScheme = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" ? .dark : .light
+    @Published private(set) var scheme: ColorScheme = AppRuntimeEnvironment.defaults.string(forKey: "AppleInterfaceStyle") == "Dark" ? .dark : .light
     private var observation: AnyCancellable?
     private init() {
         observation = DistributedNotificationCenter.default()
@@ -128,14 +128,14 @@ final class DockSystemAppearance: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 Task { @MainActor in
-                    self?.scheme = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" ? .dark : .light
+                    self?.scheme = AppRuntimeEnvironment.defaults.string(forKey: "AppleInterfaceStyle") == "Dark" ? .dark : .light
                 }
             }
     }
 }
 
 struct MyDockInterfaceStyle: ViewModifier {
-    @AppStorage(MyDockInterfaceAppearance.preferenceKey) private var appearance = "system"
+    @AppStorage(MyDockInterfaceAppearance.preferenceKey, store: AppRuntimeEnvironment.defaults) private var appearance = "system"
     private var selected: MyDockInterfaceAppearance {
         #if DEBUG
         if let dark = ProcessInfo.processInfo.environment["MYDOCK_VISUAL_DARK"],
@@ -403,8 +403,8 @@ extension DockProfileColor {
 }
 
 extension WidgetCategory {
-    var displayColor: Color { switch self { case .productivity: .orange; case .system: .teal; case .time: .orange; case .personal: .pink; case .business: .green; case .ai: .purple } }
-    var symbol: String { switch self { case .productivity: "square.grid.2x2"; case .system: "desktopcomputer"; case .time: "clock"; case .personal: "person.crop.circle"; case .business: "chart.bar"; case .ai: "sparkles" } }
+    var displayColor: Color { switch self { case .utilities: .orange; case .productivity: .orange; case .system: .teal; case .time: .orange; case .personal: .pink; case .business: .green; case .ai: .purple } }
+    var symbol: String { switch self { case .utilities: "wand.and.stars"; case .productivity: "square.grid.2x2"; case .system: "desktopcomputer"; case .time: "clock"; case .personal: "person.crop.circle"; case .business: "chart.bar"; case .ai: "sparkles" } }
 }
 
 /// Native scrolling in the app. DEBUG snapshots flatten the viewport because

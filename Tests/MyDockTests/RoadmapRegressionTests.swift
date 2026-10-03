@@ -24,7 +24,7 @@ struct RoadmapRegressionTests {
         defer { try? FileManager.default.removeItem(at: folder) }
         let file = folder.appendingPathComponent("state.json")
         let store = ProfileStore(fileURL: file)
-        let id = store.createProfile(kind: .custom, name: "Original")
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Original")
         var draft = DockProfileDraft(profile: try #require(store.activeCustomProfile))
         draft.update { $0.name = "Saved after retry" }
         store.editSessions.set(draft, for: id)
@@ -63,7 +63,7 @@ struct RoadmapRegressionTests {
         defer { try? FileManager.default.removeItem(at: folder) }
         let store = ProfileStore(fileURL: folder.appendingPathComponent("state.json"))
         _ = store.widgetLifecycle
-        let hiddenID = store.createProfile(kind: .custom)
+        let hiddenID = try store.createProfileAndPersist(kind: .custom)
         var item = DockItem.widget("Focus Timer")
         item.widgetConfiguration?.focusDurationSeconds = 600
         item.widgetConfiguration?.startFocusTimer(at: .now.addingTimeInterval(-2))

@@ -56,7 +56,7 @@ final class DockShortcutStore: ObservableObject {
     @Published private(set) var bindings: [UUID: DockShortcut]
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = AppRuntimeEnvironment.defaults) {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.defaultsKey),
            let stored = try? JSONDecoder().decode([String: DockShortcut].self, from: data) {
@@ -121,6 +121,7 @@ final class GlobalShortcutController: ObservableObject {
     }
 
     func register(_ bindings: [UUID: DockShortcut]) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         for hotKey in registeredHotKeys { UnregisterEventHotKey(hotKey) }
         registeredHotKeys = []
         profileIDsByHotKey = [:]

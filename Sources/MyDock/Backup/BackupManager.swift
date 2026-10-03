@@ -39,6 +39,19 @@ enum BackupError: LocalizedError {
 enum BackupManager {
     static let maximumArchiveBytes = 25 * 1_024 * 1_024
 
+    /// Decode only the bounded compatibility envelope before any version-specific model.
+    private struct StateSchemaEnvelope: Decodable {
+        var schemaVersion: Int?
+    }
+    private struct BackupSchemaEnvelope: Decodable {
+        var formatVersion: Int?
+    }
+
+    static func stateSchemaVersion(in data: Data) throws -> Int? {
+        guard data.count <= maximumArchiveBytes else { throw BackupError.tooLarge }
+        return try JSONDecoder().decode(StateSchemaEnvelope.self, from: data).schemaVersion
+    }
+
     static func readArchive(from url: URL) throws -> BackupImportReport {
         try readArchive(boundedArchiveData(from: url))
     }
@@ -74,6 +87,10 @@ enum BackupManager {
 
     static func readArchive(_ data: Data) throws -> BackupImportReport {
         guard data.count <= maximumArchiveBytes else { throw BackupError.tooLarge }
+        let envelope = try JSONDecoder().decode(BackupSchemaEnvelope.self, from: data)
+        if let version = envelope.formatVersion, version != DockBackup.currentVersion {
+            throw BackupError.unsupportedVersion(version)
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let archive = try decoder.decode(DockBackup.self, from: data)

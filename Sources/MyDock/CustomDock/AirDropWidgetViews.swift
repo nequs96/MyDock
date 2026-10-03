@@ -79,7 +79,7 @@ private struct AirDropTileAnchor: NSViewRepresentable {
     }
 }
 
-private enum AirDropDroppedItemLoader {
+enum AirDropDroppedItemLoader {
     static func load(_ providers: [(NSItemProvider, String)], completion: @escaping ([URL]) -> Void) {
         let group = DispatchGroup()
         let urls = AirDropURLCollection()
@@ -309,13 +309,14 @@ private final class AirDropDropTargetView: NSView {
     }
 }
 
-private struct AirDropShareButton: NSViewRepresentable {
+struct AirDropShareButton: NSViewRepresentable {
     var urls: [URL]
+    var title = "Choose a Sharing Service…"
 
     func makeCoordinator() -> Coordinator { Coordinator(urls: urls) }
 
     func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(title: "Choose a Sharing Service…", target: context.coordinator, action: #selector(Coordinator.showPicker(_:)))
+        let button = NSButton(title: title, target: context.coordinator, action: #selector(Coordinator.showPicker(_:)))
         button.bezelStyle = .rounded
         button.controlSize = .regular
         button.isEnabled = !urls.isEmpty
@@ -324,6 +325,7 @@ private struct AirDropShareButton: NSViewRepresentable {
 
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.urls = urls
+        button.title = title
         button.isEnabled = !urls.isEmpty
     }
 

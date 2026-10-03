@@ -10,22 +10,23 @@ struct CachedWindowPreview {
 enum WindowPreviewCacheIdentity {
     private struct TitleKey: Hashable {
         var bundleIdentifier: String
+        var installationPath: String
         var title: String
     }
 
     static func uniqueKeys(for descriptors: [DockWindowDescriptor]) -> [String: String] {
         let keyedDescriptors = descriptors.compactMap { descriptor -> (DockWindowDescriptor, TitleKey)? in
             let bundleIdentifier = descriptor.bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-            let title = normalizedTitle(descriptor.title)
+            let title = normalizedTitle(descriptor.identityTitle)
             guard !bundleIdentifier.isEmpty, !title.isEmpty else { return nil }
-            return (descriptor, TitleKey(bundleIdentifier: bundleIdentifier, title: title))
+            return (descriptor, TitleKey(bundleIdentifier: bundleIdentifier, installationPath: descriptor.applicationIdentity.map { InstalledApplicationIdentity.normalizedURL($0.bundleURL).path } ?? "", title: title))
         }
         let counts = Dictionary(grouping: keyedDescriptors, by: \.1).mapValues(\.count)
         let idCounts = Dictionary(grouping: keyedDescriptors, by: { $0.0.id }).mapValues(\.count)
         var result: [String: String] = [:]
         for (descriptor, key) in keyedDescriptors {
             guard counts[key] == 1, idCounts[descriptor.id] == 1 else { continue }
-            let identity = "\(Product.bundleIdentifier).window-preview.v1\n\(key.bundleIdentifier)\n\(key.title)"
+            let identity = "\(Product.bundleIdentifier).window-preview.v2\n\(key.bundleIdentifier)\n\(key.installationPath)\n\(key.title)"
             let digest = SHA256.hash(data: Data(identity.utf8))
                 .map { String(format: "%02x", $0) }
                 .joined()
@@ -186,10 +187,6 @@ final class WindowPreviewDiskCache {
     }
 
     static var defaultDirectory: URL {
-        let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        return cachesRoot
-            .appendingPathComponent(Product.bundleIdentifier, isDirectory: true)
-            .appendingPathComponent("WindowPreviews", isDirectory: true)
+        AppRuntimeEnvironment.windowPreviewDirectory
     }
 }
