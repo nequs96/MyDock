@@ -35,6 +35,9 @@ final class ProfileStore: ObservableObject {
     lazy var utilityDrafts = DockUtilityDraftStore(fileURL: fileURL.deletingLastPathComponent()
         .appendingPathComponent("utility-drafts", isDirectory: true).appendingPathComponent("drafts.json"))
 
+    /// Provider readings (never written to state.json). See `WidgetRuntimeCache`.
+    lazy var runtimeCache = WidgetRuntimeCache(fileURL: fileURL.deletingLastPathComponent().appendingPathComponent("runtime-cache.json"))
+
     private let fileURL: URL
     let allowsSystemChanges: Bool
     private let logger = Logger(subsystem: Product.bundleIdentifier, category: "persistence")
@@ -91,7 +94,48 @@ final class ProfileStore: ObservableObject {
         } else {
             self.state = PersistentState()
         }
+        adoptRuntimeCache()
         loadUtilityDrafts()
+    }
+
+    /// Launch migration and resolution. Embedded readings from older state files are copied into the cache when
+    /// they are newer, every widget is then resolved through the cache, and a legacy file is rewritten once without
+    /// them so a later tenant clear cannot be undone by stale embedded data.
+    private func adoptRuntimeCache() {
+        guard stateLoadedIntact, storageWritable else { return }
+        var foundEmbedded = false
+        var live = Set<UUID>()
+        for profileIndex in state.profiles.indices {
+            for itemIndex in state.profiles[profileIndex].items.indices {
+                let item = state.profiles[profileIndex].items[itemIndex]
+                guard item.type == .widget, var configuration = item.widgetConfiguration else { continue }
+                live.insert(item.id)
+                let embedded = configuration.runtimeReadings
+                if !embedded.isEmpty { foundEmbedded = true }
+                let merged = WidgetRuntimeReadings.preferringNewer(cached: runtimeCache.readings(for: item.id), embedded: embedded)
+                runtimeCache.set(merged, for: item.id)
+                configuration.resolveRuntimeReadings(runtimeCache.readings(for: item.id))
+                if configuration != item.widgetConfiguration { state.profiles[profileIndex].items[itemIndex].widgetConfiguration = configuration }
+            }
+        }
+        runtimeCache.prune(keeping: live)
+        if foundEmbedded {
+            runtimeCache.flush()
+            commit(immediately: false)
+        }
+    }
+
+    /// Keeps the cache in step with in-memory widgets after an authored save: mirrors readings and prunes removed widgets.
+    private func mirrorRuntimeCache() {
+        guard storageWritable else { return }
+        var live = Set<UUID>()
+        for profile in state.profiles {
+            for item in profile.items where item.type == .widget {
+                live.insert(item.id)
+                runtimeCache.set(item.widgetConfiguration?.runtimeReadings ?? WidgetRuntimeReadings(), for: item.id)
+            }
+        }
+        runtimeCache.prune(keeping: live)
     }
 
     /// Opens the private utility drafts once at launch: prunes drafts whose widget or profile no longer exists
@@ -502,12 +546,18 @@ final class ProfileStore: ObservableObject {
         guard let profileIndex = state.profiles.firstIndex(where: { $0.id == profileID }),
               let itemIndex = state.profiles[profileIndex].items.firstIndex(where: { $0.id == itemID }),
               state.profiles[profileIndex].items[itemIndex].type == .widget else { return .missingTarget }
-        var configuration = state.profiles[profileIndex].items[itemIndex].widgetConfiguration ?? WidgetConfiguration()
+        let previous = state.profiles[profileIndex].items[itemIndex].widgetConfiguration
+        var configuration = previous ?? WidgetConfiguration()
         update(&configuration)
         do { try ProfileSemanticValidator.validate(configuration) }
         catch { persistenceWarning = error.localizedDescription; return .rejected(error.localizedDescription) }
-        guard configuration != state.profiles[profileIndex].items[itemIndex].widgetConfiguration else { return .unchanged }
+        guard configuration != previous else { return .unchanged }
         state.profiles[profileIndex].items[itemIndex].widgetConfiguration = configuration
+        if configuration.strippedOfRuntimeReadings == (previous ?? WidgetConfiguration()).strippedOfRuntimeReadings {
+            // Provider readings only: update the cache, never the authored state file or its revision.
+            runtimeCache.set(configuration.runtimeReadings, for: itemID)
+            return .accepted
+        }
         commit(immediately: false)
         return .accepted
     }
@@ -575,6 +625,7 @@ final class ProfileStore: ObservableObject {
         do {
             try writer.writeImmediately(candidate, to: fileURL, revision: revision)
             state = candidate
+            mirrorRuntimeCache()
             finishWrite(.success(()), revision: revision)
         } catch {
             finishWrite(.failure(error), revision: revision)
@@ -590,6 +641,7 @@ final class ProfileStore: ObservableObject {
         }
         revision &+= 1
         let currentRevision = revision
+        mirrorRuntimeCache()
         if immediately {
             do {
                 try writer.writeImmediately(state, to: fileURL, revision: currentRevision)
@@ -604,7 +656,10 @@ final class ProfileStore: ObservableObject {
     }
 
     /// Lifecycle boundaries wait for the latest revision and report an actual disk result.
-    func flush() { commit() }
+    func flush() {
+        commit()
+        runtimeCache.flush()
+    }
 
     private func finishWrite(_ result: Result<Void, Error>, revision: UInt64) {
         guard revision == self.revision else { return }
