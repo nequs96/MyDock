@@ -33,6 +33,8 @@ struct WidgetLibraryTile: View {
                     .strokeBorder(Color.primary.opacity(hovered ? 0.24 : 0.06), lineWidth: 1))
                 .frame(maxWidth: .infinity).frame(height: WidgetGalleryMetrics.previewHeight)
                 .accessibilityHidden(true)
+            Text("Example").font(.caption2).foregroundStyle(.secondary)
+                .accessibilityLabel("Example preview for \(widget.name)")
             HStack(spacing: DockDesign.Space.xs) {
                 Text(showsVariantLabel ? cardWidth.label : widget.name)
                     .font(.system(size: 13, weight: .medium)).lineLimit(1)

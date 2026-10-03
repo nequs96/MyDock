@@ -132,11 +132,19 @@ struct DockCanvas: View {
                 }
                 .contentShape(Rectangle())
         }.buttonStyle(.plain).focusable().focused($focusedItem, equals: ItemFocus(itemID: item.id, requestID: focusRequestID))
-            .help(item.displayName + " · Drag to reorder")
-            .accessibilityLabel(item.displayName)
+            .help(item.displayName + (AppLauncher.isMissingTarget(item) ? " · Saved location missing" : "") + " · Drag to reorder")
+            .accessibilityLabel(DockItemAccessibility.label(for: item, missing: AppLauncher.isMissingTarget(item)))
             .accessibilityHint(AppLauncher.isMissingTarget(item) ? "Saved location missing. Use Replace to reconnect this item." : "Select to edit. Drag to reorder.")
             .accessibilityAddTraits(selection.contains(item.id) ? .isSelected : [])
             .accessibilityAction(named: "Configure") { configure(item) }
+            .accessibilityAction(named: "Move earlier") {
+                if let index = profile.items.firstIndex(where: { $0.id == item.id }), index > 0 { move([item.id], profile.items[index - 1].id) }
+            }
+            .accessibilityAction(named: "Move later") {
+                if let index = profile.items.firstIndex(where: { $0.id == item.id }), index < profile.items.count - 1 {
+                    move([item.id], index + 2 < profile.items.count ? profile.items[index + 2].id : nil)
+                }
+            }
             .accessibilityAction(named: "Move to start") { move([item.id], profile.items.first(where: { $0.id != item.id })?.id) }
             .accessibilityAction(named: "Move to end") { move([item.id], nil) }
             .contextMenu {
@@ -174,5 +182,26 @@ struct DockCanvasItem: View {
                 Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.orange)
             }
         }.allowsHitTesting(false).accessibilityHidden(true)
+    }
+}
+
+enum DockItemAccessibility {
+    static func kindName(_ type: DockItemType) -> String {
+        switch type {
+        case .application: "Application"
+        case .folder: "Folder"
+        case .file: "File"
+        case .link: "Link"
+        case .widget: "Widget"
+        case .spacer: "Spacer"
+        }
+    }
+
+    /// Item name, kind and missing state; the selected trait is added by the tile itself.
+    static func label(for item: DockItem, missing: Bool) -> String {
+        let name = item.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = kindName(item.type)
+        let base = name.isEmpty || name == kind ? kind : "\(name), \(kind)"
+        return missing ? base + ", missing" : base
     }
 }

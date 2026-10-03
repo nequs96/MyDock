@@ -105,8 +105,12 @@ struct CommandLibrary: View {
                                     }
                                     Spacer()
                                     if let item = entry.item, item.type == .widget {
-                                        WidgetCardPreview(kind: item.widgetKind ?? "", width: 144, displayScale: 0.7)
-                                            .frame(width: 108, height: 40).allowsHitTesting(false).accessibilityHidden(true)
+                                        VStack(alignment: .trailing, spacing: 2) {
+                                            WidgetCardPreview(kind: item.widgetKind ?? "", width: 144, displayScale: 0.7)
+                                                .frame(width: 108, height: 40).allowsHitTesting(false).accessibilityHidden(true)
+                                            Text("Example").font(.caption2).foregroundStyle(.tertiary)
+                                                .accessibilityLabel("Example preview for \(entry.title)")
+                                        }
                                     }
                                     if index == selected { Image(systemName: "return").font(.system(size: 11)).foregroundStyle(.tertiary) }
                                 }.padding(.horizontal, 12).padding(.vertical, 8)
