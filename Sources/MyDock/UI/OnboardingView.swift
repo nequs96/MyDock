@@ -102,10 +102,11 @@ struct OnboardingView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(mode.title).font(.headline)
                             Text(description(for: mode)).font(.callout).foregroundStyle(.secondary)
+                            Text(DockProfileStatus.nativeConsequence(for: mode)).font(DockDesign.caption).foregroundStyle(.tertiary)
                         }
                         Spacer()
                     }
-                    .padding(12).frame(minHeight: 72).contentShape(Rectangle())
+                    .padding(12).frame(minHeight: 88).contentShape(Rectangle())
                     .background(setupMode == mode ? DockDesign.selection : DockDesign.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(DockDesign.hairline, lineWidth: 0.5))
@@ -240,7 +241,7 @@ struct OnboardingView: View {
             Text("Hydration reminders may request Notifications. Calendar, Reminders, Weather location, Accessibility, and Screen Recording are not needed for this setup. You can review optional permissions in Settings.")
                 .font(.callout).foregroundStyle(.secondary)
             Spacer()
-            Label(setupMode == .customMain ? "Replacement mode keeps Apple’s Dock hidden at the screen edge and restores its previous settings when you change modes or quit." : "Native Dock contents change only when you explicitly apply a profile.", systemImage: "lock.shield")
+            Label(DockProfileStatus.nativeConsequence(for: setupMode), systemImage: "lock.shield")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

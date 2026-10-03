@@ -263,7 +263,7 @@ struct DockManagerView: View {
             HStack(spacing: 10) {
                 Circle().fill((DockProfileColor(rawValue: profile.color) ?? .blue).displayColor)
                     .frame(width: 6, height: 6).accessibilityHidden(true)
-                Text(profile.name).font(DockDesign.body).lineLimit(1)
+                Text(profile.name).font(DockDesign.body).lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 0)
                 if isActive(profile) {
                     Image(systemName: "checkmark").font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
@@ -272,6 +272,8 @@ struct DockManagerView: View {
                 if profile.kind == .native { Image(systemName: "macwindow").font(.system(size: 11)).foregroundStyle(.tertiary).help("Saved macOS Dock") }
             }
         } action: { requestProfileSelection(profile.id); openDocks() }
+        .help(profile.name)
+        .accessibilityLabel(sidebarAccessibilityLabel(for: profile))
         .contextMenu {
             Button(profile.kind == .native ? "Apply to macOS Dock" : "Activate") { useProfile(profile) }
             Button("Rename") { requestProfileSelection(profile.id); openDocks(); if selectedProfileID == profile.id { beginRename(profile) } }
@@ -280,6 +282,12 @@ struct DockManagerView: View {
             Button("Save as Personal Preset") { store.personalPresets.record(profile, reason: "Personal preset") }
             Button("Delete…", role: .destructive) { profileToDelete = profile.id; confirmingProfileDeletion = true }
         }
+    }
+
+    private func sidebarAccessibilityLabel(for profile: DockProfile) -> String {
+        let status = DockProfileStatus(profile: profile, settings: store.state.settings)
+        let kind = profile.kind == .native ? "Saved macOS Dock layout" : "Custom Dock"
+        return status.isCurrent ? "\(profile.name), \(kind), \(status.label)" : "\(profile.name), \(kind)"
     }
 
     private func editor(for profile: DockProfile) -> some View {
@@ -299,6 +307,7 @@ struct DockManagerView: View {
                         .popover(isPresented: $showingActiveStatus) {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text(profile.kind == .native ? "Applied to macOS Dock" : "Active on this Mac").font(DockDesign.sectionTitle)
+                                Text(status.workspaceCaption(for: profile.kind, setupMode: store.state.settings.setupMode)).font(DockDesign.caption).foregroundStyle(.secondary)
                                 if status == .applied(hidden: true) { Text("The macOS Dock is hidden in replacement mode.").font(DockDesign.caption).foregroundStyle(.secondary) }
                                 if profile.kind == .custom {
                                     Button("Deactivate") { showingActiveStatus = false; store.setActiveCustomProfile(nil) }
@@ -306,7 +315,8 @@ struct DockManagerView: View {
                             }.padding(20)
                         }
                 } else {
-                    Button(profile.kind == .native ? "Apply" : "Activate") { useProfile(profile) }.buttonStyle(DockButtonStyle()).disabled(!draftCanBeSaved)
+                    Button(DockProfileStatus.actionTitle(for: profile.kind)) { useProfile(profile) }.buttonStyle(DockButtonStyle()).disabled(!draftCanBeSaved)
+                        .help(DockProfileStatus.actionHelp(for: profile.kind))
                 }
                 profileActions(for: profile)
             }.padding(.horizontal, 24).padding(.vertical, 16)
@@ -329,14 +339,15 @@ struct DockManagerView: View {
                                     if saveDraft() { renamingProfile = false }
                                 }
                         } else {
-                            Text(profile.name).font(DockDesign.title).lineLimit(2).multilineTextAlignment(.center)
+                            Text(profile.name).font(DockDesign.title).lineLimit(2).truncationMode(.tail).multilineTextAlignment(.center)
                                 .padding(.horizontal, 24)
                                 .onTapGesture(count: 2) { beginRename(profile) }
                                 .accessibilityAction(named: "Rename Dock") { beginRename(profile) }
-                                .help("Double-click to rename")
+                                .help(profile.name + " · Double-click to rename")
+                                .accessibilityLabel(profile.name)
                         }
-                        Text(profile.kind == .native ? "Your saved macOS layout" : "Your apps and widgets, within reach.")
-                            .font(DockDesign.body).foregroundStyle(.secondary)
+                        Text(status.workspaceCaption(for: profile.kind, setupMode: store.state.settings.setupMode))
+                            .font(DockDesign.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
                     if profile.items.isEmpty {
                         VStack(spacing: 12) {
@@ -406,11 +417,25 @@ struct DockManagerView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(selectedItemIDs.count > 1 ? "\(selectedItemIDs.count) items selected" : item.displayName).font(DockDesign.sectionTitle)
-                    Text(AppLauncher.isMissingTarget(item) ? "Saved location missing. Choose Replace to reconnect." : "⌘← / ⌘→ to move · Delete to remove")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle).help(selectedItemIDs.count > 1 ? "" : item.displayName)
+                    Text(AppLauncher.isMissingTarget(item) ? "Saved location missing. Choose Replace to reconnect." : "⌘← / ⌘→ to move · ⌘D to duplicate · Delete to remove")
+                        .font(.system(size: 11)).foregroundStyle(AppLauncher.isMissingTarget(item) ? Color.orange : Color.secondary)
                 }
                 Spacer()
                 if selectedItemIDs.count == 1 { Button("Configure") { configureItem(item) } }
+                if selectedItemIDs.count == 1, AppLauncher.isMissingTarget(item), [.application, .file, .folder].contains(item.type) {
+                    Button("Replace…") { replaceItem(item) }
+                }
+                Button { moveSelection(.left, in: profile) } label: { Image(systemName: "arrow.left") }
+                    .disabled(!canMoveSelection(.left, in: profile)).help("Move earlier (⌘←)").accessibilityLabel("Move earlier")
+                Button { moveSelection(.right, in: profile) } label: { Image(systemName: "arrow.right") }
+                    .disabled(!canMoveSelection(.right, in: profile)).help("Move later (⌘→)").accessibilityLabel("Move later")
+                if selectedItemIDs.count == 1 {
+                    Button { duplicateItem(item) } label: { Image(systemName: "plus.square.on.square") }
+                        .help("Duplicate (⌘D)").accessibilityLabel("Duplicate item")
+                }
+                Button { removeSelectedItems(from: profile) } label: { Image(systemName: "trash") }
+                    .help("Remove from Dock (Delete)").accessibilityLabel(selectedItemIDs.count > 1 ? "Remove selected items" : "Remove item")
                 Button { clearItemSelection() } label: { Image(systemName: "xmark").frame(width: DockDesign.controlHeight, height: DockDesign.controlHeight).contentShape(Rectangle()) }.buttonStyle(.plain).help("Close inspector").accessibilityLabel("Close inspector")
             }
             if item.type == .widget && selectedItemIDs.count == 1 {
@@ -544,6 +569,9 @@ struct DockManagerView: View {
     private func profileActions(for profile: DockProfile) -> some View {
         Menu {
             if hasUnsavedProfileChanges { Button("Retry Save") { _ = saveDraft() }; Button("Discard Unsaved Changes", role: .destructive) { discardDraft() } }
+            Button("Undo") { undoManager?.undo() }.disabled(!(undoManager?.canUndo ?? false))
+            Button("Redo") { undoManager?.redo() }.disabled(!(undoManager?.canRedo ?? false))
+            Divider()
             Button("Rename…") { beginRename(profile) }
             if profile.kind == .custom {
                 Button("Save as Personal Preset") { store.personalPresets.record(profile, reason: "Personal preset") }

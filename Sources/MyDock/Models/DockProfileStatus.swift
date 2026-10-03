@@ -37,4 +37,38 @@ enum DockProfileStatus: Equatable {
         case .inactive: "Inactive"
         }
     }
+
+    /// The workspace edits one profile at a time; that is independent of what is on screen.
+    /// Select = edit here, Activate = show a custom Dock, Apply = write a layout to Apple's Dock.
+    static func actionTitle(for kind: DockProfileKind) -> String { kind == .native ? "Apply" : "Activate" }
+
+    static func actionHelp(for kind: DockProfileKind) -> String {
+        kind == .native
+            ? "Apply this layout to Apple's Dock now. It stays until you apply another layout, including after you quit MyDock."
+            : "Show this Custom Dock on screen."
+    }
+
+    /// One quiet sentence under the profile name: what is being edited versus what is live.
+    func workspaceCaption(for kind: DockProfileKind, setupMode: SetupMode) -> String {
+        switch (kind, self) {
+        case (.custom, .active): "You're editing the Custom Dock on screen."
+        case (.custom, _):
+            setupMode == .nativeOnly
+                ? "Editing only. Activate to show it; MyDock will also turn on the Custom Dock."
+                : "Editing only. Activate to show it on screen."
+        case (.native, .applied(let hidden)):
+            hidden ? "Last applied to the macOS Dock, which is hidden while MyDock replaces it."
+                   : "Last applied to the macOS Dock."
+        case (.native, _): "Editing a saved layout. Apply changes Apple's Dock now and stays after you quit."
+        }
+    }
+
+    /// What each setup mode does to Apple's Dock.
+    static func nativeConsequence(for mode: SetupMode) -> String {
+        switch mode {
+        case .nativeOnly: "Apple's Dock stays as it is. It changes only when you apply a saved layout, and that stays after you quit."
+        case .both: "Apple's Dock stays visible. It changes only when you apply a saved layout; your Custom Dock appears separately."
+        case .customMain: "Apple's Dock is hidden while MyDock runs, and its settings are restored when you change modes or quit."
+        }
+    }
 }

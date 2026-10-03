@@ -6,7 +6,7 @@ struct MenuBarView: View {
 
     var body: some View {
         if !store.nativeProfiles.isEmpty {
-            Section("macOS Dock") {
+            Section("Apply to macOS Dock") {
                 ForEach(store.nativeProfiles) { profile in
                     Button {
                         Task { @MainActor in
@@ -19,19 +19,19 @@ struct MenuBarView: View {
                     } label: {
                         if DockProfileStatus(profile: profile, settings: store.state.settings).isCurrent { Label(profile.name, systemImage: "checkmark") }
                         else { Text(profile.name) }
-                    }
+                    }.help(DockProfileStatus.actionHelp(for: .native))
                 }
             }
         }
         if !store.customProfiles.isEmpty {
-            Section("Custom Dock") {
+            Section("Show Custom Dock") {
                 ForEach(store.customProfiles) { profile in
                     Button {
                         store.activate(profile.id)
                     } label: {
                         if DockProfileStatus(profile: profile, settings: store.state.settings).isCurrent { Label(profile.name, systemImage: "checkmark") }
                         else { Text(profile.name) }
-                    }
+                    }.help(DockProfileStatus.actionHelp(for: .custom))
                 }
             }
         }

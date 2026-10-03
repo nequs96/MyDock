@@ -22,6 +22,7 @@ struct DockAppearanceInspector: View {
                     Text("Size").foregroundStyle(.secondary)
                     Slider(value: Binding(get: { settings.customDockSize }, set: { value in edit { $0.size = value } }), in: 0.65...1.5, onEditingChanged: { if !$0 { store.flush() } })
                         .accessibilityLabel("Dock size")
+                        .accessibilityValue("\(Int((settings.customDockSize * 100).rounded())) percent")
                     Text("\(Int((settings.customDockSize * 100).rounded()))%")
                         .monospacedDigit().frame(width: 40, alignment: .trailing)
                 }
@@ -37,14 +38,18 @@ struct DockAppearanceInspector: View {
                     Text("Spacing").foregroundStyle(.secondary)
                     Slider(value: Binding(get: { settings.customDockItemSpacing }, set: { value in edit { $0.spacing = value } }), in: DockAppearanceBounds.itemSpacing, onEditingChanged: { if !$0 { store.flush() } })
                         .accessibilityLabel("Item spacing")
+                        .accessibilityValue("\(Int(settings.customDockItemSpacing.rounded())) points")
+                    Text("\(Int(settings.customDockItemSpacing.rounded())) pt")
+                        .monospacedDigit().frame(width: 40, alignment: .trailing).accessibilityHidden(true)
                     Picker("Theme", selection: Binding(get: { settings.customDockTheme }, set: { value in edit { $0.theme = value }; store.flush() })) {
                         ForEach(CustomDockTheme.allCases) { Text($0.title).tag($0) }
                     }.labelsHidden().frame(width: 100)
                 }
                 HStack {
-                    Text(profile.appearance == nil ? "Using app appearance" : "Appearance saved for this Dock").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(profile.appearance == nil ? "Follows the global appearance in Settings" : "This Dock has its own appearance; global changes won't affect it").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
                     Spacer()
-                    if profile.appearance != nil { Button("Use App Defaults") { store.setAppearance(nil, for: profile.id) }.font(.system(size: 11)) }
+                    if profile.appearance != nil { Button("Reset to Global") { store.setAppearance(nil, for: profile.id) }.font(.system(size: 11))
+                        .help("Remove this Dock's own appearance and follow the global appearance in Settings again") }
                 }
             } else {
                 Text("This layout is applied to Apple’s Dock. Widgets and appearance belong to custom Docks.")
