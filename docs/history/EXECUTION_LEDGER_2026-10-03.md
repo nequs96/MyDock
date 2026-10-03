@@ -2173,3 +2173,75 @@ Verification:
 - The `WidgetLibraryTile`/`CommandLibrary` Example labels have not been checked (outside P1's files).
 
 **Integrated test (303b03a):** 296 tests. The only failures are the 3 known stale ProfileStoreTests, which are pending R1.
+
+**R1 Reliability — merged 202580f (branch commits 706a298, 8ab11cf, b5ce21b).** Coordinator review accepted it.
+
+Implemented:
+- **Stale tests:** the three legacy expectations now encode the new contracts.
+  - Create refused under future schema: nil id, nothing published, bytes unchanged.
+  - Shared `DockAppearanceBounds`.
+  - Clock Compact 104.
+- **MD-A03:** cached AI snapshots are sanitized at decode, not rejected. Bad values become unavailable, so authored configuration is never discarded. Percent domains:
+  - 0–100 for fixed-window providers.
+  - 0–100,000 for Copilot and Claude. Claude spend-limit windows legitimately exceed 100 (an existing test requires 125).
+  - The live Claude reader is bounded too.
+- **MD-A04:** domain-bounded, trap-free parsing in Market, Stripe (`interval_count` 1–1000, checked division), Paddle, Shopify and Weather. Out-of-domain responses are rejected and the last good snapshot is kept.
+- **Drafts:**
+  - An unreadable/oversized utility drafts file is moved to `.recovery-<UUID>` with a one-time notice, so quit is no longer blocked forever.
+  - Pruning runs on launch (only when state loaded intact) and on every removal path, scoped to removed IDs.
+  - Note drafts for deleted widgets no longer fail the quit flush.
+- **MD-Q01:** new guards for the Codex app-server limits adapter, the default-home Claude limits reader, AI activity log scanning, and `ClaudeLimitsSetup` writes to the real `~/.claude`.
+
+Remaining unguarded sites (user-initiated or read-only):
+- The `~/.Trash` watcher and open action.
+- The Settings notification-settings read.
+- Home-directory reads in SystemActivity/Disk widgets.
+- Click-driven `NSWorkspace.open` calls.
+
+Verification: `./TestMyDock.sh` passed with **320 tests passed, 0 failed, 5 opt-in skips**.
+
+**N2 Native — merged c95c0f9 (branch commit d8b6119).** Coordinator review accepted it.
+
+Implemented:
+- **MD-D05:** File Shelf Locate… (user-initiated panel). It keeps the ID, title and position, and refuses duplicates without changing anything. Retry rechecks availability and refreshes stale bookmarks of resolvable files. Missing entries stay on the shelf.
+- **MD-D06:** the count is labelled "home Trash (~/.Trash)". The confirmation reads "Empty the Trash on all volumes?" and states that uncounted items are included. Cancel is the default. The failure copy is honest.
+- **MD-Q03:** Settings detects `Contents/Resources/Metadata.appintents` and tells CLI-built bundles that Focus filters need the Xcode-built release app.
+
+Verification:
+- 6 fixtures pass.
+- No Trash or Finder operation was executed. H6/H9 are open.
+
+**P2 Product — merged f73b675 (branch commit 0c419af).** Coordinator review accepted it. The copy was checked against native behaviour: native Apply persists after quit, and replacement mode restores on quit or mode change.
+
+Implemented:
+- **PR-06:** workspace caption and help explain editing vs. on screen vs. Apply. Menu bar sections are renamed. Onboarding states each mode's consequence.
+- **PR-07:** the inspector has labelled Move earlier/later, Duplicate, Remove and Replace… controls. The profile menu has Undo/Redo. Names truncate, with the full name in help and VoiceOver.
+- **MD-U02:** Example labels in CommandLibrary and the gallery tile.
+- **PR-09/U06:** the inspector spacing shows numeric pt and an AX value, the inheritance wording is clear, and the reset button is renamed "Reset to Global". The inspector has no corner or tint sliders, so they needed no change.
+- **PR-11:** canvas tile AX label (name, kind, missing) plus Move actions.
+
+Verification: 4 fixtures pass. VoiceOver and minimum-size layout checks are open.
+
+**N3 Native — merged e79aa88 (branch commit e4637ca).** Coordinator review accepted it.
+
+Implemented:
+- **H4 / decision #10:** `DockTransitionPolicy`. A style, Off or Reduce Motion change during an in-flight transition cancels it and normalizes alpha, scale and frame to the final state (`orderOut` when hidden).
+- **PR-18:** `OSSignposter` signposts (subsystem bundle id, category "performance"):
+  - `DockRootAssignment` and `DockPresentationTransition` intervals.
+  - Resize begin/end events.
+  - A DEBUG root-assignment counter.
+- The context-menu process scan is deferred to menu evaluation.
+- `AutomationError.permissionDenied`/`.failed` are classified from exit status and stderr (-1743). Trash and Now Playing copy use them.
+
+Verification:
+- 7 fixtures pass.
+- Window-discovery signpost not added (outside N3's files).
+- The live H4 interruption check, Instruments traces and the Automation-denied message are open.
+
+**Coordinator build and launch (f73b675, before the N3 merge):**
+- `./TestMyDock.sh`: **324 passed, 0 failed, 5 skipped.**
+- `./BuildMyDock.sh` exit 0, canonical `build/MyDock.app`.
+- Executable SHA-256 `0901f8c8c1269f1b2b53aff084f5d083d095af036593836eb8a04ac78a07d2dd`.
+- Architectures x86_64 + arm64; `codesign --verify --strict` OK (ad-hoc).
+- Launched the canonical path (PID 74997); the process is running. No UI interaction or native scenario was performed by the coordinator.
+- N3 and later merges will be rebuilt at the next integration point.
