@@ -35,35 +35,61 @@ struct WidgetLayoutOption: Identifiable, Hashable {
     var id: WidgetLayout { layout }
 }
 
+/// System permissions a widget family may ask for. Descriptive only; requests stay in the owning services.
+enum WidgetSystemPermission: String, Hashable, CaseIterable {
+    case calendars, reminders, location, automation, notifications
+}
+
+/// What kind of refresh a family needs while visible.
+enum WidgetRefreshDemand: String, Hashable, CaseIterable {
+    case none            // static or user-driven content
+    case timeTick        // local clock-derived content
+    case localSampling   // local system samplers
+    case remoteFetch     // network-backed content
+    case externalSource  // another app or system store
+}
+
+/// Typed capability descriptor for one widget family. The family's stable name string stays the persisted identity.
+struct WidgetCapabilities: Hashable {
+    var layouts: [WidgetLayoutOption]
+    var defaultLayout: WidgetLayout
+    var needsConnection = false
+    var permissions: Set<WidgetSystemPermission> = []
+    var hasSetupState = false
+    var holdsPrivateContent = false
+    var refreshDemand: WidgetRefreshDemand = .none
+}
+
+enum WidgetLayoutPresets {
+    static func option(_ layout: WidgetLayout, _ width: Double, _ detail: String, title: String? = nil) -> WidgetLayoutOption {
+        .init(layout: layout, width: width, title: title ?? layout.title, detail: detail)
+    }
+    static let aiActivity = [option(.compact, 88, "Usage total"), option(.standard, 126, "Total and session metadata"), option(.trend, 184, "History without chart axes", title: "Activity")]
+    static let systemActivity = [option(.compact, 86, "CPU and live history"), option(.meter, 92, "CPU with a small meter"), option(.trend, 158, "History and one secondary reading", title: "Trend")]
+    static let networkActivity = [option(.compact, 100, "Download and upload"), option(.trend, 170, "Rates and download history")]
+    static let battery = [option(.compact, 90, "Charge and battery shape"), option(.wide, 156, "Mac and available accessories")]
+    static let diskSpace = [option(.compact, 104, "Free space and capacity bar"), option(.wide, 158, "Available and total capacity")]
+    static let clock = [option(.compact, 104, "Local time"), option(.standard, 112, "Time and date")]
+    static let worldClock = [option(.compact, 88, "Primary city"), option(.wide, 164, "City and time zone")]
+    static let weather = [option(.compact, 92, "Temperature and condition"), option(.standard, 132, "Place and current weather"), option(.wide, 184, "Upcoming hours", title: "Forecast")]
+    static let nowPlaying = [option(.compact, 112, "Artwork and track"), option(.wide, 186, "Track and artist", title: "Track")]
+    static let timer = [option(.compact, 88, "Timer and state"), option(.standard, 124, "Time and progress")]
+    static let schedule = [option(.compact, 88, "At a glance"), option(.wide, 154, "Next item and count")]
+    static let market = [option(.compact, 108, "Ticker and price"), option(.trend, 176, "Price and market history")]
+    static let savedCollection = [option(.compact, 96, "Saved item count"), option(.wide, 164, "Count and most recent item")]
+    static let quickTool = [option(.icon, 54, "Quick tool"), option(.compact, 104, "Tool and identity")]
+    static let stickyNote = [option(.standard, 120, "A short note"), option(.wide, 176, "More of your note")]
+    static let quickAction = [option(.icon, 54, "Quick action"), option(.compact, 88, "Action and identity")]
+    static let generic = [option(.compact, 88, "Essential information"), option(.standard, 124, "More context")]
+}
+
+/// Thin facade over the registry's capability descriptors. Unknown kinds keep the generic fallback.
 enum WidgetPresentationCatalog {
     static func options(for kind: String) -> [WidgetLayoutOption] {
-        switch kind {
-        case "AI Activity": return [option(.compact, 88, "Usage total"), option(.standard, 126, "Total and session metadata"), option(.trend, 184, "History without chart axes", title: "Activity")]
-        case "System Activity": return [option(.compact, 86, "CPU and live history"), option(.meter, 92, "CPU with a small meter"), option(.trend, 158, "History and one secondary reading", title: "Trend")]
-        case "Network Activity": return [option(.compact, 100, "Download and upload"), option(.trend, 170, "Rates and download history")]
-        case "Battery": return [option(.compact, 90, "Charge and battery shape"), option(.wide, 156, "Mac and available accessories")]
-        case "Disk Space": return [option(.compact, 104, "Free space and capacity bar"), option(.wide, 158, "Available and total capacity")]
-        case "Clock": return [option(.compact, 104, "Local time"), option(.standard, 112, "Time and date")]
-        case "World Clock": return [option(.compact, 88, "Primary city"), option(.wide, 164, "City and time zone")]
-        case "Weather": return [option(.compact, 92, "Temperature and condition"), option(.standard, 132, "Place and current weather"), option(.wide, 184, "Upcoming hours", title: "Forecast")]
-        case "Now Playing": return [option(.compact, 112, "Artwork and track"), option(.wide, 186, "Track and artist", title: "Track")]
-        case "Focus Timer", "Countdown", "Stopwatch": return [option(.compact, 88, "Timer and state"), option(.standard, 124, "Time and progress")]
-        case "Calendar", "Reminders", "Quick Checklist": return [option(.compact, 88, "At a glance"), option(.wide, 154, "Next item and count")]
-        case "Stock", "Watchlist": return [option(.compact, 108, "Ticker and price"), option(.trend, 176, "Price and market history")]
-        case "File Shelf", "Text Snippets", "Quick Links": return [option(.compact, 96, "Saved item count"), option(.wide, 164, "Count and most recent item")]
-        case "Unit Converter", "Color Picker": return [option(.icon, 54, "Quick tool"), option(.compact, 104, "Tool and identity")]
-        case "Sticky Note": return [option(.standard, 120, "A short note"), option(.wide, 176, "More of your note")]
-        case "AirDrop", "Trash", "Calculator", "Shortcuts", "App Folder": return [option(.icon, 54, "Quick action"), option(.compact, 88, "Action and identity")]
-        default: return [option(.compact, 88, "Essential information"), option(.standard, 124, "More context")]
-        }
+        WidgetRegistry.definition(named: kind)?.capabilities.layouts ?? WidgetLayoutPresets.generic
     }
     static func defaultLayout(for kind: String) -> WidgetLayout {
-        switch kind {
-        case "AI Activity", "Weather", "Sticky Note": .standard
-        case "Now Playing": .wide
-        case "AirDrop", "Trash", "Calculator", "Shortcuts", "App Folder", "Unit Converter", "Color Picker": .icon
-        default: .compact
-        }
+        WidgetRegistry.definition(named: kind)?.capabilities.defaultLayout ?? .compact
     }
     static func resolvedLayout(for kind: String, configuration: WidgetConfiguration, compactDefault: Bool = false) -> WidgetLayout {
         let choices = options(for: kind)
@@ -77,9 +103,6 @@ enum WidgetPresentationCatalog {
     }
     static func width(for kind: String, layout: WidgetLayout) -> Double {
         options(for: kind).first { $0.layout == layout }?.width ?? options(for: kind).first!.width
-    }
-    private static func option(_ layout: WidgetLayout, _ width: Double, _ detail: String, title: String? = nil) -> WidgetLayoutOption {
-        .init(layout: layout, width: width, title: title ?? layout.title, detail: detail)
     }
 }
 

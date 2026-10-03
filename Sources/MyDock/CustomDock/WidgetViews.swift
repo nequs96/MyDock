@@ -48,6 +48,8 @@ enum WidgetProviderRegistry {
         "Sticky Note": StickyNoteWidgetProvider()
     ]
 
+    static var registeredKinds: Set<String> { Set(providers.keys) }
+
     static func provider(for kind: String?) -> any DockWidgetProvider {
         guard let kind, let provider = providers[kind] else {
             return PlaceholderWidgetProvider(kind: kind ?? "Widget")
@@ -1236,19 +1238,29 @@ private struct HydrationPopoutView: View {
 }
 
 @MainActor
-private final class BatteryMonitor: ObservableObject {
+final class BatteryMonitor: ObservableObject {
     static let shared = BatteryMonitor()
 
     @Published private(set) var readings: [BatteryReading] = []
     private var subscribers = Set<UUID>()
+    private var visiblePopouts = Set<UUID>()
+    private var schedulerDemand: RefreshDemandToken?
     private var refreshTask: Task<Void, Never>?
+    private let scheduler: RefreshScheduler
 
-    func subscribe(_ identifier: UUID) {
+    init(scheduler: RefreshScheduler = .shared) { self.scheduler = scheduler }
+
+    var isSampling: Bool { refreshTask != nil }
+    var holdsPopoutDemand: Bool { schedulerDemand != nil }
+
+    func subscribe(_ identifier: UUID, popout: Bool = false) {
         subscribers.insert(identifier)
+        if popout { visiblePopouts.insert(identifier) }
+        scheduler.setDemand(&schedulerDemand, kind: .popout, active: !visiblePopouts.isEmpty)
         guard refreshTask == nil else { return }
         refresh()
-        refreshTask = Task { [weak self] in
-            for await _ in RefreshScheduler.shared.ticks(every: 60) {
+        refreshTask = Task { [weak self, scheduler] in
+            for await _ in scheduler.ticks(every: 60) {
                 guard !Task.isCancelled else { return }
                 self?.refresh()
             }
@@ -1257,6 +1269,8 @@ private final class BatteryMonitor: ObservableObject {
 
     func unsubscribe(_ identifier: UUID) {
         subscribers.remove(identifier)
+        visiblePopouts.remove(identifier)
+        scheduler.setDemand(&schedulerDemand, kind: .popout, active: !visiblePopouts.isEmpty)
         guard subscribers.isEmpty else { return }
         refreshTask?.cancel()
         refreshTask = nil
@@ -1306,7 +1320,7 @@ private struct BatteryPopoutView: View {
             }
         }
         .frame(minWidth: 260)
-        .onAppear { monitor.subscribe(subscriptionID) }
+        .onAppear { monitor.subscribe(subscriptionID, popout: true) }
         .onDisappear { monitor.unsubscribe(subscriptionID) }
     }
 }
