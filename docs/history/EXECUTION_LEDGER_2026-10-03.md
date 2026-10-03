@@ -2437,7 +2437,7 @@ No family-specific change: W07, W09, W15–W19, W27, W28, W33. They received sha
 
 | Category | Completed | Partial | Blocked | Deferred | Unstarted |
 |---|---|---|---|---|---|
-| MD (43) | 37 implemented with fixtures | A08, Q01, Q02 | Q04; native acceptance for all | D04 | — |
+| MD (43) | 38 implemented with fixtures | A08, Q01, Q02 | Q04; native acceptance for all | D04 | — |
 | PR (20) | 5 | 14 | PR-19 | Batch 3 subscopes | PR-13 cache separation; PR-15 health UI; PR-17 extraction; PR-20 help loop |
 | OP (7) | — | — | — | 7 | — |
 | F (41) / W (35) | Code and fixture work as listed | All | Native acceptance | Batch 3 extensions | — |
