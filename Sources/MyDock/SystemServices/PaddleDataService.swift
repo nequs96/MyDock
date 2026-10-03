@@ -87,20 +87,15 @@ protocol PaddleDataTransport: Sendable {
 }
 
 struct URLSessionPaddleDataTransport: PaddleDataTransport {
-    private static let session: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        configuration.httpCookieStorage = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: configuration)
-    }()
+    private static let session = BoundedHTTPFetch.ephemeralSession()
 
     func response(for request: URLRequest) async throws -> PaddleHTTPResponse {
-        let (data, response) = try await Self.session.data(for: request)
-        guard let response = response as? HTTPURLResponse, data.count <= 5_000_000 else {
+        do {
+            let (data, response) = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 5000000)
+            return PaddleHTTPResponse(statusCode: response.statusCode, data: data)
+        } catch is BoundedHTTPFetchError {
             throw PaddleDataError.invalidResponse
         }
-        return PaddleHTTPResponse(statusCode: response.statusCode, data: data)
     }
 }
 
@@ -337,6 +332,9 @@ struct PaddleConnectedAccount: Codable, Hashable, Identifiable {
 }
 
 enum PaddleAPIKeyStore {
+    /// One provider-owned explanation shared by Connections Center and the Paddle widget help.
+    static let permissionSetupCopy = "Paddle Billing: create a Billing API key with Metrics → Read (metrics.read). Both live and sandbox keys are supported."
+
     private static var service: String { Product.bundleIdentifier + ".integration-credentials" }
     fileprivate static var directoryKey: String { Product.bundleIdentifier + ".paddle-connected-accounts" }
 

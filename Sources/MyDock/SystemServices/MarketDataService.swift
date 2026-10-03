@@ -45,20 +45,17 @@ protocol MarketDataTransport: Sendable {
 }
 
 struct URLSessionMarketDataTransport: MarketDataTransport {
-    private static let session: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        configuration.httpCookieStorage = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: configuration)
-    }()
+    private static let session = BoundedHTTPFetch.ephemeralSession()
 
     func data(for request: URLRequest) async throws -> Data {
-        let (data, response) = try await Self.session.data(for: request)
-        guard let response = response as? HTTPURLResponse else { throw MarketDataError.invalidResponse }
-        guard (200..<300).contains(response.statusCode) else { throw MarketDataError.httpStatus(response.statusCode) }
-        guard data.count <= 5_000_000 else { throw MarketDataError.invalidResponse }
-        return data
+        let result: (data: Data, response: HTTPURLResponse)
+        do {
+            result = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 5_000_000)
+        } catch is BoundedHTTPFetchError {
+            throw MarketDataError.invalidResponse
+        }
+        guard (200..<300).contains(result.response.statusCode) else { throw MarketDataError.httpStatus(result.response.statusCode) }
+        return result.data
     }
 }
 

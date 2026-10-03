@@ -36,15 +36,27 @@ enum NetworkRateCalculator {
                                             addresses: interface.addresses)
             }
             let downloadRate = zipOptional(before.receivedBytes, interface.receivedBytes)
-                .map { Double(counterDelta(from: $0.0, to: $0.1)) / elapsed }
+                .flatMap { plausibleDelta(from: $0.0, to: $0.1) }
+                .map { Double($0) / elapsed }
             let uploadRate = zipOptional(before.sentBytes, interface.sentBytes)
-                .map { Double(counterDelta(from: $0.0, to: $0.1)) / elapsed }
+                .flatMap { plausibleDelta(from: $0.0, to: $0.1) }
+                .map { Double($0) / elapsed }
             return NetworkInterfaceRate(name: interface.name,
                                         receivedBytesPerSecond: downloadRate,
                                         sentBytesPerSecond: uploadRate,
                                         addresses: interface.addresses)
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// A decrease is a 32-bit wrap only when the previous value was near the top of the range and the
+    /// wrapped distance is under half the range. Anything else is a reset or reconnect: no rate for that interval.
+    static func plausibleDelta(from previous: UInt64, to current: UInt64) -> UInt64? {
+        guard current < previous else { return current - previous }
+        let modulus = UInt64(UInt32.max) + 1
+        guard previous < modulus, current < modulus else { return nil }
+        let wrapped = (modulus - previous) + current
+        return wrapped <= modulus / 2 ? wrapped : nil
     }
 
     static func counterDelta(from previous: UInt64, to current: UInt64) -> UInt64 {

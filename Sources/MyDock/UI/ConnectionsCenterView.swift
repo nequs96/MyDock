@@ -81,7 +81,7 @@ struct ConnectionsCenterView: View {
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 SecureField(provider == "Stripe" ? "Restricted rk_ key" : "Paddle Billing API key", text: $secret).textFieldStyle(DockTextFieldStyle()).disabled(busy)
-                Text(provider == "Stripe" ? "Stripe: read-only Account, Balance, Balance Transactions, and Subscriptions." : "Paddle Billing: read-only transactions and subscriptions. Both live and sandbox keys are supported.")
+                Text(provider == "Stripe" ? "Stripe: read-only Account, Balance, Balance Transactions, and Subscriptions." : PaddleAPIKeyStore.permissionSetupCopy)
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {
@@ -105,28 +105,53 @@ struct ConnectionsCenterView: View {
         let key = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         let service = provider, displayName = name, replacement = replacingID
         let storeDomain = domain, applicationID = clientID
+        var clearSnapshotsFor: WidgetConnectionReference?
         do {
             let originalAuthority = try authority(service: service, id: replacement)
             switch service {
             case "Stripe":
-                try await StripeAPIProvider().validate(apiKey: key)
+                let stripe = StripeAPIProvider()
+                try await stripe.validate(apiKey: key)
+                if let replacement, case .key(let oldKey)? = originalAuthority, oldKey != key {
+                    let newIdentity = await stripe.accountIdentity(apiKey: key)
+                    var oldIdentity: String?
+                    if let oldKey { oldIdentity = await stripe.accountIdentity(apiKey: oldKey) }
+                    if ConnectionTenantPolicy.shouldClearSnapshots(oldIdentity: oldIdentity, newIdentity: newIdentity, credentialsChanged: true) {
+                        clearSnapshotsFor = .stripe(replacement)
+                    }
+                }
                 try validateReplacement(service: service, id: replacement, original: originalAuthority)
                 try StripeConnectionDirectory.save(StripeConnectedAccount(id: replacement ?? UUID().uuidString, name: displayName, color: "purple"), key: key)
             case "Paddle":
                 try await PaddleAPIProvider().validate(apiKey: key)
+                // Paddle exposes no seller identity to this key scope, so a different key is treated as a possible tenant change.
+                if let replacement, case .key(let oldKey)? = originalAuthority,
+                   ConnectionTenantPolicy.shouldClearSnapshots(oldIdentity: nil, newIdentity: nil, credentialsChanged: oldKey != key) {
+                    clearSnapshotsFor = .paddle(replacement)
+                }
                 try validateReplacement(service: service, id: replacement, original: originalAuthority)
                 try PaddleConnectionDirectory.save(PaddleConnectedAccount(id: replacement ?? UUID().uuidString, name: displayName, color: "blue"), key: key)
             default:
                 let connection = try await ShopifyAPIProvider().connect(domain: storeDomain, clientID: applicationID, clientSecret: key, color: "green")
-                if let replacement, replacement != connection.store.id { throw EditSessionSaveError.failed("This is a different Shopify store. Cancel replacement and add it as a separate connection.") }
-                try validateReplacement(service: service, id: replacement, original: originalAuthority)
                 var account = connection.store
+                if let replacement {
+                    // Same store means the same normalized myshopify.com domain; the local connection ID and widget assignments stay.
+                    guard let existing = ShopifyConnectionDirectory.stores().first(where: { $0.id == replacement }),
+                          ShopifyAPIProvider.isSameStore(existing, connection.store) else {
+                        throw EditSessionSaveError.failed("This is a different Shopify store. Cancel replacement and add it as a separate connection.")
+                    }
+                    account.id = replacement
+                }
+                try validateReplacement(service: service, id: replacement, original: originalAuthority)
                 if !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { account.name = displayName }
                 try ShopifyConnectionDirectory.save(account, credential: connection.credential)
             }
             clearForm(); revision += 1
+            if let clearSnapshotsFor { store.clearPersistedSnapshots(for: clearSnapshotsFor) }
             store.widgetData.connectionsDidChange()
-            message = "Connection tested and saved. Assign it to a widget above."
+            message = clearSnapshotsFor == nil
+                ? "Connection tested and saved. Assign it to a widget above."
+                : "Connection saved. Saved figures from the previous account were cleared until the new account refreshes."
         } catch { message = error.localizedDescription }
     }
 
