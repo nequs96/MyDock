@@ -81,6 +81,9 @@ enum ProfileSemanticValidator {
                 throw ProfileValidationError.invalid("market chart data")
             }
         }
+        guard config.aiLimitsSnapshot?.isValid ?? true, config.aiActivitySnapshot?.isValid ?? true else {
+            throw ProfileValidationError.invalid("cached AI usage data")
+        }
         let dates = [config.focusStartedAt, config.countdownStartedAt, config.stopwatchStartedAt, config.countdownTargetDate]
             .compactMap { $0 } + config.hydrationEntries.map(\.timestamp) + [config.hydrationLastRemovedEntry?.timestamp].compactMap { $0 }
         guard dates.allSatisfy({ $0.timeIntervalSinceReferenceDate.isFinite

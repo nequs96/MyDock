@@ -272,7 +272,7 @@ enum PaddleMetricsParser {
         var values: [Date: Int] = [:]
         for row in rows {
             guard let timestamp = date(row["timestamp"] as? String),
-                  let count = number(row["count"]), count >= 0 else { throw PaddleDataError.invalidResponse }
+                  let count = number(row["count"]), count.isFinite, (0...maximumCount).contains(count) else { throw PaddleDataError.invalidResponse }
             values[dayStart(timestamp)] = Int(count)
         }
         return CountSeries(updatedAt: updatedAt, values: values)
@@ -284,10 +284,17 @@ enum PaddleMetricsParser {
         return value
     }
 
+    /// Values outside these domains reject the response so the last good snapshot is kept.
+    static let maximumAmount = Decimal(string: "1000000000000000") ?? 1_000_000_000_000_000
+    static let maximumCount = 1_000_000_000.0
+
     private static func decimal(_ value: Any?) -> Decimal? {
-        if let string = value as? String { return Decimal(string: string, locale: Locale(identifier: "en_US_POSIX")) }
-        if let number = value as? NSNumber { return Decimal(string: number.stringValue, locale: Locale(identifier: "en_US_POSIX")) }
-        return nil
+        let parsed: Decimal?
+        if let string = value as? String { parsed = Decimal(string: string, locale: Locale(identifier: "en_US_POSIX")) }
+        else if let number = value as? NSNumber { parsed = Decimal(string: number.stringValue, locale: Locale(identifier: "en_US_POSIX")) }
+        else { parsed = nil }
+        guard let parsed, parsed.isFinite, abs(parsed) <= maximumAmount else { return nil }
+        return parsed
     }
 
     private static func number(_ value: Any?) -> Double? {

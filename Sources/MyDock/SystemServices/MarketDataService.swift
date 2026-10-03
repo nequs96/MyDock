@@ -123,6 +123,10 @@ enum MarketDataParser {
         }
     }
 
+    static let maximumPrice = 1e12
+    static let maximumVolume = 1e15
+    static let maximumPoints = 10_000
+
     static func dailySnapshot(from data: Data, expectedSymbol: String, currency: String = "USD", fetchedAt: Date = .now) throws -> StockMarketSnapshot {
         let root = try responseObject(data)
         guard let seriesKey = root.keys.first(where: { $0.hasPrefix("Time Series (Daily)") }),
@@ -131,14 +135,19 @@ enum MarketDataParser {
             if root["Error Message"] != nil { throw MarketDataError.providerFailure }
             throw MarketDataError.invalidResponse
         }
+        var outOfDomain = false
         let points = series.compactMap { dateString, values -> StockMarketPoint? in
             guard let date = parseDate(dateString),
                   let close = number(values["4. close"]),
                   let volume = number(values["5. volume"]) else { return nil }
+            // Well-formed but absurd numbers reject the whole response so the last good snapshot is kept.
+            guard close.isFinite, (0...maximumPrice).contains(close),
+                  volume.isFinite, (0...maximumVolume).contains(volume) else { outOfDomain = true; return nil }
             return StockMarketPoint(date: date, close: close, volume: Int64(volume))
         }.sorted { $0.date < $1.date }
+        guard !outOfDomain else { throw MarketDataError.invalidResponse }
         guard !points.isEmpty else { throw MarketDataError.providerFailure }
-        return StockMarketSnapshot(symbol: expectedSymbol, points: points, currency: currency, fetchedAt: fetchedAt)
+        return StockMarketSnapshot(symbol: expectedSymbol, points: Array(points.suffix(maximumPoints)), currency: currency, fetchedAt: fetchedAt)
     }
 
     private static func responseObject(_ data: Data) throws -> [String: Any] {

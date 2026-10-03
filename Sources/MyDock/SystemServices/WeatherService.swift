@@ -69,6 +69,17 @@ struct OpenMeteoWeatherProvider: WeatherProvider {
 
     static func decodeForecast(_ data: Data, location: WeatherLocation, fetchedAt: Date = .now) throws -> WeatherForecast {
         let response = try JSONDecoder().decode(ForecastResponse.self, from: data)
+        // Finite-but-absurd readings (either unit) are malformed data, not something to format or cache.
+        let temperatureRange = -500.0...500.0
+        guard temperatureRange.contains(response.current.temperature),
+              temperatureRange.contains(response.current.apparentTemperature),
+              (0.0...1_000.0).contains(response.current.windSpeed),
+              response.current.precipitation.isFinite, (0.0...10_000.0).contains(response.current.precipitation),
+              (0...100).contains(response.current.relativeHumidity),
+              response.hourly.temperature.allSatisfy({ temperatureRange.contains($0) }),
+              response.hourly.time.allSatisfy({ $0.isFinite && abs($0) < 4_102_444_800 }) else {
+            throw WeatherServiceError.malformedResponse
+        }
         let hours = min(response.hourly.time.count,
                         min(response.hourly.temperature.count, response.hourly.weatherCode.count))
         let hourly = (0..<hours).map { index in

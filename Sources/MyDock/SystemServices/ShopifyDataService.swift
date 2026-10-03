@@ -456,13 +456,15 @@ enum ShopifySnapshotParser {
               let shopMoney = moneyBag["shopMoney"] as? [String: Any],
               let amountString = shopMoney["amount"] as? String,
               let amount = Decimal(string: amountString, locale: Locale(identifier: "en_US_POSIX")),
+              amount.isFinite, abs(amount) <= Decimal(string: "1000000000000000") ?? 1_000_000_000_000_000,
               let currency = shopMoney["currencyCode"] as? String,
               let lineConnection = raw["lineItems"] as? [String: Any],
               let lineNodes = lineConnection["nodes"] as? [[String: Any]],
               let linePage = lineConnection["pageInfo"] as? [String: Any] else { throw ShopifyDataError.invalidResponse }
         let lineItems = try lineNodes.map { line -> ShopifyOrderRecord.LineItem in
             guard let name = line["name"] as? String,
-                  let quantity = line["currentQuantity"] as? Int else { throw ShopifyDataError.invalidResponse }
+                  let quantity = line["currentQuantity"] as? Int,
+                  (0...1_000_000).contains(quantity) else { throw ShopifyDataError.invalidResponse }
             return ShopifyOrderRecord.LineItem(name: String(name.prefix(160)), currentQuantity: quantity)
         }
         let journey = raw["customerJourneySummary"] as? [String: Any]
