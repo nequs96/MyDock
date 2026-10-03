@@ -65,12 +65,44 @@ enum AILimitAvailability: String, Codable {
     case error
 }
 
+/// Domains for cached/untrusted AI numbers, per provider.
+enum AIUsageDomain {
+    static let maximumDurationMinutes = 366 * 24 * 60 * 10
+    static let maximumWindows = 16
+    static let maximumPoints = 10_000
+    static let maximumCount = 1_000_000_000_000
+    static let maximumTokens: Int64 = 1_000_000_000_000_000
+    static let maximumCostUSD = Decimal(1_000_000_000)
+    static let maximumDateInterval: TimeInterval = 315_576_000_000
+
+    /// Copilot credits and Claude's spend-limit window can legitimately pass 100% (overage); the rest are fixed windows.
+    static func maximumPercent(for provider: AIProvider) -> Int { provider == .copilot || provider == .claude ? 100_000 : 100 }
+    static func isSupported(_ date: Date) -> Bool {
+        date.timeIntervalSinceReferenceDate.isFinite && abs(date.timeIntervalSinceReferenceDate) <= maximumDateInterval
+    }
+}
+
 struct AILimitWindow: Codable, Hashable, Identifiable {
     var name: String
     var usedPercent: Int?
     var resetsAt: Date?
     var durationMinutes: Int?
     var id: String { name }
+
+    func isValid(for provider: AIProvider) -> Bool {
+        usedPercent.map { (0...AIUsageDomain.maximumPercent(for: provider)).contains($0) } ?? true
+            && durationMinutes.map { (1...AIUsageDomain.maximumDurationMinutes).contains($0) } ?? true
+            && resetsAt.map(AIUsageDomain.isSupported) ?? true
+    }
+
+    /// Out-of-domain readings become unavailable (nil) rather than failing the whole profile.
+    func sanitized(for provider: AIProvider) -> AILimitWindow {
+        var copy = self
+        if let percent = usedPercent, !(0...AIUsageDomain.maximumPercent(for: provider)).contains(percent) { copy.usedPercent = nil }
+        if let minutes = durationMinutes, !(1...AIUsageDomain.maximumDurationMinutes).contains(minutes) { copy.durationMinutes = nil }
+        if let reset = resetsAt, !AIUsageDomain.isSupported(reset) { copy.resetsAt = nil }
+        return copy
+    }
 
     var remainingPercent: Int? {
         guard let usedPercent, usedPercent >= 0 else { return nil }
@@ -87,11 +119,54 @@ struct AIProviderLimitReading: Codable, Hashable, Identifiable {
     var updatedAt: Date?
     var message: String?
     var id: AIProvider { provider }
+
+    private enum CodingKeys: String, CodingKey { case provider, availability, plan, windows, updatedAt, message }
+
+    init(provider: AIProvider, availability: AILimitAvailability, plan: String? = nil, windows: [AILimitWindow],
+         updatedAt: Date? = nil, message: String? = nil) {
+        self.provider = provider; self.availability = availability; self.plan = plan
+        self.windows = windows; self.updatedAt = updatedAt; self.message = message
+    }
+
+    /// Cached readings are runtime data: malformed numbers are dropped on decode so authored configuration survives.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedProvider = try values.decode(AIProvider.self, forKey: .provider)
+        provider = decodedProvider
+        availability = try values.decode(AILimitAvailability.self, forKey: .availability)
+        plan = try values.decodeIfPresent(String.self, forKey: .plan)
+        windows = try values.decode([AILimitWindow].self, forKey: .windows)
+            .prefix(AIUsageDomain.maximumWindows).map { $0.sanitized(for: decodedProvider) }
+        updatedAt = try values.decodeIfPresent(Date.self, forKey: .updatedAt).flatMap { AIUsageDomain.isSupported($0) ? $0 : nil }
+        message = try values.decodeIfPresent(String.self, forKey: .message)
+    }
+
+    var isValid: Bool {
+        windows.count <= AIUsageDomain.maximumWindows && windows.allSatisfy { $0.isValid(for: provider) }
+            && (updatedAt.map(AIUsageDomain.isSupported) ?? true)
+    }
 }
 
 struct AILimitsSnapshot: Codable, Hashable {
     var fetchedAt: Date
     var readings: [AIProviderLimitReading]
+
+    private enum CodingKeys: String, CodingKey { case fetchedAt, readings }
+
+    init(fetchedAt: Date, readings: [AIProviderLimitReading]) {
+        self.fetchedAt = fetchedAt; self.readings = readings
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let fetched = try values.decode(Date.self, forKey: .fetchedAt)
+        fetchedAt = AIUsageDomain.isSupported(fetched) ? fetched : .distantPast
+        readings = Array(try values.decode([AIProviderLimitReading].self, forKey: .readings).prefix(AIProvider.allCases.count * 4))
+    }
+
+    var isValid: Bool {
+        AIUsageDomain.isSupported(fetchedAt) && readings.count <= AIProvider.allCases.count * 4 && readings.allSatisfy(\.isValid)
+    }
 
     func reading(for provider: AIProvider) -> AIProviderLimitReading? {
         readings.first { $0.provider == provider }
@@ -154,6 +229,25 @@ struct AIActivityDailyPoint: Codable, Hashable, Identifiable {
     var requests: Int
     var reportedCostUSD: Decimal?
     var id: Date { date }
+
+    var isValid: Bool {
+        AIUsageDomain.isSupported(date)
+            && [sessions, toolCalls, requests].allSatisfy({ (0...AIUsageDomain.maximumCount).contains($0) })
+            && [totalTokens, cachedInputTokens, inputTokens, outputTokens].allSatisfy({ (0...AIUsageDomain.maximumTokens).contains($0) })
+            && (reportedCostUSD.map { $0 >= 0 && $0 <= AIUsageDomain.maximumCostUSD } ?? true)
+    }
+
+    /// Totals keep their meaning but cannot carry negative or absurd components.
+    func clamped() -> AIActivityDailyPoint {
+        func count(_ value: Int) -> Int { min(max(value, 0), AIUsageDomain.maximumCount) }
+        func tokens(_ value: Int64) -> Int64 { min(max(value, 0), AIUsageDomain.maximumTokens) }
+        let cost = reportedCostUSD.flatMap { $0 >= 0 && $0 <= AIUsageDomain.maximumCostUSD ? $0 : nil }
+        return AIActivityDailyPoint(date: AIUsageDomain.isSupported(date) ? date : .distantPast,
+                                    sessions: count(sessions), toolCalls: count(toolCalls),
+                                    totalTokens: tokens(totalTokens), cachedInputTokens: tokens(cachedInputTokens),
+                                    inputTokens: tokens(inputTokens), outputTokens: tokens(outputTokens),
+                                    requests: count(requests), reportedCostUSD: cost)
+    }
 }
 
 struct AIActivitySnapshot: Codable, Hashable {
@@ -167,6 +261,39 @@ struct AIActivitySnapshot: Codable, Hashable {
     var message: String?
     var points: [AIActivityDailyPoint]
     var totals: AIActivityDailyPoint
+
+    private enum CodingKeys: String, CodingKey {
+        case provider, range, fetchedAt, sourceDescription, available, estimated, partial, message, points, totals
+    }
+
+    init(provider: AIProvider, range: AIActivityRange, fetchedAt: Date, sourceDescription: String, available: Bool,
+         estimated: Bool, partial: Bool, message: String? = nil, points: [AIActivityDailyPoint], totals: AIActivityDailyPoint) {
+        self.provider = provider; self.range = range; self.fetchedAt = fetchedAt
+        self.sourceDescription = sourceDescription; self.available = available; self.estimated = estimated
+        self.partial = partial; self.message = message; self.points = points; self.totals = totals
+    }
+
+    /// Cached activity is runtime data: invalid points are dropped and totals clamped so authored configuration survives.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        provider = try values.decode(AIProvider.self, forKey: .provider)
+        range = try values.decode(AIActivityRange.self, forKey: .range)
+        let fetched = try values.decode(Date.self, forKey: .fetchedAt)
+        fetchedAt = AIUsageDomain.isSupported(fetched) ? fetched : .distantPast
+        sourceDescription = try values.decode(String.self, forKey: .sourceDescription)
+        available = try values.decode(Bool.self, forKey: .available)
+        estimated = try values.decode(Bool.self, forKey: .estimated)
+        partial = try values.decode(Bool.self, forKey: .partial)
+        message = try values.decodeIfPresent(String.self, forKey: .message)
+        points = try values.decode([AIActivityDailyPoint].self, forKey: .points)
+            .prefix(AIUsageDomain.maximumPoints).filter(\.isValid)
+        totals = try values.decode(AIActivityDailyPoint.self, forKey: .totals).clamped()
+    }
+
+    var isValid: Bool {
+        AIUsageDomain.isSupported(fetchedAt) && points.count <= AIUsageDomain.maximumPoints
+            && points.allSatisfy(\.isValid) && totals.isValid
+    }
 
     var tokensText: String {
         if estimated { return "Est. \(totals.totalTokens.formatted()) tokens" }
@@ -229,8 +356,12 @@ enum CodexRateLimitParser {
             guard CFGetTypeID(value) != CFBooleanGetTypeID(), value.doubleValue.isFinite else { return nil }
             return Int(min(100, max(0, value.doubleValue)).rounded())
         }
-        let reset = (raw["resetsAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
-        let duration = raw["windowDurationMins"] as? Int
+        let reset = (raw["resetsAt"] as? NSNumber).flatMap { number -> Date? in
+            guard CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite,
+                  abs(number.doubleValue) < 4_102_444_800 else { return nil }
+            return Date(timeIntervalSince1970: number.doubleValue)
+        }
+        let duration = (raw["windowDurationMins"] as? Int).flatMap { (1...AIUsageDomain.maximumDurationMinutes).contains($0) ? $0 : nil }
         return AILimitWindow(name: name, usedPercent: used, resetsAt: reset, durationMinutes: duration)
     }
 
@@ -264,7 +395,8 @@ struct CodexLimitAdapter: AILimitProviderAdapter {
     let provider: AIProvider = .codex
 
     func read(now: Date) async throws -> AIProviderLimitReading {
-        try CodexAppServerLimitReader.read(now: now)
+        try AppRuntimeEnvironment.requireCredentials()
+        return try CodexAppServerLimitReader.read(now: now)
     }
 }
 
@@ -315,8 +447,8 @@ enum ClaudeStatusLineLimitParser {
             guard let value = limits[key] as? [String: Any] else { return nil }
             let percent = (value["used_percentage"] as? NSNumber).flatMap { number -> Int? in
                 guard CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite,
-                      number.doubleValue >= 0, number.doubleValue < Double(Int.max) else { return nil }
-                return Int(number.doubleValue.rounded())
+                      number.doubleValue >= 0 else { return nil }
+                return Int(min(Double(AIUsageDomain.maximumPercent(for: .claude)), number.doubleValue).rounded())
             }
             let reset = (value["resets_at"] as? NSNumber).flatMap { number -> Date? in
                 guard CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite,
@@ -338,8 +470,10 @@ struct ClaudeStatusLineLimitAdapter: AILimitProviderAdapter {
     var homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
 
     func read(now: Date) async throws -> AIProviderLimitReading {
-        let directory = homeDirectory == FileManager.default.homeDirectoryForCurrentUser
-            ? AIAccountService.claudeDirectory() : homeDirectory.appendingPathComponent(".claude")
+        let usesAccountHome = homeDirectory == FileManager.default.homeDirectoryForCurrentUser
+        // Isolated runs must not read the real account's status-line file; fixtures pass an explicit home.
+        if usesAccountHome { try AppRuntimeEnvironment.requireCredentials() }
+        let directory = usesAccountHome ? AIAccountService.claudeDirectory() : homeDirectory.appendingPathComponent(".claude")
         let url = directory.appendingPathComponent("mydock-rate-limits.json")
         guard FileManager.default.fileExists(atPath: url.path) else {
             return AIProviderLimitReading(provider: .claude, availability: .setupRequired, plan: nil,
@@ -453,6 +587,10 @@ enum AIActivityReader {
         let chartInterval = range.chartInterval(endingAt: now, calendar: calendar)
         guard provider == .codex || provider == .claude || provider == .grok else {
             return unavailable(provider: provider, range: range, now: now, message: "This provider does not expose a supported local activity source.")
+        }
+        // Isolated runs never scan the real account's session logs; fixtures pass an explicit home.
+        guard homeDirectory != nil || AppRuntimeEnvironment.allowsCredentials else {
+            return unavailable(provider: provider, range: range, now: now, message: "Local activity is disabled in isolated validation.")
         }
         let root = homeDirectory ?? FileManager.default.homeDirectoryForCurrentUser
         let source: URL

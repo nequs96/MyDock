@@ -323,9 +323,12 @@ enum StripeSnapshotParser {
                     unsupportedItems += 1
                     continue
                 }
-                let count = max(1, Int(number(recurring["interval_count"]) ?? 1))
-                let quantity = max(Decimal.zero, decimal(item["quantity"]) ?? Decimal(1))
-                guard let normalizedMRR = monthlyAmount(amount * quantity, interval: intervalName, intervalCount: count) else {
+                let rawCount = number(recurring["interval_count"]) ?? 1
+                let rawQuantity = item["quantity"] == nil ? Decimal(1) : decimal(item["quantity"])
+                guard rawCount.isFinite, (1...maximumIntervalCount).contains(rawCount.rounded(.towardZero)),
+                      let rawQuantity, rawQuantity <= maximumQuantity,
+                      let normalizedMRR = monthlyAmount(max(Decimal.zero, amount) * max(Decimal.zero, rawQuantity),
+                                                        interval: intervalName, intervalCount: Int(rawCount)) else {
                     unsupportedItems += 1
                     continue
                 }
@@ -354,7 +357,7 @@ enum StripeSnapshotParser {
     }
 
     private static func monthlyAmount(_ amount: Decimal, interval: String, intervalCount: Int) -> Decimal? {
-        guard intervalCount > 0 else { return nil }
+        guard (1...Int(maximumIntervalCount)).contains(intervalCount), amount.isFinite else { return nil }
         let divisor: Decimal
         let multiplier: Decimal
         switch interval {
@@ -367,7 +370,7 @@ enum StripeSnapshotParser {
         var source = amount * multiplier
         var denominator = divisor
         var result = Decimal.zero
-        _ = NSDecimalDivide(&result, &source, &denominator, .bankers)
+        guard source.isFinite, NSDecimalDivide(&result, &source, &denominator, .bankers) == .noError, result.isFinite else { return nil }
         return result
     }
 
@@ -375,10 +378,18 @@ enum StripeSnapshotParser {
         try JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 
+    /// Provider values outside this domain are treated as unusable instead of overflowing later arithmetic.
+    static let maximumAmount = Decimal(string: "1000000000000000") ?? 1_000_000_000_000_000
+    static let maximumQuantity = Decimal(1_000_000)
+    static let maximumIntervalCount = 1_000.0
+
     private static func decimal(_ value: Any?) -> Decimal? {
-        if let string = value as? String { return Decimal(string: string, locale: Locale(identifier: "en_US_POSIX")) }
-        if let number = value as? NSNumber { return Decimal(string: number.stringValue, locale: Locale(identifier: "en_US_POSIX")) }
-        return nil
+        let parsed: Decimal?
+        if let string = value as? String { parsed = Decimal(string: string, locale: Locale(identifier: "en_US_POSIX")) }
+        else if let number = value as? NSNumber { parsed = Decimal(string: number.stringValue, locale: Locale(identifier: "en_US_POSIX")) }
+        else { parsed = nil }
+        guard let parsed, parsed.isFinite, abs(parsed) <= maximumAmount else { return nil }
+        return parsed
     }
 
     private static func number(_ value: Any?) -> Double? {

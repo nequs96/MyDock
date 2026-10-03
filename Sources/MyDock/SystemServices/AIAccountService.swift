@@ -137,8 +137,15 @@ enum ClaudeLimitsSetup {
         """
     }
 
+    /// The real account directory is never read or modified by an isolated validation session.
+    private static func requireIsolationSafe(_ directory: URL) throws {
+        if directory.standardizedFileURL == AIAccountService.claudeDirectory().standardizedFileURL {
+            try AppRuntimeEnvironment.requireCredentials()
+        }
+    }
+
     static func isEnabled(directory: URL) -> Bool {
-        guard let data = try? Data(contentsOf: directory.appendingPathComponent("settings.json")), data.count <= 1_000_000,
+        guard (try? requireIsolationSafe(directory)) != nil, let data = try? Data(contentsOf: directory.appendingPathComponent("settings.json")), data.count <= 1_000_000,
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let status = root["statusLine"] as? [String: Any], let command = status["command"] as? String else { return false }
         return command.hasPrefix(marker)
@@ -146,6 +153,7 @@ enum ClaudeLimitsSetup {
 
     /// Idempotent, atomic setup. Other settings and the existing terminal display are preserved.
     static func enable(directory: URL) throws {
+        try requireIsolationSafe(directory)
         let manager = FileManager.default
         try manager.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent("settings.json")

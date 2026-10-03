@@ -41,6 +41,8 @@ enum DockUtilityDraftError: LocalizedError {
 final class DockUtilityDraftStore: ObservableObject {
     @Published private var drafts: [DockUtilityDraftKey: DockUtilityFormDraft] = [:]
     @Published private(set) var errorMessage: String?
+    /// Set once at load when an unreadable drafts file was moved aside.
+    private(set) var recoveryNotice: String?
     private let fileURL: URL
     private let write: (Data, URL) throws -> Void
     private var saveTask: Task<Void, Never>?
@@ -64,9 +66,17 @@ final class DockUtilityDraftStore: ObservableObject {
                 drafts[record.key] = record.draft
             }
         } catch {
+            // Preserve the unreadable file for recovery, then continue with no drafts so quit is never blocked forever.
             drafts = [:]
-            readable = false
-            errorMessage = DockUtilityDraftError.unsupportedArchive.localizedDescription
+            let aside = fileURL.appendingPathExtension("recovery-\(UUID().uuidString)")
+            do {
+                try FileManager.default.moveItem(at: fileURL, to: aside)
+                recoveryNotice = "Saved utility drafts could not be read. The original file was kept at \(aside.path) and MyDock continued with no unfinished utility drafts."
+            } catch {
+                // The file cannot be preserved, so never overwrite it.
+                readable = false
+                errorMessage = DockUtilityDraftError.unsupportedArchive.localizedDescription
+            }
         }
     }
 
@@ -109,6 +119,17 @@ final class DockUtilityDraftStore: ObservableObject {
                 }
             }
         }
+        guard kept.count != drafts.count else { return true }
+        drafts = kept
+        needsSave = true
+        return flush()
+    }
+
+    /// Prunes drafts belonging to widgets or profiles that were just removed. Scoped to the removed identities so
+    /// drafts for items still only in an open edit session are never touched.
+    @discardableResult
+    func discardTargets(removedItemIDs: Set<UUID>, removedProfileIDs: Set<UUID> = []) -> Bool {
+        let kept = drafts.filter { key, _ in !removedItemIDs.contains(key.itemID) && !removedProfileIDs.contains(key.profileID) }
         guard kept.count != drafts.count else { return true }
         drafts = kept
         needsSave = true
