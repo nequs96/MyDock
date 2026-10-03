@@ -61,10 +61,57 @@ enum DockSurfaceMetrics {
     }
 }
 
-private struct DockPresentationSignature: Equatable {
+/// Only settings that change Dock presentation, placement, monitoring or reveal
+/// behaviour. UI-only state (last Settings page, onboarding, native-Dock switching
+/// preferences) must never reassign the hosting root view.
+struct DockPresentationSettings: Equatable {
+    var setupMode: SetupMode
+    var position: DockPosition
+    var size: Double
+    var itemSpacing: Double
+    var cornerRadius: Double
+    var tintStrength: Double
+    var glassOpacity: Double
+    var animationsEnabled: Bool
+    var animationStyle: DockAnimationStyle
+    var widgetStyle: CustomDockWidgetStyle
+    var showWidgetLabels: Bool
+    var displayID: UInt32?
+    var automaticallyHide: Bool
+    var showRevealHandle: Bool
+    var hideWhenSystemDockAppears: Bool
+    var desktopMode: Bool
+    var material: CustomDockMaterial
+    var theme: CustomDockTheme
+    var showRunningApps: Bool
+    var showMinimizedWindows: Bool
+    var showWindowPreviews: Bool
+    var showTrash: Bool
+    var showAppBadges: Bool
+    var clickFocusedAppToMinimize: Bool
+    var magnificationEnabled: Bool
+
+    init(_ s: AppSettings) {
+        setupMode = s.setupMode; position = s.customDockPosition; size = s.customDockSize
+        itemSpacing = s.customDockItemSpacing; cornerRadius = s.customDockCornerRadius
+        tintStrength = s.customDockTintStrength; glassOpacity = s.customDockGlassOpacity
+        animationsEnabled = s.dockAnimationsEnabled; animationStyle = s.dockAnimationStyle
+        widgetStyle = s.customDockWidgetStyle; showWidgetLabels = s.showWidgetLabels
+        displayID = s.customDockDisplayID; automaticallyHide = s.automaticallyHideCustomDock
+        showRevealHandle = s.showRevealHandle; hideWhenSystemDockAppears = s.hideCustomDockWhenSystemDockAppears
+        desktopMode = s.customDockDesktopMode; material = s.customDockMaterial; theme = s.customDockTheme
+        showRunningApps = s.showRunningApps; showMinimizedWindows = s.showMinimizedWindows
+        showWindowPreviews = s.showWindowPreviews; showTrash = s.showTrash; showAppBadges = s.showAppBadges
+        clickFocusedAppToMinimize = s.clickFocusedAppToMinimize; magnificationEnabled = s.magnificationEnabled
+    }
+}
+
+struct DockPresentationSignature: Equatable {
     var profileID: UUID
     var color: String
-    var settings: AppSettings
+    var settings: DockPresentationSettings
+    /// Reveal/auto-hide/monitoring read the global settings after the signature gate.
+    var global: DockPresentationSettings
     var displayFrame: NSRect
     var entries: [String]
 }
@@ -213,11 +260,12 @@ final class CustomDockWindowController {
         let resolvedSettings = store.effectiveSettings(for: profile)
         let layout = DockRenderModel(profile: profile, settings: resolvedSettings,
             runningApplications: RuntimeDockApplications.items(), windows: WindowAccessibilityMonitor.shared.windows,
-            runningMediaSources: NowPlayingMonitor.shared.runningSources)
-        let signature = DockPresentationSignature(profileID: profile.id, color: profile.color, settings: resolvedSettings,
+            runningMediaSources: NowPlayingMonitor.shared.runningSources,
+            pinnedApplicationURLs: RuntimeDockApplications.pinnedURLs(in: profile))
+        let signature = DockPresentationSignature(profileID: profile.id, color: profile.color, settings: DockPresentationSettings(resolvedSettings), global: DockPresentationSettings(state.settings),
             displayFrame: screen.visibleFrame, entries: layout.entries.map { "\($0.id):\($0.length(settings: resolvedSettings, scale: 1))" })
         guard signature != lastPresentation else { return }
-        let resizing = lastPresentation?.settings.customDockSize != resolvedSettings.customDockSize
+        let resizing = lastPresentation?.settings.size != resolvedSettings.customDockSize
         lastPresentation = signature
         currentPosition = resolvedSettings.customDockPosition
         currentColor = DockProfileColor(rawValue: profile.color) ?? .blue
@@ -298,7 +346,8 @@ final class CustomDockWindowController {
         let tileLength = (54 + (settings.magnificationEnabled ? 22 : 0)) * scale
         let model = DockRenderModel(profile: profile, settings: settings, runningApplications: RuntimeDockApplications.items(),
                                     windows: WindowAccessibilityMonitor.shared.windows,
-                                    runningMediaSources: NowPlayingMonitor.shared.runningSources)
+                                    runningMediaSources: NowPlayingMonitor.shared.runningSources,
+                                    pinnedApplicationURLs: RuntimeDockApplications.pinnedURLs(in: profile))
         let itemLength = model.contentLength(settings: settings, scale: scale) + (settings.magnificationEnabled ? 32 : 22) * scale
         let maxLength = settings.customDockPosition == .bottom ? visible.width - 40 : visible.height - 60
         let length = min(max(itemLength, 100), max(maxLength, 100))
@@ -664,6 +713,25 @@ final class CustomDockWindowController {
         case .pink: .pink
         case .red: .red
         }
+    }
+}
+
+enum DockResizeGripGeometry {
+    static let minimumThinDimension: CGFloat = 14
+    private static func clamped(_ scale: CGFloat) -> CGFloat { min(max(scale, 0.65), 1.5) }
+    /// `horizontal` means a horizontal dock: thin width, long height.
+    static func layoutSize(horizontal: Bool, scale: CGFloat) -> CGSize {
+        let thin = 14 * clamped(scale), long = 42 * clamped(scale)
+        return CGSize(width: horizontal ? thin : long, height: horizontal ? long : thin)
+    }
+    static func hitSize(horizontal: Bool, scale: CGFloat) -> CGSize {
+        let layout = layoutSize(horizontal: horizontal, scale: scale)
+        let thin = max(minimumThinDimension, horizontal ? layout.width : layout.height)
+        return CGSize(width: horizontal ? thin : layout.width, height: horizontal ? layout.height : thin)
+    }
+    static func hitOutset(horizontal: Bool, scale: CGFloat) -> CGSize {
+        let layout = layoutSize(horizontal: horizontal, scale: scale), hit = hitSize(horizontal: horizontal, scale: scale)
+        return CGSize(width: (hit.width - layout.width) / 2, height: (hit.height - layout.height) / 2)
     }
 }
 
@@ -1165,11 +1233,15 @@ struct CustomDockView: View {
     }
 
     private func resizeGrip(horizontal: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 1)
+        let scale = CGFloat(settings.customDockSize)
+        let layoutSize = DockResizeGripGeometry.layoutSize(horizontal: horizontal, scale: scale)
+        let hitSize = DockResizeGripGeometry.hitSize(horizontal: horizontal, scale: scale)
+        let outset = DockResizeGripGeometry.hitOutset(horizontal: horizontal, scale: scale)
+        return RoundedRectangle(cornerRadius: 1)
             .fill(Color.primary.opacity(resizeGripHovered ? 0.45 : 0.20))
             .frame(width: horizontal ? 1 : 30, height: horizontal ? 30 : 1)
-            .frame(width: horizontal ? 14 * CGFloat(settings.customDockSize) : 42 * CGFloat(settings.customDockSize),
-                   height: horizontal ? 42 * CGFloat(settings.customDockSize) : 14 * CGFloat(settings.customDockSize))
+            .frame(width: layoutSize.width, height: layoutSize.height)
+            .frame(width: hitSize.width, height: hitSize.height)
             .background(DockResizeCursor(horizontal: horizontal))
             .contentShape(Rectangle())
             .onHover { resizeGripHovered = $0 }
@@ -1196,6 +1268,9 @@ struct CustomDockView: View {
                     resizeDidChange = false
                 })
             .onTapGesture(count: 2) { store.setDockSize(1, for: profile.id); store.flush() }
+            // Enlarged pointer area only: layout length stays the visible grip's.
+            .padding(.horizontal, -outset.width)
+            .padding(.vertical, -outset.height)
             .help(horizontal ? "Drag up or down to resize. Double-click to reset size." : "Drag toward or away from the screen edge to resize. Double-click to reset size.")
             .accessibilityElement()
             .accessibilityLabel("Resize Custom Dock")
@@ -1729,12 +1804,8 @@ struct CustomDockView: View {
 
     private var runningApps: [RunningDockApp] {
         guard !isPreview || usesLivePreviewData else { return [] }
-        let pinned = Set(profile.items.filter { $0.type == .application }
-            .compactMap { AppLauncher.resolvedURL(for: $0).map(InstalledApplicationIdentity.normalizedURL) })
-        return runtimeApplications.filter { item in
-            guard let url = item.url else { return false }
-            return !pinned.contains(InstalledApplicationIdentity.normalizedURL(url))
-        }.map { RunningDockApp(id: $0.id.uuidString, item: $0) }
+        return RuntimeDockIdentity.unpinned(runtimeApplications, pinnedURLs: RuntimeDockApplications.pinnedURLs(in: profile))
+            .map { RunningDockApp(id: $0.id.uuidString, item: $0) }
     }
 }
 

@@ -77,7 +77,8 @@ struct DockRenderModel {
     }
 
     init(profile: DockProfile, settings: AppSettings, runningApplications: [DockItem],
-         windows: [DockWindowDescriptor], runningMediaSources: Set<NowPlayingSource>) {
+         windows: [DockWindowDescriptor], runningMediaSources: Set<NowPlayingSource>,
+         pinnedApplicationURLs: Set<URL>? = nil) {
         entries = profile.items.filter { item in
             guard item.widgetKind == "Now Playing" else { return true }
             let c = item.widgetConfiguration ?? WidgetConfiguration()
@@ -87,8 +88,8 @@ struct DockRenderModel {
         entries.append(.insertion)
         if settings.showRunningApps {
             entries.append(.boundary("running"))
-            let pinned = Set(profile.items.filter { $0.type == .application }.compactMap { $0.url.map(InstalledApplicationIdentity.normalizedURL) })
-            entries += runningApplications.filter { item in item.url.map { !pinned.contains(InstalledApplicationIdentity.normalizedURL($0)) } ?? true }.map { .item($0, pinned: false) }
+            let pinned = pinnedApplicationURLs ?? RuntimeDockIdentity.pinnedApplicationURLs(in: profile)
+            entries += RuntimeDockIdentity.unpinned(runningApplications, pinnedURLs: pinned).map { .item($0, pinned: false) }
         }
         let minimized = windows.filter(\.isMinimized)
         if settings.showMinimizedWindows, !minimized.isEmpty {
@@ -133,8 +134,33 @@ struct DockRenderModel {
     }
 }
 
+extension RuntimeDockIdentity {
+    /// Normalized installed-copy URLs of pinned applications (saved location, plus
+    /// an optionally resolved relocation). Runtime suppression uses only these.
+    static func pinnedApplicationURLs(in profile: DockProfile, resolved: (DockItem) -> URL? = { _ in nil }) -> Set<URL> {
+        var result: Set<URL> = []
+        for item in profile.items where item.type == .application {
+            if let url = item.url { result.insert(InstalledApplicationIdentity.normalizedURL(url)) }
+            if let url = resolved(item) { result.insert(InstalledApplicationIdentity.normalizedURL(url)) }
+        }
+        return result
+    }
+
+    /// Runtime entries without a URL cannot be an installed copy and are never shown.
+    static func unpinned(_ runtime: [DockItem], pinnedURLs: Set<URL>) -> [DockItem] {
+        runtime.filter { item in
+            guard let url = item.url else { return false }
+            return !pinnedURLs.contains(InstalledApplicationIdentity.normalizedURL(url))
+        }
+    }
+}
+
 @MainActor
 enum RuntimeDockApplications {
+    static func pinnedURLs(in profile: DockProfile) -> Set<URL> {
+        RuntimeDockIdentity.pinnedApplicationURLs(in: profile, resolved: { AppLauncher.resolvedURL(for: $0) })
+    }
+
     static func items() -> [DockItem] {
         let descriptors = NSWorkspace.shared.runningApplications.compactMap { app -> RunningApplicationDescriptor? in
             guard let identifier = app.bundleIdentifier, let url = app.bundleURL else { return nil }

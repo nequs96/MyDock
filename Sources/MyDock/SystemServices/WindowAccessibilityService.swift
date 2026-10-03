@@ -30,7 +30,7 @@ struct DockWindowDescriptor: Identifiable, Hashable, Sendable {
 
     var identityTitle: String { rawTitle ?? title }
     var id: String {
-        let lifetime = applicationIdentity.map { String($0.launchDate.timeIntervalSince1970) } ?? "legacy"
+        let lifetime = applicationIdentity.map { $0.launchDate.map { String($0.timeIntervalSince1970) } ?? "unknown" } ?? "legacy"
         return "\(processID)-\(lifetime)-\(accessibilityIdentifier ?? "\(windowIndex):\(identityTitle)")"
     }
 }
@@ -173,7 +173,7 @@ enum WindowAccessibilityService {
         for (index, window) in windows.enumerated() {
             guard !Task.isCancelled, Date.now < deadline else { return .unavailable }
             AXUIElementSetMessagingTimeout(window, 0.1)
-            guard let rawTitle = stringAttribute(kAXTitleAttribute, on: window) else { return .unavailable }
+            guard let rawTitle = windowTitle(on: window) else { return .unavailable }
             let identifier = stringAttribute(kAXIdentifierAttribute, on: window).flatMap { $0.isEmpty ? nil : $0 }
             var minimizedValue: CFTypeRef?
             _ = AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedValue)
@@ -260,16 +260,11 @@ enum WindowAccessibilityService {
         var windowsValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsValue) == .success,
               let windows = windowsValue as? [AXUIElement], windows.count <= 100 else { return nil }
-        let deadline = Date.now.addingTimeInterval(2)
-        var candidates: [WindowRestoreCandidate] = []
-        for window in windows {
-            guard !Task.isCancelled, Date.now < deadline else { return nil }
-            AXUIElementSetMessagingTimeout(window, 0.1)
-            guard let title = stringAttribute(kAXTitleAttribute, on: window) else { return nil }
-            candidates.append(WindowRestoreCandidate(identifier: stringAttribute(kAXIdentifierAttribute, on: window), title: title))
-        }
-        guard let index = WindowRestoreIdentity.match(identifier: descriptor.accessibilityIdentifier, title: descriptor.identityTitle, candidates: candidates) else { return nil }
-        guard !Task.isCancelled, Date.now < deadline, CFEqual(observation.element, windows[index]),
+        // The sampled native AX object is the identity. Titles change constantly
+        // (browser tabs, documents), so they are never required to match here.
+        let sameObject = windows.indices.filter { CFEqual(observation.element, windows[$0]) }
+        guard !Task.isCancelled,
+              let index = WindowRestoreIdentity.uniqueIndex(sameObject),
               currentApplication(matches: identity) != nil else { return nil }
         return windows[index]
     }
@@ -288,6 +283,17 @@ enum WindowAccessibilityService {
         let activated = app.activate(options: [.activateIgnoringOtherApps])
         // Application activation alone is not successful window selection.
         return raised && activated
+    }
+
+    /// Untitled windows are common (no title attribute value). Only a failed or
+    /// timed-out read is incomplete data; an absent title is an honest empty title.
+    private static func windowTitle(on element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        switch AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value) {
+        case .success: return (value as? String) ?? ""
+        case .noValue, .attributeUnsupported: return ""
+        default: return nil
+        }
     }
 
     private static func stringAttribute(_ attribute: String, on element: AXUIElement) -> String? {
@@ -498,6 +504,9 @@ struct WindowRestoreCandidate {
 }
 
 enum WindowRestoreIdentity {
+    /// A native-object match is usable only when exactly one live window has it.
+    static func uniqueIndex(_ matches: [Int]) -> Int? { matches.count == 1 ? matches[0] : nil }
+
     static func match(identifier: String?, title: String, candidates: [WindowRestoreCandidate]) -> Int? {
         if let identifier {
             let matches = candidates.indices.filter { candidates[$0].identifier == identifier }
