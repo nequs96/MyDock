@@ -310,9 +310,25 @@ final class NowPlayingMonitor: ObservableObject {
             return response
         } catch {
             guard !Task.isCancelled else { return nil }
-            errors[source] = "MyDock couldn't read or control \(source.title). Check Automation permission, then try again. The player may be unresponsive."
+            errors[source] = NowPlayingCopy.automationMessage(for: error, sourceTitle: source.title)
             return nil
         }
+    }
+}
+
+/// Typed osascript failure. Parsed only from exit status and stderr; never from stdout.
+enum AutomationError: Error, Equatable {
+    case permissionDenied
+    case failed(exitStatus: Int32)
+
+    /// Apple Event authorization failures: error -1743 ("Not authorized to send Apple events to ...").
+    /// -1744 means a pending user-consent prompt, which also needs the user to act in System Settings or the prompt.
+    static func classify(exitStatus: Int32, standardError: Data) -> AutomationError {
+        let text = String(decoding: standardError.prefix(4_096), as: UTF8.self)
+        if text.contains("-1743") || text.localizedCaseInsensitiveContains("not authorized to send apple events") {
+            return .permissionDenied
+        }
+        return .failed(exitStatus: exitStatus)
     }
 }
 
@@ -323,7 +339,9 @@ enum BoundedAutomationRunner {
             executableURL: URL(fileURLWithPath: "/usr/bin/osascript"),
             arguments: ["-s", sourceForm ? "s" : "h", "-e", source],
             maximumOutputBytes: maximumBytes, maximumErrorBytes: 4_096, timeout: 8)
-        guard output.terminationStatus == 0 else { throw NowPlayingParsingError.malformedResponse }
+        guard output.terminationStatus == 0 else {
+            throw AutomationError.classify(exitStatus: output.terminationStatus, standardError: output.standardError)
+        }
         return String(decoding: output.standardOutput, as: UTF8.self).trimmingCharacters(in: .newlines)
     }
 
@@ -340,5 +358,14 @@ enum BoundedAutomationRunner {
             index = end
         }
         return data.isEmpty ? nil : data
+    }
+}
+
+enum NowPlayingCopy {
+    static func automationMessage(for error: Error, sourceTitle: String) -> String {
+        if (error as? AutomationError) == .permissionDenied {
+            return "MyDock is not allowed to control \(sourceTitle). Turn on Automation for MyDock in System Settings \u{2192} Privacy & Security \u{2192} Automation, then try again."
+        }
+        return "MyDock couldn't read or control \(sourceTitle). The player may be unresponsive or quit; try again."
     }
 }

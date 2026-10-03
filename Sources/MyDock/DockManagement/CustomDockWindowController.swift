@@ -129,6 +129,7 @@ final class CustomDockWindowController {
     private var presentationVisible = false
     private var lastPresentation: DockPresentationSignature?
     private var transitionGeneration = UUID()
+    private var transitionInFlight: DockTransitionPolicy.Snapshot?
     private var applicationObservation: AnyCancellable?
     private var mouseMonitor: Any?
     private var localMouseMonitor: Any?
@@ -264,6 +265,7 @@ final class CustomDockWindowController {
             pinnedApplicationURLs: RuntimeDockApplications.pinnedURLs(in: profile))
         let signature = DockPresentationSignature(profileID: profile.id, color: profile.color, settings: DockPresentationSettings(resolvedSettings), global: DockPresentationSettings(state.settings),
             displayFrame: screen.visibleFrame, entries: layout.entries.map { "\($0.id):\($0.length(settings: resolvedSettings, scale: 1))" })
+        reconcileTransition(settings: state.settings)
         guard signature != lastPresentation else { return }
         let resizing = lastPresentation?.settings.size != resolvedSettings.customDockSize
         lastPresentation = signature
@@ -271,7 +273,10 @@ final class CustomDockWindowController {
         currentColor = DockProfileColor(rawValue: profile.color) ?? .blue
         let root = CustomDockView(store: store, profile: profile, openSettings: openSettings)
         if let panel, let hosting = panel.contentView as? DockSurfaceHostingView<CustomDockView> {
-            hosting.rootView = root
+            PerformanceSignposts.measure("DockRootAssignment") { hosting.rootView = root }
+#if DEBUG
+            PerformanceSignposts.noteRootAssignment()
+#endif
             hosting.surfaceCornerRadius = CGFloat(resolvedSettings.customDockCornerRadius)
             expandedFrame = place(panel, on: screen, profile: profile, settings: resolvedSettings, animate: !resizing)
         } else {
@@ -658,13 +663,49 @@ final class CustomDockWindowController {
         WindowAccessibilityMonitor.shared.setEnabled(false)
     }
 
+    /// H4: a style or Off/Reduce Motion change while a reveal/hide transition is running must not leave
+    /// alpha, offset or scale at an intermediate value. Normalizes straight to the final state.
+    private func reconcileTransition(settings: AppSettings) {
+        guard let panel, let inFlight = transitionInFlight else { return }
+        let reduceMotion = AccessibilityDisplayState.shared.reduceMotion || !settings.dockAnimationsEnabled
+        let now = DockTransitionPolicy.Snapshot(visible: presentationVisible, style: settings.dockAnimationStyle, reduceMotion: reduceMotion)
+        guard DockTransitionPolicy.action(inFlight: inFlight, requested: now) == .normalizeImmediately else { return }
+        PerformanceSignposts.event("DockTransitionNormalized")
+        transitionGeneration = UUID()
+        transitionInFlight = nil
+        let final = DockTransitionPolicy.finalState(now)
+        if let layer = panel.contentView?.layer {
+            layer.removeAnimation(forKey: "dockPresentationScale")
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            layer.transform = CATransform3DMakeScale(final.scale, final.scale, 1)
+            CATransaction.commit()
+        }
+        // Setting the property directly under a zero-duration group cancels the running animator animation.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            panel.animator().alphaValue = final.alpha
+        }
+        panel.alphaValue = final.alpha
+        panel.setFrame(final.usesHiddenOffset
+            ? DockPanelMotion.transitionFrame(from: expandedFrame, position: currentPosition, style: settings.dockAnimationStyle)
+            : expandedFrame, display: true)
+        if !now.visible { panel.orderOut(nil) }
+    }
+
     private func presentDock(visible: Bool) {
-        guard !visible || canPresentDock, let panel, presentationVisible != visible else { return }
+        guard !visible || canPresentDock, let panel else { return }
+        guard presentationVisible != visible else {
+            reconcileTransition(settings: store.state.settings)
+            return
+        }
         presentationVisible = visible
         let generation = UUID()
         transitionGeneration = generation
         let settings = store.state.settings
         let reduceMotion = AccessibilityDisplayState.shared.reduceMotion || !settings.dockAnimationsEnabled
+        transitionInFlight = DockTransitionPolicy.Snapshot(visible: visible, style: settings.dockAnimationStyle, reduceMotion: reduceMotion)
+        let signpost = PerformanceSignposts.begin("DockPresentationTransition")
         let hiddenFrame = DockPanelMotion.transitionFrame(from: expandedFrame, position: currentPosition, style: settings.dockAnimationStyle)
         let wasVisible = panel.isVisible
         if visible {
@@ -697,7 +738,10 @@ final class CustomDockWindowController {
             if !reduceMotion { panel.animator().setFrame(visible ? expandedFrame : hiddenFrame, display: true) }
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
-                guard let self, self.transitionGeneration == generation, !visible else { return }
+                PerformanceSignposts.end("DockPresentationTransition", signpost)
+                guard let self, self.transitionGeneration == generation else { return }
+                self.transitionInFlight = nil
+                guard !visible else { return }
                 panel?.orderOut(nil)
             }
         }
@@ -712,6 +756,21 @@ final class CustomDockWindowController {
         case .orange: .orange
         case .pink: .pink
         case .red: .red
+        }
+    }
+}
+
+/// The running-process scan is deferred to this view's body, which SwiftUI evaluates when the
+/// context menu opens rather than during every tile body pass. The captured identity is the
+/// one observed at that moment and is revalidated again by each action.
+private struct RunningApplicationMenuSection: View {
+    let item: DockItem
+    var body: some View {
+        if let identity = AppLauncher.runningIdentity(for: item) {
+            Button("Windows…") { WindowAccessibilityService.showWindowMenu(for: identity, action: .activate) }
+            Button("Close Window…") { WindowAccessibilityService.showWindowMenu(for: identity, action: .close) }
+            Divider()
+            Button("Quit \(item.displayName)") { AppLauncher.quit(identity) }
         }
     }
 }
@@ -1252,6 +1311,7 @@ struct CustomDockView: View {
                     let pointer = NSEvent.mouseLocation
                     let origin = resizeStartPointer ?? pointer
                     resizeStartPointer = origin
+                    if !DockInteractionState.isResizing { PerformanceSignposts.event("DockResizeBegin") }
                     DockInteractionState.isResizing = true
                     let translation = CGSize(width: pointer.x - origin.x, height: origin.y - pointer.y)
                     let boundedSize = DockResizePolicy.size(start: start, translation: translation,
@@ -1264,6 +1324,7 @@ struct CustomDockView: View {
                     resizeStartSize = nil
                     resizeStartPointer = nil
                     if resizeDidChange { store.finishDockResize(for: profile.id) }
+                    PerformanceSignposts.event("DockResizeEnd")
                     DockInteractionState.isResizing = false
                     resizeDidChange = false
                 })
@@ -1569,12 +1630,7 @@ struct CustomDockView: View {
             } else {
                 Button("Open") { AppLauncher.open(item) }
             }
-            if let identity = AppLauncher.runningIdentity(for: item) {
-                Button("Windows…") { WindowAccessibilityService.showWindowMenu(for: identity, action: .activate) }
-                Button("Close Window…") { WindowAccessibilityService.showWindowMenu(for: identity, action: .close) }
-                Divider()
-                Button("Quit \(item.displayName)") { AppLauncher.quit(identity) }
-            }
+            RunningApplicationMenuSection(item: item)
             if pinned, [.application, .file, .folder].contains(item.type) {
                 Button("Locate…", systemImage: "folder.badge.questionmark") {
                     guard let repaired = AppLauncher.chooseReplacement(for: item) else { return }

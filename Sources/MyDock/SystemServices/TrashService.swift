@@ -117,6 +117,12 @@ enum TrashCopy {
     /// The automation runner reports every non-zero osascript exit the same way, so describe the likely causes without claiming one.
     static func emptyFailureMessage(for error: Error) -> String {
         if let known = error as? TrashActionError, case let .failed(message) = known { return message }
+        if let automation = error as? AutomationError {
+            if automation == .permissionDenied {
+                return "MyDock is not allowed to control Finder. Turn on Automation for MyDock \u{2192} Finder in System Settings \u{2192} Privacy & Security \u{2192} Automation, then try again."
+            }
+            return "Finder did not confirm that the Trash was emptied. Some items may not have been deleted. Open Trash in Finder to check what remains."
+        }
         if error is NowPlayingParsingError {
             return "Finder did not confirm that the Trash was emptied. Automation access for Finder may be denied (System Settings \u{2192} Privacy & Security \u{2192} Automation), or some items could not be deleted. Open Trash in Finder to check what remains."
         }
