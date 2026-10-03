@@ -23,6 +23,8 @@ enum DiagnosticEventCode: String, Codable {
     case stateRecoveryFailed
     case stateSaveFailed
     case stateSaveRecovered
+    case runtimeCacheRecovered
+    case runtimeCacheSaveFailed
     case nativeApplyStarted
     case nativeApplySucceeded
     case nativeApplyFailed
@@ -55,7 +57,8 @@ enum DiagnosticEventCode: String, Codable {
     var category: DiagnosticCategory {
         switch self {
         case .appLaunched, .quitRequested, .quitCancelled, .appTerminated: .lifecycle
-        case .stateRecovered, .stateRecoveryFailed, .stateSaveFailed, .stateSaveRecovered: .persistence
+        case .stateRecovered, .stateRecoveryFailed, .stateSaveFailed, .stateSaveRecovered,
+             .runtimeCacheRecovered, .runtimeCacheSaveFailed: .persistence
         case .nativeApplyStarted, .nativeApplySucceeded, .nativeApplyFailed,
              .nativeRollbackFailed, .nativeInterruptedRecoverySucceeded: .nativeDock
         case .customDockShown, .customDockHidden: .customDock

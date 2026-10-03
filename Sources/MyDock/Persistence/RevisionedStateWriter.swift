@@ -23,7 +23,7 @@ final class RevisionedStateWriter: @unchecked Sendable {
         announce(revision)
         let work: @Sendable () -> Void = { [self] in
             guard isCurrent(revision) else { return }
-            completion(Result { try persistState(state, url) })
+            completion(Result { try persistState(state.strippedOfRuntimeReadings, url) })
         }
         if immediately { queue.sync(execute: work) }
         else { queue.asyncAfter(deadline: .now() + .milliseconds(150), execute: work) }
@@ -31,7 +31,7 @@ final class RevisionedStateWriter: @unchecked Sendable {
 
     func writeImmediately(_ state: PersistentState, to url: URL, revision: UInt64) throws {
         announce(revision)
-        try queue.sync { try persistState(state, url) }
+        try queue.sync { try persistState(state.strippedOfRuntimeReadings, url) }
     }
 
     static func persist(_ state: PersistentState, to url: URL) throws {

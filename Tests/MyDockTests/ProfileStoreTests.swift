@@ -1567,7 +1567,7 @@ struct ProfileStoreTests {
         #expect(restored?.weatherLayout == .hourlyForecast)
         #expect(restored?.weatherForecastHours == 6)
         #expect(restored?.weatherBackground == .translucent)
-        #expect(restored?.cachedWeatherForecast == cached)
+        #expect(restored?.cachedWeatherForecast == nil) // PR-13: forecasts are runtime cache, excluded from backups
     }
 
     @Test func airDropLinkValidatorAcceptsWebLinksAndRejectsOtherSchemes() {
@@ -1867,7 +1867,7 @@ struct ProfileStoreTests {
         #expect(restored.stripeMetric == .mrr)
         #expect(restored.stripeCurrency == "EUR")
         #expect(restored.stripePeriod == .ninetyDays)
-        #expect(restored.stripeSnapshot?.metrics(for: "EUR")?.mrrMinor == 800)
+        #expect(restored.stripeSnapshot == nil) // PR-13: readings are runtime cache, excluded from backups
         #expect(!archiveText.contains("rk_"))
     }
 
@@ -2000,7 +2000,7 @@ struct ProfileStoreTests {
         #expect(restored.paddleMetric == .arr)
         #expect(restored.paddlePeriod == .ninetyDays)
         #expect(!restored.paddleShowsChart)
-        #expect(restored.paddleSnapshot?.latestARRMinor == 12000)
+        #expect(restored.paddleSnapshot == nil) // PR-13: readings are runtime cache, excluded from backups
         #expect(!text.contains("pdl_live_apikey_"))
     }
 
@@ -2125,7 +2125,7 @@ struct ProfileStoreTests {
         #expect(restored.shopifyMetric == .averageOrderValue)
         #expect(restored.shopifyPeriod == .monthToDate)
         #expect(!restored.shopifyShowsChart)
-        #expect(restored.shopifySnapshot?.averageOrderValue == Decimal(string: "12.5"))
+        #expect(restored.shopifySnapshot == nil) // PR-13: readings are runtime cache, excluded from backups
         #expect(!text.contains("private-client-secret"))
         #expect(!text.contains("shpat_"))
     }
@@ -2413,11 +2413,11 @@ struct ProfileStoreTests {
         #expect(limits.aiLimitsVisibleProviders == [.codex, .claude])
         #expect(limits.aiLimitsCompactProvider == .claude)
         #expect(limits.aiLimitsRepresentation == .used)
-        #expect(limits.aiLimitsSnapshot?.reading(for: .codex)?.windows.first?.usedPercent == 31)
+        #expect(limits.aiLimitsSnapshot == nil) // PR-13: readings are runtime cache, excluded from backups
         #expect(activity.aiActivityProvider == .claude)
         #expect(activity.aiActivityRange == .thirtyDays)
         #expect(activity.aiActivityChartStyle == .bars)
-        #expect(activity.aiActivitySnapshot?.totals.totalTokens == 300)
+        #expect(activity.aiActivitySnapshot == nil)
         #expect(!archiveText.contains("PRIVATE_PROMPT"))
         #expect(!archiveText.contains("sk-ant-"))
         #expect(!archiveText.contains("gho_"))

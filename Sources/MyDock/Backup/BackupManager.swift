@@ -181,8 +181,9 @@ enum BackupManager {
 
     private static func normalizedProfiles(_ profiles: [DockProfile]) -> [DockProfile] {
         profiles.map { profile in
-            var copy = profile
-            copy.items = profile.items.map { item in
+            // Provider readings are runtime cache data and never travel in a backup.
+            var copy = profile.strippedOfRuntimeReadings
+            copy.items = copy.items.map { item in
                 var itemCopy = item
                 if let iconData = itemCopy.linkFaviconData {
                     itemCopy.linkFaviconData = SiteFaviconFetcher.normalizedPNG(from: iconData)
