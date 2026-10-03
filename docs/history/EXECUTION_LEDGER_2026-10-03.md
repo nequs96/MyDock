@@ -2137,3 +2137,39 @@ Batch 1 and Batch 2 run in three waves. Each wave runs one worktree-isolated age
   - N3: PR-18 instrumentation and PR-12 motion normalization.
   - P3: PR-17 registry-derived QA matrix (Q02) and PR-20 evidence/docs (Q05).
 - **Not implemented, pending a product decision:** OP-01–OP-07, MD-D04 spatial insertion, PR-06 capture/tutorial, PR-07 Organize, PR-09 per-property overrides and PR-16 masking.
+
+### Wave 1 journal
+
+**N1 Native — merged 89a1dbc (branch commit 3f26b4e).** Coordinator review accepted it.
+
+Implemented:
+- **Codex PR-03 defects fixed:**
+  - A missing `launchDate` disabled Quit, Windows and minimize. It is now optional, still matched on PID, installed copy and bundle ID, and fails closed if only one side has a date.
+  - Untitled windows (`.noValue`/unsupported title) aborted discovery. They now get an honest empty title.
+  - Window resolution required titles to match, which broke on changing browser tab titles. It now uses unique native-AX-object equality.
+- Model and controller share the normalized pinned-URL runtime suppression (`RuntimeDockIdentity`).
+- **MD-U05:** the grip keeps a transparent pointer area of at least 14 pt at scales 0.65–1.5, without changing layout length.
+- **MD-E02:** `DockPresentationSignature` uses 25 presentation fields (resolved plus global). `lastSettingsPage`, onboarding and native-switch preferences no longer reassign the root.
+
+Verification:
+- 5 new pure fixtures (NativeBatch1ReviewTests) pass.
+- H1/H2 native acceptance is blocked (AX, a disposable user and pointer measurement are required).
+- Open note: the context menu does a main-thread `runningApplications` scan per tile. This is left for PR-18 profiling.
+
+**P1 Product — merged 303b03a (branch commit 2473983).** Coordinator review accepted it.
+
+Implemented:
+- **MD-A06:** Codex's draft UI was verified. Saving goes through the throwing durable API and the entry is confirmed before the draft is discarded. No defects found.
+- **MD-A07:** bounded in-memory undo for 15 s (`CollectionUndo.swift`). It covers Remove snippet/link, Shelf Remove/Clear and checklist remove/Clear Completed. It only re-inserts absent IDs at a clamped index within capacity. The Shelf copy says originals are not deleted.
+- **MD-U01:** the configuration sheet shows the compact preview, then setup and Save, then a collapsed Appearance disclosure.
+- **MD-U04:** compact narrow Settings header with all seven categories and their selected trait.
+- **AirDrop/Trash:** the provider faces are restored in the live Dock (drop, help and AX; count and error).
+- **PR-11 labels:** Reminders completion, App Folder move/remove, Color Picker selected trait.
+
+Verification:
+- 5 undo fixtures pass.
+- VoiceOver, the live face drop, the Trash count, sheet heights and undo timing need native/manual checks.
+- App Folder stays on the shared local face, which is the existing ledger design (W35).
+- The `WidgetLibraryTile`/`CommandLibrary` Example labels have not been checked (outside P1's files).
+
+**Integrated test (303b03a):** 296 tests. The only failures are the 3 known stale ProfileStoreTests, which are pending R1.
