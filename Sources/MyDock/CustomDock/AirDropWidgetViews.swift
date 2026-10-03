@@ -15,12 +15,18 @@ struct AirDropWidgetProvider: DockWidgetProvider {
 private struct AirDropCompactTile: View {
     @State private var isDropTargeted = false
     @State private var anchorView: NSView?
+    @Environment(\.dockWidgetContentWidth) private var width
 
     var body: some View {
         ZStack {
-            Image(systemName: WidgetRegistry.airDropSymbol)
-                .font(.system(size: 25, weight: .medium))
-                .foregroundStyle(.tint)
+            HStack(spacing: 7) {
+                Image(systemName: WidgetRegistry.airDropSymbol)
+                    .font(.system(size: width > 54 ? 21 : 25, weight: .medium))
+                    .foregroundStyle(.tint)
+                if width > 54 {
+                    Text("AirDrop").font(.system(size: 10, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7)
+                }
+            }
 
             AirDropTileAnchor { anchorView = $0 }
                 .allowsHitTesting(false)
@@ -35,7 +41,7 @@ private struct AirDropCompactTile: View {
                     .allowsHitTesting(false)
             }
         }
-        .frame(width: 54, height: 54)
+        .frame(width: width, height: 54)
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onDrop(of: [UTType.fileURL, UTType.url], isTargeted: $isDropTargeted, perform: shareDroppedItems)
         .help("Drop files or links to share with AirDrop")

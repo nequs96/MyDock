@@ -27,9 +27,11 @@ struct WidgetIconTile: View {
 }
 
 struct WidgetAppearanceControls: View {
+    enum Part { case all, preview, options }
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    var part: Part = .all
     private var kind: String { item.widgetKind ?? item.title }
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var layout: WidgetLayout { WidgetPresentationCatalog.resolvedLayout(for: kind, configuration: configuration, compactDefault: store.effectiveSettings(profileID: profileID).customDockWidgetStyle == .compact) }
@@ -40,6 +42,7 @@ struct WidgetAppearanceControls: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if part != .options {
             VStack(alignment: .leading, spacing: 8) {
                 sectionTitle("Dock preview")
                 WidgetCompactView(store: store, item: item, profileID: profileID, presentationSettings: previewSettings)
@@ -48,6 +51,8 @@ struct WidgetAppearanceControls: View {
                     Text("Horizontal layout shown. Side Docks use a narrow presentation.").font(.caption).foregroundStyle(.secondary)
                 }
             }
+            }
+            if part != .preview {
             VStack(alignment: .leading, spacing: 6) {
                 sectionTitle("Layout")
                 ForEach(WidgetPresentationCatalog.options(for: kind)) { option in
@@ -104,6 +109,7 @@ struct WidgetAppearanceControls: View {
                         store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.systemSecondaryMetric = value }
                     })) { ForEach(SystemSecondaryMetric.allCases) { Text($0.title).tag($0) } }
                 }
+            }
             }
         }
     }

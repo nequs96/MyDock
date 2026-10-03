@@ -96,24 +96,25 @@ struct SettingsView: View {
                 Divider()
             }
             if !sidebarVisible {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Settings").font(.system(size: 20, weight: .semibold))
+                VStack(alignment: .leading, spacing: 6) {
+                    // The window header already names the page; only the embedded workspace needs a heading here.
+                    if embeddedInWorkspace { Text("Settings").font(.system(size: 16, weight: .semibold)) }
                     // Keep every section visible, wrapping on narrow windows.
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 125, maximum: 180), spacing: 4, alignment: .leading)], alignment: .leading, spacing: 4) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 118, maximum: 180), spacing: 3, alignment: .leading)], alignment: .leading, spacing: 3) {
                             ForEach(MyDockSettingsPage.allCases) { page in
                                 Button { selectedPage = page } label: {
                                     Label(page.title, systemImage: page.symbol)
-                                        .font(.system(size: 12, weight: selectedPage == page ? .semibold : .medium))
+                                        .font(.system(size: 11.5, weight: selectedPage == page ? .semibold : .medium))
                                         .foregroundStyle(selectedPage == page ? Color.primary : Color.secondary)
                                         .lineLimit(1)
                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.horizontal, 11).padding(.vertical, 8)
+                                        .padding(.horizontal, 9).padding(.vertical, 5)
                                         .background(selectedPage == page ? DockDesign.control : .clear, in: RoundedRectangle(cornerRadius: 8))
                                 }.buttonStyle(.plain)
                                     .accessibilityAddTraits(selectedPage == page ? .isSelected : [])
                             }
                     }
-                }.padding(.horizontal, 32).padding(.vertical, 16)
+                }.padding(.horizontal, 24).padding(.vertical, 8)
                 Divider()
             }
             HStack(spacing: 0) {

@@ -9,6 +9,7 @@ struct WidgetConfigurationSheet: View {
     var maximumHeight: CGFloat = 640
     @Environment(\.dismiss) private var dismiss
     @State private var contentHeight: CGFloat = 360
+    @State private var showsAppearance = false
 
     private var currentItem: DockItem {
         store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id } ?? item
@@ -27,11 +28,17 @@ struct WidgetConfigurationSheet: View {
                     .buttonStyle(DockButtonStyle(icon: true))
                     .help("Close widget settings").accessibilityLabel("Close widget settings")
             }
+            WidgetAppearanceControls(store: store, item: currentItem, profileID: profileID, part: .preview)
             DockScrollView {
                 VStack(alignment: .leading, spacing: DockDesign.Space.large) {
-                    WidgetAppearanceControls(store: store, item: currentItem, profileID: profileID)
-                    Divider()
+                    // Task and setup content first; appearance is optional and follows it.
                     WidgetPopout(store: store, item: currentItem, profileID: profileID, showsCustomize: false, showsHeader: false)
+                    Divider()
+                    DisclosureGroup(isExpanded: $showsAppearance) {
+                        WidgetAppearanceControls(store: store, item: currentItem, profileID: profileID, part: .options).padding(.top, 10)
+                    } label: {
+                        Text("Appearance").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                    }.accessibilityLabel("Appearance, layout and icon")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -39,7 +46,7 @@ struct WidgetConfigurationSheet: View {
                     Color.clear.preference(key: WidgetConfigurationHeightKey.self, value: geometry.size.height)
                 })
             }
-            .frame(height: min(contentHeight, max(220, maximumHeight - 92)))
+            .frame(height: min(contentHeight, max(200, maximumHeight - 190)))
             .onPreferenceChange(WidgetConfigurationHeightKey.self) { height in
                 if height > 0 { contentHeight = height }
             }

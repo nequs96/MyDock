@@ -12,16 +12,34 @@ struct TrashWidgetProvider: DockWidgetProvider {
 
 private struct TrashCompactWidgetView: View {
     @ObservedObject private var status = TrashStatus.shared
+    @Environment(\.dockWidgetContentWidth) private var width
 
     var body: some View {
-        VStack(spacing: 2) {
-            Image(systemName: status.errorMessage != nil ? "exclamationmark.triangle" : status.itemCount == 0 ? "trash" : "trash.fill")
-                .font(.system(size: 23, weight: .regular))
-            Text(status.errorMessage != nil ? "Unavailable" : status.itemCount == 0 ? "Empty" : "\(status.itemCount)")
-                .font(.system(size: 8, weight: .medium, design: .rounded).monospacedDigit())
-                .lineLimit(1).minimumScaleFactor(0.7)
+        let label = status.errorMessage != nil ? "Unavailable" : status.itemCount == 0 ? "Empty" : "\(status.itemCount)"
+        Group {
+            if width > 54 {
+                HStack(spacing: 7) {
+                    Image(systemName: status.errorMessage != nil ? "exclamationmark.triangle" : status.itemCount == 0 ? "trash" : "trash.fill")
+                        .font(.system(size: 21, weight: .regular))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Trash").font(.system(size: 10, weight: .medium))
+                        Text(label).font(.system(size: 9, weight: .medium, design: .rounded).monospacedDigit()).foregroundStyle(.secondary)
+                    }.lineLimit(1).minimumScaleFactor(0.7)
+                }
+            } else {
+                VStack(spacing: 2) {
+                    Image(systemName: status.errorMessage != nil ? "exclamationmark.triangle" : status.itemCount == 0 ? "trash" : "trash.fill")
+                        .font(.system(size: 23, weight: .regular))
+                    Text(label)
+                        .font(.system(size: 8, weight: .medium, design: .rounded).monospacedDigit())
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+            }
         }
-        .frame(width: 54, height: 54)
+        .frame(width: width, height: 54)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Trash")
+        .accessibilityValue(status.errorMessage ?? (status.itemCount == 0 ? "Empty" : "\(status.itemCount) items"))
         .help(status.errorMessage ?? (status.itemCount == 0 ? "Trash is empty" : "\(status.itemCount) items in Trash"))
     }
 }
