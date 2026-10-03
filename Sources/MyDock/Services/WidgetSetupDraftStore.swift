@@ -108,6 +108,10 @@ final class WidgetSetupDraftStore: ObservableObject {
 
     @discardableResult
     func flushNotes(to store: ProfileStore) -> Result<Void, Error> {
+        // A draft whose widget no longer exists can never be saved; it must not fail the batch or block quit forever.
+        for (itemID, draft) in noteDrafts where !store.hasWidget(itemID: itemID, in: draft.profileID) {
+            noteDrafts.removeValue(forKey: itemID)
+        }
         let pending = noteDrafts
         do {
             try store.persistNoteDrafts(pending.map { (itemID: $0.key, profileID: $0.value.profileID, text: $0.value.text) })

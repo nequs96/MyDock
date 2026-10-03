@@ -39,6 +39,7 @@ final class ProfileStore: ObservableObject {
     let allowsSystemChanges: Bool
     private let logger = Logger(subsystem: Product.bundleIdentifier, category: "persistence")
     private var storageWritable = true
+    private var stateLoadedIntact = true
     private let writer: RevisionedStateWriter
     private var revision: UInt64 = 0
     @Published private(set) var isSaving = false
@@ -56,7 +57,9 @@ final class ProfileStore: ObservableObject {
                 guard schemaVersion.map({ $0 <= Product.stateSchemaVersion }) ?? true else {
                     self.state = PersistentState()
                     self.storageWritable = false
+                    self.stateLoadedIntact = false
                     self.persistenceWarning = "This MyDock data was created by a newer version. It was left untouched, and saving is disabled to protect it."
+                    loadUtilityDrafts()
                     return
                 }
                 var loaded = try JSONDecoder().decode(PersistentState.self, from: data)
@@ -67,9 +70,11 @@ final class ProfileStore: ObservableObject {
             } catch BackupError.tooLarge {
                 self.state = PersistentState()
                 self.storageWritable = false
+                self.stateLoadedIntact = false
                 self.persistenceWarning = "Saved MyDock data exceeds the supported size. It was left untouched, and saving is disabled to protect it."
             } catch {
                 self.state = PersistentState()
+                self.stateLoadedIntact = false
                 let recoveryURL = self.fileURL.appendingPathExtension("recovery-\(UUID().uuidString)")
                 do {
                     try FileManager.default.moveItem(at: self.fileURL, to: recoveryURL)
@@ -85,6 +90,16 @@ final class ProfileStore: ObservableObject {
             }
         } else {
             self.state = PersistentState()
+        }
+        loadUtilityDrafts()
+    }
+
+    /// Opens the private utility drafts once at launch: prunes drafts whose widget or profile no longer exists
+    /// (only when the saved state itself loaded intact) and surfaces a notice if an unreadable file was set aside.
+    private func loadUtilityDrafts() {
+        if stateLoadedIntact && storageWritable { utilityDrafts.discardTargets(notIn: state.profiles) }
+        if let notice = utilityDrafts.recoveryNotice {
+            persistenceWarning = [persistenceWarning, notice].compactMap { $0 }.joined(separator: " ")
         }
     }
 
@@ -195,6 +210,7 @@ final class ProfileStore: ObservableObject {
             profile.items.forEach { WidgetSetupDraftStore.shared.clearDrafts(for: $0.id) }
         }
         state.profiles.removeAll { $0.id == id }
+        utilityDrafts.discardTargets(removedItemIDs: [], removedProfileIDs: [id])
         editSessions.set(nil, for: id)
         if state.settings.activeCustomProfileID == id {
             state.settings.activeCustomProfileID = customProfiles.first?.id
@@ -394,6 +410,7 @@ final class ProfileStore: ObservableObject {
         removedItems.forEach(cancelScheduledNotifications(for:))
         removedItems.forEach { WidgetSetupDraftStore.shared.clearDrafts(for: $0.id) }
         state.profiles[index].items.removeAll { itemIDs.contains($0.id) }
+        utilityDrafts.discardTargets(removedItemIDs: Set(removedItems.map(\.id)))
         commit()
     }
 
@@ -426,9 +443,12 @@ final class ProfileStore: ObservableObject {
         }
         try ProfileSemanticValidator.validate(next)
         let retained = Set(next.flatMap { $0.items.map(\.id) })
+        var removedIDs = Set<UUID>()
         for item in state.profiles.flatMap(\.items) where !retained.contains(item.id) {
             cancelScheduledNotifications(for: item); WidgetSetupDraftStore.shared.clearDrafts(for: item.id)
+            removedIDs.insert(item.id)
         }
+        utilityDrafts.discardTargets(removedItemIDs: removedIDs)
         state.profiles = next
         commit()
         guard !hasUnpersistedChanges else { throw EditSessionSaveError.failed(persistenceError ?? "The profiles could not be saved.") }
@@ -440,10 +460,13 @@ final class ProfileStore: ObservableObject {
               state.profiles[index] != profile else { return }
         history.record(state.profiles[index], reason: "Before profile edit")
         let retainedIDs = Set(profile.items.map(\.id))
+        var removedIDs = Set<UUID>()
         for removed in state.profiles[index].items where !retainedIDs.contains(removed.id) {
             cancelScheduledNotifications(for: removed)
             WidgetSetupDraftStore.shared.clearDrafts(for: removed.id)
+            removedIDs.insert(removed.id)
         }
+        utilityDrafts.discardTargets(removedItemIDs: removedIDs)
         state.profiles[index] = profile
         commit()
     }
@@ -451,10 +474,13 @@ final class ProfileStore: ObservableObject {
     func replaceItems(_ items: [DockItem], in profileID: UUID) {
         guard let index = state.profiles.firstIndex(where: { $0.id == profileID }) else { return }
         let retainedIDs = Set(items.map(\.id))
+        var removedIDs = Set<UUID>()
         for removed in state.profiles[index].items where !retainedIDs.contains(removed.id) {
             cancelScheduledNotifications(for: removed)
             WidgetSetupDraftStore.shared.clearDrafts(for: removed.id)
+            removedIDs.insert(removed.id)
         }
+        utilityDrafts.discardTargets(removedItemIDs: removedIDs)
         state.profiles[index].items = items
         commit()
     }
@@ -491,6 +517,10 @@ final class ProfileStore: ObservableObject {
         var candidate = state
         try updateWidgetConfiguration(in: &candidate, itemID: itemID, profileID: profileID, update: update)
         try persistCandidate(candidate)
+    }
+
+    func hasWidget(itemID: UUID, in profileID: UUID) -> Bool {
+        state.profiles.first { $0.id == profileID }?.items.contains { $0.id == itemID && $0.type == .widget } ?? false
     }
 
     /// One failed note keeps the complete pending batch recoverable, without partial publication.
