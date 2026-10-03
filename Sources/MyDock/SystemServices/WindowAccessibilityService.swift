@@ -72,8 +72,10 @@ enum WindowAccessibilityService {
         let location = NSEvent.mouseLocation
         menuDiscoveryTask?.cancel()
         menuDiscoveryTask = Task {
+            let signpost = PerformanceSignposts.begin("WindowDiscovery")
             let worker = Task.detached(priority: .userInitiated) { discoverWindows(for: identity) }
             let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            PerformanceSignposts.end("WindowDiscovery", signpost)
             guard !Task.isCancelled else { return }
             switch result {
             case .available(let windows):

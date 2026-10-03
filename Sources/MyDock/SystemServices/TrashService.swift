@@ -22,17 +22,33 @@ final class TrashStatus: ObservableObject {
     @Published private(set) var itemCount = 0
     @Published private(set) var errorMessage: String?
 
-    private let trashURL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(".Trash", isDirectory: true)
+    static let isolatedMessage = "Trash is unavailable in isolated validation."
+    private let trashURL: URL
+    private let allowsNativeEffects: Bool
+    /// Test seam: number of filesystem watches attempted by this instance.
+    private(set) var watchAttemptCount = 0
     private var source: DispatchSourceFileSystemObject?
     private var refreshTask: Task<Void, Never>?
     private var fallbackRefreshTask: Task<Void, Never>?
 
-    private init() {
+    private convenience init() {
+        self.init(trashURL: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(".Trash", isDirectory: true),
+                  allowsNativeEffects: AppRuntimeEnvironment.allowsNativeEffects)
+    }
+
+    init(trashURL: URL, allowsNativeEffects: Bool) {
+        self.trashURL = trashURL
+        self.allowsNativeEffects = allowsNativeEffects
+        guard allowsNativeEffects else {
+            errorMessage = Self.isolatedMessage
+            return
+        }
         startWatching()
         refresh()
     }
 
     func refresh() {
+        guard allowsNativeEffects else { return }
         refreshTask?.cancel()
         let url = trashURL
         refreshTask = Task { @MainActor [weak self] in
@@ -52,6 +68,8 @@ final class TrashStatus: ObservableObject {
     }
 
     private func startWatching() {
+        guard allowsNativeEffects else { return }
+        watchAttemptCount += 1
         let descriptor = open(trashURL.path, O_EVTONLY)
         guard descriptor >= 0 else {
             scheduleFallbackRefresh()
@@ -91,6 +109,7 @@ final class TrashStatus: ObservableObject {
 @MainActor
 enum TrashActions {
     static func openTrash() {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let url = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(".Trash", isDirectory: true)
         NSWorkspace.shared.open(url)
     }
