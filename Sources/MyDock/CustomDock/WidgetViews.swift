@@ -84,7 +84,7 @@ struct WidgetCompactView: View {
     }
     @ViewBuilder private var content: some View {
         switch kind {
-        case "Clock", "Focus Timer", "Stopwatch", "Countdown", "Sticky Note", "Time Progress", "Hydration", "Quick Checklist", "Stock", "Watchlist", "Calculator", "Shortcuts", "App Folder", "AirDrop", "Trash":
+        case "Clock", "Focus Timer", "Stopwatch", "Countdown", "Sticky Note", "Time Progress", "Hydration", "Quick Checklist", "Stock", "Watchlist", "Calculator", "Shortcuts", "App Folder":
             LocalWidgetDockFace(item: item)
         default:
             WidgetProviderRegistry.provider(for: kind).compactView(store: store, item: item, profileID: profileID)
@@ -456,11 +456,13 @@ private struct AppFolderPopoutView: View {
                                 if reordering {
                                     Button { moveApplication(at: index, by: -1) } label: { Image(systemName: "arrow.up") }
                                         .disabled(index == 0).buttonStyle(.plain)
+                                        .help("Move \(application.name) up").accessibilityLabel("Move \(application.name) up")
                                     Button { moveApplication(at: index, by: 1) } label: { Image(systemName: "arrow.down") }
                                         .disabled(index == applications.count - 1).buttonStyle(.plain)
+                                        .help("Move \(application.name) down").accessibilityLabel("Move \(application.name) down")
                                 }
                                 Button(role: .destructive) { removeApplication(application) } label: { Image(systemName: "minus.circle") }
-                                    .buttonStyle(.plain).help("Remove from App Folder")
+                                    .buttonStyle(.plain).help("Remove from App Folder").accessibilityLabel("Remove \(application.name) from App Folder")
                             }
                             .padding(7).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
                         }

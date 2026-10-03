@@ -152,6 +152,7 @@ struct QuickChecklistView: View {
     var item: DockItem
     var profileID: UUID
     @State private var newEntry = ""
+    @State private var undoPending: RemovedEntries<QuickChecklistEntry>?
     private var entries: [QuickChecklistEntry] { item.widgetConfiguration?.checklistEntries ?? [] }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -159,7 +160,7 @@ struct QuickChecklistView: View {
                 Text("\(entries.filter { !$0.isComplete }.count) remaining").font(.system(size: 22, weight: .semibold))
                 Spacer()
                 if entries.contains(where: \.isComplete) {
-                    Button("Clear Completed") { edit { $0.removeAll(where: \.isComplete) } }
+                    Button("Clear Completed") { remove(entries.filter(\.isComplete).map(\.id), message: "Cleared completed tasks.") }
                 }
             }
             HStack(spacing: 8) {
@@ -184,12 +185,15 @@ struct QuickChecklistView: View {
                             TextField("Task", text: Binding(get: { entry.title }, set: { value in
                                 edit { list in if let index = list.firstIndex(where: { $0.id == entry.id }) { list[index].title = String(value.prefix(400)) } }
                             })).textFieldStyle(.plain).strikethrough(entry.isComplete).foregroundStyle(entry.isComplete ? .secondary : .primary)
-                            Button { edit { $0.removeAll { $0.id == entry.id } } } label: { Image(systemName: "minus.circle").foregroundStyle(.secondary) }
+                            Button { remove([entry.id], message: "Removed \(entry.title).") } label: { Image(systemName: "minus.circle").foregroundStyle(.secondary) }
                                 .buttonStyle(.plain).accessibilityLabel("Remove \(entry.title)")
                         }.padding(.vertical, 11)
                         if entry.id != entries.last?.id { Divider() }
                     }
                 }.padding(.horizontal, 14).background(WidgetDesign.inset, in: RoundedRectangle(cornerRadius: 14))
+            }
+            UndoNotice(pending: $undoPending) { removed in
+                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { removed.restore(into: &$0.checklistEntries, capacity: 100) }
             }
             Text(entries.count >= 100 ? "Checklist full · remove a task to add another." : "Saved locally with your profile. No account required.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -197,6 +201,11 @@ struct QuickChecklistView: View {
     }
     private func edit(_ change: (inout [QuickChecklistEntry]) -> Void) {
         store.updateWidgetConfiguration(itemID: item.id, in: profileID) { change(&$0.checklistEntries) }
+    }
+    private func remove(_ ids: [UUID], message: String) {
+        let pending = RemovedEntries.capture(Set(ids), from: entries, message: message)
+        let set = Set(ids)
+        if case .accepted = store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: { $0.checklistEntries.removeAll { set.contains($0.id) } }) { undoPending = pending }
     }
     private func add() {
         let title = newEntry.trimmingCharacters(in: .whitespacesAndNewlines)

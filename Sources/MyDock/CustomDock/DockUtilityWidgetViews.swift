@@ -70,6 +70,7 @@ struct FileShelfView: View {
     var item: DockItem
     var profileID: UUID
     @State private var message: String?
+    @State private var undoPending: RemovedEntries<ShelfFile>?
     private var entries: [ShelfFile] { item.widgetConfiguration?.shelfFiles ?? [] }
     private var availableURLs: [URL] { entries.map(\.resolvedURL).filter { FileManager.default.fileExists(atPath: $0.path) } }
     var body: some View {
@@ -97,8 +98,14 @@ struct FileShelfView: View {
                 HStack {
                     AirDropShareButton(urls: availableURLs, title: "Share / AirDrop…").frame(height: 30)
                         .disabled(!AppRuntimeEnvironment.allowsNativeEffects)
-                    Button("Clear Shelf") { store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.shelfFiles = [] }; message = "Shelf cleared. Original files are unchanged." }
+                    Button("Clear Shelf") {
+                        let pending = RemovedEntries.capture(Set(entries.map(\.id)), from: entries, message: "Shelf cleared. Original files are unchanged.")
+                        if case .accepted = store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: { $0.shelfFiles = [] }) { undoPending = pending; message = nil }
+                    }
                 }
+            }
+            UndoNotice(pending: $undoPending) { removed in
+                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { removed.restore(into: &$0.shelfFiles, capacity: FileShelfPolicy.capacity) }
             }
             if let message { Text(message).font(.caption).foregroundStyle(.secondary).accessibilityLabel(message) }
             if !AppRuntimeEnvironment.allowsNativeEffects { Text(utilityIsolatedActionMessage).font(.caption).foregroundStyle(.secondary) }
@@ -143,7 +150,8 @@ struct FileShelfView: View {
         message = nil
     }
     private func remove(_ id: UUID) {
-        store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.shelfFiles.removeAll { $0.id == id } }
+        let pending = RemovedEntries.capture([id], from: entries, message: "Removed from the shelf. The original file was not deleted.")
+        if case .accepted = store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: { $0.shelfFiles.removeAll { $0.id == id } }) { undoPending = pending }
         message = nil
     }
     private func copy(_ urls: [URL]) {
@@ -174,6 +182,7 @@ struct TextSnippetsView: View {
     @State private var message: String?
     @State private var editingID: UUID?
     @State private var draftLoaded = false
+    @State private var undoPending: RemovedEntries<TextSnippet>?
     init(store: ProfileStore, item: DockItem, profileID: UUID) {
         self.store = store; self.item = item; self.profileID = profileID
         self.drafts = store.utilityDrafts
@@ -212,13 +221,16 @@ struct TextSnippetsView: View {
                                     Spacer()
                                     Button("Copy") { message = copyUtilityText(entry.text) ? "Copied \(entry.title). Paste with ⌘V." : utilityCopyFailureMessage }
                                     Button { editingID = entry.id; title = entry.title; text = entry.text } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit \(entry.title)").disabled(hasInput || waitingToResume)
-                                    Button { store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.textSnippets.removeAll { $0.id == entry.id } } } label: { Image(systemName: "minus.circle") }.accessibilityLabel("Remove \(entry.title)").disabled(editingID == entry.id)
+                                    Button { removeSnippet(entry) } label: { Image(systemName: "minus.circle") }.accessibilityLabel("Remove \(entry.title)").disabled(editingID == entry.id)
                                 }
                                 Text(entry.text).font(.caption).foregroundStyle(.secondary).lineLimit(3).textSelection(.enabled)
                             }.padding(12).background(WidgetDesign.inset, in: RoundedRectangle(cornerRadius: 10))
                         }
                     }
                 }.frame(maxHeight: 230)
+            }
+            UndoNotice(pending: $undoPending) { removed in
+                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { removed.restore(into: &$0.textSnippets, capacity: 50) }
             }
             if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
             Text(entries.count >= 50 ? "Snippet collection full. Remove one to add another." : "Saved locally. Clipboard text is read only when you click Use Clipboard.")
@@ -249,6 +261,10 @@ struct TextSnippetsView: View {
             message = "Could not save this snippet. Your text is still here. \(error.localizedDescription)"
         }
     }
+    private func removeSnippet(_ entry: TextSnippet) {
+        let pending = RemovedEntries.capture([entry.id], from: entries, message: "Removed \(entry.title).")
+        if case .accepted = store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: { $0.textSnippets.removeAll { $0.id == entry.id } }) { undoPending = pending }
+    }
     private func retainDraft() {
         guard draftLoaded else { return }
         do { try drafts.update(DockUtilityFormDraft(editingID: editingID, title: title, body: text), itemID: item.id, in: profileID, kind: .snippet); message = nil }
@@ -276,6 +292,7 @@ struct QuickLinksView: View {
     @State private var message: String?
     @State private var editingID: UUID?
     @State private var draftLoaded = false
+    @State private var undoPending: RemovedEntries<QuickLink>?
     init(store: ProfileStore, item: DockItem, profileID: UUID) {
         self.store = store; self.item = item; self.profileID = profileID
         self.drafts = store.utilityDrafts
@@ -300,6 +317,9 @@ struct QuickLinksView: View {
                 Spacer()
                 Button(editingID == nil ? "Save Link" : "Save Changes", action: save).disabled(waitingToResume || address.isEmpty || (editingID == nil && entries.count >= 50))
             }
+            UndoNotice(pending: $undoPending) { removed in
+                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { removed.restore(into: &$0.quickLinks, capacity: 50) }
+            }
             if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
             if entries.isEmpty { collectionEmpty("Your own little launchpad", detail: "Keep project pages, reading and everyday websites together.") }
             else {
@@ -323,7 +343,7 @@ struct QuickLinksView: View {
                                 }.buttonStyle(.plain).accessibilityLabel("Open \(entry.title)")
                                 Button { message = copyUtilityText(entry.url.absoluteString) ? "Link copied." : utilityCopyFailureMessage } label: { Image(systemName: "doc.on.doc") }.accessibilityLabel("Copy \(entry.title) URL")
                                 Button { editingID = entry.id; title = entry.title; address = entry.url.absoluteString } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit \(entry.title)").disabled(hasInput || waitingToResume)
-                                Button { store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.quickLinks.removeAll { $0.id == entry.id } } } label: { Image(systemName: "minus.circle") }.accessibilityLabel("Remove \(entry.title)").disabled(editingID == entry.id)
+                                Button { removeLink(entry) } label: { Image(systemName: "minus.circle") }.accessibilityLabel("Remove \(entry.title)").disabled(editingID == entry.id)
                             }.padding(12).background(WidgetDesign.inset, in: RoundedRectangle(cornerRadius: 10))
                         }
                         if filtered.isEmpty { Text("No matching links.").font(.caption).foregroundStyle(.secondary) }
@@ -359,6 +379,10 @@ struct QuickLinksView: View {
         } catch {
             message = "Could not save this link. Your input is still here. \(error.localizedDescription)"
         }
+    }
+    private func removeLink(_ entry: QuickLink) {
+        let pending = RemovedEntries.capture([entry.id], from: entries, message: "Removed \(entry.title).")
+        if case .accepted = store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: { $0.quickLinks.removeAll { $0.id == entry.id } }) { undoPending = pending }
     }
     private func retainDraft() {
         guard draftLoaded else { return }
@@ -535,6 +559,7 @@ struct DockColorPickerView: View {
                             RoundedRectangle(cornerRadius: 8).fill(paletteColor(value)).frame(height: 38)
                                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.2), lineWidth: 1))
                         }.buttonStyle(.plain).help(value).accessibilityLabel("Select color \(value)")
+                            .accessibilityAddTraits(value.caseInsensitiveCompare(hex) == .orderedSame ? .isSelected : [])
                             .contextMenu {
                                 Button("Copy HEX") { message = copyUtilityText(value) ? "HEX copied." : utilityCopyFailureMessage }
                                 Button("Remove Color") { store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.savedColors.removeAll { $0 == value } } }

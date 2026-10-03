@@ -535,6 +535,7 @@ private struct RemindersPopoutWidgetView: View {
         HStack(spacing: 8) {
             Button { complete(reminder) } label: { Image(systemName: "circle") }
                 .buttonStyle(.plain).help("Mark complete").disabled(isChangingCompletion)
+                .accessibilityLabel("Complete \(reminder.title)")
             VStack(alignment: .leading, spacing: 2) {
                 Text(reminder.title).lineLimit(2)
                 if let dueDate = reminder.dueDate {
