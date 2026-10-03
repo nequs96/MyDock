@@ -540,6 +540,7 @@ private struct AIActivitySummary: View {
                 .help(s.tokensText + ". " + s.sourceDescription)
             Spacer(minLength: 0)
             metric("Sessions", value: AIActivityFormatting.tokens(Int64(s.totals.sessions)))
+                .help("Distinct local sessions with activity in \(s.range.activityDescription). Daily counts count each session once per day.")
             metric("Tool calls", value: AIActivityFormatting.tokens(Int64(s.totals.toolCalls)))
         }.padding(14).background(WidgetDesign.inset, in: RoundedRectangle(cornerRadius: 14))
     }

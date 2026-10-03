@@ -261,13 +261,20 @@ struct AIActivitySnapshot: Codable, Hashable {
     var message: String?
     var points: [AIActivityDailyPoint]
     var totals: AIActivityDailyPoint
+    /// 1 counted session-days and duplicate log records; 2 counts distinct sessions in the range and de-duplicates records.
+    var semanticVersion: Int
+
+    static let currentSemanticVersion = 2
+    var hasCurrentSemantics: Bool { semanticVersion >= Self.currentSemanticVersion }
 
     private enum CodingKeys: String, CodingKey {
-        case provider, range, fetchedAt, sourceDescription, available, estimated, partial, message, points, totals
+        case provider, range, fetchedAt, sourceDescription, available, estimated, partial, message, points, totals, semanticVersion
     }
 
     init(provider: AIProvider, range: AIActivityRange, fetchedAt: Date, sourceDescription: String, available: Bool,
-         estimated: Bool, partial: Bool, message: String? = nil, points: [AIActivityDailyPoint], totals: AIActivityDailyPoint) {
+         estimated: Bool, partial: Bool, message: String? = nil, points: [AIActivityDailyPoint], totals: AIActivityDailyPoint,
+         semanticVersion: Int = AIActivitySnapshot.currentSemanticVersion) {
+        self.semanticVersion = semanticVersion
         self.provider = provider; self.range = range; self.fetchedAt = fetchedAt
         self.sourceDescription = sourceDescription; self.available = available; self.estimated = estimated
         self.partial = partial; self.message = message; self.points = points; self.totals = totals
@@ -288,6 +295,7 @@ struct AIActivitySnapshot: Codable, Hashable {
         points = try values.decode([AIActivityDailyPoint].self, forKey: .points)
             .prefix(AIUsageDomain.maximumPoints).filter(\.isValid)
         totals = try values.decode(AIActivityDailyPoint.self, forKey: .totals).clamped()
+        semanticVersion = try values.decodeIfPresent(Int.self, forKey: .semanticVersion) ?? 1
     }
 
     var isValid: Bool {
@@ -468,12 +476,15 @@ enum ClaudeStatusLineLimitParser {
 struct ClaudeStatusLineLimitAdapter: AILimitProviderAdapter {
     let provider: AIProvider = .claude
     var homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    /// Fixtures inject an environment; nil means the process environment for the real account home only.
+    var environment: [String: String]?
 
     func read(now: Date) async throws -> AIProviderLimitReading {
         let usesAccountHome = homeDirectory == FileManager.default.homeDirectoryForCurrentUser
         // Isolated runs must not read the real account's status-line file; fixtures pass an explicit home.
         if usesAccountHome { try AppRuntimeEnvironment.requireCredentials() }
-        let directory = usesAccountHome ? AIAccountService.claudeDirectory() : homeDirectory.appendingPathComponent(".claude")
+        let directory = AIAccountService.claudeDirectory(home: homeDirectory,
+                                                         environment: environment ?? (usesAccountHome ? ProcessInfo.processInfo.environment : [:]))
         let url = directory.appendingPathComponent("mydock-rate-limits.json")
         guard FileManager.default.fileExists(atPath: url.path) else {
             return AIProviderLimitReading(provider: .claude, availability: .setupRequired, plan: nil,
@@ -535,6 +546,17 @@ enum AIActivityReader {
         var day: Date
     }
 
+    /// Identity bookkeeping shared by every file in one read, so copied or resumed logs are not counted twice.
+    private struct DedupeState {
+        struct ClaudeUsage { var day: Date; var input: Int64; var cached: Int64; var output: Int64 }
+        var claudeMessages: [String: ClaudeUsage] = [:]
+        var claudeToolUses = Set<String>()
+        var unidentifiedClaudeRows = Set<String>()
+        var codexPoints = Set<String>()
+        /// Set when identity was missing and a duplicate could not be ruled out.
+        var uncertain = false
+    }
+
     private struct MutablePoint {
         var sessions = 0
         var toolCalls = 0
@@ -580,7 +602,7 @@ enum AIActivityReader {
     }
 
     static func read(provider: AIProvider, range: AIActivityRange, now: Date = .now, timeZone: TimeZone = .current,
-                     homeDirectory: URL? = nil) -> AIActivitySnapshot {
+                     homeDirectory: URL? = nil, environment: [String: String]? = nil) -> AIActivitySnapshot {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         let interval = range.interval(endingAt: now, calendar: calendar)
@@ -596,10 +618,12 @@ enum AIActivityReader {
         let source: URL
         switch provider {
         case .codex:
-            let configured = homeDirectory == nil ? ProcessInfo.processInfo.environment["CODEX_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) } : nil
+            let configured = homeDirectory == nil ? (environment ?? ProcessInfo.processInfo.environment)["CODEX_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) } : nil
             source = (configured ?? root.appendingPathComponent(".codex", isDirectory: true)).appendingPathComponent("sessions", isDirectory: true)
         case .claude:
-            source = root.appendingPathComponent(".claude/projects", isDirectory: true)
+            // The same resolver as account setup and the limits bridge, so all three read one installation.
+            source = AIAccountService.claudeDirectory(home: root, environment: environment ?? (homeDirectory == nil ? ProcessInfo.processInfo.environment : [:]))
+                .appendingPathComponent("projects", isDirectory: true)
         case .grok:
             source = root.appendingPathComponent(".grok/sessions", isDirectory: true)
         case .cursor, .geminiCLI, .copilot, .antigravity:
@@ -607,6 +631,7 @@ enum AIActivityReader {
         }
         var daily: [Date: MutablePoint] = [:]
         var sessionsByIDAndDay: Set<SessionActivity> = []
+        var dedupe = DedupeState()
         let deadline = Date.now.addingTimeInterval(10)
         var budgetExceeded = false
         var processedFiles = 0
@@ -618,8 +643,8 @@ enum AIActivityReader {
             guard !Task.isCancelled, Date.now < deadline else { budgetExceeded = true; break }
             do {
                 switch provider {
-                case .codex: try parseCodex(file: file, calendar: calendar, interval: chartInterval, daily: &daily, sessions: &sessionsByIDAndDay)
-                case .claude: try parseClaude(file: file, calendar: calendar, interval: chartInterval, daily: &daily, sessions: &sessionsByIDAndDay)
+                case .codex: try parseCodex(file: file, calendar: calendar, interval: chartInterval, daily: &daily, sessions: &sessionsByIDAndDay, dedupe: &dedupe)
+                case .claude: try parseClaude(file: file, calendar: calendar, interval: chartInterval, daily: &daily, sessions: &sessionsByIDAndDay, dedupe: &dedupe)
                 case .grok: try parseGrok(file: file, calendar: calendar, interval: chartInterval, daily: &daily, sessions: &sessionsByIDAndDay)
                 default: break
                 }
@@ -638,7 +663,7 @@ enum AIActivityReader {
                                         requests: value.requests, reportedCostUSD: value.reportedCostUSD)
         }
         let included = points.filter { interval.contains($0.date) || calendar.isDate($0.date, inSameDayAs: interval.start) }
-        let totals = included.reduce(into: MutablePoint()) { total, point in
+        var totals = included.reduce(into: MutablePoint()) { total, point in
             total.sessions += point.sessions
             total.toolCalls += point.toolCalls
             total.totalTokens += point.totalTokens
@@ -648,9 +673,12 @@ enum AIActivityReader {
             total.requests += point.requests
             if let cost = point.reportedCostUSD { total.reportedCostUSD = (total.reportedCostUSD ?? .zero) + cost }
         }
+        // Range total: distinct session IDs across the included days; per-day points keep their own daily counts.
+        let includedDays = Set(included.map(\.date))
+        totals.sessions = Set(sessionsByIDAndDay.filter { includedDays.contains($0.day) }.map(\.id)).count
         let available = processedFiles > 0 && (totals.sessions > 0 || totals.totalTokens > 0 || totals.requests > 0)
         let estimated = provider == .grok
-        let partial = estimated || skippedFiles > 0 || fileScan.hitLimit || budgetExceeded
+        let partial = estimated || skippedFiles > 0 || fileScan.hitLimit || budgetExceeded || dedupe.uncertain
         let sourceDescription: String
         switch provider {
         case .codex: sourceDescription = "Local Codex session event logs · total token deltas include cached input. This excludes ChatGPT conversations outside Codex."
@@ -665,7 +693,7 @@ enum AIActivityReader {
                                   available: available,
                                   estimated: estimated,
                                   partial: partial,
-                                  message: available ? (skippedFiles > 0 || fileScan.hitLimit || budgetExceeded ? "Some local records could not be read; totals are partial." : (estimated ? "Local estimate; not an exact provider billing total." : nil)) : (processedFiles == 0 ? "No supported local activity records were found." : "No provider usage counters were present in these records."),
+                                  message: available ? (skippedFiles > 0 || fileScan.hitLimit || budgetExceeded ? "Some local records could not be read; totals are partial." : (dedupe.uncertain ? "Some records had no identity to rule out duplicates; totals may be overstated." : (estimated ? "Local estimate; not an exact provider billing total." : nil))) : (processedFiles == 0 ? "No supported local activity records were found." : "No provider usage counters were present in these records."),
                                   points: points,
                                   totals: AIActivityDailyPoint(date: calendar.startOfDay(for: now), sessions: totals.sessions,
                                                                toolCalls: totals.toolCalls, totalTokens: totals.totalTokens,
@@ -707,10 +735,12 @@ enum AIActivityReader {
     }
 
     private static func parseCodex(file: URL, calendar: Calendar, interval: DateInterval,
-                                   daily: inout [Date: MutablePoint], sessions: inout Set<SessionActivity>) throws {
+                                   daily: inout [Date: MutablePoint], sessions: inout Set<SessionActivity>,
+                                   dedupe: inout DedupeState) throws {
         let reader = try JSONLDataReader(url: file)
         let fileID = file.deletingPathExtension().lastPathComponent
         var sessionID = fileID
+        var hasSessionIdentity = false
         var previousTotal: Int64 = 0
         var previousInput: Int64 = 0
         var previousCached: Int64 = 0
@@ -719,7 +749,10 @@ enum AIActivityReader {
             guard let row = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                   let type = row["type"] as? String,
                   let payload = row["payload"] as? [String: Any] else { continue }
-            if type == "session_meta", let id = payload["session_id"] as? String { sessionID = id }
+            if type == "session_meta", let id = (payload["session_id"] as? String) ?? (payload["id"] as? String), !id.isEmpty {
+                sessionID = id
+                hasSessionIdentity = true
+            }
             guard let timestamp = date(row["timestamp"] as? String) else { continue }
             let day = calendar.startOfDay(for: timestamp)
             guard interval.contains(timestamp) || calendar.isDate(timestamp, inSameDayAs: interval.start) else {
@@ -749,6 +782,9 @@ enum AIActivityReader {
                 previousInput = input
                 previousCached = cached
                 previousOutput = output
+                // Cumulative usage identifies a point in a session; a copied or resumed log repeats it.
+                if !hasSessionIdentity { dedupe.uncertain = true }
+                guard dedupe.codexPoints.insert("\(sessionID)|\(total)|\(input)|\(cached)|\(output)").inserted else { continue }
                 daily[day, default: MutablePoint()].totalTokens += delta
                 daily[day, default: MutablePoint()].cachedInputTokens += cachedDelta
                 daily[day, default: MutablePoint()].inputTokens += inputDelta
@@ -763,7 +799,8 @@ enum AIActivityReader {
     }
 
     private static func parseClaude(file: URL, calendar: Calendar, interval: DateInterval,
-                                    daily: inout [Date: MutablePoint], sessions: inout Set<SessionActivity>) throws {
+                                    daily: inout [Date: MutablePoint], sessions: inout Set<SessionActivity>,
+                                    dedupe: inout DedupeState) throws {
         let reader = try JSONLDataReader(url: file)
         let fallbackID = file.deletingPathExtension().lastPathComponent
         while let lineData = try reader.nextLine() {
@@ -777,15 +814,46 @@ enum AIActivityReader {
             let cached: Int64 = (integer(usage["cache_read_input_tokens"]) ?? 0) + (integer(usage["cache_creation_input_tokens"]) ?? 0)
             let output: Int64 = integer(usage["output_tokens"]) ?? 0
             let day = calendar.startOfDay(for: timestamp)
-            daily[day, default: MutablePoint()].totalTokens += input + cached + output
-            daily[day, default: MutablePoint()].inputTokens += input
-            daily[day, default: MutablePoint()].cachedInputTokens += cached
-            daily[day, default: MutablePoint()].outputTokens += output
-            daily[day, default: MutablePoint()].requests += 1
-            if let blocks = message["content"] as? [[String: Any]] {
-                daily[day, default: MutablePoint()].toolCalls += blocks.reduce(0) { $0 + (($1["type"] as? String) == "tool_use" ? 1 : 0) }
+            let sessionID = row["sessionId"] as? String ?? fallbackID
+            var isNewMessage = true
+            if let messageID = message["id"] as? String, !messageID.isEmpty {
+                // The same API message is logged once per content block and again in copied or resumed files.
+                let key = messageID + "|" + (row["requestId"] as? String ?? "")
+                if let seen = dedupe.claudeMessages[key] {
+                    isNewMessage = false
+                    // Streaming rows can carry growing counters; add only the increase, on the original day.
+                    let more = DedupeState.ClaudeUsage(day: seen.day, input: max(seen.input, input), cached: max(seen.cached, cached),
+                                                       output: max(seen.output, output))
+                    daily[seen.day, default: MutablePoint()].inputTokens += more.input - seen.input
+                    daily[seen.day, default: MutablePoint()].cachedInputTokens += more.cached - seen.cached
+                    daily[seen.day, default: MutablePoint()].outputTokens += more.output - seen.output
+                    daily[seen.day, default: MutablePoint()].totalTokens += (more.input - seen.input) + (more.cached - seen.cached) + (more.output - seen.output)
+                    dedupe.claudeMessages[key] = more
+                } else {
+                    dedupe.claudeMessages[key] = .init(day: day, input: input, cached: cached, output: output)
+                }
+            } else {
+                // No message identity: count it (never undercount) but flag identical rows as possible duplicates.
+                let fingerprint = "\(sessionID)|\(timestamp.timeIntervalSince1970)|\(input)|\(cached)|\(output)"
+                if !dedupe.unidentifiedClaudeRows.insert(fingerprint).inserted { dedupe.uncertain = true }
             }
-            sessions.insert(SessionActivity(id: row["sessionId"] as? String ?? fallbackID, day: day))
+            if isNewMessage {
+                daily[day, default: MutablePoint()].totalTokens += input + cached + output
+                daily[day, default: MutablePoint()].inputTokens += input
+                daily[day, default: MutablePoint()].cachedInputTokens += cached
+                daily[day, default: MutablePoint()].outputTokens += output
+                daily[day, default: MutablePoint()].requests += 1
+            }
+            if let blocks = message["content"] as? [[String: Any]] {
+                for block in blocks where (block["type"] as? String) == "tool_use" {
+                    if let id = block["id"] as? String, !id.isEmpty {
+                        if dedupe.claudeToolUses.insert(id).inserted { daily[day, default: MutablePoint()].toolCalls += 1 }
+                    } else if isNewMessage {
+                        daily[day, default: MutablePoint()].toolCalls += 1
+                    }
+                }
+            }
+            sessions.insert(SessionActivity(id: sessionID, day: day))
         }
     }
 

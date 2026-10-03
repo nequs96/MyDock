@@ -111,20 +111,15 @@ protocol StripeDataTransport: Sendable {
 }
 
 struct URLSessionStripeDataTransport: StripeDataTransport {
-    private static let session: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        configuration.httpCookieStorage = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: configuration)
-    }()
+    private static let session = BoundedHTTPFetch.ephemeralSession()
 
     func response(for request: URLRequest) async throws -> StripeHTTPResponse {
-        let (data, response) = try await Self.session.data(for: request)
-        guard let response = response as? HTTPURLResponse, data.count <= 5_000_000 else {
+        do {
+            let (data, response) = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 5000000)
+            return StripeHTTPResponse(statusCode: response.statusCode, data: data)
+        } catch is BoundedHTTPFetchError {
             throw StripeDataError.invalidResponse
         }
-        return StripeHTTPResponse(statusCode: response.statusCode, data: data)
     }
 }
 
@@ -155,6 +150,8 @@ enum StripeDataError: LocalizedError {
 struct StripeAPIProvider: Sendable {
     var transport: any StripeDataTransport = URLSessionStripeDataTransport()
     var maximumPages = 10
+    /// Subscriptions whose embedded item list is partial are completed through /v1/subscription_items, within this many expansions.
+    var maximumItemExpansions = 20
 
     func snapshot(apiKey: String,
                   accountID: String,
@@ -174,14 +171,25 @@ struct StripeAPIProvider: Sendable {
                                                 apiKey: key)
         let activeSubscriptions = try await allRows(path: "/v1/subscriptions", parameters: ["status": "active"], apiKey: key)
         let pastDueSubscriptions = try await allRows(path: "/v1/subscriptions", parameters: ["status": "past_due"], apiKey: key)
+        let subscriptions = try await completingItems(activeSubscriptions + pastDueSubscriptions, apiKey: key)
         return try StripeSnapshotParser.snapshot(accountID: accountID,
                                                  accountName: accountName,
                                                  balanceData: balanceData,
                                                  transactionRows: transactionRows,
-                                                 subscriptionRows: activeSubscriptions + pastDueSubscriptions,
+                                                 subscriptionRows: subscriptions,
                                                  period: period,
                                                  interval: interval,
                                                  now: now)
+    }
+
+    /// The Stripe account ID behind a key, or nil when it cannot be determined (for example without Account read access).
+    func accountIdentity(apiKey: String) async -> String? {
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard StripeAPIKeyStore.isRestrictedKey(key),
+              let data = try? await get(path: "/v1/account", parameters: [:], apiKey: key),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let id = root["id"] as? String, id.hasPrefix("acct_") else { return nil }
+        return id
     }
 
     func validate(apiKey: String) async throws {
@@ -190,6 +198,30 @@ struct StripeAPIProvider: Sendable {
         guard StripeAPIKeyStore.isRestrictedKey(key) else { throw StripeDataError.restrictedKeyRequired }
         _ = try await get(path: "/v1/balance", parameters: [:], apiKey: key)
         _ = try await get(path: "/v1/subscriptions", parameters: ["status": "active", "limit": "1"], apiKey: key)
+    }
+
+    /// Embedded `items` lists are independently paginated. Fetch the rest within budget; anything still
+    /// partial keeps `has_more` so the parser counts it as unsupported instead of undercounting.
+    func completingItems(_ subscriptions: [[String: Any]], apiKey: String) async throws -> [[String: Any]] {
+        var remainingExpansions = max(0, maximumItemExpansions)
+        var result: [[String: Any]] = []
+        for var subscription in subscriptions {
+            guard var items = subscription["items"] as? [String: Any], items["has_more"] as? Bool == true,
+                  let id = subscription["id"] as? String, !id.isEmpty, remainingExpansions > 0 else {
+                result.append(subscription)
+                continue
+            }
+            remainingExpansions -= 1
+            do {
+                items["data"] = try await allRows(path: "/v1/subscription_items", parameters: ["subscription": id], apiKey: apiKey)
+                items["has_more"] = false
+                subscription["items"] = items
+            } catch StripeDataError.paginationLimit {
+                // Left partial on purpose.
+            }
+            result.append(subscription)
+        }
+        return result
     }
 
     private func allRows(path: String, parameters: [String: String], apiKey: String) async throws -> [[String: Any]] {
@@ -297,7 +329,13 @@ enum StripeSnapshotParser {
         var unsupportedItems = 0
         for subscription in subscriptionRows where ["active", "past_due"].contains(subscription["status"] as? String ?? "") {
             guard let customer = stringID(subscription["customer"]) else { continue }
-            let items = (subscription["items"] as? [String: Any])?["data"] as? [[String: Any]] ?? []
+            let itemList = subscription["items"] as? [String: Any]
+            let items = itemList?["data"] as? [[String: Any]] ?? []
+            if itemList?["has_more"] as? Bool == true {
+                // A partial embedded list cannot yield a complete total; flag it rather than undercount.
+                unsupportedItems += max(1, items.count)
+                continue
+            }
             let discountList = subscription["discounts"] as? [Any] ?? []
             let defaultTaxRates = subscription["default_tax_rates"] as? [Any] ?? []
             let automaticTaxEnabled = ((subscription["automatic_tax"] as? [String: Any])?["enabled"] as? Bool) == true

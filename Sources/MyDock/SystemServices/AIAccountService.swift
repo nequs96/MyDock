@@ -26,8 +26,10 @@ enum AIAccountService {
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 
-    static func claudeDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        if let path = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !path.isEmpty {
+    /// The single Claude configuration-directory resolver: account setup, the limits bridge and local activity all use it.
+    static func claudeDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                                environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if let path = environment["CLAUDE_CONFIG_DIR"], !path.isEmpty {
             return URL(fileURLWithPath: path, isDirectory: true)
         }
         return home.appendingPathComponent(".claude", isDirectory: true)

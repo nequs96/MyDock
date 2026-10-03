@@ -2314,7 +2314,7 @@ struct ProfileStoreTests {
         #expect(snapshot.totals.inputTokens == 100)
         #expect(snapshot.totals.cachedInputTokens == 30)
         #expect(snapshot.totals.outputTokens == 70)
-        #expect(snapshot.totals.sessions == 2)
+        #expect(snapshot.totals.sessions == 1) // MD-P10: one session across two days is one distinct session in the range
         #expect(snapshot.totals.toolCalls == 1)
         let encoded = try JSONEncoder().encode(snapshot)
         #expect(!String(decoding: encoded, as: UTF8.self).contains("PRIVATE_PROMPT_SENTINEL"))
@@ -2347,7 +2347,7 @@ struct ProfileStoreTests {
         #expect(snapshot.totals.cachedInputTokens == 35)
         #expect(snapshot.totals.outputTokens == 45)
         #expect(snapshot.totals.requests == 2)
-        #expect(snapshot.totals.sessions == 2)
+        #expect(snapshot.totals.sessions == 1) // MD-P10: one session across two days is one distinct session in the range
         #expect(snapshot.totals.toolCalls == 1)
         let encoded = try JSONEncoder().encode(snapshot)
         #expect(!String(decoding: encoded, as: UTF8.self).contains("PRIVATE_TRANSCRIPT_SENTINEL"))
@@ -2799,6 +2799,7 @@ private actor ShopifyFixtureTransport: ShopifyDataTransport {
     private static func order(createdAt: String, amount: String, title: String, quantity: Int, source: String?) -> [String: Any] {
         let visit: [String: Any]? = source.map { ["source": $0, "utmParameters": ["source": $0, "medium": "organic", "campaign": "fixture"]] }
         return [
+            "id": "gid://shopify/Order/\(createdAt)",
             "createdAt": createdAt,
             "test": false,
             "currentTotalPriceSet": ["shopMoney": ["amount": amount, "currencyCode": "USD"]],

@@ -55,7 +55,8 @@ enum WidgetDataValue {
         case .activity(let snapshot):
             // An unreadable refresh must not erase useful history. A successful
             // empty scan can replace it (for example, after logs are removed).
-            if !snapshot.available, snapshot.partial, c.aiActivitySnapshot?.available == true { return }
+            if !snapshot.available, snapshot.partial, c.aiActivitySnapshot?.available == true,
+               c.aiActivitySnapshot?.hasCurrentSemantics == true { return }
             c.aiActivitySnapshot = snapshot
         }
     }

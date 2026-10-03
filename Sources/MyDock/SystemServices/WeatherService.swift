@@ -113,8 +113,7 @@ struct OpenMeteoWeatherProvider: WeatherProvider {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
         request.setValue("MyDock weather widget", forHTTPHeaderField: "User-Agent")
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let response = response as? HTTPURLResponse else { throw WeatherServiceError.serviceUnavailable }
+            let (data, response) = try await BoundedHTTPFetch.fetch(request, session: .shared, maximumBytes: 2_000_000)
             guard (200..<300).contains(response.statusCode) else { throw WeatherServiceError.serviceUnavailable }
             return (data, response)
         } catch let error as WeatherServiceError {

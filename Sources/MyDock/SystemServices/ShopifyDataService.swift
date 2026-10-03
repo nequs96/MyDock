@@ -135,20 +135,15 @@ protocol ShopifyDataTransport: Sendable {
 }
 
 struct URLSessionShopifyDataTransport: ShopifyDataTransport {
-    private static let session: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        configuration.httpCookieStorage = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: configuration)
-    }()
+    private static let session = BoundedHTTPFetch.ephemeralSession()
 
     func response(for request: URLRequest) async throws -> ShopifyHTTPResponse {
-        let (data, response) = try await Self.session.data(for: request)
-        guard let response = response as? HTTPURLResponse, data.count <= 8_000_000 else {
+        do {
+            let (data, response) = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 8000000)
+            return ShopifyHTTPResponse(statusCode: response.statusCode, data: data)
+        } catch is BoundedHTTPFetchError {
             throw ShopifyDataError.invalidResponse
         }
-        return ShopifyHTTPResponse(statusCode: response.statusCode, data: data)
     }
 }
 
@@ -159,6 +154,7 @@ enum ShopifyDataError: LocalizedError, Equatable {
     case invalidResponse
     case rateLimited
     case tooManyOrders
+    case incompletePagination
     case currencyMismatch
     case graphQLError(String)
     case httpStatus(Int)
@@ -171,6 +167,7 @@ enum ShopifyDataError: LocalizedError, Equatable {
         case .invalidResponse: "Shopify returned data MyDock could not read. The last successful values are still shown."
         case .rateLimited: "Shopify rate-limited the request. The last successful values are still shown."
         case .tooManyOrders: "This period contains more than 10,000 orders. MyDock did not calculate a partial total."
+        case .incompletePagination: "Shopify's order pages did not complete cleanly (repeated or missing pages). MyDock did not calculate a partial total."
         case .currencyMismatch: "Shopify returned an order in a currency different from the store currency. MyDock did not combine currencies."
         case .graphQLError(let message): message
         case .httpStatus(let code): "Shopify is temporarily unavailable (HTTP \(code))."
@@ -184,6 +181,8 @@ struct ShopifyAPIProvider: Sendable {
     var transport: any ShopifyDataTransport = URLSessionShopifyDataTransport()
     var pageSize = 250
     var maximumOrders = Self.orderLimit
+    /// Hard stop for the number of order pages per refresh, independent of how many orders they contain.
+    var maximumPages = 60
 
     struct Connection: Sendable {
         var store: ShopifyConnectedStore
@@ -223,15 +222,27 @@ struct ShopifyAPIProvider: Sendable {
         let interval = try period.interval(endingAt: now, timeZoneID: store.timeZoneID)
         let query = Self.searchQuery(from: interval.start, through: interval.end)
         var orders: [ShopifyOrderRecord] = []
+        var seenOrderIDs = Set<String>()
+        var visitedCursors = Set<String>()
         var after: String?
+        var pageCount = 0
         repeat {
+            try Task.checkCancellation()
+            pageCount += 1
+            guard pageCount <= max(1, maximumPages) else { throw ShopifyDataError.incompletePagination }
             let page = try await fetchOrders(domain: domain, token: tokenCredential.accessToken, query: query, after: after)
-            orders.append(contentsOf: page.orders)
+            for order in page.orders {
+                guard let id = order.id, !id.isEmpty else { throw ShopifyDataError.invalidResponse }
+                if seenOrderIDs.insert(id).inserted { orders.append(order) }
+            }
             if orders.count > maximumOrders { throw ShopifyDataError.tooManyOrders }
             if page.hasNextPage && orders.count >= maximumOrders { throw ShopifyDataError.tooManyOrders }
-            after = page.endCursor
             if !page.hasNextPage { break }
-            guard let next = after, !next.isEmpty else { throw ShopifyDataError.invalidResponse }
+            // The cursor must advance; a repeated one would loop or double count.
+            guard let next = page.endCursor, !next.isEmpty, next != after, visitedCursors.insert(next).inserted else {
+                throw ShopifyDataError.incompletePagination
+            }
+            after = next
         } while orders.count < maximumOrders
 
         let snapshot = try ShopifySnapshotParser.snapshot(orders: orders,
@@ -295,6 +306,7 @@ struct ShopifyAPIProvider: Sendable {
         query Orders($query: String!, $after: String, $first: Int!) {
           orders(first: $first, after: $after, query: $query, sortKey: CREATED_AT) {
             nodes {
+              id
               createdAt
               cancelledAt
               test
@@ -366,6 +378,12 @@ struct ShopifyAPIProvider: Sendable {
         return value
     }
 
+    /// Same-store replacement compares normalized domains; the local connection ID is kept by the caller.
+    static func isSameStore(_ existing: ShopifyConnectedStore, _ candidate: ShopifyConnectedStore) -> Bool {
+        guard let lhs = try? normalizedDomain(existing.domain), let rhs = try? normalizedDomain(candidate.domain) else { return false }
+        return lhs == rhs
+    }
+
     static func searchQuery(from start: Date, through end: Date) -> String {
         "created_at:>=\(isoDate(start)) created_at:<=\(isoDate(end))"
     }
@@ -382,6 +400,7 @@ struct ShopifyOrderRecord {
         var name: String
         var currentQuantity: Int
     }
+    var id: String?
     var createdAt: Date
     var cancelledAt: Date?
     var isTest: Bool
@@ -476,7 +495,8 @@ enum ShopifySnapshotParser {
             ?? (lastVisit?["source"] as? String)
             ?? (firstUTM?["source"] as? String)
             ?? (firstVisit?["source"] as? String)
-        return ShopifyOrderRecord(createdAt: createdAt,
+        return ShopifyOrderRecord(id: raw["id"] as? String,
+                                  createdAt: createdAt,
                                   cancelledAt: date(raw["cancelledAt"] as? String),
                                   isTest: isTest,
                                   amount: amount,
