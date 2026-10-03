@@ -119,8 +119,8 @@ final class ProfileStore: ObservableObject {
             }
         }
         runtimeCache.prune(keeping: live)
-        if foundEmbedded {
-            runtimeCache.flush()
+        // Strip legacy embedded readings only once the cache durably holds them.
+        if foundEmbedded, runtimeCache.flush() {
             commit(immediately: false)
         }
     }
