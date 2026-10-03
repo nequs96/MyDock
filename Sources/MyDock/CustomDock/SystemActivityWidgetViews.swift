@@ -28,6 +28,7 @@ final class SystemActivityMonitor: ObservableObject {
 
     private var subscribers = Set<UUID>()
     private var visiblePopouts = Set<UUID>()
+    private var schedulerDemand: RefreshDemandToken?
     private var previousTicks: HostCPUTicks?
     private var previousPerCoreTicks: [HostCPUTicks]?
     private var samplingTask: Task<Void, Never>?
@@ -68,6 +69,7 @@ final class SystemActivityMonitor: ObservableObject {
     }
 
     private func updateSamplingState() {
+        RefreshScheduler.shared.setDemand(&schedulerDemand, kind: .popout, active: !visiblePopouts.isEmpty)
         let shouldSample = SystemActivitySamplingPolicy.shouldSample(dockIsVisible: dockIsVisible || !visiblePopouts.isEmpty,
                                                                       subscriberCount: subscribers.count)
         guard shouldSample != (samplingTask != nil) else { return }

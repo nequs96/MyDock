@@ -1,6 +1,38 @@
 @preconcurrency import CoreLocation
 import Foundation
 
+enum CurrentLocationError: LocalizedError, Equatable {
+    case unavailable
+    case timedOut
+    case staleOrInaccurate
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable: "Your current location could not be determined. You can still search for a city manually."
+        case .timedOut: "Your location was not available in time. Check Location Services, or search for a city manually."
+        case .staleOrInaccurate: "MyDock could not get a recent, accurate location fix. Try again, or search for a city manually."
+        }
+    }
+}
+
+/// Decides whether a delivered fix is fresh and precise enough for a city-level forecast.
+enum LocationFixPolicy {
+    static let maximumAge: TimeInterval = 10 * 60
+    static let maximumHorizontalAccuracy: Double = 5_000
+    /// Overall wait including a permission prompt.
+    static let requestDeadline: TimeInterval = 45
+
+    enum Verdict: Equatable { case accept, stale, inaccurate }
+
+    static func evaluate(timestamp: Date, horizontalAccuracy: Double, now: Date = .now) -> Verdict {
+        guard horizontalAccuracy.isFinite, horizontalAccuracy >= 0, horizontalAccuracy <= maximumHorizontalAccuracy else {
+            return .inaccurate
+        }
+        // Future timestamps (clock skew) are treated as fresh; only genuinely old fixes are rejected.
+        return now.timeIntervalSince(timestamp) > maximumAge ? .stale : .accept
+    }
+}
+
 @MainActor
 final class CurrentLocationService: NSObject, @preconcurrency CLLocationManagerDelegate {
     static let shared = CurrentLocationService()
@@ -9,6 +41,7 @@ final class CurrentLocationService: NSObject, @preconcurrency CLLocationManagerD
     private var pendingContinuation: CheckedContinuation<WeatherLocation, Error>?
     private var pendingRequestID: UUID?
     private var didRequestLocation = false
+    private var deadlineTask: Task<Void, Never>?
 
     private override init() {
         manager = CLLocationManager()
@@ -29,6 +62,11 @@ final class CurrentLocationService: NSObject, @preconcurrency CLLocationManagerD
                 }
                 pendingContinuation = continuation
                 pendingRequestID = requestID
+                deadlineTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(LocationFixPolicy.requestDeadline))
+                    guard !Task.isCancelled else { return }
+                    self?.expireRequest(id: requestID)
+                }
                 switch manager.authorizationStatus {
                 case .authorizedAlways, .authorizedWhenInUse:
                     requestLocationIfNeeded()
@@ -43,6 +81,12 @@ final class CurrentLocationService: NSObject, @preconcurrency CLLocationManagerD
         } onCancel: {
             Task { @MainActor [weak self] in self?.cancelRequest(id: requestID) }
         }
+    }
+
+    private func expireRequest(id: UUID) {
+        guard pendingRequestID == id else { return }
+        manager.stopUpdatingLocation()
+        finish(.failure(CurrentLocationError.timedOut))
     }
 
     private func cancelRequest(id: UUID) {
@@ -66,11 +110,16 @@ final class CurrentLocationService: NSObject, @preconcurrency CLLocationManagerD
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else {
-            finish(.failure(WeatherServiceError.locationDenied))
+        guard pendingContinuation != nil else { return }
+        let now = Date()
+        let verdicts = locations.map { LocationFixPolicy.evaluate(timestamp: $0.timestamp,
+                                                                   horizontalAccuracy: $0.horizontalAccuracy,
+                                                                   now: now) }
+        guard let index = locations.indices.last(where: { verdicts[$0] == .accept }) else {
+            finish(.failure(locations.isEmpty ? CurrentLocationError.unavailable : CurrentLocationError.staleOrInaccurate))
             return
         }
-        let coordinate = location.coordinate
+        let coordinate = locations[index].coordinate
         finish(.success(WeatherLocation(id: "current-\(coordinate.latitude.rounded(toPlaces: 3))-\(coordinate.longitude.rounded(toPlaces: 3))",
                                         name: "Current location",
                                         administrativeArea: nil,
@@ -81,11 +130,17 @@ final class CurrentLocationService: NSObject, @preconcurrency CLLocationManagerD
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        finish(.failure(error))
+        if let clError = error as? CLError, clError.code == .denied {
+            finish(.failure(WeatherServiceError.locationDenied))
+        } else {
+            finish(.failure(CurrentLocationError.unavailable))
+        }
     }
 
     private func finish(_ result: Result<WeatherLocation, Error>) {
         guard let continuation = pendingContinuation else { return }
+        deadlineTask?.cancel()
+        deadlineTask = nil
         pendingContinuation = nil
         pendingRequestID = nil
         didRequestLocation = false

@@ -81,8 +81,10 @@ enum NowPlayingObservationKind: Equatable {
 
 enum NowPlayingRefreshPolicy {
     static func interval(dockIsVisible: Bool, kinds: [NowPlayingObservationKind]) -> TimeInterval? {
-        guard dockIsVisible, !kinds.isEmpty else { return nil }
-        return kinds.contains(where: { $0 == .popout }) ? 5 : 15
+        // A visible popout needs fresh data even while the Dock is hidden.
+        let visibleKinds = dockIsVisible ? kinds : kinds.filter { $0 == .popout }
+        guard !visibleKinds.isEmpty else { return nil }
+        return visibleKinds.contains(where: { $0 == .popout }) ? 5 : 15
     }
 }
 
@@ -102,6 +104,7 @@ final class NowPlayingMonitor: ObservableObject {
     private var refreshTasks: [NowPlayingSource: Task<Void, Never>] = [:]
     private var refreshIntervals: [NowPlayingSource: TimeInterval] = [:]
     private var dockIsVisible = false
+    private var schedulerDemand: RefreshDemandToken?
     private var pendingReads: [NowPlayingSource: Task<Void, Never>] = [:]
     private var commandTasks: [NowPlayingSource: Task<Void, Never>] = [:]
 
@@ -147,6 +150,8 @@ final class NowPlayingMonitor: ObservableObject {
     }
 
     private func updateRefreshTask(for source: NowPlayingSource) {
+        RefreshScheduler.shared.setDemand(&schedulerDemand, kind: .popout,
+                                          active: subscribers.values.contains { $0.kind == .popout })
         let kinds = subscribers.values.filter { $0.source == source }.map(\.kind)
         let desired = NowPlayingRefreshPolicy.interval(dockIsVisible: dockIsVisible, kinds: kinds)
         guard refreshIntervals[source] != desired else { return }

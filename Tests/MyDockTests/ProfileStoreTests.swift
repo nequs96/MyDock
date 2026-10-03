@@ -1626,7 +1626,10 @@ struct ProfileStoreTests {
                                                        runningSources: [.appleMusic]))
         #expect(NowPlayingRefreshPolicy.interval(dockIsVisible: true, kinds: [.compact]) == 15)
         #expect(NowPlayingRefreshPolicy.interval(dockIsVisible: true, kinds: [.compact, .popout]) == 5)
-        #expect(NowPlayingRefreshPolicy.interval(dockIsVisible: false, kinds: [.popout]) == nil)
+        // PR-14: a visible popout refreshes even while the Dock is hidden; compact-only does not.
+        #expect(NowPlayingRefreshPolicy.interval(dockIsVisible: false, kinds: [.popout]) == 5)
+        #expect(NowPlayingRefreshPolicy.interval(dockIsVisible: false, kinds: [.compact]) == nil)
+        #expect(NowPlayingRefreshPolicy.interval(dockIsVisible: false, kinds: [.compact, .popout]) == 5)
     }
 
     @Test func nowPlayingFollowsTheEnabledPlayerThatIsPlaying() {

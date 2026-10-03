@@ -310,8 +310,14 @@ private struct ShortcutsPopoutView: View {
             }
 
             HStack {
-                Button("Run Shortcut", action: runShortcut)
-                    .buttonStyle(DockButtonStyle(primary: true)).disabled(selectedName.isEmpty)
+                if runner.isRunning(selectedName) {
+                    Button("Cancel Run") { runner.cancel(selectedName) }
+                        .buttonStyle(DockButtonStyle(primary: true))
+                        .disabled(runner.statusByShortcut[selectedName] == ShortcutRunMessages.cancelling())
+                } else {
+                    Button("Run Shortcut", action: runShortcut)
+                        .buttonStyle(DockButtonStyle(primary: true)).disabled(selectedName.isEmpty)
+                }
                 Button("Refresh", action: refreshCatalog).disabled(isRefreshing)
                 Button("Open Shortcuts") { runner.openShortcutsApp() }
             }
@@ -319,7 +325,7 @@ private struct ShortcutsPopoutView: View {
             if isRefreshing { ProgressView("Loading shortcuts…") }
             if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
             if !selectedName.isEmpty, let status = runner.statusByShortcut[selectedName] {
-                Label(status, systemImage: status == "Completed" ? "checkmark.circle" : "info.circle")
+                Label(status, systemImage: status == ShortcutRunMessages.completed() ? "checkmark.circle" : "info.circle")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Text("Shortcuts that ask for input may open a prompt and wait for you to respond.")
