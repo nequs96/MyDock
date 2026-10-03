@@ -96,6 +96,7 @@ private struct AILimitsPopoutView: View {
                 Label("Updated \(fetchedAt.formatted(date: .omitted, time: .shortened))", systemImage: "clock")
                     .font(.caption2).foregroundStyle(.secondary)
             }
+            DataSourceProvenanceView(provenance: .aiLimits(snapshot: configuration.aiLimitsSnapshot))
             Text("A dash means unavailable. MyDock reads Codex's local app-server rate-limit API without starting a task. It does not infer percentages or refresh limits by spending model tokens.")
                 .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
@@ -521,6 +522,9 @@ private struct AIActivitySummary: View {
                 }.help(s.sourceDescription)
             } else { emptyState }
             if let recoveryMessage { Text(recoveryMessage).font(.caption).foregroundStyle(.secondary) }
+            if let s = snapshot, s.available {
+                DataSourceProvenanceView(provenance: .aiActivity(snapshot: s, error: coordinator.errors[query]))
+            }
             Divider()
             HStack(spacing: 6) {
                 if failed {

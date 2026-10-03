@@ -110,6 +110,8 @@ private struct StripePopoutView: View {
                 Text("Last successful period: \(snapshot.period.title) · selected: \(configuration.stripePeriod.title)")
                     .font(.caption2).foregroundStyle(.secondary)
             }
+            DataSourceProvenanceView(provenance: .stripe(snapshot: snapshot, localName: configuration.stripeDisplayName,
+                                                         metric: configuration.stripeMetric, error: errorMessage))
             Text("Revenue is payment activity posted to the Stripe balance, less refunds and payment reversals, before fees. It includes collected tax and excludes payouts, transfers, and disputes. Net uses Stripe's transaction net after fees. Currencies are never converted.")
                 .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
             Text("MRR/ARR estimate active and past-due fixed recurring prices; trials and metered, tiered, discounted, or tax-adjusted items are excluded.")

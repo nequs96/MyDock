@@ -95,6 +95,8 @@ private struct ShopifyPopoutView: View {
                       systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
+            DataSourceProvenanceView(provenance: .shopify(snapshot: snapshot, localName: configuration.shopifyDisplayName,
+                                                          error: errorMessage))
             Text("Order value uses Shopify's current order total after returns and discounts, including tax and shipping. Unpaid and fully returned orders count; test and canceled orders do not. This is order activity, not cash received.")
                 .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }

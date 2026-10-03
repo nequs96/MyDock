@@ -31,6 +31,24 @@ struct ConnectionsCenterView: View {
             + ShopifyConnectionDirectory.stores().map { ConnectionRow(kind: "Shopify", identifier: $0.id, name: $0.name) }
     }
 
+    /// Newest stored reading among widgets assigned to this connection; nothing is fetched here.
+    private func provenance(for row: ConnectionRow) -> DataSourceProvenance {
+        let items = store.state.profiles.flatMap(\.items).compactMap { $0.widgetConfiguration }
+        switch row.kind {
+        case "Stripe":
+            let match = items.filter { $0.stripeAccountID == row.identifier }
+            let latest = match.compactMap { c in c.stripeSnapshot.map { (c, $0) } }.max { $0.1.fetchedAt < $1.1.fetchedAt }
+            return .stripe(snapshot: latest?.1, localName: row.name, metric: latest?.0.stripeMetric ?? match.first?.stripeMetric ?? .mrr, error: nil)
+        case "Paddle":
+            let match = items.filter { $0.paddleAccountID == row.identifier }
+            let latest = match.compactMap { c in c.paddleSnapshot.map { (c, $0) } }.max { $0.1.updatedAt < $1.1.updatedAt }
+            return .paddle(snapshot: latest?.1, localName: row.name, metric: latest?.0.paddleMetric ?? match.first?.paddleMetric ?? .mrr, error: nil)
+        default:
+            let snapshot = items.filter { $0.shopifyStoreID == row.identifier }.compactMap(\.shopifySnapshot).max { $0.fetchedAt < $1.fetchedAt }
+            return .shopify(snapshot: snapshot, localName: row.name, error: nil)
+        }
+    }
+
     var body: some View {
         DockSettingSection(title: "Connections") {
             Text("Manage business accounts here, then assign them to widgets. Credentials stay in this Mac’s Keychain and are excluded from profiles and backups.")
@@ -41,7 +59,8 @@ struct ConnectionsCenterView: View {
                         .font(.system(size: 16)).foregroundStyle(.secondary).frame(width: 24)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(row.name.isEmpty ? row.kind : row.name).font(.system(size: 13, weight: .medium))
-                        Text(row.kind + " · Connected").font(DockDesign.caption).foregroundStyle(.secondary)
+                        Text(row.kind + " · Credentials saved").font(DockDesign.caption).foregroundStyle(.secondary)
+                        DataSourceProvenanceView(provenance: provenance(for: row), compact: true)
                     }
                     Spacer()
                     Menu("Manage") {
