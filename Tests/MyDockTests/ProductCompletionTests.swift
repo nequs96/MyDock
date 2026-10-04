@@ -155,4 +155,13 @@ struct ProductCompletionTests {
         #expect(WidgetTimingPresentation.readingStatus(fetchedAt: then, now: then.addingTimeInterval(500), maximumAge: 120).hasPrefix("Saved reading"))
         #expect(WidgetTimingPresentation.readingStatus(fetchedAt: then, now: then.addingTimeInterval(60), maximumAge: 120).hasPrefix("Updated"))
     }
+
+    @Test func staleAILimitsMessageNamesOriginalSuccessAndError() {
+        let when = Date(timeIntervalSince1970: 1_000)
+        let text = AILimitsStalePresentation.message(updatedAt: when, error: "Network unavailable")
+        #expect(text.hasPrefix("Stale"))
+        #expect(text.contains(when.formatted(date: .abbreviated, time: .shortened)))
+        #expect(text.hasSuffix("Refresh failed: Network unavailable"))
+        #expect(AILimitsStalePresentation.message(updatedAt: nil, error: "x").contains("time unknown"))
+    }
 }
