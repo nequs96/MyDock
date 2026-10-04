@@ -11,32 +11,28 @@ extension SettingsView {
     DockScrollView {
         VStack(alignment: .leading, spacing: 20) {
         SettingsPageHeader(page: selectedPage)
-        DockSettingSection(title: "Custom Dock behavior") {
-            Toggle("Use as desktop widget (behind windows)", isOn: Binding(get: { store.state.settings.customDockDesktopMode }, set: { value in store.updateSettings { $0.customDockDesktopMode = value } }))
-            Toggle("Automatically hide", isOn: Binding(get: { store.state.settings.automaticallyHideCustomDock }, set: { value in store.updateSettings { $0.automaticallyHideCustomDock = value } }))
+        GroupedSection("Custom Dock behavior", footer: "The screen edge stays active without a handle; overlap detection uses window positions without screen capture.") {
+            GroupedRow("Use as desktop widget (behind windows)", isOn: Binding(get: { store.state.settings.customDockDesktopMode }, set: { value in store.updateSettings { $0.customDockDesktopMode = value } }))
+            GroupedRow("Automatically hide", isOn: Binding(get: { store.state.settings.automaticallyHideCustomDock }, set: { value in store.updateSettings { $0.automaticallyHideCustomDock = value } }))
                 .disabled(store.state.settings.customDockDesktopMode)
-            Toggle("Show reveal handle while hidden", isOn: Binding(
+            GroupedRow("Show reveal handle while hidden", isOn: Binding(
                 get: { store.state.settings.showRevealHandle },
                 set: { value in store.updateSettings { $0.showRevealHandle = value } }
             ))
             .disabled(!store.state.settings.automaticallyHideCustomDock || store.state.settings.customDockDesktopMode)
-            Text("Turning off the handle keeps the screen edge active so the Dock can still be revealed.")
-                .font(.caption).foregroundStyle(.secondary)
-            Toggle("Hide when Apple Dock appears", isOn: Binding(get: { store.state.settings.hideCustomDockWhenSystemDockAppears }, set: { value in store.updateSettings { $0.hideCustomDockWhenSystemDockAppears = value } }))
-            Text("When an on-screen Apple Dock overlaps MyDock, hide MyDock until the Apple Dock retracts. This reads window position only and does not capture screen contents.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            GroupedRow("Hide when Apple Dock appears", isOn: Binding(get: { store.state.settings.hideCustomDockWhenSystemDockAppears }, set: { value in store.updateSettings { $0.hideCustomDockWhenSystemDockAppears = value } }))
             if store.state.settings.customDockDesktopMode {
-                Text("Desktop-widget mode stays behind application windows and is not revealed over fullscreen apps. Auto-hide is paused while this mode is on.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text("Stays behind windows, including fullscreen apps; auto-hide is paused.")
+                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
             }
-        }
-        DockSettingSection(title: "Apps and windows") {
-            Toggle("Show running apps", isOn: Binding(get: { store.state.settings.showRunningApps }, set: { value in store.updateSettings { $0.showRunningApps = value } }))
-            Toggle("Show minimized windows", isOn: Binding(get: { store.state.settings.showMinimizedWindows }, set: { value in store.updateSettings { $0.showMinimizedWindows = value } }))
+        }.id("Custom Dock behavior")
+        GroupedSection("Apps and windows", footer: "macOS 14+: previews stay local for 24 hours and are deleted when disabled; duplicates or unavailable previews use app icons.") {
+            GroupedRow("Show running apps", isOn: Binding(get: { store.state.settings.showRunningApps }, set: { value in store.updateSettings { $0.showRunningApps = value } }))
+            GroupedRow("Show minimized windows", isOn: Binding(get: { store.state.settings.showMinimizedWindows }, set: { value in store.updateSettings { $0.showMinimizedWindows = value } }))
                 .onChange(of: store.state.settings.showMinimizedWindows) { enabled in
                     if enabled { _ = WindowAccessibilityService.requestAccessPrompt() }
                 }
-            Toggle("Cache window previews", isOn: Binding(get: { store.state.settings.showWindowPreviews }, set: { value in store.updateSettings { $0.showWindowPreviews = value } }))
+            GroupedRow("Cache window previews", isOn: Binding(get: { store.state.settings.showWindowPreviews }, set: { value in store.updateSettings { $0.showWindowPreviews = value } }))
                 .disabled(!store.state.settings.showMinimizedWindows || !supportsScreenCaptureFreeze)
                 .onChange(of: store.state.settings.showWindowPreviews) { enabled in
                     guard enabled else { windowPreviewMessage = nil; return }
@@ -47,62 +43,54 @@ extension SettingsView {
                         windowPreviewMessage = "Visible windows will be captured while the Custom Dock is shown."
                     }
                 }
-            Text("Optional on macOS 14 and later. Unique window previews are stored locally for up to 24 hours, never uploaded, and deleted when this setting is disabled. Duplicate, expired, or unavailable previews use the app icon.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let windowPreviewMessage {
-                Text(windowPreviewMessage).font(.caption).foregroundStyle(.secondary)
+                Text(windowPreviewMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
             }
-        }
-        DockSettingSection(title: "Dock items") {
-            Toggle("Show Trash", isOn: Binding(get: { store.state.settings.showTrash }, set: { value in store.updateSettings { $0.showTrash = value } }))
-            Toggle("Show app badges", isOn: Binding(get: { store.state.settings.showAppBadges }, set: { value in store.updateSettings { $0.showAppBadges = value } }))
+        }.id("Apps and windows")
+        GroupedSection("Dock items", footer: DockBadgeReader.isSupported ? "Reads available Apple Dock badge labels through Accessibility; notification contents stay private." : "App badge labels require macOS 14 or later.") {
+            GroupedRow("Show Trash", isOn: Binding(get: { store.state.settings.showTrash }, set: { value in store.updateSettings { $0.showTrash = value } }))
+            GroupedRow("Show app badges", isOn: Binding(get: { store.state.settings.showAppBadges }, set: { value in store.updateSettings { $0.showAppBadges = value } }))
                 .disabled(!DockBadgeReader.isSupported)
                 .onChange(of: store.state.settings.showAppBadges) { enabled in
                     if enabled && !WindowAccessibilityService.isTrusted() {
                         _ = WindowAccessibilityService.requestAccessPrompt()
                     }
                 }
-            Text(DockBadgeReader.isSupported
-                 ? "Reads only badge labels exposed by the Apple Dock through Accessibility. Some apps or macOS versions may not expose a label. Notification contents are never read."
-                 : "App badge labels require macOS 14 or later.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if DockBadgeReader.isSupported, store.state.settings.showAppBadges,
                !WindowAccessibilityService.isTrusted() {
                 HStack {
                     Text("Allow MyDock under Privacy & Security → Accessibility to show badge labels.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
                     Spacer()
                     Button("Accessibility Settings…", action: openAccessibilitySettings)
                         .controlSize(.small)
                 }
             }
-        }
-        DockSettingSection(title: "Interaction") {
-            Toggle("Click focused app to minimize", isOn: Binding(get: { store.state.settings.clickFocusedAppToMinimize }, set: { value in store.updateSettings { $0.clickFocusedAppToMinimize = value } }))
+        }.id("Dock items")
+        GroupedSection("Interaction") {
+            GroupedRow("Click focused app to minimize", isOn: Binding(get: { store.state.settings.clickFocusedAppToMinimize }, set: { value in store.updateSettings { $0.clickFocusedAppToMinimize = value } }))
                 .onChange(of: store.state.settings.clickFocusedAppToMinimize) { enabled in
                     if enabled { _ = WindowAccessibilityService.requestAccessPrompt() }
                 }
             HStack {
                 Text(WindowAccessibilityService.isTrusted() ? "Accessibility access is enabled." : "Accessibility access is needed for window controls.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
                 Spacer()
                 Button("Accessibility Settings…", action: openAccessibilitySettings)
             }
-            Toggle("Magnification", isOn: Binding(get: { store.state.settings.magnificationEnabled }, set: { value in store.updateSettings { $0.magnificationEnabled = value } }))
-        }
-        DockSettingSection(title: "Dock animations") {
-            Toggle("Animate Dock appearance", isOn: Binding(get: { store.state.settings.dockAnimationsEnabled }, set: { value in store.updateSettings { $0.dockAnimationsEnabled = value } }))
+            GroupedRow("Magnification", isOn: Binding(get: { store.state.settings.magnificationEnabled }, set: { value in store.updateSettings { $0.magnificationEnabled = value } }))
+        }.id("Interaction")
+        GroupedSection("Dock animations", footer: "Reveal and hide effects respect Reduce Motion.") {
+            GroupedRow("Animate Dock appearance", isOn: Binding(get: { store.state.settings.dockAnimationsEnabled }, set: { value in store.updateSettings { $0.dockAnimationsEnabled = value } }))
             SettingsControlRow(title: "Reveal effect") {
                 Picker("Reveal effect", selection: Binding(get: { store.state.settings.dockAnimationStyle }, set: { value in store.updateSettings { $0.dockAnimationStyle = value } })) {
                     ForEach(DockAnimationStyle.allCases) { Text($0.title).tag($0) }
                 }.disabled(!store.state.settings.dockAnimationsEnabled)
             }
-            Text("Used when the Dock appears or hides. Reduce Motion in macOS turns these effects off.")
-                .font(.caption).foregroundStyle(.secondary)
-            Button("Preview animation", systemImage: "play.fill") {
+            GroupedRow("Preview animation", role: .button, symbol: "play.fill") {
                 NotificationCenter.default.post(name: CustomDockWindowController.animationPreviewNotification, object: store)
             }.disabled(!store.state.settings.dockAnimationsEnabled || store.state.settings.setupMode == .nativeOnly || store.activeCustomProfile == nil)
-        }
+        }.id("Dock animations")
         }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
     }
     }

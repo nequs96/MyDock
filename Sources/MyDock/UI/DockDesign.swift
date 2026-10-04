@@ -419,16 +419,23 @@ struct DockSettingSection<Content: View>: View {
     var title: String
     @ViewBuilder var content: Content
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(DockDesign.sectionTitle).padding(.leading, 2)
-            VStack(alignment: .leading, spacing: 8) { content }
-                .frame(maxWidth: .infinity, alignment: .leading).padding(16)
-                .overlay(alignment: .top) { Rectangle().fill(DockDesign.hairline).frame(height: 1) }
-                .toggleStyle(SettingsSwitchStyle())
-                .controlSize(.small)
-                .buttonStyle(DockButtonStyle())
-                .textFieldStyle(DockTextFieldStyle())
-        }.frame(maxWidth: .infinity, alignment: .leading).id(title)
+        GroupedSection(title) {
+            if #available(macOS 15.0, *) {
+                Group(subviews: content) { rows in
+                    ForEach(rows) { row in
+                        row.frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) { content }.padding(12)
+            }
+        }
+            .toggleStyle(SettingsSwitchStyle())
+            .controlSize(.small)
+            .buttonStyle(DockButtonStyle())
+            .textFieldStyle(DockTextFieldStyle())
+            .id(title)
     }
 }
 
@@ -436,11 +443,9 @@ struct SettingsControlRow<Content: View>: View {
     var title: String
     @ViewBuilder var content: Content
     var body: some View {
-        HStack(spacing: 16) {
-            Text(title).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
+        GroupedRow(title) {
             content.labelsHidden().frame(maxWidth: 260, alignment: .trailing)
-        }.frame(minHeight: 32)
+        }
     }
 }
 
@@ -451,7 +456,10 @@ struct SettingsSwitchStyle: ToggleStyle {
             Spacer(minLength: 8)
             Toggle(isOn: configuration.$isOn) { configuration.label }
                 .labelsHidden().toggleStyle(.switch).controlSize(.small)
-        }.frame(minHeight: 32)
+        }
+        .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+        .padding(.vertical, DockDesign.Grouped.rowVerticalPadding)
+        .frame(minHeight: DockDesign.Grouped.rowMinHeight)
     }
 }
 
@@ -461,8 +469,8 @@ struct SettingsPageHeader: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(page.title).font(DockDesign.pageTitle)
             Text(page.designDescription).font(DockDesign.body).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 8)
+                .lineLimit(1)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 4)
     }
 }
 
@@ -470,8 +478,7 @@ struct SettingsSidebarLabel: View {
     var page: MyDockSettingsPage
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: page.symbol).font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary).frame(width: 24, height: 24)
+            GroupedRowGlyph(symbol: page.symbol, color: page.designColor, size: 26)
             Text(page.title).font(DockDesign.body)
         }
     }

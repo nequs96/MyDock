@@ -13,40 +13,25 @@ extension SettingsView {
         SettingsPageHeader(page: selectedPage)
         AppLifecycleSettingsView()
         RecoveryCenterView(store: store, history: store.history)
-        DockSettingSection(title: "Saved Docks") {
-            Toggle("Include personal widget data", isOn: $includePersonalBackupData)
-            Text(includePersonalBackupData
-                 ? "Includes notes, checklists, snippets, shelf files, histories, timers, alarms and saved selections. Keep this file private. Credentials, permissions and cached provider readings are always excluded."
-                 : "Layout only: notes, checklists, snippets, histories, timers, alarms, local calendar selections and connection assignments are removed. App, file, folder, and link locations remain in the layout. Cached provider readings are never included.")
-                .font(DockDesign.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Button("Back Up…") { exportBackup() }
-                Button("Restore…") { importBackup() }
-            }
-            if let backupMessage { Text(backupMessage).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
-            HStack {
-                Text("macOS Dock profiles")
-                Spacer()
-                Text("\(store.nativeProfiles.count)").foregroundStyle(.secondary)
-            }
-            HStack {
-                Text("Custom Dock profiles")
-                Spacer()
-                Text("\(store.customProfiles.count)").foregroundStyle(.secondary)
-            }
-        }
+        GroupedSection("Saved Docks", footer: includePersonalBackupData
+            ? "Includes notes, lists, snippets, shelf files, history, timers, alarms and selections; keep private; credentials, permissions and provider caches are excluded."
+            : "Layout keeps app, file, folder and link locations; notes, lists, snippets, history, timers, alarms, calendar selections, connections and provider caches are removed.") {
+            GroupedRow("Include personal widget data", isOn: $includePersonalBackupData)
+            GroupedRow("Back Up…", role: .button) { exportBackup() }
+            GroupedRow("Restore…", role: .button) { importBackup() }
+            if let backupMessage { Text(backupMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }
+            GroupedRow("macOS Dock profiles", value: "\(store.nativeProfiles.count)")
+            GroupedRow("Custom Dock profiles", value: "\(store.customProfiles.count)")
+        }.id("Saved Docks")
         PrivacyHelpSection()
         DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
-        DockSettingSection(title: "Diagnostics") {
-            Text("Export a redacted status report for troubleshooting. It contains app and macOS versions, item counts, appearance choices, save status, and recent event codes. It excludes profile names, app and file paths, URLs, note text, calendar content, credentials, and window images.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("Export Diagnostics…") { exportDiagnostics() }
+        GroupedSection("Diagnostics", footer: "Review versions, counts, appearance, save status and event codes; names, paths, URLs, personal content, credentials and images are excluded.") {
+            GroupedRow("Export Diagnostics…", role: .button) { exportDiagnostics() }
             if let diagnosticsMessage {
-                Text(diagnosticsMessage).font(.caption).foregroundStyle(.secondary)
+                Text(diagnosticsMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
-        }
+        }.id("Diagnostics")
         }
         }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
     }

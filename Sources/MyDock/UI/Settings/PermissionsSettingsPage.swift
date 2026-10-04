@@ -11,37 +11,22 @@ extension SettingsView {
     DockScrollView {
         VStack(alignment: .leading, spacing: 20) {
         SettingsPageHeader(page: selectedPage)
-        DockSettingSection(title: "Permission status") {
-            Text("MyDock asks only when you use a feature that needs access. Automation approval is managed separately for each app MyDock controls.")
-                .font(.caption).foregroundStyle(.secondary)
+        GroupedSection("Permission status", footer: "Access is requested when needed; Automation approval is per app.") {
             ForEach(permissionRows) { row in
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: row.symbol).font(.system(size: 16)).foregroundStyle(.secondary).frame(width: 24, height: 24)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(row.name).font(.system(size: 13, weight: .medium))
-                        Text(row.explanation).font(DockDesign.caption).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 8)
-                    HStack(spacing: 12) {
+                GroupedRow(row.name, subtitle: row.explanation, symbol: row.symbol, color: .blue) {
+                    VStack(alignment: .trailing, spacing: 4) {
                         Label(row.summary, systemImage: row.granted ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 11)).foregroundStyle(row.granted ? Color.green : Color.secondary)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
                         if let settingsURL = row.settingsURL, let url = URL(string: settingsURL) {
-                            Link("Open Settings", destination: url).buttonStyle(DockButtonStyle())
-                                .fixedSize(horizontal: true, vertical: false)
+                            Link("Open Settings", destination: url)
+                                .accessibilityLabel("Open \(row.name) settings")
                         }
-                    }.frame(width: 230)
-                }.padding(.vertical, 8)
-                if row.id != permissionRows.last?.id { Divider() }
+                    }.fixedSize(horizontal: true, vertical: false)
+                }
             }
-            HStack {
-                Button("Refresh Status") { Task { await refreshPermissionStatuses() } }
-                Spacer()
-                Text("Refresh after changing a permission.").font(.caption).foregroundStyle(.secondary)
-            }
-        }
+            GroupedRow("Refresh Status", role: .button) { Task { await refreshPermissionStatuses() } }
+                .help("Refresh after changing a permission.")
+        }.id("Permission status")
         }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
     }
     .task { await refreshPermissionStatuses() }

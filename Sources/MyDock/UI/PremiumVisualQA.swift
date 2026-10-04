@@ -58,6 +58,7 @@ enum PremiumVisualQA {
 
     static func export(to directory: URL, store: ProfileStore) async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if ProcessInfo.processInfo.environment["MYDOCK_SETTINGS_QA"] == "1" { try await exportSettingsUI(to: directory, store: store); return }
         if ProcessInfo.processInfo.environment["MYDOCK_SURFACES_QA"] == "1" {
             try await exportChangedSurfacesUI(to: directory, store: store)
             return

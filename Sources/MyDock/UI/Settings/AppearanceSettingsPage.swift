@@ -1,24 +1,185 @@
-import AppKit
-import CoreGraphics
-import CoreLocation
-import EventKit
 import SwiftUI
-import UserNotifications
-import UniformTypeIdentifiers
+
+/// Definitions are shared by the UI and scope/undo tests. Styles change only their authored fields.
+enum DockQuickStyle: String, CaseIterable, Identifiable {
+    case clear, glass, frosted, solid, midnight
+    var id: Self { self }
+    var title: String { rawValue.capitalized }
+    var material: CustomDockMaterial {
+        switch self {
+        case .clear: .liquidGlassClear
+        case .glass: .liquidGlass
+        case .frosted: .frosted
+        case .solid: .solid
+        case .midnight: .dark
+        }
+    }
+    var edge: DockEdgeStyle { self == .clear ? .none : .hairline }
+    var surface: DockWidgetSurface {
+        switch self { case .clear: .plain; case .glass, .midnight: .glass; case .frosted, .solid: .tile }
+    }
+    var tint: Double {
+        switch self { case .clear: 0; case .glass: 0.04; case .frosted: 0.02; case .solid: 0.03; case .midnight: 0.10 }
+    }
+    func apply(to settings: inout AppSettings) {
+        settings.customDockMaterial = material
+        settings.customDockEdgeStyle = edge
+        settings.customDockWidgetSurface = surface
+        settings.customDockTintMode = .custom
+        settings.customDockTintStrength = tint
+        settings.customDockGlassOpacity = 0
+    }
+    func matches(_ settings: AppSettings) -> Bool {
+        settings.customDockMaterial == material && settings.customDockEdgeStyle == edge
+            && settings.customDockWidgetSurface == surface && settings.customDockTintMode == .custom
+            && abs(settings.customDockTintStrength - tint) < 0.000001
+            && abs(settings.customDockGlassOpacity) < 0.000001
+    }
+    var look: DockSwatchLook {
+        let finish: DockSwatchLook.Surface = switch self {
+        case .clear: .clearGlass; case .glass: .glass; case .frosted: .frosted; case .solid: .solid; case .midnight: .midnight
+        }
+        let module: DockSwatchLook.ModuleSurface = switch surface { case .glass: .glass; case .plain: .plain; case .tile: .tile }
+        return DockSwatchLook(surface: finish, showsEdge: edge != .none, moduleSurface: module)
+    }
+}
 
 extension SettingsView {
     var appearancePage: some View {
-    DockScrollView {
-        VStack(alignment: .leading, spacing: 20) {
-        SettingsPageHeader(page: selectedPage)
-        DockSettingSection(title: "Appearance scope") {
+        DockScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                SettingsPageHeader(page: .appearance)
+                appearanceHero
+                appearanceStyleSection
+                appearanceGlassSection
+                appearanceLayoutSection
+                appearanceWidgetsSection
+                appearanceScopeSection
+            }
+            .padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    var appearanceHero: some View {
+        var profile = appearanceProfileID.flatMap { id in store.customProfiles.first { $0.id == id } }
+            ?? DockProfile(name: "Preview", kind: .custom, items: [.widget("Clock"), .widget("Weather"), .widget("Sticky Note")])
+        profile.appearance = ProfileAppearance(settings: appearanceSettings)
+        return ZStack {
+            SwatchWallpaper()
+            DockLayoutPreview(store: store, profile: profile, maximumSideLength: 180, usesLiveData: false)
+                .padding(20)
+        }
+        .frame(height: 200).clipShape(RoundedRectangle(cornerRadius: 18))
+        .accessibilityLabel("Dock appearance preview, sample data").id("Preview")
+    }
+
+    var appearanceStyleSection: some View {
+        GroupedSection("Style", footer: "Your Dock updates as you edit; previews use sample data.") {
+            VStack(alignment: .leading, spacing: 12) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 122), spacing: 8)], spacing: 12) {
+                    ForEach(DockQuickStyle.allCases) { style in
+                        StyleSwatch(style.title, look: style.look, isSelected: style.matches(appearanceSettings)) {
+                            updateAppearance { style.apply(to: &$0) }
+                        }
+                        .id("Style " + style.title)
+                    }
+                }
+                if !DockQuickStyle.allCases.contains(where: { $0.matches(appearanceSettings) }) {
+                    Text("Custom").font(.caption).foregroundStyle(.secondary)
+                }
+            }.padding(12)
+        }.id("Style")
+    }
+
+    var appearanceGlassSection: some View {
+        GroupedSection("Glass", footer: supportsLiquidGlass ? "Auto tint follows the Dock color." : "Liquid Glass uses frosted material before macOS 26.") {
+            SettingsControlRow(title: "Finish") {
+                Picker("Appearance", selection: appearanceBinding(\.customDockMaterial)) {
+                    ForEach(CustomDockMaterial.allCases) { Text($0.title).tag($0) }
+                }
+            }
+            if [.liquidGlass, .liquidGlassClear].contains(appearanceSettings.customDockMaterial) {
+                SettingsControlRow(title: "Glass finish") {
+                    Picker("Glass finish", selection: appearanceBinding(\.customDockMaterial)) {
+                        Text("Clear").tag(CustomDockMaterial.liquidGlassClear)
+                        Text("Frosted").tag(CustomDockMaterial.liquidGlass)
+                    }.pickerStyle(.segmented).frame(width: 220)
+                }
+            }
+            SettingsControlRow(title: "Edge") {
+                Picker("Edge", selection: appearanceBinding(\.customDockEdgeStyle)) {
+                    Text("None").tag(DockEdgeStyle.none)
+                    Text("Hairline").tag(DockEdgeStyle.hairline)
+                    Text("Contrast only").tag(DockEdgeStyle.contrastOnly)
+                }
+            }.id("Edge")
+            GroupedRow("Auto tint", isOn: Binding(get: { appearanceSettings.customDockTintMode == .auto }, set: { enabled in
+                updateAppearance { $0.customDockTintMode = enabled ? .auto : .custom }
+            })).id("Auto tint")
+            appearanceSlider("Tint strength", keyPath: \.customDockTintStrength, range: 0...0.5, step: 0.01, percent: true)
+                .disabled(appearanceSettings.customDockTintMode == .auto).id("Tint strength")
+            appearanceSlider("Glass opacity", keyPath: \.customDockGlassOpacity, range: 0...1, step: nil, percent: true)
+                .id("Glass opacity")
+            SettingsControlRow(title: "Color theme") {
+                Picker("Color theme", selection: appearanceBinding(\.customDockTheme)) {
+                    ForEach(CustomDockTheme.allCases) { Text($0.title).tag($0) }
+                }
+            }
+            if let profile = appearanceProfileID.flatMap({ id in store.customProfiles.first { $0.id == id } }) {
+                SettingsControlRow(title: "Dock color") {
+                    Picker("Dock color", selection: Binding(get: { DockProfileColor(rawValue: profile.color) ?? .blue }, set: { rememberAppearance(); store.setProfileColor(profile.id, to: $0) })) {
+                        ForEach(DockProfileColor.allCases) { Text($0.title).tag($0) }
+                    }
+                }
+            }
+        }.id("Glass")
+    }
+
+    var appearanceLayoutSection: some View {
+        GroupedSection("Layout") {
+            SettingsControlRow(title: "Density") {
+                Picker("Density", selection: Binding(get: { selectedDensity }, set: { preset in
+                    guard let preset else { return }
+                    updateAppearance { $0.customDockSize = preset.size; $0.customDockItemSpacing = preset.spacing }
+                })) {
+                    if selectedDensity == nil { Text("Custom").tag(Optional<DockDensityPreset>.none) }
+                    ForEach(DockDensityPreset.allCases) { Text($0.title).tag(Optional($0)) }
+                }
+            }
+            appearanceSlider("Tile size", keyPath: \.customDockSize, range: 0.65...1.5, step: nil, percent: true)
+            appearanceSlider("Item spacing", keyPath: \.customDockItemSpacing, range: DockAppearanceBounds.itemSpacing)
+            appearanceSlider("Corner roundness", keyPath: \.customDockCornerRadius, range: DockAppearanceBounds.cornerRadius)
+            appearanceSlider("Floating inset", keyPath: \.customDockFloatingInset, range: DockAppearanceBounds.floatingInset)
+                .id("Floating inset")
+        }.id("Layout")
+    }
+
+    var appearanceWidgetsSection: some View {
+        GroupedSection("Widgets", footer: "Each widget can override its layout and icon; side Docks use a narrow layout.") {
+            SettingsControlRow(title: "Default widget surface") {
+                Picker("Default widget surface", selection: appearanceBinding(\.customDockWidgetSurface)) {
+                    Text("Glass").tag(DockWidgetSurface.glass)
+                    Text("Plain").tag(DockWidgetSurface.plain)
+                    Text("Tile").tag(DockWidgetSurface.tile)
+                }
+            }.id("Default widget surface")
+            GroupedRow("Show widget labels", isOn: appearanceBinding(\.showWidgetLabels))
+            SettingsControlRow(title: "Widget defaults") {
+                Picker("Widget defaults", selection: appearanceBinding(\.customDockWidgetStyle)) {
+                    ForEach(CustomDockWidgetStyle.allCases) { Text($0.title).tag($0) }
+                }
+            }
+        }.id("Widgets")
+    }
+
+    var appearanceScopeSection: some View {
+        GroupedSection("Scope", footer: appearanceProfileID != nil ? "Edits create a Dock override; app defaults remain available." : "Defaults apply to Docks with inherited appearance.") {
             SettingsControlRow(title: "Editing") {
-                Picker("Editing", selection: Binding(
-                    get: { appearanceProfileID != nil },
-                    set: { thisDock in
-                        appearanceProfileID = thisDock ? store.activeCustomProfile?.id ?? store.customProfiles.first?.id : nil
-                        appearanceScopeMessage = nil
-                    })) {
+                Picker("Editing", selection: Binding(get: { appearanceProfileID != nil }, set: { thisDock in
+                    appearanceProfileID = thisDock ? store.activeCustomProfile?.id ?? store.customProfiles.first?.id : nil
+                    appearanceScopeMessage = nil
+                })) {
                     Text("This Dock").tag(true).disabled(store.customProfiles.isEmpty)
                     Text("App defaults").tag(false)
                 }.pickerStyle(.segmented).frame(width: 240)
@@ -29,118 +190,56 @@ extension SettingsView {
                         ForEach(store.customProfiles) { Text($0.name).tag(Optional($0.id)) }
                     }
                 }
-            } else {
-                Text(store.customProfiles.isEmpty ? "Create a custom Dock to edit its appearance. You can edit app defaults now." : "Defaults apply to Docks that use inherited appearance. Saved Dock overrides and Dock colors stay as they are.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else if store.customProfiles.isEmpty {
+                GroupedRow("Create a custom Dock to edit its appearance.")
             }
-            if let appearanceScopeMessage { Text(appearanceScopeMessage).font(.caption).foregroundStyle(.secondary) }
+            if let appearanceScopeMessage { GroupedRow(appearanceScopeMessage) }
             if let id = appearanceProfileID {
-                Toggle("Use app defaults", isOn: Binding(
-                    get: { store.customProfiles.first(where: { $0.id == id })?.appearance == nil },
-                    set: { inherit in
-                        rememberAppearance()
-                        store.setAppearance(inherit ? nil : ProfileAppearance(settings: appearanceSettings), for: id)
-                    }))
-                Text("This Dock can inherit app defaults or keep its full saved appearance. Editing a control creates a full Dock override.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if appearanceProfileID != nil {
-                Button("Reset to app defaults") {
-                    guard let id = appearanceProfileID, store.customProfiles.contains(where: { $0.id == id }) else { return }
+                GroupedRow("Use app defaults", isOn: Binding(get: {
+                    store.customProfiles.first(where: { $0.id == id })?.appearance == nil
+                }, set: { inherit in
+                    rememberAppearance()
+                    store.setAppearance(inherit ? nil : ProfileAppearance(settings: appearanceSettings), for: id)
+                }))
+                GroupedRow("Reset to app defaults", role: .button) {
+                    guard store.customProfiles.contains(where: { $0.id == id }) else { return }
                     rememberAppearance(); store.setAppearance(nil, for: id)
                 }
             } else {
-                Button("Reset app appearance defaults") {
+                GroupedRow("Reset app appearance defaults", role: .button) {
                     updateAppearance { $0 = ProfileAppearance(settings: AppSettings()).applying(to: $0) }
                 }
             }
+            GroupedRow("Restore appearance defaults", role: .button) {
+                updateAppearance {
+                    $0.customDockSize = 1; $0.customDockItemSpacing = 8; $0.customDockCornerRadius = 24
+                    $0.customDockTintStrength = 0.08; $0.customDockWidgetStyle = .cards
+                    $0.showWidgetLabels = true; $0.customDockMaterial = .frosted
+                }
+            }
             if previousAppearance?.isAvailable(for: appearanceProfileID) == true {
-                Button("Undo last appearance change") { undoAppearance() }
+                GroupedRow("Undo last appearance change", role: .button) { undoAppearance() }
             }
-        }
-        DockSettingSection(title: "Preview") {
-            appearancePreview
-            Text("Widgets in this preview use sample data.").font(.caption).foregroundStyle(.secondary)
-        }
-        DockSettingSection(title: "Quick styles") {
-            Text("Choose a finish. Your Dock updates as you make changes.")
-                .font(.callout).foregroundStyle(.secondary)
-            HStack {
-                appearancePreset("Minimal", material: .solid, tint: 0.03)
-                appearancePreset("Soft frost", material: .frosted, tint: 0.06)
-                appearancePreset("Clear glass", material: .liquidGlassClear, tint: 0)
-                appearancePreset("Frosted glass", material: .liquidGlass, tint: 0.02)
-                appearancePreset("Midnight", material: .dark, tint: 0.10)
-            }
-            if let profile = appearanceProfileID.flatMap({ id in store.customProfiles.first { $0.id == id } }) {
-                SettingsControlRow(title: "Dock color") {
-                    Picker("Dock color", selection: Binding(get: { DockProfileColor(rawValue: profile.color) ?? .blue }, set: { rememberAppearance(); store.setProfileColor(profile.id, to: $0) })) {
-                        ForEach(DockProfileColor.allCases) { Text($0.title).tag($0) }
-                    }
-                }
-            }
-        }
-        DockSettingSection(title: "Fine-tune appearance") {
-            SettingsControlRow(title: "Color theme") {
-                Picker("Color theme", selection: Binding(get: { appearanceSettings.customDockTheme }, set: { value in
-                    updateAppearance { $0.customDockTheme = value }
-                })) {
-                    ForEach(CustomDockTheme.allCases) { Text($0.title).tag($0) }
-                }.pickerStyle(.segmented).frame(width: 220)
-            }
-            SettingsControlRow(title: "Appearance") {
-                Picker("Appearance", selection: Binding(get: { appearanceSettings.customDockMaterial }, set: { value in
-                    updateAppearance { $0.customDockMaterial = value }
-                })) {
-                    ForEach(CustomDockMaterial.allCases) { material in Text(material.title).tag(material) }
-                }
-            }
-            SettingsControlRow(title: "Widget defaults") {
-                Picker("Widget defaults", selection: Binding(get: { appearanceSettings.customDockWidgetStyle }, set: { value in
-                    updateAppearance { $0.customDockWidgetStyle = value }
-                })) {
-                    ForEach(CustomDockWidgetStyle.allCases) { style in Text(style.title).tag(style) }
-                }
-            }
-            if [.liquidGlass, .liquidGlassClear].contains(appearanceSettings.customDockMaterial) {
-                SettingsControlRow(title: "Glass finish") {
-                    Picker("Glass finish", selection: Binding(get: { appearanceSettings.customDockMaterial }, set: { value in
-                        updateAppearance { $0.customDockMaterial = value }
-                    })) {
-                        Text("Clear").tag(CustomDockMaterial.liquidGlassClear)
-                        Text("Frosted").tag(CustomDockMaterial.liquidGlass)
-                    }.pickerStyle(.segmented).frame(width: 220)
-                }
-                HStack {
-                    Text("Glass opacity")
-                    Spacer()
-                    Text("\(Int((appearanceSettings.customDockGlassOpacity * 100).rounded()))%").monospacedDigit().foregroundStyle(.secondary)
-                }
-                Slider(value: Binding(get: { appearanceSettings.customDockGlassOpacity }, set: { value in
-                    updateAppearance { $0.customDockGlassOpacity = value }
-                }), in: 0...1).accessibilityLabel("Glass opacity")
-                HStack { Text("Clear"); Spacer(); Text("Opaque") }.font(.caption).foregroundStyle(.secondary)
-                Text("Keep more wallpaper visible, or give icons a quieter background. Tint strength adjusts the color separately.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            Text("Configure each widget’s layout and icon separately. Side Docks use a narrow presentation.")
-                .font(.caption).foregroundStyle(.secondary)
-            if [.liquidGlass, .liquidGlassClear].contains(appearanceSettings.customDockMaterial) && !supportsLiquidGlass {
-                Text("Liquid Glass uses the standard frosted material on macOS versions before 26.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            visualStyleControls
-        }
-        }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
-    }
+        }.id("Scope")
     }
 
-    private var appearancePreview: some View {
-        var profile = appearanceProfileID.flatMap { id in store.customProfiles.first { $0.id == id } }
-            ?? DockProfile(name: "Preview", kind: .custom, items: [.widget("Clock"), .widget("Weather"), .widget("Sticky Note")])
-        profile.appearance = ProfileAppearance(settings: appearanceSettings)
-        return DockLayoutPreview(store: store, profile: profile, maximumSideLength: 180, usesLiveData: false)
-            .accessibilityLabel("Dock appearance preview, sample data")
+    private func appearanceBinding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
+        Binding(get: { appearanceSettings[keyPath: keyPath] }, set: { value in updateAppearance { $0[keyPath: keyPath] = value } })
+    }
+
+    private func appearanceSlider(_ title: String, keyPath: WritableKeyPath<AppSettings, Double>, range: ClosedRange<Double>, step: Double? = 1, percent: Bool = false) -> some View {
+        let value = appearanceSettings[keyPath: keyPath]
+        return GroupedRow(title) {
+            HStack(spacing: 10) {
+                Slider(value: Binding(get: { appearanceSettings[keyPath: keyPath] }, set: { value in
+                    let adjusted = step.map { (value / $0).rounded() * $0 } ?? value
+                    updateAppearance { $0[keyPath: keyPath] = min(range.upperBound, max(range.lowerBound, adjusted)) }
+                }), in: range, onEditingChanged: appearanceSliderEditingChanged)
+                    .accessibilityLabel(title).frame(minWidth: 80, maxWidth: 180)
+                Text(percent ? "\(Int((value * 100).rounded()))%" : "\(Int(value.rounded())) pt")
+                    .monospacedDigit().foregroundStyle(.secondary).frame(width: 52, alignment: .trailing)
+            }
+        }
     }
 
     private var appearanceSettings: AppSettings {
@@ -172,123 +271,12 @@ extension SettingsView {
         previousAppearance = nil
     }
 
-    private func appearancePreset(_ title: String, material: CustomDockMaterial, tint: Double) -> some View {
-        let previewColor = SettingsAppearanceEditing.previewColor(profiles: store.customProfiles, profileID: appearanceProfileID)
-        let backdrop: [Color] = previewColor == nil
-            ? [Color(white: 0.38), Color(white: 0.62)]
-            : [Color(red: 0.35, green: 0.48, blue: 0.66), Color(red: 0.66, green: 0.52, blue: 0.40)]
-        var previewSettings = appearanceSettings
-        previewSettings.customDockMaterial = material
-        previewSettings.customDockTintStrength = tint
-        previewSettings.customDockGlassOpacity = material == .liquidGlass ? 0.15 : 0
-        previewSettings.customDockCornerRadius = 9
-        return Button {
-            updateAppearance {
-                $0.customDockMaterial = material
-                $0.customDockTintStrength = tint
-                $0.customDockGlassOpacity = material == .liquidGlass ? 0.15 : 0
-                $0.customDockCornerRadius = 22
-            }
-        } label: {
-            VStack(spacing: 7) {
-                ZStack {
-                    // A visible backdrop makes the material's clarity legible.
-                    LinearGradient(colors: backdrop, startPoint: .topLeading, endPoint: .bottomTrailing)
-                    DockMaterialSurface(settings: previewSettings, color: previewColor?.displayColor ?? .gray).padding(3)
-                    HStack(spacing: 5) {
-                        ForEach(["folder.fill", "clock.fill", "calendar"], id: \.self) { symbol in
-                            Image(systemName: symbol).font(.system(size: 13))
-                                .foregroundStyle(material == .dark ? Color.white.opacity(0.9) : Color.primary.opacity(0.8))
-                                .frame(width: 20, height: 24)
-                        }
-                    }
-                }.frame(height: 43).clipShape(RoundedRectangle(cornerRadius: 9))
-                Text(title).font(.system(size: 10, weight: .medium))
-                    .lineLimit(1).minimumScaleFactor(0.85)
-            }.padding(7).frame(maxWidth: .infinity)
-                .background(appearanceSettings.customDockMaterial == material ? DockDesign.accent.opacity(0.06) : .clear,
-                            in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10)
-                    .stroke(appearanceSettings.customDockMaterial == material ? DockDesign.accent : DockDesign.Outline.color(accessibility.contrast),
-                            lineWidth: appearanceSettings.customDockMaterial == material ? 1.5 : DockDesign.Outline.controlWidth(accessibility.contrast)))
-        }
-        .buttonStyle(.plain).accessibilityLabel(title)
-        .accessibilityAddTraits(appearanceSettings.customDockMaterial == material ? .isSelected : [])
-    }
-
-    private var visualStyleControls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Divider()
-            HStack {
-                Text("Density")
-                Spacer()
-                Text(selectedDensity?.title ?? "Custom").foregroundStyle(.secondary)
-            }
-            Picker("Density", selection: Binding(get: { selectedDensity }, set: { preset in
-                guard let preset else { return }
-                updateAppearance { $0.customDockSize = preset.size; $0.customDockItemSpacing = preset.spacing }
-            })) {
-                if selectedDensity == nil { Text("Custom").tag(Optional<DockDensityPreset>.none) }
-                ForEach(DockDensityPreset.allCases) { preset in Text(preset.title).tag(Optional(preset)) }
-            }.pickerStyle(.segmented).labelsHidden()
-            HStack {
-                Text("Tile size")
-                Spacer()
-                Text("\(Int((appearanceSettings.customDockSize * 100).rounded()))%").foregroundStyle(.secondary)
-            }
-            Slider(value: Binding(get: { appearanceSettings.customDockSize }, set: { value in
-                updateAppearance(immediately: false) { $0.customDockSize = value }
-            }), in: 0.65...1.5, onEditingChanged: appearanceSliderEditingChanged)
-            HStack {
-                Text("Item spacing")
-                Spacer()
-                Text("\(Int(appearanceSettings.customDockItemSpacing)) pt").foregroundStyle(.secondary)
-            }
-            Slider(value: Binding(get: { appearanceSettings.customDockItemSpacing }, set: { value in
-                updateAppearance(immediately: false) { $0.customDockItemSpacing = value }
-            }), in: DockAppearanceBounds.itemSpacing, step: 1, onEditingChanged: appearanceSliderEditingChanged)
-            DisclosureGroup("Advanced appearance", isExpanded: $advancedAppearanceExpanded) {
-                VStack(spacing: 12) {
-                    HStack {
-                        Text("Corner roundness")
-                        Spacer()
-                        Text("\(Int(appearanceSettings.customDockCornerRadius)) pt").foregroundStyle(.secondary)
-                    }
-                    Slider(value: Binding(get: { appearanceSettings.customDockCornerRadius }, set: { value in
-                        updateAppearance(immediately: false) { $0.customDockCornerRadius = value }
-                    }), in: DockAppearanceBounds.cornerRadius, step: 1, onEditingChanged: appearanceSliderEditingChanged)
-                    HStack {
-                        Text("Profile tint")
-                        Spacer()
-                        Text("\(Int((appearanceSettings.customDockTintStrength * 100).rounded()))%").foregroundStyle(.secondary)
-                    }
-                    Slider(value: Binding(get: { appearanceSettings.customDockTintStrength }, set: { value in
-                        updateAppearance(immediately: false) { $0.customDockTintStrength = value }
-                    }), in: DockAppearanceBounds.tintStrength, step: 0.01, onEditingChanged: appearanceSliderEditingChanged)
-                }.padding(.top, 12)
-            }
-            Button("Restore appearance defaults") {
-                updateAppearance {
-                    $0.customDockSize = 1
-                    $0.customDockItemSpacing = 8
-                    $0.customDockCornerRadius = 24
-                    $0.customDockTintStrength = 0.08
-                    $0.customDockWidgetStyle = .cards
-                    $0.showWidgetLabels = true
-                    $0.customDockMaterial = .frosted
-                }
-            }
-            .font(.caption)
-        }
-    }
-
     private var selectedDensity: DockDensityPreset? {
         DockDensityPreset.allCases.first {
             abs(appearanceSettings.customDockSize - $0.size) < 0.001
                 && abs(appearanceSettings.customDockItemSpacing - $0.spacing) < 0.001
         }
     }
-
     private var supportsLiquidGlass: Bool {
         if #available(macOS 26.0, *) { return true }
         return false
