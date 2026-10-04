@@ -262,28 +262,19 @@ private struct WeatherPopoutWidgetView: View {
 
     private var settingsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Picker("Popover content", selection: $layoutSelection) {
-                    ForEach(WeatherWidgetLayout.allCases) { option in Text(option.title).tag(option.rawValue) }
-                }
-                .frame(maxWidth: 160)
-                Picker("Units", selection: $unitSelection) {
-                    ForEach(WeatherTemperatureUnit.allCases) { option in Text(option.title).tag(option.rawValue) }
-                }
-                .frame(maxWidth: 75)
+            Picker("Popover content", selection: $layoutSelection) {
+                ForEach(WeatherWidgetLayout.allCases) { option in Text(option.title).tag(option.rawValue) }
             }
-            HStack {
-                Picker("Background", selection: $backgroundSelection) {
-                    ForEach(WeatherBackground.allCases) { option in Text(option.title).tag(option.rawValue) }
-                }
-                .frame(maxWidth: 150)
-                Spacer()
-                Stepper(value: $forecastHours, in: 1...6) {
-                    Text("\(forecastHours) hours").font(.caption)
-                }
-                .disabled(configuration.weatherLayout != .hourlyForecast)
-                .frame(maxWidth: 160)
+            Picker("Units", selection: $unitSelection) {
+                ForEach(WeatherTemperatureUnit.allCases) { option in Text(option.title).tag(option.rawValue) }
             }
+            Picker("Background", selection: $backgroundSelection) {
+                ForEach(WeatherBackground.allCases) { option in Text(option.title).tag(option.rawValue) }
+            }
+            Stepper(value: $forecastHours, in: 1...6) {
+                Text("Forecast: \(forecastHours) hours").font(.caption)
+            }
+            .disabled(configuration.weatherLayout != .hourlyForecast)
         }
         .padding(9)
         .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 9))

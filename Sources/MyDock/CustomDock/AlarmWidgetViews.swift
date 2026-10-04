@@ -79,12 +79,16 @@ private struct AlarmPopoutWidgetView: View {
                 if !repeatWeekdays.isEmpty {
                     Button("Once") { repeatWeekdays.removeAll() }.font(.caption).buttonStyle(.plain)
                 }
-                Spacer()
-                Button(editingAlarmID == nil ? "Add Alarm" : "Save Changes", action: saveAlarm).buttonStyle(DockButtonStyle(primary: true)).disabled(isScheduling)
+                Spacer(minLength: 0)
             }
-
-            if editingAlarmID != nil {
-                Button("Cancel Editing") { clearEditor() }.disabled(isScheduling)
+            HStack {
+                if editingAlarmID != nil {
+                    Button("Cancel Editing") { clearEditor() }.disabled(isScheduling)
+                }
+                Spacer()
+                Button(editingAlarmID == nil ? "Add Alarm" : "Save Changes", action: saveAlarm)
+                    .buttonStyle(DockButtonStyle(primary: true)).disabled(isScheduling)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             if let operationMessage {
                 Text(operationMessage).font(.caption).foregroundStyle(.secondary)
@@ -110,7 +114,7 @@ private struct AlarmPopoutWidgetView: View {
                 Text(String(format: "%02d:%02d", alarm.hour, alarm.minute))
                     .font(.system(size: 21, weight: .medium, design: .rounded).monospacedDigit())
                 Text(alarm.title + (alarm.repeatWeekdays.isEmpty ? " · Once" : " · " + weekdaySummary(alarm.repeatWeekdays)))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 TimelineView(.periodic(from: .now, by: 60)) { context in
                     if alarm.isEnabled, let date = AlarmSchedule.nextFireDate(hour: alarm.hour, minute: alarm.minute, repeatWeekdays: alarm.repeatWeekdays, now: context.date) {
                         Text("Next calculated time: " + date.formatted(date: .abbreviated, time: .shortened))
@@ -120,7 +124,7 @@ private struct AlarmPopoutWidgetView: View {
             }
             Spacer()
             Toggle("Enabled", isOn: Binding(get: { alarm.isEnabled }, set: { enabled in changeEnabled(alarm, to: enabled) }))
-                .labelsHidden().accessibilityLabel("Enable \(alarm.title)").disabled(busyAlarmIDs.contains(alarm.id) || isScheduling)
+                .labelsHidden().toggleStyle(.switch).fixedSize().accessibilityLabel("Enable \(alarm.title)").disabled(busyAlarmIDs.contains(alarm.id) || isScheduling)
             Button { editAlarm(alarm) } label: { Image(systemName: "pencil") }
                 .buttonStyle(.plain).accessibilityLabel("Edit \(alarm.title)")
                 .disabled(isScheduling || busyAlarmIDs.contains(alarm.id))
