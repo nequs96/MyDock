@@ -94,4 +94,49 @@ struct ReliabilitySourceScopeTests {
         configuration.appFolderApplications.removeAll { $0.id == first.id }
         #expect(configuration.appFolderApplications == [second])
     }
+    @Test func unattributedRefreshCannotBeStampedWithTheCurrentRoot() {
+        var configuration = WidgetConfiguration()
+        configuration.aiLimitsVisibleProviders = [.copilot]
+        let legacy = AILimitsSnapshot(fetchedAt: now, readings: [.init(provider: .copilot, availability: .available,
+            windows: [.init(name: "Credits", usedPercent: 10)], updatedAt: now, verifiedAccountIdentity: "github:fixture")])
+        WidgetDataValue.limits(legacy).apply(to: &configuration, now: now)
+        #expect(configuration.aiLimitsSnapshot == nil)
+        let sample = AIActivityReader.read(provider: .codex, range: .today, now: now,
+            timeZone: utc, homeDirectory: URL(fileURLWithPath: "/MyDockMissingFixtureHome"), environment: [:])
+        #expect(sample.sourceScope == AIUsageSourceScope.activity(provider: .codex, range: .today,
+            homeDirectory: URL(fileURLWithPath: "/MyDockMissingFixtureHome"), environment: [:], timeZone: utc, now: now))
+        var unattributed = sample; unattributed.sourceScope = nil
+        configuration.aiActivityProvider = .codex; configuration.aiActivityRange = .today
+        WidgetDataValue.activity(unattributed).apply(to: &configuration, now: now)
+        #expect(configuration.aiActivitySnapshot == nil)
+    }
+
+    @Test func symbolicAppAliasesDeduplicateWhileInstalledCopiesRemainDistinct() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("MyDock-AppIdentity-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = root.appendingPathComponent("First.app"), alias = root.appendingPathComponent("Alias.app")
+        let second = root.appendingPathComponent("Second.app")
+        try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: first)
+        let selected = AppFolderApplication(url: first), aliased = AppFolderApplication(url: alias)
+        #expect(selected.id == aliased.id && selected.id != AppFolderApplication(url: second).id)
+        #expect(try JSONDecoder().decode(AppFolderApplication.self, from: JSONEncoder().encode(aliased)).url == alias)
+    }
+
+    @Test func injectedLimitsReadersKeepTheirExplicitFixtureRootAttribution() async {
+        struct FixtureAdapter: AILimitProviderAdapter {
+            let provider: AIProvider = .claude
+            func read(now: Date) async throws -> AIProviderLimitReading {
+                .init(provider: .claude, availability: .available, windows: [.init(name: "Fixture", usedPercent: 5)], updatedAt: now)
+            }
+        }
+        let home = URL(fileURLWithPath: "/MyDockFixtureHome")
+        let environment = ["CLAUDE_CONFIG_DIR": "/MyDockFixtureRoot"]
+        let snapshot = await AILimitsCollector.collect(providers: [.claude], now: now,
+            adapters: [FixtureAdapter()], homeDirectory: home, environment: environment)
+        #expect(snapshot.readings.first?.availability == .available)
+        #expect(snapshot.sourceScope == AIUsageSourceScope.limits(providers: [.claude], homeDirectory: home, environment: environment, now: now))
+    }
+
 }

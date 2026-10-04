@@ -28,6 +28,7 @@ enum NowPlayingArtwork {
                 let (data, response) = try await transport(URLRequest(url: url))
                 guard !Task.isCancelled, (200..<300).contains(response.statusCode),
                       response.mimeType?.lowercased().hasPrefix("image/") == true,
+                      response.expectedContentLength <= Int64(maximumRemoteBytes),
                       data.count <= maximumRemoteBytes else { return nil }
                 return data
             } catch { return nil }

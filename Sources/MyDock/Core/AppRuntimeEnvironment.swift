@@ -25,7 +25,8 @@ enum AppRuntimeEnvironment {
     // with injected backends. The default application graph never escapes.
     static var allowsNativeEffects: Bool { !isIsolated }
     static var allowsCredentials: Bool { !isIsolated }
-    static var allowsNetwork: Bool { !isIsolated }
+    static var allowsNetwork: Bool { allowsProductionNetwork(validationRoot: validationRoot) }
+    static func allowsProductionNetwork(validationRoot: URL?) -> Bool { validationRoot == nil }
 
     static var applicationSupportDirectory: URL {
         if let validationRoot { return validationRoot.appendingPathComponent("ApplicationSupport", isDirectory: true) }

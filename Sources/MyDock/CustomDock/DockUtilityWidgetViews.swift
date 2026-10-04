@@ -220,8 +220,7 @@ struct TextSnippetsView: View {
     private var hasInput: Bool { editingID != nil || !title.isEmpty || !text.isEmpty }
     private var entries: [TextSnippet] { item.widgetConfiguration?.textSnippets ?? [] }
     private var visibleEntries: [TextSnippet] {
-        let query = savedSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        return entries.filter { query.isEmpty || ($0.title + " " + $0.text).localizedStandardContains(query) }
+        SavedSnippetSearch.results(entries, query: savedSearch)
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {

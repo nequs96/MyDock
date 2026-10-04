@@ -583,10 +583,15 @@ struct ClaudeStatusLineLimitAdapter: AILimitProviderAdapter {
 enum AILimitsCollector {
     static func collect(providers: [AIProvider], now: Date = .now,
                         copilotMonthlyCreditAllowance: Int? = nil,
-                        adapters: [any AILimitProviderAdapter]? = nil) async -> AILimitsSnapshot {
-        let environment = ProcessInfo.processInfo.environment
-        let sourceScope = AIUsageSourceScope.limits(providers: providers, environment: environment, now: now)
-        let adapters = adapters ?? defaultAdapters(copilotMonthlyCreditAllowance: copilotMonthlyCreditAllowance, environment: environment)
+                        adapters: [any AILimitProviderAdapter]? = nil,
+                        homeDirectory: URL? = nil, environment: [String: String]? = nil) async -> AILimitsSnapshot {
+        var environment = environment ?? (homeDirectory == nil ? ProcessInfo.processInfo.environment : [:])
+        if let homeDirectory {
+            if environment["CODEX_HOME"] == nil { environment["CODEX_HOME"] = homeDirectory.appendingPathComponent(".codex").path }
+            if environment["CLAUDE_CONFIG_DIR"] == nil { environment["CLAUDE_CONFIG_DIR"] = homeDirectory.appendingPathComponent(".claude").path }
+        }
+        let sourceScope = AIUsageSourceScope.limits(providers: providers, homeDirectory: homeDirectory, environment: environment, now: now)
+        let adapters = adapters ?? defaultAdapters(copilotMonthlyCreditAllowance: copilotMonthlyCreditAllowance, homeDirectory: homeDirectory, environment: environment)
         let readers = Dictionary(adapters.map { ($0.provider, $0) }, uniquingKeysWith: { first, _ in first })
         var readings: [AIProviderLimitReading] = []
         for provider in providers {
@@ -615,11 +620,11 @@ enum AILimitsCollector {
         return AILimitsSnapshot(fetchedAt: now, readings: readings, sourceScope: sourceScope)
     }
 
-    private static func defaultAdapters(copilotMonthlyCreditAllowance: Int?, environment: [String: String]) -> [any AILimitProviderAdapter] {
+    private static func defaultAdapters(copilotMonthlyCreditAllowance: Int?, homeDirectory: URL?, environment: [String: String]) -> [any AILimitProviderAdapter] {
         AIProvider.allCases.map { provider in
             switch provider {
             case .codex: CodexLimitAdapter(environment: environment) as any AILimitProviderAdapter
-            case .claude: ClaudeStatusLineLimitAdapter(environment: environment) as any AILimitProviderAdapter
+            case .claude: ClaudeStatusLineLimitAdapter(homeDirectory: homeDirectory ?? FileManager.default.homeDirectoryForCurrentUser, environment: environment) as any AILimitProviderAdapter
             case .copilot: GitHubCopilotLimitAdapter(monthlyAllowance: copilotMonthlyCreditAllowance) as any AILimitProviderAdapter
             default: UnavailableLimitAdapter(provider: provider) as any AILimitProviderAdapter
             }

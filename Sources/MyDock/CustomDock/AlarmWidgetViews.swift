@@ -125,7 +125,7 @@ private struct AlarmPopoutWidgetView: View {
                 .buttonStyle(.plain).accessibilityLabel("Edit \(alarm.title)")
                 .disabled(isScheduling || busyAlarmIDs.contains(alarm.id))
             Button(role: .destructive) { removeAlarm(alarm) } label: { Image(systemName: "trash") }
-                .buttonStyle(.plain).help("Remove alarm")
+                .buttonStyle(.plain).help("Remove alarm").disabled(isScheduling || busyAlarmIDs.contains(alarm.id))
         }
         .padding(8)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 9))
@@ -144,13 +144,10 @@ private struct AlarmPopoutWidgetView: View {
     private func saveAlarm() {
         let components = Calendar.current.dateComponents([.hour, .minute], from: alarmTime)
         guard let hour = components.hour, let minute = components.minute else { return }
-        let existing = editingAlarmID.flatMap { id in alarms.first { $0.id == id } }
-        guard editingAlarmID == nil || existing != nil else {
-            operationMessage = "This alarm was removed. Your input is still here."; return
+        guard let alarm = AlarmEditorCandidate.make(editingID: editingAlarmID, alarms: alarms, title: alarmTitle,
+                                                   hour: hour, minute: minute, repeatWeekdays: repeatWeekdays) else {
+            operationMessage = "This alarm was removed or its time is invalid. Your input is still here."; return
         }
-        let title = alarmTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let alarm = DockAlarm(id: existing?.id ?? UUID(), title: title.isEmpty ? "Alarm" : title,
-                              hour: hour, minute: minute, repeatWeekdays: repeatWeekdays.sorted(), isEnabled: existing?.isEnabled ?? true)
         do {
             try store.updateWidgetConfigurationAndPersist(itemID: item.id, in: profileID) { configuration in
                 if let index = configuration.alarms.firstIndex(where: { $0.id == alarm.id }) { configuration.alarms[index] = alarm }
@@ -190,21 +187,21 @@ private struct AlarmPopoutWidgetView: View {
             do {
                 try await AlarmNotificationService.schedule(widgetID: item.id, alarm: alarm, operationID: operationID)
                 guard AlarmNotificationService.isCurrent(widgetID: item.id, alarmID: alarm.id, operationID: operationID),
-                      alarms.first(where: { $0.id == alarm.id }) == alarm else {
+                      AlarmEditorCandidate.stillMatches(alarm, alarms: alarms) else {
                     AlarmNotificationService.cancelOperation(widgetID: item.id, alarmID: alarm.id, operationID: operationID); return
                 }
                 if clearFormOnSuccess { clearEditor() }
                 operationMessage = "Alarm saved. An alert was scheduled with macOS; delivery depends on notification settings."
             } catch {
                 guard AlarmNotificationService.isCurrent(widgetID: item.id, alarmID: alarm.id, operationID: operationID),
-                      alarms.first(where: { $0.id == alarm.id }) == alarm else {
+                      AlarmEditorCandidate.stillMatches(alarm, alarms: alarms) else {
                     AlarmNotificationService.cancelOperation(widgetID: item.id, alarmID: alarm.id, operationID: operationID); return
                 }
                 do {
                     try store.updateWidgetConfigurationAndPersist(itemID: item.id, in: profileID) { configuration in
                         if let index = configuration.alarms.firstIndex(where: { $0.id == alarm.id }) { configuration.alarms[index].isEnabled = false }
                     }
-                    operationMessage = error.localizedDescription + " The alarm was saved turned off. Your input is retained."
+                    operationMessage = error.localizedDescription + " The alarm was saved turned off. Enable it to try scheduling again."
                 } catch {
                     operationMessage = "No alert was scheduled, and the off state could not be saved. Your input is retained. Retry Save. " + error.localizedDescription
                 }

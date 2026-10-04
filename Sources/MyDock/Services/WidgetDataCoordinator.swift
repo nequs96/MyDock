@@ -236,7 +236,8 @@ final class WidgetDataCoordinator: ObservableObject {
         defer {
             requests[query] = nil; requestIDs[query] = nil; refreshing.remove(query)
         }
-        guard !cancelled, credentialRevision == GitHubCopilotCredentialStore.revision,
+        guard !cancelled, (query.kind != "AI Limits" || !configuration.aiLimitsVisibleProviders.contains(.copilot) ||
+                           credentialRevision == GitHubCopilotCredentialStore.revision),
               queryMaker(query.kind, configuration) == query else { return }
         switch result {
         case .success(let value):

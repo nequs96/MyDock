@@ -364,6 +364,10 @@ struct SettingsView: View {
                             guard let id = appearanceProfileID, store.customProfiles.contains(where: { $0.id == id }) else { return }
                             rememberAppearance(); store.setAppearance(nil, for: id)
                         }
+                    } else {
+                        Button("Reset app appearance defaults") {
+                            updateAppearance { $0 = ProfileAppearance(settings: AppSettings()).applying(to: $0) }
+                        }
                     }
                     if previousAppearance != nil {
                         Button("Undo last appearance change") { undoAppearance() }

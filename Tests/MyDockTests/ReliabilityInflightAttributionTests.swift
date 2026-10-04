@@ -59,4 +59,26 @@ struct ReliabilityInflightAttributionTests {
         await gate.release(); await refresh.value
         #expect(store.runtimeCache.readings(for: item.id)?.aiLimits == nil)
     }
+    @Test func oldMonthResponseIsNotAttributedToTheNewMonth() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("MyDock-Period-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ProfileStore(fileURL: root.appendingPathComponent("state.json"), allowsSystemChanges: false)
+        var item = DockItem.widget("AI Limits")
+        item.widgetConfiguration?.aiLimitsVisibleProviders = [.copilot]
+        let id = try store.createProfile(.init(name: "Fixture", kind: .custom, items: [item]))
+        let formatter = ISO8601DateFormatter()
+        var now = try #require(formatter.date(from: "2026-10-31T23:59:59Z"))
+        let gate = AttributionGate()
+        let coordinator = WidgetDataCoordinator(store: store, queryMaker: { kind, configuration in
+            WidgetDataQuery.make(kind: kind, configuration: configuration, now: now)
+        }) { query, _ in
+            await gate.hold()
+            return .limits(.init(fetchedAt: Date(timeIntervalSince1970: 1_791_115_200), readings: [], sourceScope: query.aiSourceScope))
+        }
+        let refresh = Task { await coordinator.refresh(item: item, profileID: id) }
+        await gate.waitForStart(); now = now.addingTimeInterval(2)
+        await gate.release(); await refresh.value
+        #expect(store.runtimeCache.readings(for: item.id)?.aiLimits == nil)
+    }
+
 }

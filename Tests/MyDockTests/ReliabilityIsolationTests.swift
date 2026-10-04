@@ -21,6 +21,8 @@ struct ReliabilityIsolationTests {
         // Running this case outside the isolated test harness must never make an external request.
         try #require(AppRuntimeEnvironment.isIsolated)
         #expect(!AppRuntimeEnvironment.allowsNetwork)
+        #expect(AppRuntimeEnvironment.allowsProductionNetwork(validationRoot: nil))
+        #expect(!AppRuntimeEnvironment.allowsProductionNetwork(validationRoot: URL(fileURLWithPath: "/synthetic")))
         #expect(throws: ValidationBoundaryError.self) { try AppRuntimeEnvironment.requireNetwork() }
         let request = URLRequest(url: URL(string: "https://fixture.invalid/unused")!)
         await #expect(throws: ValidationBoundaryError.self) { _ = try await URLSessionMarketDataTransport().data(for: request) }
@@ -50,6 +52,13 @@ struct ReliabilityIsolationTests {
             return (bytes, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"])!)
         }
         #expect(returned == bytes)
+        let png = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1kAAAAASUVORK5CYII="))
+        let destination = URL(string: "https://fixture.example.org/path")!
+        let favicon = await SiteFaviconFetcher.fetchIconData(for: destination) { request in
+            #expect(request.url?.path == "/favicon.ico")
+            return (png, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"])!)
+        }
+        #expect(favicon != nil)
         let oversized = await NowPlayingArtwork.fetchSpotifyArtwork(at: url) { _ in
             (Data(repeating: 0, count: 2 * 1_024 * 1_024 + 1),
              HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"])!)

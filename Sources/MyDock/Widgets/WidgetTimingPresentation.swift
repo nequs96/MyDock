@@ -2,8 +2,8 @@ import Foundation
 
 enum WidgetTimingPresentation {
     static func eventStatus(_ event: CalendarEventSnapshot, now: Date) -> String {
-        if event.isAllDay { return "All day" }
         if event.endDate <= now { return "Ended" }
+        if event.isAllDay { return "All day" }
         if event.startDate <= now { return "Ongoing · ends in " + duration(event.endDate.timeIntervalSince(now)) }
         return "Starts in " + duration(event.startDate.timeIntervalSince(now))
     }

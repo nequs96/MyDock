@@ -37,6 +37,7 @@ enum SiteFaviconFetcher {
                 let (data, response) = try await transport(URLRequest(url: iconURL))
                 guard !Task.isCancelled, (200..<300).contains(response.statusCode),
                       response.mimeType?.lowercased().hasPrefix("image/") == true,
+                      response.expectedContentLength <= Int64(maximumResponseBytes),
                       data.count <= maximumResponseBytes else { return nil }
                 return normalizedPNG(from: data)
             } catch { return nil }

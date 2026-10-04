@@ -16,6 +16,7 @@ struct CommandLibrary: View {
     @State private var category = "All"
     @State private var apps: [DockItem] = []
     @State private var selected = 0
+    @State private var recentlyAdded = Set<String>()
 
     init(store: ProfileStore, profile: DockProfile, commandMode: Bool = false, allowsAdding: Bool = true,
          initialQuery: String = "", initialCategory: String = "All",
@@ -50,9 +51,9 @@ struct CommandLibrary: View {
         if allowsAdding && (category == "All" || category == "Apps") {
             result += apps.map { item in
                 Entry(id: WidgetDiscovery.applicationKey(item) ?? item.id.uuidString, title: item.displayName,
-                      detail: WidgetDiscovery.containsApplication(item, in: profile.items) ? "Application · Already added" : "Application · " + (item.url?.deletingLastPathComponent().path ?? ""),
-                      symbol: "app", item: item, enabled: !WidgetDiscovery.containsApplication(item, in: profile.items),
-                      action: { guard !WidgetDiscovery.containsApplication(item, in: profile.items) else { return }; add(item); close() })
+                      detail: applicationAlreadyAdded(item) ? "Application · Already added" : "Application · " + (item.url?.deletingLastPathComponent().path ?? ""),
+                      symbol: "app", item: item, enabled: !applicationAlreadyAdded(item),
+                      action: { guard !applicationAlreadyAdded(item) else { return }; if let key = WidgetDiscovery.applicationKey(item) { recentlyAdded.insert(key) }; add(item); close() })
             }
         }
         if allowsAdding && profile.kind == .custom && (category == "All" || category == "Widgets") {
@@ -159,6 +160,10 @@ struct CommandLibrary: View {
                 if direction == .up { selected = max(0, selected - 1) }
             }
             .onExitCommand(perform: close)
+    }
+    private func applicationAlreadyAdded(_ item: DockItem) -> Bool {
+        WidgetDiscovery.containsApplication(item, in: profile.items)
+            || WidgetDiscovery.applicationKey(item).map { recentlyAdded.contains($0) } == true
     }
     private func performSelected() { if entries.indices.contains(selected), entries[selected].enabled { entries[selected].action() } }
 }

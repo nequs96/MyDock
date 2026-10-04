@@ -99,7 +99,7 @@ private struct AILimitsPopoutView: View {
                 ForEach(visibleReadings) { reading in providerSection(reading) }
             }
             if let fetchedAt = configuration.aiLimitsSnapshot?.fetchedAt {
-                Label("Updated \(fetchedAt.formatted(date: .omitted, time: .shortened))", systemImage: "clock")
+                Label("Last refresh \(fetchedAt.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
                     .font(.caption2).foregroundStyle(.secondary)
             }
             DataSourceProvenanceView(provenance: .aiLimits(snapshot: configuration.aiLimitsSnapshot))
@@ -232,7 +232,7 @@ private struct AILimitsPopoutView: View {
                 }
             }
             if let updatedAt = reading.updatedAt {
-                Text("Provider update \(updatedAt.formatted(date: .omitted, time: .shortened))")
+                Text("Reading as of \(updatedAt.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
         }
@@ -544,7 +544,7 @@ private struct AIActivitySummary: View {
                     Image(systemName: "exclamationmark.circle").accessibilityHidden(true)
                     Text(snapshot?.available == true ? "Refresh failed · saved activity shown" : "Local activity couldn’t be read")
                 } else if refreshing { Text(snapshot == nil ? "Reading local history…" : "Updating…") }
-                else if let s = snapshot { Text("Updated \(s.fetchedAt.formatted(date: .omitted, time: .shortened))") }
+                else if let s = snapshot { Text("Read \(s.fetchedAt.formatted(date: .abbreviated, time: .shortened))") }
                 else { Text("Local activity only") }
                 Spacer(minLength: 0)
                 if failed { Button("Retry", action: refresh).buttonStyle(.borderless).disabled(refreshing) }
