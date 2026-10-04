@@ -376,3 +376,19 @@ The user's usage limit was reached.
 - **RD-06** (Add Item gallery, `widget-gallery` agent) was stopped mid-work. Any partial work is in its `.claude/worktrees/agent-a237fc9bf51278e31` worktree, uncommitted. Relaunch it from base `116eac9` or later.
 - **Not started:** RD-07 (brief template `../MyDock-wt/RD-07.brief.tmpl`; replace `BASE_COMMIT`), RD-08–RD-12.
 - **CI:** still unverified; pushing needs the user's permission.
+
+### Resumption — 4 October 2026 (user: "continue")
+
+**Integration renders viewed** (`wave2a/DOCKSTYLE`, first images combining RD-04 and RD-05):
+
+| Render | What it shows |
+|---|---|
+| `dockstyle-clear-bottom-dark` | Clear Dock. Widgets sit directly on the glass (plain), with no tiles or edge. |
+| `dockstyle-glass-bottom-light` | Hairline Dock with soft glass modules. |
+| `dockstyle-clear-bottom-light-increase-contrast` | Dock and module edges, plus stronger dots. |
+
+Running dots, the badge and the boxless folder are consistent across all three.
+
+**Workers resumed or launched:**
+- **RD-06** (`widget-gallery` agent): resumed from its uncommitted partial work, which is about 800 lines in `UI/WidgetGallery/`, not yet wired into `AddLibrary` and not compiling at the pause. It was told to rebase onto `cbcb481` and finish.
+- **RD-07** (Codex `gpt-6.1-sol`, medium): launched in `../MyDock-wt/RD-07`, branch `redesign/RD-07` at `cbcb481`.
