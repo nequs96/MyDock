@@ -7,7 +7,13 @@ struct WidgetDataQuery: Hashable, Sendable {
     var kind: String
     var key: String
 
-    static func make(kind: String?, configuration c: WidgetConfiguration, now: Date = .now) -> Self? {
+    var aiSourceScope: String? {
+        if kind == "AI Activity" { return key }
+        if kind == "AI Limits", let start = key.range(of: "limits-v") { return String(key[start.lowerBound...]) }
+        return nil
+    }
+
+    static func make(kind: String?, configuration c: WidgetConfiguration, now: Date = .now, homeDirectory: URL? = nil, environment: [String: String]? = nil, timeZone: TimeZone = .current) -> Self? {
         switch kind {
         case "Stripe" where !c.stripeAccountID.isEmpty:
             Self(kind: "Stripe", key: "\(c.stripeAccountID)|\(c.stripePeriod.rawValue)")
@@ -20,9 +26,9 @@ struct WidgetDataQuery: Hashable, Sendable {
         case "Watchlist" where !c.watchlistStocks.isEmpty:
             Self(kind: "Watchlist", key: c.watchlistStocks.map { "\($0.symbol)|\($0.currency)" }.joined(separator: ";"))
         case "AI Limits":
-            Self(kind: "AI Limits", key: c.aiLimitsVisibleProviders.map(\.rawValue).sorted().joined(separator: ";") + "|\(c.aiCopilotMonthlyCreditAllowance ?? 0)|" + AIUsageSourceScope.limits(providers: c.aiLimitsVisibleProviders, now: now))
+            Self(kind: "AI Limits", key: c.aiLimitsVisibleProviders.map(\.rawValue).sorted().joined(separator: ";") + "|\(c.aiCopilotMonthlyCreditAllowance ?? 0)|" + AIUsageSourceScope.limits(providers: c.aiLimitsVisibleProviders, homeDirectory: homeDirectory, environment: environment, now: now))
         case "AI Activity":
-            Self(kind: "AI Activity", key: AIUsageSourceScope.activity(provider: c.aiActivityProvider, range: c.aiActivityRange, now: now))
+            Self(kind: "AI Activity", key: AIUsageSourceScope.activity(provider: c.aiActivityProvider, range: c.aiActivityRange, homeDirectory: homeDirectory, environment: environment, timeZone: timeZone, now: now))
         default: nil
         }
     }
@@ -42,7 +48,7 @@ enum WidgetDataValue {
         return nil
     }
 
-    func apply(to c: inout WidgetConfiguration, now: Date = .now) {
+    func apply(to c: inout WidgetConfiguration, now: Date = .now, sourceScope: String? = nil) {
         switch self {
         case .stripe(let snapshot):
             c.stripeSnapshot = snapshot
@@ -54,7 +60,7 @@ enum WidgetDataValue {
                 if let snapshot = snapshots[c.watchlistStocks[index].symbol] { c.watchlistStocks[index].snapshot = snapshot }
             }
         case .limits(var snapshot):
-            let scope = AIUsageSourceScope.limits(providers: c.aiLimitsVisibleProviders, now: now)
+            let scope = sourceScope ?? AIUsageSourceScope.limits(providers: c.aiLimitsVisibleProviders, now: now)
             guard snapshot.sourceScope == scope else { return }
             if let previous = c.aiLimitsSnapshot, previous.sourceScope == scope {
                 snapshot.readings = snapshot.readings.map { reading in
@@ -74,7 +80,7 @@ enum WidgetDataValue {
             c.aiLimitsSnapshot = snapshot
         case .activity(var snapshot):
             guard snapshot.provider == c.aiActivityProvider, snapshot.range == c.aiActivityRange, snapshot.hasCurrentSemantics else { return }
-            let scope = AIUsageSourceScope.activity(provider: c.aiActivityProvider, range: c.aiActivityRange, now: now)
+            let scope = sourceScope ?? AIUsageSourceScope.activity(provider: c.aiActivityProvider, range: c.aiActivityRange, now: now)
             guard snapshot.sourceScope == scope else { return }
             // An unreadable refresh must not erase useful history. A successful
             // empty scan can replace it (for example, after logs are removed).
@@ -102,10 +108,12 @@ final class WidgetDataCoordinator: ObservableObject {
     private var cache: [WidgetDataQuery: (date: Date, value: WidgetDataValue)] = [:]
     private var failures: [WidgetDataQuery: Int] = [:]
     private let limiter = WidgetRefreshLimiter(maximumConcurrent: 4)
+    private let queryMaker: (String?, WidgetConfiguration) -> WidgetDataQuery?
     private let loader: (WidgetDataQuery, WidgetConfiguration) async throws -> WidgetDataValue
 
-    init(store: ProfileStore, loader: ((WidgetDataQuery, WidgetConfiguration) async throws -> WidgetDataValue)? = nil) {
+    init(store: ProfileStore, queryMaker: @escaping (String?, WidgetConfiguration) -> WidgetDataQuery? = { WidgetDataQuery.make(kind: $0, configuration: $1) }, loader: ((WidgetDataQuery, WidgetConfiguration) async throws -> WidgetDataValue)? = nil) {
         self.store = store
+        self.queryMaker = queryMaker
         self.loader = loader ?? Self.load
         credentialObservation = NotificationCenter.default.publisher(for: GitHubCopilotCredentialStore.didChange)
             .receive(on: RunLoop.main).sink { [weak self] _ in self?.store?.invalidateCopilotLimitReadings() }
@@ -126,7 +134,7 @@ final class WidgetDataCoordinator: ObservableObject {
     }
 
     func refresh(item: DockItem, profileID: UUID, force: Bool = true) async {
-        guard let c = item.widgetConfiguration, let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: c) else { return }
+        guard let c = item.widgetConfiguration, let query = queryMaker(item.widgetKind, c) else { return }
         await refresh(query, configuration: c, force: force)
     }
 
@@ -148,7 +156,7 @@ final class WidgetDataCoordinator: ObservableObject {
         var desired: [WidgetDataQuery: WidgetConfiguration] = [:]
         if visible, let profile = store?.activeCustomProfile {
             for item in profile.items {
-                if let c = item.widgetConfiguration, let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: c) {
+                if let c = item.widgetConfiguration, let query = queryMaker(item.widgetKind, c) {
                     if let existing = desired[query], Self.interval(query, configuration: existing) <= Self.interval(query, configuration: c) { continue }
                     desired[query] = c
                 }
@@ -165,7 +173,7 @@ final class WidgetDataCoordinator: ObservableObject {
                 while !Task.isCancelled {
                     guard self?.store != nil else { return }
                     // Root/time-zone/period changes restart the query even without an authored edit.
-                    guard WidgetDataQuery.make(kind: query.kind, configuration: configuration) == query else {
+                    guard self?.queryMaker(query.kind, configuration) == query else {
                         self?.reconcile(); return
                     }
                     await self?.refresh(query, configuration: configuration, force: false)
@@ -213,7 +221,7 @@ final class WidgetDataCoordinator: ObservableObject {
                         result = .failure(error)
                     }
                 } catch { result = .failure(error) }
-                self?.finishRefresh(result, query: query, requestID: requestID, credentialRevision: credentialRevision, cancelled: Task.isCancelled)
+                self?.finishRefresh(result, query: query, requestID: requestID, configuration: configuration, credentialRevision: credentialRevision, cancelled: Task.isCancelled)
             }
             requests[query] = request
             refreshing.insert(query)
@@ -223,12 +231,13 @@ final class WidgetDataCoordinator: ObservableObject {
 
     /// A shared request owns its result once, regardless of how many tiles await it.
     private func finishRefresh(_ result: Result<WidgetDataValue, Error>, query: WidgetDataQuery,
-                               requestID: UUID, credentialRevision: UInt64, cancelled: Bool) {
+                               requestID: UUID, configuration: WidgetConfiguration, credentialRevision: UInt64, cancelled: Bool) {
         guard requestIDs[query] == requestID else { return }
         defer {
             requests[query] = nil; requestIDs[query] = nil; refreshing.remove(query)
         }
-        guard !cancelled, credentialRevision == GitHubCopilotCredentialStore.revision else { return }
+        guard !cancelled, credentialRevision == GitHubCopilotCredentialStore.revision,
+              queryMaker(query.kind, configuration) == query else { return }
         switch result {
         case .success(let value):
             cache[query] = (.now, value)
@@ -247,13 +256,13 @@ final class WidgetDataCoordinator: ObservableObject {
         guard let store else { return }
         let targets = store.state.profiles.flatMap { profile in
             profile.items.filter { item in
-                item.widgetConfiguration.map { WidgetDataQuery.make(kind: item.widgetKind, configuration: $0) == query } ?? false
+                item.widgetConfiguration.map { queryMaker(item.widgetKind, $0) == query } ?? false
             }.map { (profile.id, $0.id) }
         }
         for (profileID, itemID) in targets {
             store.updateWidgetConfiguration(itemID: itemID, in: profileID) { c in
-                guard WidgetDataQuery.make(kind: query.kind, configuration: c) == query else { return }
-                value.apply(to: &c)
+                guard queryMaker(query.kind, c) == query else { return }
+                value.apply(to: &c, sourceScope: query.aiSourceScope)
             }
         }
     }
