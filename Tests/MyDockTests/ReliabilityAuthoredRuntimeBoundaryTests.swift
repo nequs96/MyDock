@@ -76,7 +76,7 @@ struct ReliabilityAuthoredRuntimeBoundaryTests {
         let observation = store.$state.dropFirst().sink { _ in authoredPublications += 1 }
         // An authored change smuggled into a provider update is ignored.
         let result = store.publishRuntimeReadings(itemID: item.id, in: id) {
-            $0.stockSnapshot = quote(close: 3, at: 3_000); $0.stockSymbol = "ZZZZ"
+            $0.stockSnapshot = quote(close: 3, at: 3_000); $0.noteText = "smuggled"
         }
         #expect(result == .accepted)
         #expect(store.state == authored)
@@ -84,7 +84,7 @@ struct ReliabilityAuthoredRuntimeBoundaryTests {
         #expect(!store.hasUnpersistedChanges)
         #expect(!store.editSessions.hasUnsavedChanges)
         #expect(store.history.entries.count == historyCount)
-        #expect(store.presentationItem(item).widgetConfiguration?.stockSymbol == "AAPL")
+        #expect(store.presentationItem(item).widgetConfiguration?.noteText != "smuggled")
         #expect(store.presentationItem(item).widgetConfiguration?.stockSnapshot != nil)
         #expect(store.publishRuntimeReadings(itemID: UUID(), in: id) { _ in } == .missingTarget)
         withExtendedLifetime(observation) {}
