@@ -6,8 +6,4 @@ DerivedData/
 xcuserdata/
 *.xcworkspace/xcuserdata/
 __pycache__/
-__pycache__/
-__pycache__/
-__pycache__/
-__pycache__/
-__pycache__/
+.claude/worktrees/
