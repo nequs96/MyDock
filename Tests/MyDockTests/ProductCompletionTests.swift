@@ -22,7 +22,7 @@ struct ProductCompletionTests {
         #expect(store.customProfiles.first { $0.id == id } == before)
         #expect(store.state.settings.automaticallyHideCustomDock == behavior)
         #expect(store.effectiveSettings(profileID: id).customDockSize == 1.3)
-        undo.restore(in: store)
+        undo.restore(in: store, editingProfileID: nil)
         #expect(store.state.settings.customDockSize == undo.settings.customDockSize)
         #expect(store.customProfiles.first { $0.id == id } == before)
     }
@@ -42,7 +42,7 @@ struct ProductCompletionTests {
         let undo = try #require(SettingsAppearanceEditing.capture(in: store, profileID: id))
         store.setAppearance(nil, for: id)
         #expect(store.effectiveSettings(profileID: id).customDockTintStrength == globals.customDockTintStrength)
-        undo.restore(in: store)
+        undo.restore(in: store, editingProfileID: id)
         #expect(store.customProfiles.first { $0.id == id }?.appearance == override)
     }
 

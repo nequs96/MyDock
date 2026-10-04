@@ -369,7 +369,7 @@ struct SettingsView: View {
                             updateAppearance { $0 = ProfileAppearance(settings: AppSettings()).applying(to: $0) }
                         }
                     }
-                    if previousAppearance != nil {
+                    if previousAppearance?.isAvailable(for: appearanceProfileID) == true {
                         Button("Undo last appearance change") { undoAppearance() }
                     }
                 }
@@ -743,6 +743,10 @@ struct SettingsView: View {
         .onAppear {
             if let initialPage { persistSettingsPage(initialPage) }
         }
+        .onChange(of: appearanceProfileID) { _ in
+            previousAppearance = nil
+            editingAppearanceContinuously = false
+        }
         .onChange(of: store.customProfiles.map(\.id)) { ids in
             if let id = appearanceProfileID, !ids.contains(id) {
                 appearanceProfileID = nil
@@ -815,11 +819,15 @@ struct SettingsView: View {
     }
 
     private func undoAppearance() {
-        previousAppearance?.restore(in: store)
+        previousAppearance?.restore(in: store, editingProfileID: appearanceProfileID)
         previousAppearance = nil
     }
 
     private func appearancePreset(_ title: String, material: CustomDockMaterial, tint: Double) -> some View {
+        let previewColor = SettingsAppearanceEditing.previewColor(profiles: store.customProfiles, profileID: appearanceProfileID)
+        let backdrop: [Color] = previewColor == nil
+            ? [Color(white: 0.38), Color(white: 0.62)]
+            : [Color(red: 0.35, green: 0.48, blue: 0.66), Color(red: 0.66, green: 0.52, blue: 0.40)]
         var previewSettings = appearanceSettings
         previewSettings.customDockMaterial = material
         previewSettings.customDockTintStrength = tint
@@ -836,8 +844,8 @@ struct SettingsView: View {
             VStack(spacing: 7) {
                 ZStack {
                     // A visible backdrop makes the material's clarity legible.
-                    LinearGradient(colors: [Color(red: 0.35, green: 0.48, blue: 0.66), Color(red: 0.66, green: 0.52, blue: 0.40)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    DockMaterialSurface(settings: previewSettings, color: .blue).padding(3)
+                    LinearGradient(colors: backdrop, startPoint: .topLeading, endPoint: .bottomTrailing)
+                    DockMaterialSurface(settings: previewSettings, color: previewColor?.displayColor ?? .gray).padding(3)
                     HStack(spacing: 5) {
                         ForEach(["folder.fill", "clock.fill", "calendar"], id: \.self) { symbol in
                             Image(systemName: symbol).font(.system(size: 13))

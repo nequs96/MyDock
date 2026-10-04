@@ -160,8 +160,8 @@ enum PremiumVisualQA {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(widget.name).font(DockDesign.sectionTitle)
                         HStack(alignment: .top, spacing: 24) {
-                            ForEach(WidgetCardWidth.allCases) { width in
-                                WidgetLibraryTile(widget: widget, cardWidth: width, showsVariantLabel: true)
+                            ForEach(WidgetPresentationCatalog.options(for: widget.name)) { option in
+                                WidgetLibraryTile(widget: widget, layout: option.layout, showsVariantLabel: true)
                                     .frame(width: 224)
                             }
                         }
@@ -411,6 +411,7 @@ enum PremiumVisualQA {
     private static func exportChangedSurfacesUI(to directory: URL, store: ProfileStore) async throws {
         precondition(AppRuntimeEnvironment.isIsolated, "Surface fixtures require an isolated validation root")
         let id = try store.createProfileAndPersist(kind: .custom, name: "Example Dock")
+        store.setProfileColor(id, to: .orange)
         store.activate(id)
         store.updateSettings { $0.onboardingComplete = true; $0.showRunningApps = false; $0.showTrash = false; $0.customDockWidgetStyle = .cards }
         var alarm = DockItem.widget("Alarm")
@@ -447,7 +448,15 @@ enum PremiumVisualQA {
             store.updateSettings { $0.activeCustomProfileID = id }
             try await render(DiagnosticsPreviewSheet(payload: payload, cancel: {}, saved: {}).background(WidgetDesign.surface),
                 name: "surface-diagnostics-\(suffix)", size: NSSize(width: 620, height: 540), scheme: scheme, directory: directory)
-            try await render(WidgetPopout(store: store, item: limits, profileID: id).padding(20).background(WidgetDesign.surface),
+            // Match CustomDockView's live popover wrapper so fixed-height exports scroll
+            // the content instead of compressing the footer into its preceding rows.
+            try await render(VStack(alignment: .leading, spacing: 10) {
+                DockScrollView(.vertical) {
+                    WidgetPopout(store: store, item: limits, profileID: id)
+                        .frame(minWidth: 250, minHeight: 150, alignment: .topLeading)
+                }
+            }.padding(20).background(WidgetDesign.surface)
+                .frame(minWidth: 250, minHeight: 150, maxHeight: 800, alignment: .topLeading),
                 name: "surface-ai-limits-stale-\(suffix)", size: NSSize(width: 460, height: 800), scheme: scheme, directory: directory)
             try await render(HStack(spacing: 16) {
                 ForEach(WidgetPresentationCatalog.options(for: "AI Limits")) { option in
@@ -536,6 +545,27 @@ enum PremiumVisualQA {
         }
     }
 
+    /// Authored named states include the same attribution required by runtime projection.
+    static func activityFixture(state: String) -> DockItem {
+        var item = AIActivityPreviewData.item()
+        if ["connected", "partial", "updating"].contains(state) {
+            item.widgetConfiguration?.aiActivitySnapshot?.totals.totalTokens = 643_868_378
+            item.widgetConfiguration?.aiActivitySnapshot?.totals.sessions = 12
+            item.widgetConfiguration?.aiActivitySnapshot?.totals.toolCalls = 0
+            item.widgetConfiguration?.aiActivitySnapshot?.partial = state == "partial"
+            for index in item.widgetConfiguration!.aiActivitySnapshot!.points.indices {
+                item.widgetConfiguration?.aiActivitySnapshot?.points[index].totalTokens *= 4_000
+            }
+        } else {
+            item.widgetConfiguration?.aiActivitySnapshot?.available = false
+            item.widgetConfiguration?.aiActivitySnapshot?.partial = state == "failure"
+        }
+        let configuration = item.widgetConfiguration!
+        item.widgetConfiguration?.aiActivitySnapshot?.sourceScope = AIUsageSourceScope.activity(
+            provider: configuration.aiActivityProvider, range: configuration.aiActivityRange)
+        return item
+    }
+
     private static func exportFocusedUI(to directory: URL, store: ProfileStore) async throws {
         let id = try store.createProfileAndPersist(kind: .custom, name: "Everyday")
         store.add(.widget("Clock"), to: id)
@@ -556,32 +586,21 @@ enum PremiumVisualQA {
             try await render(AddLibrary(store: store, profile: profile, initialQuery: "Clock", add: { _ in }, switchProfile: { _ in }, newDock: {}, settings: {}, browse: { _ in }, close: {}),
                 name: "add-search-" + suffix, size: NSSize(width: 740, height: 500), scheme: scheme, directory: directory)
             for state in ["connected", "partial", "disconnected", "empty", "failure", "updating"] {
-                var item = AIActivityPreviewData.item()
-                if state == "connected" || state == "partial" || state == "updating" {
-                    item.widgetConfiguration?.aiActivitySnapshot?.totals.totalTokens = 643_868_378
-                    item.widgetConfiguration?.aiActivitySnapshot?.totals.sessions = 12
-                    item.widgetConfiguration?.aiActivitySnapshot?.totals.toolCalls = 0
-                    item.widgetConfiguration?.aiActivitySnapshot?.partial = state == "partial"
-                    for index in item.widgetConfiguration!.aiActivitySnapshot!.points.indices {
-                        item.widgetConfiguration?.aiActivitySnapshot?.points[index].totalTokens *= 4_000
-                    }
-                } else {
-                    item.widgetConfiguration?.aiActivitySnapshot?.available = false
-                    item.widgetConfiguration?.aiActivitySnapshot?.partial = state == "failure"
-                }
-                store.add(item, to: id)
+                let item = activityFixture(state: state)
+                // Even a future fixture refresh must return the authored state, never read
+                // local provider logs or replace it with an empty live snapshot.
                 let snapshot = item.widgetConfiguration!.aiActivitySnapshot!
+                store.widgetData = WidgetDataCoordinator(store: store, loader: { _, _ in
+                    if state == "updating" { try await Task.sleep(for: .seconds(3)) }
+                    return .activity(snapshot)
+                })
+                store.add(item, to: id)
                 if state == "updating" {
-                    store.widgetData = WidgetDataCoordinator(store: store, loader: { _, _ in
-                        try await Task.sleep(for: .seconds(3))
-                        return .activity(snapshot)
-                    })
                     Task { await store.widgetData.refresh(item: item, profileID: id) }
                 }
                 let account = AIAccountStatus(state: state == "disconnected" ? .unavailable : .signedIn, message: "Preview")
                 try await render(AIActivityPopoutView(store: store, item: item, profileID: id, accountOverride: account).padding(16).background(DockDesign.page),
                     name: "ai-" + state + "-" + suffix, size: NSSize(width: 404, height: state == "connected" || state == "partial" || state == "updating" ? 390 : 320), scheme: scheme, directory: directory)
-                if state == "updating" { store.widgetData = WidgetDataCoordinator(store: store) }
                 store.removeItem(item.id, from: id)
             }
             var tile = AIActivityPreviewData.item()
