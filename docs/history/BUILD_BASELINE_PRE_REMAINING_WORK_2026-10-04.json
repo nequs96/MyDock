@@ -1,13 +1,13 @@
 {
-  "recorded_at": "2026-10-04T16:58:34.351602+02:00",
+  "recorded_at": "2026-10-04T11:04:21.343848+02:00",
   "canonical_app": "build/MyDock.app",
   "source_of_truth": "Sources/MyDock/",
-  "source_fingerprint": "54730d962764ec10665b4c5ef20f0d8e09fc9999ca99b3a1de417a3dbb419d50",
+  "source_fingerprint": "347cd61b0e4397f10dcb9a0f5573b7d1d3f2992efacab99f5d26f07320a37138",
   "source_hashes": {
     ".github/workflows/validate.yml": "98aae04882f241adb59dc3edca339a9ebd14b63a866048197194c926464d6978",
     "BuildMyDock.sh": "e38ea439069353e94e04bb6d6778bfb3758c3d250a3eca7fe1804efe8261962b",
     "GenerateXcodeProject.sh": "0217ddc2597ac0f73faf87d425a54ff53097705a84020b1880ddf1ee329a367d",
-    "MyDock.xcodeproj/project.pbxproj": "50454ef86bd14f33a0cf7ad6aeb49b4c1ad48ce21e5e43dd941cc13c40840fe0",
+    "MyDock.xcodeproj/project.pbxproj": "d775ff997cc50b91e0b269fc55aeb56621ab2d4fe90ae976225b316b0ddf8c56",
     "MyDock.xcodeproj/project.xcworkspace/contents.xcworkspacedata": "7f3b00b5c3fdb45242d7b87e1e5c4e25d1fa8129a16c94295ecc4e8ea2235c5f",
     "MyDock.xcodeproj/xcshareddata/xcschemes/MyDock Visual QA.xcscheme": "4119b33f580c40c6f4a61d0130a9e4fabbe620de5abf43890470146a30d981b6",
     "MyDock.xcodeproj/xcshareddata/xcschemes/MyDock.xcscheme": "5c78e11f44817de5014d706c4733a386b197ee5eb432e6892650e1a35559ca95",
@@ -24,8 +24,7 @@
     "Sources/MyDock/CustomDock/AirDropWidgetViews.swift": "685b64d09370d8208d1c05238b51f63a7c10edb3176ab59dcc4d7d13968ba100",
     "Sources/MyDock/CustomDock/AlarmWidgetViews.swift": "ca8897f9fff4eda4a07e2da149591a552595149b4a86697ef932690fff53aa95",
     "Sources/MyDock/CustomDock/AppleWidgetCard.swift": "795cd99412decd6bbf98b516ff99862a19f2ffd7ace72b9ebb75b0d300b7fa4e",
-    "Sources/MyDock/CustomDock/CalendarQAFixture.swift": "b056b0dbb8959e3ed6693c827b23744b7ca9c9868b08ccf2aae2a98e44cc4e48",
-    "Sources/MyDock/CustomDock/CalendarRemindersWidgetViews.swift": "14f4de0d366d4796d80131b1fbdc615c5ab8a7d538b3c8af460d0a6b9cba42e4",
+    "Sources/MyDock/CustomDock/CalendarRemindersWidgetViews.swift": "eb9b1e5322373a790622f1e283d5f0e183e9c16fdf0a9ae9df89f21b28d5b92b",
     "Sources/MyDock/CustomDock/CollectionUndo.swift": "b196e50bb158c27cc84b62d8def7886ad51f8b90e8bd9e447eb43eaf2965405c",
     "Sources/MyDock/CustomDock/DockLayoutPreview.swift": "3da31ba45ca84094869c95c4f9acb5f77692158927d28ebc9b668d8ab0820fb9",
     "Sources/MyDock/CustomDock/DockMaterialSurface.swift": "dccf357de1c6486b91f4d712bbdd748cd96859a5fdf627c4182cf26b6fab1949",
@@ -70,18 +69,18 @@
     "Sources/MyDock/Models/ProfileSanitizer.swift": "a4fb2b3f5f404f4bd9e09e3b82d6a1f0addd17b334b8b7cd990b4122f53f9bfd",
     "Sources/MyDock/Models/ProfileSemanticValidator.swift": "1a5d3f8d810e7f14834586a812cce219d88f57de0ff8c86476e06bd13c7ad3cf",
     "Sources/MyDock/Models/StopwatchClock.swift": "e32c256a04fa92b4a1897853977a03d372e264588d7c34ff7cc88c29199d5545",
-    "Sources/MyDock/Models/WidgetPresentation.swift": "a28218468e4b4dd4e37573e3cecb547aeead527ab301f97a746e6d1de7f8c6b4",
+    "Sources/MyDock/Models/WidgetPresentation.swift": "e54b5b68c726827c36326b880fef8800c3451763886a5754c2956002edd5bbf1",
     "Sources/MyDock/Models/WorldClockCityCatalog.swift": "ee513462e02a58c11c9c4b5b21aeea447102e0cd5dc2d3e559f48428c6753b97",
     "Sources/MyDock/MyDockApp.swift": "025b971ce459b9d30b462a70621bbec745ead8664e262318b78185bbf52c43ad",
     "Sources/MyDock/Persistence/ProfileLibrary.swift": "bd27d21962429b0665531301738cc5f180a9c269ff4dbe4f3e1b771dba789c01",
-    "Sources/MyDock/Persistence/ProfileStore.swift": "611b7eba5b5f07a9fd57cb7200d5ffa10b4c833010fa8bc461bd126e25eb9e5c",
+    "Sources/MyDock/Persistence/ProfileStore.swift": "e2c6fad6a2166b0a5707daad6e84202f6da267641436e63234666ad29773dc60",
     "Sources/MyDock/Persistence/RevisionedStateWriter.swift": "5c48a3d42b6328d180f4bf214943d03c179b764dd3de084ca3e7adb8b3ac5170",
     "Sources/MyDock/Persistence/WidgetRuntimeCache.swift": "6d9a0723b4896a511ffd6f213797e05850628b6320d3460819e54fd8f77f8cf2",
     "Sources/MyDock/Services/ConnectionTenantBinding.swift": "ce1f3a3f36d6a201e731f1f46ebaabb36f41bb2a5072511fadf5af6c48a2c957",
     "Sources/MyDock/Services/DiagnosticsService.swift": "b8362c83fcd7daae6e60da776e5e98257173fc1589755cd2487b0e79912f793f",
     "Sources/MyDock/Services/DockUtilityDraftStore.swift": "f179e5da1a24ed9e99b3c2319a2b40fb028e7cb72c879f304b1e19344afba699",
     "Sources/MyDock/Services/ProfileEditSessionCoordinator.swift": "3f4bfecd85347e11d506d6fd1107910fdd9cb408f817ab29e4f5f3208f68d0f5",
-    "Sources/MyDock/Services/WidgetDataCoordinator.swift": "0107a89cc0c89a35d3a6ab6de0af20a9f7ed2c018a8db44b8caa255c40957fe2",
+    "Sources/MyDock/Services/WidgetDataCoordinator.swift": "2d610140042fb318ded92fa2a54c1889f2f2d8e076abac310cccbd87bfd6cbfe",
     "Sources/MyDock/Services/WidgetLifecycleCoordinator.swift": "42a8d2a3352c437fa9628c0b777dabd048ca42895ca989f5b6e0b63dab9456ef",
     "Sources/MyDock/Services/WidgetRefreshLimiter.swift": "c11708bde75617424bae9ac995bf1b4ec8a69229a54f89abf07ebd43ef39b9cd",
     "Sources/MyDock/Services/WidgetSetupDraftStore.swift": "d2266b520e63a6a2671a3f8ad892ce4674416dda226ca348d0b2a1745063438a",
@@ -144,16 +143,15 @@
     "Sources/MyDock/UI/MenuBarView.swift": "998c4db1f0aa1396cbdcc5f269b33d146f8f9901cb3a104b4adbd7c33cbc63b9",
     "Sources/MyDock/UI/OnboardingView.swift": "e2b23e9a2cd49f2cfb112fd36ab4b9cba558957dc0dc48b1bad912ba45392c85",
     "Sources/MyDock/UI/PersonalPresetPicker.swift": "ca7e115e0b9e6c6d05b50a865889fdfbe6066d64d76942b02fe28ecb45a43357",
-    "Sources/MyDock/UI/PremiumVisualQA.swift": "1f92e41df616b23928dc644bb3452ea9dc2e556e3c2f572c7067d5a279cacc6d",
+    "Sources/MyDock/UI/PremiumVisualQA.swift": "51cae32345e0a833e8c10a7aa0dc77f3407020fc02046bdd2f0cb8120f0f8552",
     "Sources/MyDock/UI/PrivacyHelpSection.swift": "f05afd5ef532f73983d295b9e60fb4255dcbabcdded0325cf45deb11c4765392",
     "Sources/MyDock/UI/RecoveryCenterView.swift": "31667ee0a51f6a9e66701ae31932305437e3e5043b9dd13b7dd8dfde4f2fe307",
     "Sources/MyDock/UI/SettingsAppearanceEditing.swift": "284713d4bb99a798a32e86f0dea9b52c17f7b9ab7f51beeabcc29424f6a33183",
     "Sources/MyDock/UI/SettingsSearchCatalog.swift": "d4de29712e524d6f1a1ffa79eeb95d02282a1203ecb12ee3503bb474b96263b9",
     "Sources/MyDock/UI/SettingsView.swift": "514de76c34285716600569b8ef681cc4a8b011e1a43ef7ae3e1763486aeae5de",
-    "Sources/MyDock/UI/WidgetConfigurationSheet.swift": "99ef7dc8fc72ef6e41ae869d477e5dda4f05e8c73874fae29cd7a226863a01ca",
+    "Sources/MyDock/UI/WidgetConfigurationSheet.swift": "911322c1f720efa32a4e12f9936d23ec4f1f2820ff230bc1948a386041277c08",
     "Sources/MyDock/UI/WidgetDiscovery.swift": "f0cd7f1779ba5891feff81b26926bcea503956c4edde34ffe1f38eead5bdd479",
     "Sources/MyDock/UI/WidgetLibraryTile.swift": "766c283d64a6a9909437679847b97509425c16dfcc520f7f923719eb2a0f4785",
-    "Sources/MyDock/UI/WidgetQAMatrix.swift": "28b694540d0d4e62de592a3f49db9ca28b34f9dea99398ebcdcb092caa4495e7",
     "Sources/MyDock/Widgets/DockUtilityModels.swift": "51bef9c359578dbdb22af0f687d255e78f61391df23567a841d8deb337c0d2c6",
     "Sources/MyDock/Widgets/ProductWidgetEditing.swift": "ac9354d2dabaecf205d3c2db5f986c104ff9a04aeab57e502025102915e406e2",
     "Sources/MyDock/Widgets/QuickCalculator.swift": "90e7631b744f08879dd7533db6407c94422fd7ee1d3aec939d03c2a8c2fc3ba9",
@@ -209,7 +207,7 @@
     "project.yml": "18868c5a37f0d0f2187b40954fa19060342bb7f5bab9c3a4df47bec02efe77e5"
   },
   "source_fingerprint_algorithm": "SHA-256 of path-sorted input entries: canonical JSON file list",
-  "canonical_executable_sha256": "e66cf75801ff9861d7811664c773dc569316afc75866e304c206da674a65e55c",
+  "canonical_executable_sha256": "d700e1b56fcf8d0f6b79289f413d2761d99c4334382edfdf13bc3b21ca7d6f39",
   "architectures": [
     "arm64",
     "x86_64"
@@ -233,7 +231,7 @@
     "source_newer_than_executable": false,
     "native_process_launch": true,
     "canonical_process_ids": [
-      87859
+      78338
     ],
     "final_native_ui_recheck": false,
     "final_native_ui_limitation": "Final canonical app binding still fails: Sky Computer Use native pipe startup failed. Launch and exact executable path verified by CLI; native close, drag frame pacing and animation acceptance remain open."
@@ -257,17 +255,17 @@
     186
   ],
   "migration": "Legacy Live/Color/Soft/Mono becomes Soft/Accent/Soft/Mono icon treatment; legacy widths resolve to supported semantic layouts; new Outline remains distinct.",
-  "build_log": ".build/orchestrate-d/build.log",
+  "build_log": ".build/orchestrate-20261004/build-first-wave.log",
   "project_log": ".build/orchestrate-20261004/xcode-project.log",
-  "previous_baseline": "history/BUILD_BASELINE_PRE_REMAINING_WORK_2026-10-04.json",
+  "previous_baseline": "history/BUILD_BASELINE_PRE_COMPLETION_HANDOFF_2026-10-04.json",
   "product_acceptance": "history/EXECUTION_LEDGER_2026-10-03.md",
   "test_evidence": {
-    "reported_tests": 516,
-    "suites": 66,
+    "reported_tests": 506,
+    "suites": 64,
     "failed": 0,
     "skipped_opt_ins": 5,
     "python_tooling_tests": 11,
-    "log": ".build/orchestrate-d/test-integrated.log",
+    "log": ".build/orchestrate-c2/test-badgefix.log",
     "test_hashes": {
       "Tests/MyDockTests/AIAccountTests.swift": "d9e0385183f5191e636c8b2ccc2db0d36705eb3efb7decfab59b93b51268400f",
       "Tests/MyDockTests/BoundedSubprocessCaptureTests.swift": "b546da41430c6bb21b53d872c1869060db401ca373ce4f90c625a6de9a56d175",
@@ -298,7 +296,6 @@
       "Tests/MyDockTests/ProviderCorrectnessR2Tests.swift": "13924592846286589b1930586027b115c981777d7beb001e0134871f54083bf6",
       "Tests/MyDockTests/RegistryCapabilityTests.swift": "7f533cec946f6333f35cab64ac07b869cc9eb1c035e5208cd80d09dd8f98edab",
       "Tests/MyDockTests/RegistryQualificationTests.swift": "ca5c17758952ab6c0324f87993860f2429f7e57a42d685d9458b180ebb461e08",
-      "Tests/MyDockTests/ReliabilityAuthoredRuntimeBoundaryTests.swift": "a6ba3320d61733e5c7a75844704675c042d919ae13abf43bf74c0a936bc70d1d",
       "Tests/MyDockTests/ReliabilityDemandCancellationTests.swift": "ae8ae4d7e7ca7771f3f432562cb39a3b47c9ac2972ed8186b2a0be0682d93f59",
       "Tests/MyDockTests/ReliabilityDurableWriteTests.swift": "1c956dca80b7cc161311dac51fdcc892691a2160577737f3d02ed41d62b27005",
       "Tests/MyDockTests/ReliabilityInflightAttributionTests.swift": "e4037ab7c7892e6b171c969e09d51bb79daa4c175c46754dd8b14f914c50ddbf",
@@ -315,25 +312,26 @@
       "Tests/MyDockTests/SingleInstanceLockTests.swift": "0d3f181a9d0bc50b2ed46f1be14cf279db8ff29405db834bad8107b13f393dd8",
       "Tests/MyDockTests/WeatherServiceTests.swift": "0c464814f89020b3ff16b36f68f78a3da870216bf17ecc30bb8a2b6ef3212ebb",
       "Tests/MyDockTests/WidgetPresentationTests.swift": "d6314a31122d6ffb6e24331edd3c7fe1cac8b1e45acc1cd3f5034dbbf75323da",
-      "Tests/MyDockTests/WidgetQACoverageTests.swift": "b7b711b2d008f4b75fa91f403031bcafb99b320d339ed40f167dc48b0a2d3a12",
       "Tests/MyDockTests/WidgetRuntimeCacheTests.swift": "2ebdacc0b7e763704541a5cd29f0c59e4149fd1319bc9305b89735d18fd38e89",
       "Tests/MyDockTests/WidgetUtilityTests.swift": "c9622fac315a8a0dcd1c04aff745face47c27ee7b5278cfac968dc670fa06dd6",
       "Tests/MyDockTests/WindowPreviewCacheTests.swift": "abad581f7b5a79c32cf2df844b91c2e712ac11e18d1b46cd3b08ba30fc42bdee"
     },
-    "note": "Isolated ./TestMyDock.sh on the integrated tree. Fixture/unit evidence only; native acceptance H1-H9 open."
+    "note": "Isolated ./TestMyDock.sh outside any agent sandbox. Fixture/unit evidence only; native acceptance H1-H9 open."
   },
   "visual_evidence": {
     "directories": [
-      ".build/visual-qa/remaining-1652/WIDGET/out (130 PNG)",
-      ".build/visual-qa/remaining-1652/SURFACES/out (44 PNG)"
+      ".build/visual-qa/final-2984e35-adaptive",
+      ".build/visual-qa/final-2984e35-surfaces",
+      ".build/visual-qa/final-fix-surfaces",
+      "Codex X2 matrix (325 PNG) at ~/.codex/worktrees/c6d9/dockX/.build/visual-qa"
     ],
-    "note": "Isolated DEBUG renders including production Calendar empty/ongoing/upcoming and capability-derived setup states; bitmaps are not native compositor/VoiceOver acceptance."
+    "note": "Isolated DEBUG renders; bitmaps are not native compositor/VoiceOver acceptance."
   },
   "native_dock_mutation_opt_in": false,
   "synthetic_runtime_opt_ins": false,
-  "git_commit": "78fc9a4c26c27e7be065cee4b3d677a6e3ab4993",
+  "git_commit": "d0ad2d46d73ac006fd8f4ede4a143b1ee7997fd1",
   "running_validation_app": null,
-  "validation_app_quit": "MyDock was not running before the build. The isolated validation instance received a normal quit Apple Event and exited; absence verified.",
+  "validation_app_quit": "Canonical executable launched with private validation root; normal termination request accepted, process exited0 and absence verified.",
   "qualification": "Local universal ad-hoc signed development app (minos 13.0, SDK 26.4, version 0.1.0 build 1) built by ./BuildMyDock.sh; no Metadata.appintents. No Xcode build, Developer ID, notarization, older OS or Intel execution claim.",
   "project_generation_note": "Xcode project regenerated to include new files; syntax valid. Full Xcode build remains unavailable.",
   "glass_presentation": {
@@ -381,9 +379,16 @@
     "Unit Converter",
     "Color Picker"
   ],
-  "canonical_followup": "Remaining-work wave: PR-13 phase 2 cache-only provider publish path; PR-17 capability-derived QA matrix and access note; DEBUG Calendar production fixtures.",
+  "canonical_followup": "First delegated wave tested, built, launched with isolated state and cleanly quit. Wave2 source is unfinished, integration-unverified and stopped by specialist usage limits; it is not represented by this artifact.",
   "tools_acceptance": "history/EVERYDAY_TOOLS_2026-10-03.md",
   "synthetic_performance": ".build/orchestrate/perf/synthetic-performance.json",
+  "baseline_scope": {
+    "source_inputs_unchanged_during_validation": true,
+    "raw_evidence": ".build/orchestrate-20261004/first-wave-evidence.json",
+    "later_working_tree_edits": "Wave2 unfinished/unverified; syntax check fails in a new test. Source fingerprint identifies validated firstwave only.",
+    "configured_ai_root_attribution": "known open follow-up",
+    "disposable_user_write_trace": "blocked/unrun"
+  },
   "historical_prior_baseline_fields": {
     "canonical_build_seconds": {
       "arm64": 0.29,
@@ -393,23 +398,14 @@
   "source_hashes_scope": "Source, tests, build/project/resources/tooling inputs; see captured file inventory.",
   "isolated_launch": {
     "executable": "build/MyDock.app/Contents/MacOS/MyDock",
-    "validation_root": ".build/visual-qa/isolated-launch-1656/root",
-    "ran_seconds": 60,
+    "validation_root": ".build/orchestrate-c2/isolated-launch-root",
+    "ran_seconds": 12,
     "quit": "normal quit Apple Event",
-    "exit_status": "not captured (background job); process absence verified",
+    "exit_status": 0,
     "files_written": [
       "ApplicationSupport/state.json",
       "MyDock/instance.lock"
     ],
-    "resource_samples": {
-      "interval_seconds": 2,
-      "count": 29,
-      "steady_rss_mb": 78.0,
-      "max_rss_mb": 95.8,
-      "mean_cpu_percent": 0.23,
-      "raw": ".build/visual-qa/isolated-launch-1656/samples.txt",
-      "limits": "ps RSS/%CPU of an empty default profile with native effects disabled; not Instruments, energy, frame pacing or a realistic widget workload."
-    },
     "limits": "Bounded launch/quit only; not a disposable-user filesystem/network trace."
   }
 }

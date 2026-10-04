@@ -2740,3 +2740,108 @@ Partial: **A08** (persistent preference deferred) and **Q02** (behavioural/nativ
 - No family has native, keyboard or VoiceOver acceptance.
 
 **H1–H9 (40 procedures):** none executed. They need a controlled desktop, permissions, live accounts, full Xcode and signing.
+
+## Remaining-work resumption — 4 October 2026 (Claude Opus 5.5 coordinator, Sonnet workers)
+
+The user asked the coordinator to finish the remaining work in RELEASE_AUDIT.md. The tree was clean at `a278d74`.
+
+**Source re-verification of the "Remaining unstarted authorized work" list above:**
+- **Reveal-monitor extraction:** already present. `DockManagement/DockRevealMonitor.swift` (139 lines) owns sampling and pointer monitoring, and `CustomDockWindowController` supplies only a snapshot closure. The earlier entry was stale. Status: implemented; verification is code inspection only.
+- **Capability-flag consumers:** partly present. `layouts`/`defaultLayout` drive presentation, and `needsConnection`, `permissions`, `holdsPrivateContent` and `refreshDemand` drive the Add Library filters and summary (`UI/WidgetDiscovery.swift`). `hasSetupState` has no consumer, and the configuration sheet and QA matrix do not derive anything from capabilities.
+- **PR-13 phase 2:** unstarted. Readings are still embedded in `WidgetConfiguration` in memory, stripped on save and re-resolved on load.
+
+**Packages in this wave (exclusive file ownership, worktree isolation):**
+- **R-13b (reliability, Sonnet):** PR-13 phase 2. Covers an authored-only edit merge, provider refresh that is not an edit or history event, a single runtime resolver, and tenant invalidation. Owns DockModels, Persistence, WidgetDataCoordinator and ProfileEditSessionCoordinator.
+- **P-A / P-B (product, Sonnet):** PR-17 consumers (a QA matrix derived from capabilities, and permission/privacy copy in the configuration sheet) plus the Calendar production empty/ongoing/upcoming fixture hook. Owns UI, CustomDock and WidgetPresentation.
+- **Coordinator:** integration, canonical build, bounded isolated resource sampling for PR-18 (validation root only), evidence docs.
+
+**Not implemented (product decision required):** OP-01–OP-07, MD-D04 spatial insertion, PR-06 capture/tutorial, PR-07 Organize, PR-09 per-property overrides, PR-16 persisted privacy preference and masking (MD-A08).
+
+### R-13b — PR-13 phase 2 (Sonnet reliability worker) — integrated `ceff65c` + `0da0fe7`
+
+- **Worktree base problem:** the harness branched the worker from stale `aa7b172`, not `a278d74`. The worker's suite failed to compile there in files outside its ownership (already fixed on main), so it handed back **untested**. The coordinator cherry-picked the commit onto `main` and regenerated the Xcode project.
+- **Implemented:** `ProfileStore.publishRuntimeReadings(itemID:in:update:)` is now the only provider write path, and `WidgetDataCoordinator.publish` uses it.
+  - It resolves the display configuration, lets the provider apply readings, re-resolves them against the *authored* identity, and writes only to `WidgetRuntimeCache`.
+  - Authored state, `$state`, history, undo and edit sessions are never touched.
+  - An authored field changed inside a provider update is discarded. An identity change retags the reading, and the resolver hides it.
+- **Already present, now proven by new tests:**
+  - The authored-only draft merge (`DockProfileDraft` strips readings).
+  - The single read path (`presentationItem`/`presentationProfile`/`presentationConfiguration`).
+  - Tenant/deletion invalidation.
+- **Coordinator review:** `WidgetDataValue.apply` mutates readings only, so discarding authored edits loses nothing. The old path's `storageWritable` and semantic-validator gates are not needed for the disposable cache (`set` sanitizes). The embedded in-memory fields remain as the resolved view model; there was no big-bang removal from views. Legacy migration is unchanged.
+- **Coordinator fix `0da0fe7`:** the worker's test smuggled `stockSymbol`, which legitimately retags identity. It now smuggles `noteText`.
+- **Result (actually run):** `./TestMyDock.sh` **510 tests in 65 suites passed, 0 failed, 5 opt-in skips**. Log: `.build/orchestrate-d/test-r13b-2.log`. `git diff --check` clean.
+- **Open:** offline relaunch with a real provider, and a live tenant switch (accounts blocked).
+
+### P-A / P-B — PR-17 capability consumers and Calendar fixture hook (Sonnet product worker), merged `78fc9a4`
+
+- **Rebase:** this worker also started from stale `aa7b172`. The coordinator told it to rebase onto `a278d74`, and it did. It resolved one conflict in `PremiumVisualQA.swift` by keeping both sides.
+- **P-A (implemented):**
+  - New DEBUG file `UI/WidgetQAMatrix.swift` derives required states from `WidgetCapabilities`: every advertised layout, plus a setup state for each `hasSetupState` family (12 families).
+  - `exportWidgetUI` records each state and calls `validate()`. A missing state or an unknown family fails the export.
+  - `WidgetCapabilities.accessNote` puts a short permission and private-content caption in `WidgetConfigurationSheet`, derived only from capabilities. It never claims access was granted. No hardcoded per-family copy existed to replace.
+- **P-B (implemented):**
+  - New DEBUG-only `CustomDock/CalendarQAFixture.swift` provides empty, ongoing and upcoming fixtures. Selection is a static override, falling back to the `MYDOCK_CALENDAR_FIXTURE` environment variable.
+  - The production compact and popout Calendar views use the fixture under `#if DEBUG` before any EventKit call.
+  - The WIDGET export renders `calendar-*`. The SURFACES export now uses the production views instead of the earlier presentation mock.
+- **Tests:** new `WidgetQACoverageTests` covering derivation, missing fixture, invented family, fixture selection, fixture event states and the access note.
+- **Coordinator review:**
+  - The seams are compiled only in DEBUG and inert unless set.
+  - `refreshDemand` scheduler wiring was deliberately left out, because it is owned by reliability and is not required.
+- **Integrated results (coordinator, actually run):**
+  - `./TestMyDock.sh` **516 tests in 66 suites passed, 0 failed, 5 opt-in skips**. Log: `.build/orchestrate-d/test-integrated.log`.
+  - Python tooling 11 OK; `git diff --check` clean.
+  - Isolated DEBUG exports: WIDGET 130 PNGs and SURFACES 44, both exit 0, with matrix validation passing.
+  - The coordinator viewed:
+    - the production Calendar popout, ongoing state (light);
+    - the empty Dock face (dark);
+    - the Stripe setup state (dark);
+    - the Quick Checklist access note (light).
+- **Open:** Calendar with real EventKit data, and native keyboard/VoiceOver checks of the sheet caption.
+
+### Coordinator build and PR-18 sample — 4 October 2026
+
+- MyDock was not running before the build. `./BuildMyDock.sh` exited 0.
+  - Executable SHA-256 `e66cf75801ff9861d7811664c773dc569316afc75866e304c206da674a65e55c`, universal, strict ad-hoc signature valid, plist OK, no App Intents metadata.
+- **Isolated launch:** fresh `MYDOCK_VALIDATION_ROOT`, 60 s, `ps` sampled every 2 s.
+  - Steady RSS 78 MB, peak 95.8 MB, mean CPU 0.23 %.
+  - Normal quit Apple Event; process absence verified.
+  - Writes confined to `state.json` and `instance.lock`.
+- **PR-18:** this is the first real-process number, but it covers an empty profile with native effects disabled only. Instruments, energy, frame pacing and many-widget workloads remain **open**.
+- The canonical app was relaunched (PID 87859). BUILD_BASELINE.json, RELEASE_AUDIT.md and IMPLEMENTATION_STATUS.md were refreshed. The previous baseline was archived as `*_PRE_REMAINING_WORK_2026-10-04`.
+
+### Final reconciliation — remaining-work wave (supersedes earlier dispositions where they differ)
+
+**MD findings (43).**
+
+| Status | Findings | Notes |
+|---|---|---|
+| Implemented with fixtures | 38 | A01–A07, A09, D01–D03, D05, D06, S01–S05, P01–P10, U01–U06, E01, E02, Q01, Q03, Q05 |
+| Partial | A08, Q02 | A08: persistent privacy preference deferred. Q02: the capability-derived render matrix is now enforced; the Xcode UI suite is blocked. |
+| Deferred | D04 | — |
+| Blocked | Q04 | — |
+
+Native acceptance for every D/S/U finding is **open**.
+
+**PR packages (20).**
+
+| Status | Packages | Notes |
+|---|---|---|
+| Implemented | PR-01, PR-02, PR-03, PR-04, PR-05, PR-13, PR-14, PR-15, PR-17, PR-20 | PR-13: phases 1–2 done. PR-17: typed registry, controller and reveal-monitor extraction, and capability consumers. Scheduler use of `refreshDemand` is optional and not done. |
+| Partial | PR-06, PR-07, PR-08, PR-09, PR-10, PR-11, PR-12, PR-16, PR-18 | The Batch 3 subscopes are deferred, and the native sweeps (H2–H6) are open. PR-18 has only the `ps` sample. |
+| Blocked | PR-19 | — |
+
+**OP-01–OP-07 (opportunities):** deferred, pending a product decision. Nothing was started. The same applies to:
+- MD-D04 spatial insertion;
+- PR-06 capture/tutorial;
+- PR-07 Organize;
+- PR-09 per-property overrides;
+- PR-16 persisted privacy preference and masking.
+
+**Workflows and widgets.**
+- **F01–F41:** none is accepted as a complete native workflow.
+- **W01–W35:** fixture and render coverage for all families. W03 Calendar now renders through the production views with fixtures. No family has native, keyboard or VoiceOver acceptance.
+
+**H1–H9 (40 procedures):** none executed. They need a disposable macOS user, permissions, live accounts, full Xcode and signing.
+
+**Unstarted authorized engineering work:** none.

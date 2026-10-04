@@ -1,6 +1,23 @@
 # MyDock implementation and acceptance status
 
-## Completion handoff — 4 October 2026 (current)
+## Remaining-work wave — 4 October 2026 (current)
+
+After the completion handoff, the remaining authorized engineering work is done:
+- PR-13 phase 2: cache-only provider publish path, with authored state and runtime readings kept apart.
+- PR-17 capability consumers: a capability-derived QA matrix and the access note in widget settings.
+- DEBUG Calendar production fixtures.
+
+`./TestMyDock.sh` passes **516 tests in 66 suites, 0 failed, 5 opt-in skips**, and Python tooling passes 11. The canonical `build/MyDock.app` was rebuilt and passed a 60-second isolated launch, resource sample and normal quit; see [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
+
+The [execution ledger](history/EXECUTION_LEDGER_2026-10-03.md) "Final reconciliation — remaining-work wave" section is the current per-item record. Open items:
+- Native H1–H9 acceptance.
+- Live accounts.
+- Xcode, signing and release.
+- Instruments-grade performance.
+
+OP-01–OP-07 and the Batch 3 extensions stay deferred pending a product decision.
+
+## Completion handoff — 4 October 2026 (dated)
 
 The [completion handoff](history/CLAUDE_COMPLETION_HANDOFF_2026-10-04.md) is executed. Its verification and fix wave (independent Codex audit and renders, then fixes) is integrated at git `d0ad2d4`. `./TestMyDock.sh` passes **506 tests in 64 suites, 0 failed, 5 opt-in skips**, and Python tooling passes 11. The canonical `build/MyDock.app` was rebuilt and passed a bounded isolated launch/quit; see [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
 
