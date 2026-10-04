@@ -90,6 +90,10 @@ enum PremiumVisualQA {
             try await exportRedesignUI(to: directory)
             return
         }
+        if ProcessInfo.processInfo.environment["MYDOCK_DOCKSTYLE_QA"] == "1" {
+            try await exportDockStyleUI(to: directory, store: store)
+            return
+        }
         let names = ["System Activity", "Clock", "AI Limits"]
         let everyday = try store.createProfileAndPersist(kind: .custom, name: "Everyday")
         for bundle in ["com.apple.finder", "com.microsoft.VSCode", "com.apple.Terminal"] {

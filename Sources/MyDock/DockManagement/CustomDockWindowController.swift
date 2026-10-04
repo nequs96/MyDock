@@ -44,7 +44,9 @@ final class CustomDockWindowController {
     private var expandedFrame = NSRect.zero
     private var revealFrame = NSRect.zero
     private var currentPosition: DockPosition = .bottom
-    private var currentColor: DockProfileColor = .blue
+    /// The resolved floating inset of the presented profile; reveal decisions extend
+    /// the keep-visible area back over this gap to the screen edge.
+    private var currentFloatingInset: Double = 0
     private var perpendicularSwipeDelta: CGFloat = 0
     private var parallelSwipeDelta: CGFloat = 0
     private var commandScrollDelta: CGFloat = 0
@@ -182,7 +184,6 @@ final class CustomDockWindowController {
         let resizing = lastPresentation?.settings.size != resolvedSettings.customDockSize
         lastPresentation = signature
         currentPosition = resolvedSettings.customDockPosition
-        currentColor = DockProfileColor(rawValue: profile.color) ?? .blue
         let root = CustomDockView(store: store, profile: profile, openSettings: openSettings)
         if let panel, let hosting = panel.contentView as? DockSurfaceHostingView<CustomDockView> {
             PerformanceSignposts.measure("DockRootAssignment") { hosting.rootView = root }
@@ -266,43 +267,19 @@ final class CustomDockWindowController {
                                     runningMediaSources: NowPlayingMonitor.shared.runningSources,
                                     pinnedApplicationURLs: RuntimeDockApplications.pinnedURLs(in: profile))
         let itemLength = model.contentLength(settings: settings, scale: scale) + (settings.magnificationEnabled ? 32 : 22) * scale
-        let maxLength = settings.customDockPosition == .bottom ? visible.width - 40 : visible.height - 60
-        let length = min(max(itemLength, 100), max(maxLength, 100))
-        let frame: NSRect
-        switch settings.customDockPosition {
-        case .bottom:
-            let width = length
-            let height = tileLength + 22 * scale
-            frame = NSRect(x: visible.midX - width / 2, y: visible.minY + 10, width: width, height: height)
-        case .left:
-            let width = tileLength + 22 * scale
-            let height = length
-            frame = NSRect(x: visible.minX + 10, y: visible.midY - height / 2, width: width, height: height)
-        case .right:
-            let width = tileLength + 22 * scale
-            let height = length
-            frame = NSRect(x: visible.maxX - width - 10, y: visible.midY - height / 2, width: width, height: height)
-        }
+        let frame = DockPanelGeometry.frame(position: settings.customDockPosition, placementArea: visible,
+                                            contentLength: itemLength, crossLength: tileLength + 22 * scale,
+                                            floatingInset: settings.customDockFloatingInset)
+        currentFloatingInset = settings.customDockFloatingInset
         panel.setFrame(frame, display: true, animate: animate && presentationVisible && settings.dockAnimationsEnabled && !AccessibilityDisplayState.shared.reduceMotion)
         return frame
     }
 
     private func updateRevealPanel(on screen: NSScreen, shouldShowHandle: Bool) {
-        let handleSize: CGFloat = 6
-        let handleLength: CGFloat = 38
-        let visible = dockPlacementFrame(on: screen)
-        switch currentPosition {
-        case .bottom:
-            revealFrame = NSRect(x: visible.midX - handleLength / 2, y: visible.minY + 1, width: handleLength, height: handleSize)
-        case .left:
-            revealFrame = NSRect(x: visible.minX + 1, y: visible.midY - handleLength / 2, width: handleSize, height: handleLength)
-        case .right:
-            revealFrame = NSRect(x: visible.maxX - handleSize - 1, y: visible.midY - handleLength / 2, width: handleSize, height: handleLength)
-        }
+        // The reveal strip stays at the screen edge whatever the floating inset.
+        revealFrame = DockPanelGeometry.revealFrame(position: currentPosition, placementArea: dockPlacementFrame(on: screen))
 
-        let content = RevealHandleView(position: currentPosition,
-                                       color: color(for: currentColor),
-                                       isVisible: shouldShowHandle)
+        let content = RevealHandleView(position: currentPosition, isVisible: shouldShowHandle)
         if let revealPanel {
             revealPanel.contentView = NSHostingView(rootView: content)
             revealPanel.setFrame(revealFrame, display: true, animate: false)
@@ -425,7 +402,9 @@ final class CustomDockWindowController {
         return DockRevealMonitor.Snapshot(canPresent: true, retainsInteraction: retainsInteraction,
             overviewPresent: overviewPresent, systemDockOverlaps: overlaps,
             desktopMode: settings.customDockDesktopMode, autoHide: settings.automaticallyHideCustomDock,
-            visible: presentationVisible, mouseLocation: NSEvent.mouseLocation, expandedFrame: expandedFrame,
+            visible: presentationVisible, mouseLocation: NSEvent.mouseLocation,
+            expandedFrame: DockPanelGeometry.hoverFrame(expanded: expandedFrame, position: currentPosition,
+                                                        floatingInset: currentFloatingInset),
             revealFrame: revealFrame, popoutFrames: (panel.childWindows ?? []).map(\.frame))
     }
 
@@ -562,18 +541,6 @@ final class CustomDockWindowController {
                 guard !visible else { return }
                 panel?.orderOut(nil)
             }
-        }
-    }
-
-    private func color(for profileColor: DockProfileColor) -> Color {
-        switch profileColor {
-        case .blue: .blue
-        case .purple: .purple
-        case .teal: .teal
-        case .green: .green
-        case .orange: .orange
-        case .pink: .pink
-        case .red: .red
         }
     }
 }

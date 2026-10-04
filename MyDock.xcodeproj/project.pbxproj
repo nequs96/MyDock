@@ -15,6 +15,7 @@
 		054D8F3B43E10584E9455FC5 /* StopwatchClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93A8818898A1D2E99CC7FAAF /* StopwatchClock.swift */; };
 		057B1DBD3EEABD5D19FF524A /* ReliabilityAuthoredRuntimeBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71C627CEA641F8C8BD8E10F4 /* ReliabilityAuthoredRuntimeBoundaryTests.swift */; };
 		069F89AC990CF3FE4CB5386D /* NativeDockAutoSaveMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BB8DEFC665A3B140F40C4D /* NativeDockAutoSaveMonitor.swift */; };
+		0AB99B843F40C51C4075DC96 /* RedesignDockSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5631536558138043849A381 /* RedesignDockSurfaceTests.swift */; };
 		0B6E4F49BAC0F587086B1C6F /* CollectionUndo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B94BC116FF85B12377F2FA6 /* CollectionUndo.swift */; };
 		0BF86D7341526131C79D1CB4 /* DesignSystemGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8697E3ECDAFBB8E536BC8AB5 /* DesignSystemGallery.swift */; };
 		0D5BAFE0588699099D03B1E6 /* AirDropWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBCBC80CE6951461F8FDC15B /* AirDropWidgetViews.swift */; };
@@ -101,6 +102,7 @@
 		78F8529B841B51BEC27829EF /* PaddleWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E91584E6116F0E9B70944C /* PaddleWidgetViews.swift */; };
 		7944B0C6A4B15260802625F5 /* DockPresentationEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9515C883F976F386A463477C /* DockPresentationEnvironment.swift */; };
 		7A70C2FFCC5F1D7934DDB5E1 /* ProductCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B817FD02D713E0939CD51AE /* ProductCompletionTests.swift */; };
+		7CCA3A64708CA7AFF79FDCA3 /* DockStyleQA.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39841DDAA32CD2529F828B4C /* DockStyleQA.swift */; };
 		7E0D4186A9CAAE3B7C32432D /* CurrentLocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2683184ECD83EC69D51DC097 /* CurrentLocationService.swift */; };
 		7E2F16EE76488D46F7922184 /* WidgetQACoverageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF09BF464E215CCF3F317166 /* WidgetQACoverageTests.swift */; };
 		7F93771555BCA1C2B5891D25 /* ModeClarityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79467C5F6AEA792EC8E38F30 /* ModeClarityTests.swift */; };
@@ -291,6 +293,7 @@
 		348899CA10515885D4B2596E /* ConnectionsCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsCenterView.swift; sourceTree = "<group>"; };
 		3659FE931E85AFEDF1736A3F /* FocusDockFilterIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusDockFilterIntent.swift; sourceTree = "<group>"; };
 		36E3FBA5AC911C54C68A3708 /* ReliabilityIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReliabilityIsolationTests.swift; sourceTree = "<group>"; };
+		39841DDAA32CD2529F828B4C /* DockStyleQA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockStyleQA.swift; sourceTree = "<group>"; };
 		3A358C7441BD6FDCFF5D64E8 /* DockSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSettingsPage.swift; sourceTree = "<group>"; };
 		3AB2654BD3B4F432A2D7179F /* DockItemContextMenus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockItemContextMenus.swift; sourceTree = "<group>"; };
 		3D1F984DB1813FD4A6A142CA /* ProfileSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSanitizer.swift; sourceTree = "<group>"; };
@@ -394,6 +397,7 @@
 		B2FCF8D78B8CEC5E9C09CF1F /* N3MotionAutomationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = N3MotionAutomationTests.swift; sourceTree = "<group>"; };
 		B3A98F2172D7E906C0B42229 /* RoutineCommitCoalescingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineCommitCoalescingTests.swift; sourceTree = "<group>"; };
 		B42F868C21E6C9BE2978926D /* NetworkActivityReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkActivityReader.swift; sourceTree = "<group>"; };
+		B5631536558138043849A381 /* RedesignDockSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedesignDockSurfaceTests.swift; sourceTree = "<group>"; };
 		BA0EC704F8F4E79C4F36D5E0 /* NetworkActivityWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkActivityWidgetViews.swift; sourceTree = "<group>"; };
 		BB25319664E95494E5A1F058 /* AlarmWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmWidgetViews.swift; sourceTree = "<group>"; };
 		BBB2D387D76BD5D10C2BB05F /* ReliabilityInflightAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReliabilityInflightAttributionTests.swift; sourceTree = "<group>"; };
@@ -525,6 +529,14 @@
 				4B16AF3A904E34F7FD894113 /* MyDockUITests */,
 			);
 			path = Tests;
+			sourceTree = "<group>";
+		};
+		4AC3405824694F0B6B4736AE /* RedesignQA */ = {
+			isa = PBXGroup;
+			children = (
+				39841DDAA32CD2529F828B4C /* DockStyleQA.swift */,
+			);
+			path = RedesignQA;
 			sourceTree = "<group>";
 		};
 		4B16AF3A904E34F7FD894113 /* MyDockUITests */ = {
@@ -746,6 +758,7 @@
 				E527C58C6168E5FE88D3B60E /* WidgetLibraryTile.swift */,
 				EFEE93E520F55FF321CC6530 /* WidgetQAMatrix.swift */,
 				B806B62AB673D15C07C69E2F /* DesignSystem */,
+				4AC3405824694F0B6B4736AE /* RedesignQA */,
 				C416097D289B87C115F3F040 /* Settings */,
 			);
 			path = UI;
@@ -799,6 +812,7 @@
 				61EFFFDFDB6B3FA1CDA44C99 /* ProfileStoreTests.swift */,
 				7C5BA4088B5F3C5452C00ACB /* ProviderCorrectnessR2Tests.swift */,
 				0E4B2D9AD0C5AED0A2D066A9 /* RedesignAppearanceModelTests.swift */,
+				B5631536558138043849A381 /* RedesignDockSurfaceTests.swift */,
 				484A3A5DD7A830602D8A5AFE /* RegistryCapabilityTests.swift */,
 				482FC38E0DAC4350992C74B7 /* RegistryQualificationTests.swift */,
 				71C627CEA641F8C8BD8E10F4 /* ReliabilityAuthoredRuntimeBoundaryTests.swift */,
@@ -1028,6 +1042,7 @@
 				FA082EDF00317E8C0583780C /* DockRenderModel.swift in Sources */,
 				E7CCE37D99B72E226C3AC524 /* DockRevealMonitor.swift in Sources */,
 				BC441F1D7D8A4F92A01144D2 /* DockSettingsPage.swift in Sources */,
+				7CCA3A64708CA7AFF79FDCA3 /* DockStyleQA.swift in Sources */,
 				9A98F1FC8A8DEA925105C612 /* DockSwitchFreezeProvider.swift in Sources */,
 				9893978AB463F55376CA31B1 /* DockUtilityDraftStore.swift in Sources */,
 				41DF28BFD69A8E4552B44445 /* DockUtilityModels.swift in Sources */,
@@ -1167,6 +1182,7 @@
 				D8BD75C1D7F81A1921950A48 /* ProfileStoreTests.swift in Sources */,
 				72EDC59944ED756B946DEBF8 /* ProviderCorrectnessR2Tests.swift in Sources */,
 				E9DA3F70ABC77C4421E31DF3 /* RedesignAppearanceModelTests.swift in Sources */,
+				0AB99B843F40C51C4075DC96 /* RedesignDockSurfaceTests.swift in Sources */,
 				530764B83A822A476509DA5B /* RegistryCapabilityTests.swift in Sources */,
 				DA5CED898253F8C72345F666 /* RegistryQualificationTests.swift in Sources */,
 				057B1DBD3EEABD5D19FF524A /* ReliabilityAuthoredRuntimeBoundaryTests.swift in Sources */,
