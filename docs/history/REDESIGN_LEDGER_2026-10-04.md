@@ -338,3 +338,41 @@ Mono becomes the default icon appearance for **newly created** widgets only. The
 ### RD-06 launched (`widget-gallery` agent, Opus), base `116eac9`
 
 Render mode `MYDOCK_GALLERY_QA`.
+
+### RD-05 — merged `0119b19` (branch commit `1808359`), plus integration change
+
+**Implementation:** implemented.
+
+- `WidgetContainer` is a switch over the widget surface:
+  - tile: unchanged code;
+  - glass: `GlassModule`, at the concentric radius, with an optional accent tint;
+  - plain: no background, with an edge under Increase Contrast.
+- The palette is harmonised. `WidgetPalette.resolved(kind:accent:)` resolves accents, and `WidgetIcon` reads `widgetAccent`.
+- The icon layout is a Control Center toggle circle.
+- The shared faces follow the module grammar: one value, an 11–12 pt label, and no text under 10 pt.
+- Samples carry the label "<Family>, sample preview". Freshness is shown as a dot.
+- `WidgetPresentationValues` injects the per-widget values in `WidgetCompactView`.
+- `render(...)` in `PremiumVisualQA` is no longer private, so QA extensions can call it.
+
+**Integration changes:**
+- The `PremiumVisualQA` dispatch conflict with RD-04 was resolved by keeping both lines. The project was regenerated.
+- `DockItem.widget(_:)` now starts new widgets as Mono. `WidgetConfiguration()` and decoding are unchanged, so saved widgets keep their icons. A test covers this.
+- The automatic Trash is built at render time and is not saved, so it is also Mono now. This is recorded as part of the approved default change.
+
+**Open, routed to RD-09/RD-10:** family faces in their own files still use 7–9 pt text and their own layouts:
+- AI Usage, Alarm, Calendar, AirDrop, Trash;
+- `SavedCollectionDockFace`.
+
+**Verification:**
+- The worker reports 540 tests and 66 renders; the orchestrator viewed system/plain/dark, time/glass/light and ai/tile/dark.
+- On integration:
+  - `./TestMyDock.sh` passed **556 tests in 71 suites** (`.build/redesign-rd05-test.log`).
+  - Canonical app: quit normally, `./BuildMyDock.sh` exited 0 (SHA-256 starting `119b84fd2331c58f`), relaunched as PID 11187.
+  - Integration renders in `.build/visual-qa/redesign-20261004/wave2a/`: DOCKSTYLE 88 PNGs and WIDGETSURFACE 66, both exit 0. Not yet viewed.
+
+### Session pause — 4 October 2026
+
+The user's usage limit was reached.
+- **RD-06** (Add Item gallery, `widget-gallery` agent) was stopped mid-work. Any partial work is in its `.claude/worktrees/agent-a237fc9bf51278e31` worktree, uncommitted. Relaunch it from base `116eac9` or later.
+- **Not started:** RD-07 (brief template `../MyDock-wt/RD-07.brief.tmpl`; replace `BASE_COMMIT`), RD-08–RD-12.
+- **CI:** still unverified; pushing needs the user's permission.
