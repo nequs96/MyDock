@@ -360,24 +360,8 @@ enum PremiumVisualQA {
                 }
             }.padding(20).background(WidgetDesign.surface), name: "adaptive-long-metric-" + suffix,
                              size: NSSize(width: 550, height: 120), scheme: scheme, directory: directory)
-            for (page, rows) in semanticLayoutPages().enumerated() {
-                try await render(VStack(alignment: .leading, spacing: 12) {
-                    Text("Semantic layout samples · \(page + 1)").font(.system(size: 13, weight: .semibold))
-                    ForEach(rows, id: \.self) { kind in
-                        HStack(spacing: 16) {
-                            Text(kind).font(.system(size: 11, weight: .medium)).frame(width: 108, alignment: .leading)
-                            ForEach(WidgetPresentationCatalog.options(for: kind)) { option in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    WidgetCardPreview(kind: kind, width: CGFloat(option.width), layout: option.layout)
-                                    Text(option.title).font(.system(size: 9)).foregroundStyle(.secondary)
-                                }
-                            }
-                            Spacer(minLength: 0)
-                        }
-                    }
-                }.padding(20).background(WidgetDesign.surface), name: "adaptive-layouts-\(page + 1)-" + suffix,
-                                 size: NSSize(width: 820, height: 930), scheme: scheme, directory: directory)
-            }
+            var layoutMatrix = WidgetQAMatrix()
+            try await renderSemanticLayoutPages(suffix: suffix, scheme: scheme, directory: directory, matrix: &layoutMatrix)
             for kind in ["AI Activity", "System Activity", "Network Activity", "Weather", "Now Playing", "Clock", "Disk Space", "Battery"] {
                 let item = profile.items.first { $0.widgetKind == kind } ?? DockItem.widget(kind)
                 try await render(WidgetConfigurationSheet(store: store, item: item, profileID: id, maximumHeight: 680),
@@ -467,30 +451,15 @@ enum PremiumVisualQA {
             try await render(WidgetPopout(store: store, item: alarm, profileID: id).padding(20).background(WidgetDesign.surface),
                 name: "surface-alarm-edit-\(suffix)", size: NSSize(width: 460, height: 520), scheme: scheme, directory: directory,
                 fixtureClick: NSPoint(x: 373, y: 357))
-            for state in ["empty", "ongoing"] {
-                // Calendar's private production views have no injected service/state hook. These
-                // are explicitly labeled presentation fixtures, not EventKit/popout acceptance.
-                let event = CalendarEventSnapshot(id: "example", title: "Example design review", startDate: now.addingTimeInterval(-600),
-                    endDate: now.addingTimeInterval(1_800), isAllDay: false, calendarID: "example", calendarTitle: "Example calendar", meetingURL: nil)
-                try await render(VStack(alignment: .leading, spacing: 12) {
-                    Text("Example · Calendar presentation fixture").font(.caption).foregroundStyle(.secondary)
-                    Text("Showing: Example calendar · next seven days").font(.caption).foregroundStyle(.secondary)
-                    if state == "empty" {
-                        VStack(spacing: 7) {
-                            Image(systemName: "calendar").font(.title2).foregroundStyle(.secondary)
-                            Text("No upcoming events").font(.callout.weight(.medium))
-                            Text("There are no events in the next seven days for these calendars.").font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                        }.frame(maxWidth: .infinity, minHeight: 100)
-                    } else {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(event.title).font(.callout.weight(.medium)).lineLimit(2)
-                            Text(event.startDate.formatted(date: .abbreviated, time: .shortened) + " · " + event.calendarTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            Text(WidgetTimingPresentation.eventStatus(event, now: now)).font(.caption).foregroundStyle(.secondary)
-                        }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 9))
-                    }
-                }.padding(20).background(WidgetDesign.surface), name: "surface-calendar-\(state)-fixture-\(suffix)",
-                    size: NSSize(width: 410, height: 250), scheme: scheme, directory: directory)
+            for fixture in CalendarQAFixture.allCases {
+                // Production Calendar views fed by the DEBUG-only fixture seam (no EventKit access).
+                CalendarQAFixture.override = fixture
+                defer { CalendarQAFixture.override = nil }
+                let calendarItem = DockItem.widget("Calendar")
+                try await render(WidgetPopout(store: store, item: calendarItem, profileID: id, showsCustomize: false).padding(20).background(WidgetDesign.surface),
+                    name: "surface-calendar-\(fixture.rawValue)-production-\(suffix)", size: NSSize(width: 460, height: 460), scheme: scheme, directory: directory)
+                try await render(WidgetCompactView(store: store, item: calendarItem, profileID: id, layoutOverride: .wide).padding(20).background(WidgetDesign.surface),
+                    name: "surface-calendar-\(fixture.rawValue)-dock-\(suffix)", size: NSSize(width: 260, height: 100), scheme: scheme, directory: directory)
             }
             for position in [DockPosition.left, .right] {
                 store.updateSettings { $0.customDockPosition = position }
@@ -506,6 +475,31 @@ enum PremiumVisualQA {
         }
     }
 
+    /// Renders every registry family at every advertised layout and records each state in `matrix`.
+    private static func renderSemanticLayoutPages(suffix: String, scheme: ColorScheme, directory: URL, matrix: inout WidgetQAMatrix) async throws {
+        for (page, rows) in semanticLayoutPages().enumerated() {
+            try await render(VStack(alignment: .leading, spacing: 12) {
+                Text("Semantic layout samples · \(page + 1)").font(.system(size: 13, weight: .semibold))
+                ForEach(rows, id: \.self) { kind in
+                    HStack(spacing: 16) {
+                        Text(kind).font(.system(size: 11, weight: .medium)).frame(width: 108, alignment: .leading)
+                        ForEach(WidgetPresentationCatalog.options(for: kind)) { option in
+                            VStack(alignment: .leading, spacing: 4) {
+                                WidgetCardPreview(kind: kind, width: CGFloat(option.width), layout: option.layout)
+                                Text(option.title).font(.system(size: 9)).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+            }.padding(20).background(WidgetDesign.surface), name: "adaptive-layouts-\(page + 1)-" + suffix,
+                             size: NSSize(width: 820, height: 930), scheme: scheme, directory: directory)
+            for kind in rows {
+                for option in WidgetPresentationCatalog.options(for: kind) { matrix.record(kind, .layout(option.layout)) }
+            }
+        }
+    }
+
     private static func exportWidgetUI(to directory: URL, store: ProfileStore) async throws {
         let id = try store.createProfileAndPersist(kind: .custom, name: "Widget studio")
         store.updateSettings { $0.onboardingComplete = true; $0.showRunningApps = false; $0.showTrash = false }
@@ -516,6 +510,7 @@ enum PremiumVisualQA {
             store.add(item, to: id)
         }
         let profile = store.state.profiles.first { $0.id == id }!
+        var matrix = WidgetQAMatrix()
         for scheme in [ColorScheme.dark, .light] {
             let suffix = scheme == .dark ? "dark" : "light"
             for item in profile.items {
@@ -528,6 +523,23 @@ enum PremiumVisualQA {
                 try await render(WidgetConfigurationSheet(store: store, item: item, profileID: id, maximumHeight: 580),
                                  name: "configure-" + kind.lowercased().replacingOccurrences(of: " ", with: "-") + "-" + suffix,
                                  size: NSSize(width: 488, height: 580), scheme: scheme, directory: directory)
+            }
+            // Capability-derived states: advertised layouts, first-run setup/empty states and Calendar's production states.
+            try await renderSemanticLayoutPages(suffix: suffix, scheme: scheme, directory: directory, matrix: &matrix)
+            for definition in WidgetRegistry.all where definition.capabilities.hasSetupState {
+                let name = definition.name.lowercased().replacingOccurrences(of: " ", with: "-")
+                try await render(WidgetPopout(store: store, item: .widget(definition.name), profileID: id, showsCustomize: false).padding(20).background(WidgetDesign.surface),
+                                 name: "widget-setup-" + name + "-" + suffix, size: NSSize(width: 460, height: 520), scheme: scheme, directory: directory)
+                matrix.record(definition.name, .setup)
+            }
+            let calendarItem = DockItem.widget("Calendar")
+            for fixture in CalendarQAFixture.allCases {
+                CalendarQAFixture.override = fixture
+                defer { CalendarQAFixture.override = nil }
+                try await render(WidgetPopout(store: store, item: calendarItem, profileID: id, showsCustomize: false).padding(20).background(WidgetDesign.surface),
+                                 name: "calendar-\(fixture.rawValue)-popout-" + suffix, size: NSSize(width: 460, height: 460), scheme: scheme, directory: directory)
+                try await render(WidgetCompactView(store: store, item: calendarItem, profileID: id, layoutOverride: .wide).padding(20).background(WidgetDesign.surface),
+                                 name: "calendar-\(fixture.rawValue)-dock-" + suffix, size: NSSize(width: 260, height: 100), scheme: scheme, directory: directory)
             }
             try await render(VStack(alignment: .leading, spacing: 16) {
                 ForEach(["AI Activity", "AI Limits", "System Activity", "Network Activity", "Disk Space", "Calculator", "Quick Checklist"], id: \.self) { kind in
@@ -543,6 +555,7 @@ enum PremiumVisualQA {
             }.padding(20).background(WidgetDesign.surface), name: "icon-styles-" + suffix,
                              size: NSSize(width: 580, height: 530), scheme: scheme, directory: directory)
         }
+        try matrix.validate()
     }
 
     /// Authored named states include the same attribution required by runtime projection.

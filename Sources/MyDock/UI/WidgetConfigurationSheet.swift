@@ -34,6 +34,12 @@ struct WidgetConfigurationSheet: View {
                     .buttonStyle(DockButtonStyle(icon: true))
                     .help("Close widget settings").accessibilityLabel("Close widget settings")
             }
+            if let note = WidgetRegistry.definition(named: currentItem.widgetKind ?? currentItem.title)?.capabilities.accessNote {
+                Label(note, systemImage: "hand.raised")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Access: " + note)
+            }
             WidgetAppearanceControls(store: store, item: currentItem, profileID: profileID, part: .preview)
             DockScrollView {
                 VStack(alignment: .leading, spacing: DockDesign.Space.large) {
