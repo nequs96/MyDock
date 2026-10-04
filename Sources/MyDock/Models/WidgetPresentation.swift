@@ -38,6 +38,17 @@ struct WidgetLayoutOption: Identifiable, Hashable {
 /// System permissions a widget family may ask for. Descriptive only; requests stay in the owning services.
 enum WidgetSystemPermission: String, Hashable, CaseIterable {
     case calendars, reminders, location, automation, notifications
+
+    /// Short user-facing noun used in capability notes.
+    var title: String {
+        switch self {
+        case .calendars: "Calendar"
+        case .reminders: "Reminders"
+        case .location: "Location"
+        case .automation: "Automation"
+        case .notifications: "Notifications"
+        }
+    }
 }
 
 /// What kind of refresh a family needs while visible.
@@ -58,6 +69,18 @@ struct WidgetCapabilities: Hashable {
     var hasSetupState = false
     var holdsPrivateContent = false
     var refreshDemand: WidgetRefreshDemand = .none
+
+    /// Short, truthful note derived only from the family's capabilities. It describes what the family may use,
+    /// never whether a permission is currently granted. Nil when the family needs nothing special.
+    var accessNote: String? {
+        var parts: [String] = []
+        if !permissions.isEmpty {
+            let names = WidgetSystemPermission.allCases.filter(permissions.contains).map(\.title).joined(separator: ", ")
+            parts.append("May ask for \(names) access when you use it.")
+        }
+        if holdsPrivateContent { parts.append("Can show personal content on your Dock.") }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
 }
 
 enum WidgetLayoutPresets {

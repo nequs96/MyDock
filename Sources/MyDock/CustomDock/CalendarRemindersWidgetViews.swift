@@ -98,6 +98,14 @@ private struct CalendarCompactWidgetView: View {
             errorMessage = nil
             return
         }
+        #if DEBUG
+        if let fixture = CalendarQAFixture.current {
+            events = fixture.events()
+            accessAvailable = true
+            errorMessage = nil
+            return
+        }
+        #endif
         guard await CalendarRemindersService.shared.hasCalendarAccess() else {
             guard requestIsCurrent(requestID, selectedIDs: selectedIDs,
                                    includeAllDay: includeAllDay, layout: layout) else { return }
@@ -327,6 +335,15 @@ private struct CalendarPopoutWidgetView: View {
             errorMessage = nil
             return
         }
+        #if DEBUG
+        if let fixture = CalendarQAFixture.current {
+            calendars = fixture.calendars
+            events = fixture.events()
+            errorMessage = nil
+            isLoading = false
+            return
+        }
+        #endif
         isLoading = true
         defer { if refreshRequestID == requestID { isLoading = false } }
         do {
