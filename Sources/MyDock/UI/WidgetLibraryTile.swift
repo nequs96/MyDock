@@ -5,10 +5,21 @@ import SwiftUI
 private enum WidgetGalleryMetrics {
     static let previewScale: CGFloat = 1.5
     static let previewHeight: CGFloat = 54 * previewScale
-    static let previewRadius: CGFloat = 12 * previewScale
     static let columnMinimum: CGFloat = 224
     static let columnMaximum: CGFloat = 248
     static let captionHeight: CGFloat = 24
+}
+
+/// Legacy size requests resolve to a family's supported semantic geometry.
+enum WidgetGalleryPreviewInputs {
+    static func option(for kind: String, width: WidgetCardWidth) -> WidgetLayoutOption {
+        let options = WidgetPresentationCatalog.options(for: kind)
+        switch width {
+        case .compact: return options.first!
+        case .standard: return options.first { $0.layout == WidgetPresentationCatalog.defaultLayout(for: kind) } ?? options.first!
+        case .wide: return options.last!
+        }
+    }
 }
 
 /// Desktop gallery tiles keep their geometry unchanged when hovered or pressed.
@@ -21,22 +32,31 @@ private struct WidgetGalleryButtonStyle: ButtonStyle {
 struct WidgetLibraryTile: View {
     var widget: WidgetDefinition
     var cardWidth: WidgetCardWidth = .standard
+    var layout: WidgetLayout? = nil
     var added = false
     var showsVariantLabel = false
     @State private var hovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var previewWidth: CGFloat { CGFloat(cardWidth.points) }
+    private var previewOption: WidgetLayoutOption {
+        if let layout, let option = WidgetPresentationCatalog.options(for: widget.name).first(where: { $0.layout == layout }) { return option }
+        return WidgetGalleryPreviewInputs.option(for: widget.name, width: cardWidth)
+    }
+    private var previewWidth: CGFloat { CGFloat(previewOption.width) }
+    private var previewScale: CGFloat {
+        min(WidgetGalleryMetrics.previewScale,
+            (WidgetGalleryMetrics.columnMinimum - 2 * DockDesign.Space.xxs) / previewWidth)
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: DockDesign.Space.small) {
-            WidgetCardPreview(kind: widget.name, width: previewWidth, displayScale: WidgetGalleryMetrics.previewScale)
-                .overlay(RoundedRectangle(cornerRadius: WidgetGalleryMetrics.previewRadius, style: .continuous)
+            WidgetCardPreview(kind: widget.name, width: previewWidth, displayScale: previewScale, layout: previewOption.layout)
+                .overlay(RoundedRectangle(cornerRadius: 12 * previewScale, style: .continuous)
                     .strokeBorder(Color.primary.opacity(hovered ? 0.24 : 0.06), lineWidth: 1))
                 .frame(maxWidth: .infinity).frame(height: WidgetGalleryMetrics.previewHeight)
                 .accessibilityHidden(true)
             Text("Example").font(.caption2).foregroundStyle(.secondary)
                 .accessibilityLabel("Example preview for \(widget.name)")
             HStack(spacing: DockDesign.Space.xs) {
-                Text(showsVariantLabel ? cardWidth.label : widget.name)
+                Text(showsVariantLabel ? previewOption.title : widget.name)
                     .font(.system(size: 13, weight: .medium)).lineLimit(1)
                 Spacer(minLength: DockDesign.Space.xxs)
                 Image(systemName: added ? "checkmark.circle" : "plus.circle.fill")

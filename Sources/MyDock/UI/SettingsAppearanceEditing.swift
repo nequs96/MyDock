@@ -9,15 +9,26 @@ enum SettingsAppearanceEditing {
         let settings: AppSettings
         let color: DockProfileColor?
 
-        @MainActor func restore(in store: ProfileStore) {
+        func isAvailable(for editingProfileID: UUID?) -> Bool { profileID == editingProfileID }
+
+        @discardableResult
+        @MainActor func restore(in store: ProfileStore, editingProfileID: UUID?) -> Bool {
+            guard isAvailable(for: editingProfileID) else { return false }
             if let profileID {
-                guard store.customProfiles.contains(where: { $0.id == profileID }) else { return }
+                guard store.customProfiles.contains(where: { $0.id == profileID }) else { return false }
                 store.setAppearance(appearance, for: profileID)
                 if let color { store.setProfileColor(profileID, to: color) }
             } else {
                 store.updateSettings { $0 = ProfileAppearance(settings: settings).applying(to: $0) }
             }
+            return true
         }
+    }
+
+    /// App defaults and missing Docks use a neutral example rather than another Dock's colour.
+    nonisolated static func previewColor(profiles: [DockProfile], profileID: UUID?) -> DockProfileColor? {
+        guard let profileID, let profile = profiles.first(where: { $0.id == profileID }) else { return nil }
+        return DockProfileColor(rawValue: profile.color) ?? .blue
     }
 
     static func capture(in store: ProfileStore, profileID: UUID?) -> Undo? {
