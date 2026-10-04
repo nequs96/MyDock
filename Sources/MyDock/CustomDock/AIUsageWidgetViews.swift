@@ -20,6 +20,14 @@ struct AIActivityWidgetProvider: DockWidgetProvider {
     }
 }
 
+enum AILimitsStalePresentation {
+    /// A retained reading keeps its original success time and is never presented as current.
+    static func message(updatedAt: Date?, error: String) -> String {
+        "Stale · last successful reading" + (updatedAt.map { " " + $0.formatted(date: .abbreviated, time: .shortened) } ?? " time unknown")
+            + ". Refresh failed: " + error
+    }
+}
+
 private struct AILimitsCompactView: View {
     var item: DockItem
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
@@ -47,7 +55,7 @@ private struct AILimitsCompactView: View {
             .overlay(alignment: .topTrailing) {
                 if let provider = selectedProvider, configuration.aiLimitsSnapshot?.reading(for: provider)?.lastRefreshError != nil {
                     Image(systemName: "exclamationmark.circle.fill").font(.system(size: 9)).foregroundStyle(.orange)
-                        .help("Refresh failed; saved reading shown").accessibilityLabel("Refresh failed; saved reading shown")
+                        .help("Stale: refresh failed, last successful reading shown").accessibilityLabel("Stale: refresh failed, last successful reading shown")
                 }
             }
     }
@@ -190,12 +198,12 @@ private struct AILimitsPopoutView: View {
                 Text(reading.provider.title).font(.subheadline.weight(.semibold))
                 Spacer()
                 if let plan = reading.plan { Text(plan.capitalized).font(.caption2).foregroundStyle(.secondary) }
-                if reading.lastRefreshError != nil { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).accessibilityLabel("Refresh failed; saved reading shown") }
+                if reading.lastRefreshError != nil { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).accessibilityLabel("Stale: refresh failed, last successful reading shown") }
                 else if reading.availability == .available { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
                 else { Text("—").foregroundStyle(.secondary) }
             }
             if let error = reading.lastRefreshError {
-                Label("Refresh failed · saved reading shown. " + error, systemImage: "exclamationmark.triangle")
+                Label(AILimitsStalePresentation.message(updatedAt: reading.updatedAt, error: error), systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             if let identity = reading.verifiedAccountIdentity {
