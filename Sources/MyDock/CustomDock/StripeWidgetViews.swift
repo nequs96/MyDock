@@ -10,13 +10,18 @@ struct StripeWidgetProvider: DockWidgetProvider {
     }
 }
 
-private struct StripeCompactView: View {
+struct StripeCompactView: View {
     var item: DockItem
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var values: StripeCurrencyMetrics? { configuration.stripeSnapshot?.metrics(for: configuration.stripeCurrency) }
 
     var body: some View {
-        BusinessDockFace(kind: "Stripe", title: configuration.stripeDisplayName, metric: configuration.stripeMetric.title, value: values.map { StripeMetricFormatter.text(for: configuration.stripeMetric, values: $0) }, context: configuration.stripePeriod.title)
+        FacesBBusinessDockFace(kind: "Stripe", title: configuration.stripeDisplayName, metric: configuration.stripeMetric.title,
+            amount: values.map { StripeMetricFormatter.amount(for: configuration.stripeMetric, values: $0) },
+            currency: configuration.stripeMetric == .payingSubscribers ? nil : configuration.stripeCurrency,
+            fullValue: values.map { StripeMetricFormatter.text(for: configuration.stripeMetric, values: $0) },
+            context: configuration.stripePeriod.title,
+            emptyValue: configuration.stripeSnapshot != nil || !configuration.stripeAccountID.isEmpty ? "No data" : "Connect")
     }
 }
 
@@ -39,14 +44,14 @@ private struct StripePopoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 8) {
-                Image(systemName: "creditcard.fill").foregroundStyle(color(for: configuration.stripeColor))
-                TextField("Account name", text: displayNameBinding)
-                    .textFieldStyle(.plain).font(.headline)
-                Spacer(minLength: 4)
-                Button("Refresh") { Task { await refresh() } }
-                    .disabled(isRefreshing)
-                if isRefreshing { ProgressView().controlSize(.small) }
+            GroupedSection {
+                GroupedRow("Account name", symbol: "pencil") {
+                    TextField("Account name", text: displayNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                }
+                GroupedRow("Refresh", symbol: "arrow.clockwise") {
+                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing)
+                    if isRefreshing { ProgressView().controlSize(.small) }
+                }
             }
 
             if let snapshot {
@@ -65,7 +70,7 @@ private struct StripePopoutView: View {
             if let currencyMetrics {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(StripeMetricFormatter.text(for: configuration.stripeMetric, values: currencyMetrics))
-                        .font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
+                        .font(DockDesign.Module.valueLarge)
                     HStack(spacing: 6) {
                         Text(configuration.stripeMetric.title)
                         Text("·")
@@ -117,8 +122,7 @@ private struct StripePopoutView: View {
             Text("MRR/ARR estimate active and past-due fixed recurring prices; trials and metered, tiered, discounted, or tax-adjusted items are excluded.")
                 .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 350, alignment: .leading)
-        .frame(minHeight: 220, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: "\(configuration.stripeAccountID)|\(configuration.stripePeriod.rawValue)|\(configuration.stripeDisplayName)") {
             guard !configuration.stripeAccountID.isEmpty else { return }
             await refresh()
@@ -135,40 +139,35 @@ private struct StripePopoutView: View {
     }
 
     private var controls: some View {
-        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 7) {
-            GridRow {
-                Text("Metric").foregroundStyle(.secondary)
+        GroupedSection("Display") {
+            GroupedRow("Metric") {
                 Picker("Metric", selection: metricBinding) {
                     ForEach(StripeMetric.allCases) { Text($0.title).tag($0) }
                 }
                 .labelsHidden()
             }
-            GridRow {
-                Text("Account").foregroundStyle(.secondary)
+            GroupedRow("Account") {
                 Picker("Account", selection: accountBinding) {
                     Text("Not connected").tag("")
                     ForEach(connections) { account in Text(account.name).tag(account.id) }
                 }
                 .labelsHidden()
             }
-            GridRow {
-                Text("Currency").foregroundStyle(.secondary)
+            GroupedRow("Currency") {
                 Picker("Currency", selection: currencyBinding) {
                     ForEach(currencyOptions, id: \.self) { Text($0).tag($0) }
                 }
                 .labelsHidden()
                 .disabled(currencyOptions.isEmpty)
             }
-            GridRow {
-                Text("Period").foregroundStyle(.secondary)
+            GroupedRow("Period") {
                 Picker("Period", selection: periodBinding) {
                     ForEach(StripePeriod.allCases) { Text($0.title).tag($0) }
                 }
                 .labelsHidden()
                 .disabled([.revenue, .netAfterFees].contains(configuration.stripeMetric) == false)
             }
-            GridRow {
-                Text("Color").foregroundStyle(.secondary)
+            GroupedRow("Color") {
                 Picker("Color", selection: colorBinding) {
                     ForEach(DockProfileColor.allCases) { color in
                         Text(color.title).tag(color.rawValue)
@@ -182,38 +181,35 @@ private struct StripePopoutView: View {
 
     private var connectionControls: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Divider()
-            Text("Connect a Stripe account").font(.caption.weight(.semibold))
-            HStack(spacing: 7) {
-                TextField("Account name", text: connectionNameBinding)
-                    .textFieldStyle(DockTextFieldStyle())
+            GroupedSection("Connect a Stripe account") {
+                GroupedRow("Account name") {
+                    TextField("Account name", text: connectionNameBinding)
+                        .textFieldStyle(DockTextFieldStyle())
+                        .disabled(isConnecting)
+                }
+                GroupedRow("Account color") {
+                    Picker("Account color", selection: connectionColorBinding) {
+                        ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                    .labelsHidden()
+
                     .disabled(isConnecting)
-                Picker("Account color", selection: connectionColorBinding) {
-                    ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
                 }
-                .labelsHidden()
-                .frame(width: 100)
-                .disabled(isConnecting)
-            }
-            SecureField("Restricted key (rk_live_… or rk_test_…)", text: restrictedKeyBinding)
-                .textFieldStyle(DockTextFieldStyle())
-                .disabled(isConnecting)
-            HStack {
-                Button {
-                    Task { await connect() }
-                } label: {
-                    if isConnecting { ProgressView().controlSize(.small) }
-                    else { Text("Connect") }
+                GroupedRow("Restricted key") {
+                    SecureField("Restricted key (rk_live_… or rk_test_…)", text: restrictedKeyBinding)
+                        .textFieldStyle(DockTextFieldStyle())
+                        .disabled(isConnecting)
                 }
-                .disabled(isConnecting || setupDraft.accountName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || setupDraft.restrictedKey.isEmpty)
-                if !configuration.stripeAccountID.isEmpty {
-                    Button("Disconnect", role: .destructive) { showingDisconnectConfirmation = true }
-                }
-                Button("Clear Draft") { setupDrafts.clearDrafts(for: item.id) }
+                GroupedRow("Connect", role: .button) { Task { await connect() } }
+                    .disabled(isConnecting || setupDraft.accountName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || setupDraft.restrictedKey.isEmpty)
+                if isConnecting { GroupedRow("Connecting…") { ProgressView().controlSize(.small) } }
+                GroupedRow("Clear Draft", role: .button) { setupDrafts.clearDrafts(for: item.id) }
                     .disabled(isConnecting || setupDraft.isPristine)
-                Spacer()
+                if !configuration.stripeAccountID.isEmpty {
+                    GroupedRow("Disconnect", role: .destructive) { showingDisconnectConfirmation = true }
+                }
                 if let url = URL(string: "https://docs.stripe.com/keys#limit-access") {
-                    Link("Key permissions", destination: url)
+                    GroupedRow("Permissions") { Link("Key permissions", destination: url) }
                 }
             }
             Text("Grant read-only Account, Balance, Balance Transactions, and Subscriptions access. MyDock never requests write access.")
@@ -381,6 +377,21 @@ private enum StripeMetricFormatter {
         }
     }
 
+    static func amount(for metric: StripeMetric, values: StripeCurrencyMetrics) -> Decimal {
+        let minor: Decimal
+        switch metric {
+        case .payingSubscribers: return Decimal(values.payingSubscribers)
+        case .revenue: minor = values.revenueMinor
+        case .netAfterFees: minor = values.netAfterFeesMinor
+        case .mrr: minor = values.mrrMinor
+        case .arr: minor = values.mrrMinor * 12
+        case .arpu: minor = values.arpuMinor
+        case .availableBalance: minor = values.availableBalanceMinor
+        case .pendingBalance: minor = values.pendingBalanceMinor
+        }
+        return FinancialCurrencyFormatter.majorUnits(from: minor, currency: values.currency)
+    }
+
     private static func money(_ minorUnits: Decimal, currency: String) -> String {
         FinancialCurrencyFormatter.text(from: minorUnits, currency: currency)
     }
@@ -388,4 +399,48 @@ private enum StripeMetricFormatter {
 
 private func color(for name: String) -> Color {
     (DockProfileColor(rawValue: name) ?? .purple).displayColor
+}
+
+/// Compact financial values retain a full currency/count description for VoiceOver and help.
+enum FacesBFinancialFormatting {
+    static func compact(_ amount: Decimal, currency: String?, narrow: Bool, locale: Locale = .current) -> String {
+        let number = NSDecimalNumber(decimal: amount).doubleValue
+        guard number.isFinite else { return "—" }
+        let scales: [(Double, String)] = [(1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")]
+        let scale = scales.first { abs(number) >= $0.0 } ?? (1, "")
+        let text = (number / scale.0).formatted(.number.locale(locale).precision(.fractionLength(0...(scale.0 == 1 ? 2 : 1)))) + scale.1
+        guard let currency, !narrow else { return text }
+        let formatter = NumberFormatter()
+        formatter.locale = locale
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency
+        return (formatter.currencySymbol ?? currency) + text
+    }
+    static func stateColor(_ amount: Decimal?) -> Color { amount.map { $0 < 0 ? WidgetPalette.critical : Color.primary } ?? .primary }
+}
+
+struct FacesBBusinessDockFace: View {
+    var kind: String
+    var title: String
+    var metric: String
+    var amount: Decimal?
+    var currency: String?
+    var fullValue: String?
+    var context: String
+    var emptyValue = "Connect"
+    @Environment(\.dockWidgetContentWidth) private var width
+    @Environment(\.widgetLayout) private var layout
+    var body: some View {
+        let narrow = WidgetModuleMetrics.isNarrow(width)
+        ModuleStack(kind: kind, label: fullValue == nil || title.count > 12 ? kind : title,
+                    value: amount.map { FacesBFinancialFormatting.compact($0, currency: currency, narrow: narrow) } ?? emptyValue,
+                    size: fullValue == nil ? .small : narrow ? .medium : .large,
+                    valueColor: FacesBFinancialFormatting.stateColor(amount),
+                    trailing: layout == .standard && !narrow && fullValue != nil ? context : nil)
+            .moduleInsets()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title)
+            .accessibilityValue(fullValue.map { "\(metric) \($0), \(context)" } ?? emptyValue)
+            .help(fullValue.map { "\(title) · \(metric) · \($0) · \(context)" } ?? "Open to connect or review saved data")
+    }
 }

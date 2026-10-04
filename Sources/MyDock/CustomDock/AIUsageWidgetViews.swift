@@ -28,37 +28,72 @@ enum AILimitsStalePresentation {
     }
 }
 
-private struct AILimitsCompactView: View {
-    var item: DockItem
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-    private var selectedProvider: AIProvider? {
-        if configuration.aiLimitsVisibleProviders.contains(configuration.aiLimitsCompactProvider) {
-            return configuration.aiLimitsCompactProvider
-        }
+enum AIFacePresentation {
+    static func selectedProvider(configuration: WidgetConfiguration) -> AIProvider? {
+        if configuration.aiLimitsVisibleProviders.contains(configuration.aiLimitsCompactProvider) { return configuration.aiLimitsCompactProvider }
         return configuration.aiLimitsProviderOrder.first(where: configuration.aiLimitsVisibleProviders.contains)
     }
+    /// Thresholds always refer to used capacity, even when the user displays remaining capacity.
+    static func limitColor(usedPercent: Int?) -> Color {
+        guard let usedPercent else { return .secondary }
+        return usedPercent >= 100 ? WidgetPalette.critical : usedPercent >= 90 ? WidgetPalette.warning : .secondary
+    }
+    static func activityValue(snapshot: AIActivitySnapshot?) -> String {
+        guard let snapshot, snapshot.available else { return snapshot == nil ? "Set up" : "No data" }
+        return AIActivityFormatting.tokens(snapshot.totals.totalTokens) + (snapshot.partial && !snapshot.estimated ? "+" : "")
+    }
+    static func limitValue(reading: AIProviderLimitReading?, mode: AIUsageRepresentation) -> String {
+        guard let reading else { return "Set up" }
+        return compactPercent(reading.windows.first, mode: mode)
+    }
+}
 
+struct AILimitsCompactView: View {
+    var item: DockItem
+    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    private var selectedProvider: AIProvider? { AIFacePresentation.selectedProvider(configuration: configuration) }
+    private var reading: AIProviderLimitReading? { selectedProvider.flatMap { configuration.aiLimitsSnapshot?.reading(for: $0) } }
     @Environment(\.dockWidgetContentWidth) private var width
     @Environment(\.widgetLayout) private var layout
+    @Environment(\.widgetAccent) private var accent
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            WidgetHeader(kind: "AI Limits", title: selectedProvider?.shortName ?? "AI Limits")
-            if let provider = selectedProvider, let window = configuration.aiLimitsSnapshot?.reading(for: provider)?.windows.first {
-                MetricText(value: compactPercent(window, mode: configuration.aiLimitsRepresentation), unit: configuration.aiLimitsRepresentation == .remaining ? "left" : "used", size: 19)
-                if layout == .standard { Text(window.name).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1) }
-                if let percent = configuration.aiLimitsRepresentation == .remaining ? window.remainingPercent : window.usedPercent {
-                    UsageBar(fraction: Double(percent) / 100, color: WidgetPalette.accent("AI Limits"))
-                }
-            } else { Text("Set up").font(.system(size: 13, weight: .medium)) }
-        }.padding(.horizontal, 9).frame(width: width, height: 54)
+        let window = reading?.windows.first
+        let state = AIFacePresentation.limitColor(usedPercent: window?.usedPercent)
+        VStack(spacing: 3) {
+            ModuleStack(kind: "AI Limits", label: selectedProvider?.shortName ?? "AI Limits",
+                        value: AIFacePresentation.limitValue(reading: reading, mode: configuration.aiLimitsRepresentation),
+                        unit: window == nil ? "" : configuration.aiLimitsRepresentation == .remaining ? "left" : "used",
+                        size: reading == nil ? .small : .medium, valueColor: (window?.usedPercent ?? 0) >= 90 ? state : .primary,
+                        trailing: layout == .standard && width > 54 && reading?.lastRefreshError == nil ? window.map(compactWindowTitle) : nil)
+            if width > 54, let window,
+               let percent = configuration.aiLimitsRepresentation == .remaining ? window.remainingPercent : window.usedPercent {
+                UsageBar(fraction: Double(percent) / 100,
+                         color: (window.usedPercent ?? 0) >= 90 ? state : WidgetPalette.resolved(kind: "AI Limits", accent: accent))
+            }
+        }.moduleInsets()
             .help("AI Limits · Open to see provider windows")
+            .accessibilityElement(children: .combine)
             .overlay(alignment: .topTrailing) {
-                if let provider = selectedProvider, configuration.aiLimitsSnapshot?.reading(for: provider)?.lastRefreshError != nil {
-                    Image(systemName: "exclamationmark.circle.fill").font(.system(size: 9)).foregroundStyle(.orange)
-                        .padding(.top, 7).padding(.trailing, 9)
+                if reading?.lastRefreshError != nil {
+                    Image(systemName: "exclamationmark.circle.fill").font(.system(size: 10)).foregroundStyle(WidgetPalette.warning)
+                        .padding(.top, 4).padding(.trailing, 4)
                         .help("Stale: refresh failed, last successful reading shown").accessibilityLabel("Stale: refresh failed, last successful reading shown")
                 }
             }
+    }
+}
+
+enum AILimitsFaceSample {
+    static func item() -> DockItem {
+        var item = DockItem.widget("AI Limits")
+        item.widgetConfiguration?.aiLimitsVisibleProviders = [.claude]
+        item.widgetConfiguration?.aiLimitsCompactProvider = .claude
+        item.widgetConfiguration?.aiLimitsSnapshot = AILimitsSnapshot(fetchedAt: .now, readings: [
+            AIProviderLimitReading(provider: .claude, availability: .available, windows: [
+                AILimitWindow(name: "Session", usedPercent: 28, durationMinutes: 300)
+            ], updatedAt: .now)
+        ])
+        return item
     }
 }
 
@@ -85,12 +120,11 @@ private struct AILimitsPopoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 8) {
-                Image(systemName: "gauge.with.dots.needle.67percent").foregroundStyle(.cyan)
-                Text("AI Limits").font(.headline)
-                Spacer()
-                Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing)
-                if isRefreshing { ProgressView().controlSize(.small) }
+            GroupedSection {
+                GroupedRow("Refresh", symbol: "arrow.clockwise") {
+                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing)
+                    if isRefreshing { ProgressView().controlSize(.small) }
+                }
             }
 
             ForEach(orderedProviders.filter { configuration.aiLimitsVisibleProviders.contains($0) && ($0 == .codex || $0 == .claude) }) { provider in
@@ -115,8 +149,7 @@ private struct AILimitsPopoutView: View {
             Text("A dash means unavailable. MyDock reads Codex's local app-server rate-limit API without starting a task. It does not infer percentages or refresh limits by spending model tokens.")
                 .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 375, alignment: .leading)
-        .frame(minHeight: 220, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: limitsRefreshKey) {
             await refresh()
         }
@@ -129,61 +162,49 @@ private struct AILimitsPopoutView: View {
     }
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text("Limit display").foregroundStyle(.secondary)
-                Picker("Limit display", selection: layoutBinding) {
-                    ForEach(AILimitLayout.allCases) { Text($0.title).tag($0) }
-                }.labelsHidden()
-                Spacer()
-                Picker("Show", selection: representationBinding) {
-                    ForEach(AIUsageRepresentation.allCases) { Text($0.title).tag($0) }
-                }.labelsHidden()
-            }
-            HStack {
-                Text("Dock provider").foregroundStyle(.secondary)
-                Picker("Dock provider", selection: compactProviderBinding) {
-                    ForEach(orderedProviders.filter(configuration.aiLimitsVisibleProviders.contains)) { Text($0.title).tag($0) }
-                }.labelsHidden().disabled(configuration.aiLimitsVisibleProviders.isEmpty)
-            }
-            Text("Choose popout visibility/order and the provider shown in the compact tile.")
-                .font(.caption2).foregroundStyle(.secondary)
-            ForEach(orderedProviders) { provider in
-                HStack(spacing: 7) {
-                    Toggle(provider.title, isOn: visibleBinding(for: provider)).toggleStyle(.checkbox)
-                    Spacer()
-                    Button { move(provider, offset: -1) } label: { Image(systemName: "arrow.up") }
-                        .buttonStyle(.borderless).disabled(orderedProviders.first == provider)
-                    Button { move(provider, offset: 1) } label: { Image(systemName: "arrow.down") }
-                        .buttonStyle(.borderless).disabled(orderedProviders.last == provider)
+        VStack(alignment: .leading, spacing: 12) {
+            GroupedSection("Display") {
+                GroupedRow("Limit display") {
+                    Picker("Limit display", selection: layoutBinding) {
+                        ForEach(AILimitLayout.allCases) { Text($0.title).tag($0) }
+                    }.labelsHidden()
                 }
-                .font(.caption)
-                if provider == .copilot, configuration.aiLimitsVisibleProviders.contains(.copilot) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack(spacing: 6) {
-                            Text("Monthly AI-credit allowance")
-                                .foregroundStyle(.secondary)
-                            Spacer(minLength: 4)
-                            TextField("Credits", value: copilotAllowanceBinding, format: .number)
-                                .textFieldStyle(DockTextFieldStyle())
-                                .frame(width: 86)
-                                .multilineTextAlignment(.trailing)
-                        }
-                        HStack(spacing: 5) {
-                            Text("Quick set:").foregroundStyle(.tertiary)
-                            allowancePreset("Pro", credits: 1_500)
-                            allowancePreset("Pro+", credits: 7_000)
-                            allowancePreset("Max", credits: 20_000)
-                        }
-                        Text("Match your personal GitHub plan. Copilot usage resets monthly.")
-                            .font(.caption2).foregroundStyle(.tertiary)
+                GroupedRow("Show") {
+                    Picker("Show", selection: representationBinding) {
+                        ForEach(AIUsageRepresentation.allCases) { Text($0.title).tag($0) }
+                    }.labelsHidden()
+                }
+                GroupedRow("Dock provider") {
+                    Picker("Dock provider", selection: compactProviderBinding) {
+                        ForEach(orderedProviders.filter(configuration.aiLimitsVisibleProviders.contains)) { Text($0.title).tag($0) }
+                    }.labelsHidden().disabled(configuration.aiLimitsVisibleProviders.isEmpty)
+                }
+            }
+            GroupedSection("Providers", footer: "Choose popout visibility/order and the provider shown in the compact tile.") {
+                ForEach(orderedProviders) { provider in
+                    GroupedRow(provider.title) {
+                        Toggle(provider.title, isOn: visibleBinding(for: provider)).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        Button { move(provider, offset: -1) } label: { Image(systemName: "arrow.up") }
+                            .buttonStyle(.borderless).disabled(orderedProviders.first == provider).accessibilityLabel("Move \(provider.title) earlier")
+                        Button { move(provider, offset: 1) } label: { Image(systemName: "arrow.down") }
+                            .buttonStyle(.borderless).disabled(orderedProviders.last == provider).accessibilityLabel("Move \(provider.title) later")
                     }
-                    .font(.caption2)
-                    .padding(.leading, 20)
+                    if provider == .copilot, configuration.aiLimitsVisibleProviders.contains(.copilot) {
+                        GroupedRow("Monthly AI-credit allowance") {
+                            TextField("Credits", value: copilotAllowanceBinding, format: .number)
+                                .textFieldStyle(DockTextFieldStyle()).frame(width: 86).multilineTextAlignment(.trailing)
+                        }
+                        GroupedRow("Quick set", subtitle: "Match your personal GitHub plan. Copilot usage resets monthly.") {
+                            HStack(spacing: 5) {
+                                allowancePreset("Pro", credits: 1_500)
+                                allowancePreset("Pro+", credits: 7_000)
+                                allowancePreset("Max", credits: 20_000)
+                            }
+                        }
+                    }
                 }
             }
         }
-        .font(.caption)
     }
 
     private var visibleReadings: [AIProviderLimitReading] {
@@ -199,8 +220,7 @@ private struct AILimitsPopoutView: View {
                 Text(reading.provider.title).font(.subheadline.weight(.semibold))
                 Spacer()
                 if let plan = reading.plan { Text(plan.capitalized).font(.caption2).foregroundStyle(.secondary) }
-                if reading.lastRefreshError != nil { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).accessibilityLabel("Stale: refresh failed, last successful reading shown") }
-                else if reading.availability == .available { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                if reading.lastRefreshError == nil && reading.availability == .available { Image(systemName: "checkmark.circle").foregroundStyle(.secondary) }
                 else { Text("—").foregroundStyle(.secondary) }
             }
             if let error = reading.lastRefreshError {
@@ -245,8 +265,7 @@ private struct AILimitsPopoutView: View {
                     .font(.caption2).foregroundStyle(.tertiary)
             }
         }
-        .padding(9)
-        .background(.quaternary.opacity(0.32), in: RoundedRectangle(cornerRadius: 10))
+
     }
 
     @ViewBuilder
@@ -271,16 +290,13 @@ private struct AILimitsPopoutView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 case .bars:
                     ProgressView(value: Double(visualPercent ?? 0), total: 100)
-                        .tint((visualPercent ?? 0) > 90 ? .orange : .cyan)
+                        .tint(AIFacePresentation.limitColor(usedPercent: window.usedPercent))
                 case .rings:
                     HStack(spacing: 8) {
-                        ZStack {
-                            Circle().stroke(.quaternary, lineWidth: 4)
-                            Circle().trim(from: 0, to: Double(visualPercent ?? 0) / 100).stroke((visualPercent ?? 0) > 90 ? .orange : .cyan,
-                                                                                   style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                                .rotationEffect(.degrees(-90))
-                            Text("\(percent)").font(.system(size: 8, weight: .semibold, design: .rounded).monospacedDigit())
-                        }.frame(width: 28, height: 28)
+                        ModuleRing(fraction: Double(visualPercent ?? 0) / 100,
+                                   color: AIFacePresentation.limitColor(usedPercent: window.usedPercent)) {
+                            Text("\(percent)").font(DockDesign.Module.label).monospacedDigit()
+                        }.frame(width: 36, height: 36)
                         Text("\(configuration.aiLimitsRepresentation.title) · \(provider.title)")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
@@ -358,35 +374,28 @@ struct AIActivityCompactView: View {
               snapshot.range == configuration.aiActivityRange else { return nil }
         return snapshot
     }
+    @Environment(\.widgetAccent) private var accent
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if width > 0 {
-                WidgetHeader(kind: "AI Activity", title: configuration.aiActivityProvider.shortName,
-                             trailing: layout == .compact || width <= 54 ? nil : configuration.aiActivityRange.activityTitle,
-                             symbol: configuration.aiActivityProvider == .codex ? "terminal" : "sparkle")
-            }
-            if layout == .trend && width > 54 {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    MetricText(value: value, unit: snapshot?.available == true ? "tokens" : "", size: 19)
-                    Spacer(minLength: 2)
-                    if let secondary { Text(secondary).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1) }
+        let narrow = WidgetModuleMetrics.isNarrow(width)
+        HStack(spacing: 10) {
+            VStack(alignment: narrow ? .center : .leading, spacing: 2) {
+                ModuleStack(kind: "AI Activity", label: configuration.aiActivityProvider.shortName,
+                            value: AIFacePresentation.activityValue(snapshot: snapshot),
+                            unit: snapshot?.available == true ? "tokens" : "", size: snapshot?.available == true ? .medium : .small,
+                            symbol: configuration.aiActivityProvider == .codex ? "terminal" : "sparkle", keepsLeading: layout == .trend)
+                if !narrow && layout != .compact, let secondary {
+                    Text(secondary).font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
                 }
-                if let snapshot, snapshot.available, snapshot.points.count > 1 {
-                    MicroSparkline(values: snapshot.points.map { Double($0.totalTokens) }, color: WidgetPalette.accent("AI Activity")).frame(height: 8)
-                }
-            } else {
-                MetricText(value: value, unit: width > 54 && snapshot?.available == true ? "tokens" : "", size: layout == .compact ? 18 : 19)
-                if layout == .standard && width > 54, let secondary { Text(secondary).font(.system(size: 8)).foregroundStyle(.secondary) }
             }
-        }.padding(.horizontal, width > 54 ? 9 : 4).frame(maxWidth: .infinity, alignment: .leading).frame(height: 54)
+            if layout == .trend && !narrow, let snapshot, snapshot.available, snapshot.points.count > 1 {
+                MicroSparkline(values: snapshot.points.map { Double($0.totalTokens) }, color: WidgetPalette.resolved(kind: "AI Activity", accent: accent))
+                    .frame(width: 46, height: 26)
+            }
+        }.moduleInsets().frame(height: 54)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(configuration.aiActivityProvider.title) AI Activity")
             .accessibilityValue(snapshot?.available == true ? snapshot!.tokensText + (secondary.map { ", " + $0 } ?? "") : "No local activity. Open for setup.")
             .help(snapshot.map { "\($0.provider.title) · \($0.tokensText) · \($0.range.activityTitle). Based on available local logs. " + ($0.range == .today ? "Sparkline shows the last 7 days." : "") } ?? "Open to set up local activity")
-    }
-    private var value: String {
-        guard let snapshot, snapshot.available else { return snapshot == nil ? "Set up" : "No data" }
-        return AIActivityFormatting.tokens(snapshot.totals.totalTokens) + (snapshot.partial && !snapshot.estimated ? "+" : "")
     }
     private var secondary: String? {
         guard let snapshot, snapshot.available else { return nil }
@@ -497,34 +506,28 @@ private struct AIActivitySummary: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Local usage").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                Spacer()
-                if refreshing { ProgressView().controlSize(.mini).frame(width: 24, height: 24).help("Updating local activity") }
-                else {
-                    Button(action: refresh) { Image(systemName: "arrow.clockwise").frame(width: 24, height: 24) }
-                        .buttonStyle(.borderless).help("Refresh local activity").accessibilityLabel("Refresh AI Activity")
+            GroupedSection("Local usage") {
+                GroupedRow("Refresh local activity", symbol: "arrow.clockwise") {
+                    if refreshing { ProgressView().controlSize(.mini).help("Updating local activity") }
+                    else {
+                        Button(action: refresh) { Image(systemName: "arrow.clockwise") }
+                            .buttonStyle(.borderless).help("Refresh local activity").accessibilityLabel("Refresh AI Activity")
+                    }
                 }
-                Menu {
+                GroupedRow("Provider") {
                     Picker("Provider", selection: $provider) {
                         ForEach([AIProvider.codex, .claude, .grok]) { Text($0.title).tag($0) }
-                    }
-                    Divider()
-                    Picker("Chart", selection: $chartStyle) { ForEach(AIActivityChartStyle.allCases) { Text($0.title).tag($0) } }
-                } label: { Image(systemName: "ellipsis.circle").frame(width: 20, height: 24) }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Provider and chart options").accessibilityLabel("Activity options")
-            }
-            HStack(spacing: 7) {
-                AIProviderGlyph(provider: provider).frame(width: 16, height: 16)
-                Menu {
-                    ForEach([AIProvider.codex, .claude, .grok]) { value in Button(value.title) { provider = value } }
-                } label: { Text(provider.title).font(.system(size: 13, weight: .medium)) }
-                    .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Activity provider").accessibilityValue(provider.title)
-                Spacer()
-                Picker("Activity range", selection: $range) {
-                    ForEach(AIActivityRange.allCases) { Text($0.activityTitle).tag($0) }
-                }.pickerStyle(.segmented).labelsHidden().frame(width: 208).controlSize(.small)
-            }
+                    }.labelsHidden().accessibilityLabel("Activity provider").accessibilityValue(provider.title)
+                }
+                GroupedRow("Activity range") {
+                    Picker("Activity range", selection: $range) {
+                        ForEach(AIActivityRange.allCases) { Text($0.activityTitle).tag($0) }
+                    }.labelsHidden()
+                }
+                GroupedRow("Chart") {
+                    Picker("Chart", selection: $chartStyle) { ForEach(AIActivityChartStyle.allCases) { Text($0.title).tag($0) } }.labelsHidden()
+                }
+            }.accessibilityLabel("Activity options")
             if let s = snapshot, s.available {
                 metrics(s)
                 if chartStyle != .totals { chart(s) }
@@ -568,11 +571,11 @@ private struct AIActivitySummary: View {
             metric("Sessions", value: AIActivityFormatting.tokens(Int64(s.totals.sessions)))
                 .help("Distinct local sessions with activity in \(s.range.activityDescription). Daily counts count each session once per day.")
             metric("Tool calls", value: AIActivityFormatting.tokens(Int64(s.totals.toolCalls)))
-        }.padding(14).background(WidgetDesign.inset, in: RoundedRectangle(cornerRadius: 14))
+        }
     }
     private func metric(_ title: String, value: String, primary: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(value).font(.system(size: primary ? 30 : 22, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
+            Text(value).font(primary ? DockDesign.Module.valueLarge : DockDesign.Module.valueMedium).monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
             Text(title).font(.caption).foregroundStyle(.secondary)
         }.accessibilityElement(children: .combine)
     }
@@ -586,20 +589,14 @@ private struct AIActivitySummary: View {
             Chart(s.points) { point in
                 if chartStyle == .bars {
                     BarMark(x: .value("Day", point.date, unit: .day), y: .value("Tokens", point.totalTokens))
-                        .foregroundStyle(Color.accentColor.opacity(0.8)).cornerRadius(3)
+                        .foregroundStyle(Color.secondary).cornerRadius(3)
                 } else {
-                    AreaMark(x: .value("Day", point.date), y: .value("Tokens", point.totalTokens)).foregroundStyle(Color.accentColor.opacity(0.10)).interpolationMethod(.linear)
-                    LineMark(x: .value("Day", point.date), y: .value("Tokens", point.totalTokens)).foregroundStyle(Color.accentColor).lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round)).interpolationMethod(.linear)
+                    LineMark(x: .value("Day", point.date), y: .value("Tokens", point.totalTokens)).foregroundStyle(Color.secondary).lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round)).interpolationMethod(.linear)
                 }
             }
             .chartYScale(domain: 0...max(1, Double(s.points.map(\.totalTokens).max() ?? 0) * 1.12))
-            .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) { _ in AxisValueLabel(format: .dateTime.month(.abbreviated).day()) } }
-            .chartYAxis {
-                AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { value in
-                    AxisGridLine().foregroundStyle(Color.primary.opacity(0.07))
-                    AxisValueLabel { if let tokens = value.as(Double.self) { Text(AIActivityFormatting.tokens(Int64(tokens))).font(.system(size: 10)) } }
-                }
-            }
+            .chartXAxis(.hidden)
+            .chartYAxis(.hidden)
             .frame(height: 136).accessibilityLabel("\(provider.title) token activity by day, \(range == .today ? "last 7 days" : range.activityDescription)")
         }
     }

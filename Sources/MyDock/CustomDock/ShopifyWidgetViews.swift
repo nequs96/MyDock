@@ -11,13 +11,17 @@ struct ShopifyWidgetProvider: DockWidgetProvider {
     }
 }
 
-private struct ShopifyCompactView: View {
+struct ShopifyCompactView: View {
     var item: DockItem
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var snapshot: ShopifySnapshot? { configuration.shopifySnapshot }
 
     var body: some View {
-        BusinessDockFace(kind: "Shopify", title: configuration.shopifyDisplayName, metric: configuration.shopifyMetric.title, value: snapshot.map { ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: $0) }, context: configuration.shopifyPeriod.title)
+        FacesBBusinessDockFace(kind: "Shopify", title: configuration.shopifyDisplayName, metric: configuration.shopifyMetric.title,
+            amount: snapshot.flatMap { ShopifyMetricFormatter.amount(for: configuration.shopifyMetric, snapshot: $0) },
+            currency: configuration.shopifyMetric == .orders ? nil : snapshot?.currency,
+            fullValue: snapshot.map { ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: $0) },
+            context: configuration.shopifyPeriod.title, emptyValue: snapshot != nil || !configuration.shopifyStoreID.isEmpty ? "No data" : "Connect")
     }
 }
 
@@ -39,12 +43,14 @@ private struct ShopifyPopoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "bag.fill").foregroundStyle(shopifyColor(configuration.shopifyColor))
-                TextField("Store name", text: displayNameBinding).textFieldStyle(.plain).font(.headline)
-                Spacer(minLength: 4)
-                Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing || configuration.shopifyStoreID.isEmpty)
-                if isRefreshing { ProgressView().controlSize(.small) }
+            GroupedSection {
+                GroupedRow("Store name", symbol: "pencil") {
+                    TextField("Store name", text: displayNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                }
+                GroupedRow("Refresh", symbol: "arrow.clockwise") {
+                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing || configuration.shopifyStoreID.isEmpty)
+                    if isRefreshing { ProgressView().controlSize(.small) }
+                }
             }
 
             if let snapshot {
@@ -60,7 +66,7 @@ private struct ShopifyPopoutView: View {
             if let snapshot {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: snapshot))
-                        .font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
+                        .font(DockDesign.Module.valueLarge)
                     HStack(spacing: 6) {
                         Text(configuration.shopifyMetric.title)
                         Text("·")
@@ -100,8 +106,7 @@ private struct ShopifyPopoutView: View {
             Text("Order value uses Shopify's current order total after returns and discounts, including tax and shipping. Unpaid and fully returned orders count; test and canceled orders do not. This is order activity, not cash received.")
                 .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 375, alignment: .leading)
-        .frame(minHeight: 220, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: "\(configuration.shopifyStoreID)|\(configuration.shopifyPeriod.rawValue)|\(configuration.shopifyDisplayName)") {
             guard !configuration.shopifyStoreID.isEmpty else { return }
             await refresh()
@@ -118,66 +123,61 @@ private struct ShopifyPopoutView: View {
     }
 
     private var controls: some View {
-        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 7) {
-            GridRow {
-                Text("Store").foregroundStyle(.secondary)
+        GroupedSection("Display") {
+            GroupedRow("Store") {
                 Picker("Store", selection: accountBinding) {
                     Text("Not connected").tag("")
                     ForEach(connectedStores) { connection in Text(connection.name).tag(connection.id) }
                 }.labelsHidden()
             }
-            GridRow {
-                Text("Metric").foregroundStyle(.secondary)
+            GroupedRow("Metric") {
                 Picker("Metric", selection: metricBinding) {
                     ForEach(ShopifyMetric.allCases) { Text($0.title).tag($0) }
                 }.labelsHidden()
             }
-            GridRow {
-                Text("Period").foregroundStyle(.secondary)
+            GroupedRow("Period") {
                 Picker("Period", selection: periodBinding) {
                     ForEach(ShopifyPeriod.allCases) { Text($0.title).tag($0) }
                 }.labelsHidden()
             }
-            GridRow {
-                Text("Color").foregroundStyle(.secondary)
+            GroupedRow("Color") {
                 Picker("Color", selection: colorBinding) {
                     ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
                 }.labelsHidden()
             }
-            GridRow {
-                Text("Chart").foregroundStyle(.secondary)
-                Toggle("Show chart", isOn: chartBinding).toggleStyle(.checkbox)
-            }
+            GroupedRow("Show chart", symbol: "chart.xyaxis.line", isOn: chartBinding)
         }
         .font(.caption)
     }
 
     private var connectionControls: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Divider()
-            Text("Connect a Shopify store").font(.caption.weight(.semibold))
-            HStack(spacing: 7) {
-                TextField("Store name", text: accountNameBinding).textFieldStyle(DockTextFieldStyle())
-                    .disabled(isConnecting)
-                Picker("Store color", selection: accountColorBinding) {
-                    ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
-                }.labelsHidden().frame(width: 100).disabled(isConnecting)
-            }
-            TextField("your-store.myshopify.com", text: domainBinding).textFieldStyle(DockTextFieldStyle()).disabled(isConnecting)
-            TextField("App Client ID", text: clientIDBinding).textFieldStyle(DockTextFieldStyle()).disabled(isConnecting)
-            SecureField("App Client Secret", text: clientSecretBinding).textFieldStyle(DockTextFieldStyle()).disabled(isConnecting)
-            HStack {
-                Button {
-                    Task { await connect() }
-                } label: {
-                    if isConnecting { ProgressView().controlSize(.small) }
-                    else { Text("Connect") }
+            GroupedSection("Connect a Shopify store") {
+                GroupedRow("Store name") {
+                    TextField("Store name", text: accountNameBinding).textFieldStyle(DockTextFieldStyle())
+                        .disabled(isConnecting)
                 }
-                .disabled(isConnecting || setupDraft.domain.isEmpty || setupDraft.clientID.isEmpty || setupDraft.clientSecret.isEmpty)
-                Button("Clear Draft") { setupDrafts.clearDrafts(for: item.id) }
+                GroupedRow("Store color") {
+                    Picker("Store color", selection: accountColorBinding) {
+                        ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
+                    }.labelsHidden().disabled(isConnecting)
+                }
+                GroupedRow("Domain") {
+                    TextField("your-store.myshopify.com", text: domainBinding).textFieldStyle(DockTextFieldStyle()).disabled(isConnecting)
+                }
+                GroupedRow("Client ID") {
+                    TextField("App Client ID", text: clientIDBinding).textFieldStyle(DockTextFieldStyle()).disabled(isConnecting)
+                }
+                GroupedRow("Client secret") {
+                    SecureField("App Client Secret", text: clientSecretBinding).textFieldStyle(DockTextFieldStyle()).disabled(isConnecting)
+                }
+                GroupedRow("Connect", role: .button) { Task { await connect() } }
+                    .disabled(isConnecting || setupDraft.domain.isEmpty || setupDraft.clientID.isEmpty || setupDraft.clientSecret.isEmpty)
+                if isConnecting { GroupedRow("Connecting…") { ProgressView().controlSize(.small) } }
+                GroupedRow("Clear Draft", role: .button) { setupDrafts.clearDrafts(for: item.id) }
                     .disabled(isConnecting || setupDraft.isPristine)
                 if !configuration.shopifyStoreID.isEmpty {
-                    Button("Disconnect", role: .destructive) { isDisconnectConfirmationPresented = true }
+                    GroupedRow("Disconnect", role: .destructive) { isDisconnectConfirmationPresented = true }
                 }
             }
             Text("Create and install a Dev Dashboard app on a store in the same organization, with read_orders only. Shopify's client credentials grant works only for stores in that organization.")
@@ -219,19 +219,10 @@ private struct ShopifyPopoutView: View {
 
     @ViewBuilder
     private func metricChart(_ snapshot: ShopifySnapshot) -> some View {
-        Chart(snapshot.dailyPoints) { point in
-            let value = chartValue(point, metric: configuration.shopifyMetric, snapshot: snapshot)
-            LineMark(x: .value("Day", point.date), y: .value(configuration.shopifyMetric.title, value))
-                .foregroundStyle(shopifyColor(configuration.shopifyColor))
-                .interpolationMethod(.catmullRom)
-            AreaMark(x: .value("Day", point.date), y: .value(configuration.shopifyMetric.title, value))
-                .foregroundStyle(shopifyColor(configuration.shopifyColor).opacity(0.12))
-                .interpolationMethod(.catmullRom)
-        }
-        .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) { _ in AxisValueLabel(format: .dateTime.month(.abbreviated).day()) } }
-        .chartYAxis { AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) }
-        .frame(height: 82)
-        .accessibilityLabel("\(configuration.shopifyMetric.title) by store-local day")
+        MicroSparkline(values: snapshot.dailyPoints.map { chartValue($0, metric: configuration.shopifyMetric, snapshot: snapshot) }, color: .secondary)
+            .frame(height: 82)
+            .accessibilityHidden(false)
+            .accessibilityLabel("\(configuration.shopifyMetric.title) by store-local day")
     }
 
     @ViewBuilder
@@ -405,6 +396,14 @@ private struct ShopifyPopoutView: View {
 }
 
 private enum ShopifyMetricFormatter {
+    static func amount(for metric: ShopifyMetric, snapshot: ShopifySnapshot) -> Decimal? {
+        switch metric {
+        case .orderValue: snapshot.orderValue
+        case .orders: Decimal(snapshot.orderCount)
+        case .averageOrderValue: snapshot.averageOrderValue
+        }
+    }
+
     static func text(for metric: ShopifyMetric, snapshot: ShopifySnapshot) -> String {
         switch metric {
         case .orderValue: snapshot.orderValue.formatted(.currency(code: snapshot.currency))
