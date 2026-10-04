@@ -17,6 +17,100 @@ enum DockDesign {
         static let transform = Animation.interactiveSpring(response: 0.42, dampingFraction: 0.86)
         static let reorder = Animation.interactiveSpring(response: 0.28, dampingFraction: 0.82)
         static let disclosure = Animation.easeOut(duration: 0.22)
+        /// Pointer hover: a quick, nearly critically damped spring.
+        static let hover = Animation.spring(response: 0.26, dampingFraction: 0.86)
+        /// Insertion of modules, sheets and popouts.
+        static let appear = Animation.spring(response: 0.38, dampingFraction: 0.86)
+        /// Shape and size changes between related states (glass morphs, size pages).
+        static let morph = Animation.spring(response: 0.46, dampingFraction: 0.84)
+        /// Hover lifts a module by a few percent and brightens it slightly.
+        static let hoverScale: CGFloat = 1.03
+        static let hoverBrightness: Double = 0.035
+
+        /// The animation to run, or nil when Reduce Motion is on so the change is instant.
+        static func animation(_ animation: Animation, reduceMotion: Bool) -> Animation? {
+            reduceMotion ? nil : animation
+        }
+
+        /// `withAnimation` that becomes an instant change under Reduce Motion.
+        @MainActor
+        static func perform<Result>(_ animation: Animation, reduceMotion: Bool, _ body: () throws -> Result) rethrows -> Result {
+            if reduceMotion {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                return try withTransaction(transaction, body)
+            }
+            return try withAnimation(animation, body)
+        }
+    }
+    /// Control Center module metrics: one glyph or number, one short label, at most one more line.
+    enum Module {
+        /// Today's widget container radius, used when no Dock geometry is known.
+        static let defaultRadius: CGFloat = 16
+        /// Concentric with the Dock: module radius = Dock radius − Dock padding, never negative.
+        static func radius(dockRadius: CGFloat, dockPadding: CGFloat) -> CGFloat {
+            guard dockRadius.isFinite, dockPadding.isFinite else { return 0 }
+            return max(0, dockRadius - dockPadding)
+        }
+        /// Content insets inside a module.
+        static let insets = EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
+        static let compactInsets = EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
+        /// Vertical gap between value and label.
+        static let lineSpacing: CGFloat = 2
+        enum Glyph {
+            static let large: CGFloat = 22
+            static let medium: CGFloat = 17
+            static let small: CGFloat = 13
+        }
+        enum ValueSize: CaseIterable { case large, medium, small }
+        /// SF Pro semibold with tabular digits so changing numbers do not jitter.
+        static func value(_ size: ValueSize) -> Font {
+            switch size {
+            case .large: valueLarge
+            case .medium: valueMedium
+            case .small: valueSmall
+            }
+        }
+        static func pointSize(_ size: ValueSize) -> CGFloat {
+            switch size { case .large: 22; case .medium: 18; case .small: 13 }
+        }
+        static let valueLarge = Font.system(size: 22, weight: .semibold).monospacedDigit()
+        static let valueMedium = Font.system(size: 18, weight: .semibold).monospacedDigit()
+        static let valueSmall = Font.system(size: 13, weight: .semibold).monospacedDigit()
+        /// Short label under the value; draw it with `.secondary`.
+        static let label = Font.system(size: 11, weight: .medium)
+        static let labelLarge = Font.system(size: 12, weight: .medium)
+        /// Smallest text the redesign draws anywhere.
+        static let minimumTextSize: CGFloat = 10
+        static let maxTextLines = 2
+    }
+    /// Liquid Glass with accessible fallbacks. Apply it with `View.dockGlass(_:in:tint:interactive:)`.
+    enum Glass {
+        enum Style: Hashable, CaseIterable { case clear, regular }
+        /// Opaque surfaces under Reduce Transparency; the same values WidgetContainer uses.
+        static func opaqueFill(_ scheme: ColorScheme) -> Color {
+            scheme == .dark ? Color(white: 0.16) : Color(white: 0.96)
+        }
+        /// Strength of a tint mixed into fallback and opaque surfaces.
+        static let fallbackTintOpacity: Double = 0.18
+    }
+    /// Inset grouped form metrics (System Settings on macOS 26).
+    enum Grouped {
+        static let radius: CGFloat = 12
+        static let rowMinHeight: CGFloat = 36
+        static let rowHorizontalPadding: CGFloat = 12
+        static let rowVerticalPadding: CGFloat = 7
+        static let glyphSize: CGFloat = 22
+        static let glyphRadius: CGFloat = 6
+        static let glyphSpacing: CGFloat = 10
+        /// Separators start where the row title starts.
+        static var separatorInset: CGFloat { rowHorizontalPadding + glyphSize + glyphSpacing }
+        static let headerFont = Font.system(size: 13, weight: .semibold)
+        static let footerFont = Font.system(size: 11)
+        static let titleFont = Font.system(size: 13)
+        static let subtitleFont = Font.system(size: 11)
+        static let fill = adaptive("grouped", dark: 0x26272b, light: 0xffffff)
+        static let separator = Color.primary.opacity(0.09)
     }
     enum Radius {
         static let control: CGFloat = 7
@@ -74,6 +168,7 @@ struct DockAccessibilityStyle: DynamicProperty {
     var wrappedValue: DockAccessibilityStyle { self }
     @Environment(\.colorSchemeContrast) private var systemContrast
     @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     #if DEBUG
     @Environment(\.dockAccessibilityPreview) private var preview
     #endif
@@ -89,11 +184,22 @@ struct DockAccessibilityStyle: DynamicProperty {
         #endif
         return systemReduceTransparency
     }
+    var reduceMotion: Bool {
+        #if DEBUG
+        if let preview { return preview.reduceMotion }
+        #endif
+        return systemReduceMotion
+    }
+    /// Convenience for `DockDesign.Motion.animation(_:reduceMotion:)`.
+    func animation(_ animation: Animation) -> Animation? {
+        DockDesign.Motion.animation(animation, reduceMotion: reduceMotion)
+    }
 }
 #if DEBUG
 struct DockAccessibilityPreview {
     var contrast: ColorSchemeContrast
     var reduceTransparency: Bool
+    var reduceMotion: Bool = false
 }
 private struct DockAccessibilityPreviewKey: EnvironmentKey {
     static let defaultValue: DockAccessibilityPreview? = nil

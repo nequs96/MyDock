@@ -86,6 +86,10 @@ enum PremiumVisualQA {
             try await exportFocusedUI(to: directory, store: store)
             return
         }
+        if ProcessInfo.processInfo.environment["MYDOCK_REDESIGN_QA"] == "1" {
+            try await exportRedesignUI(to: directory)
+            return
+        }
         let names = ["System Activity", "Clock", "AI Limits"]
         let everyday = try store.createProfileAndPersist(kind: .custom, name: "Everyday")
         for bundle in ["com.apple.finder", "com.microsoft.VSCode", "com.apple.Terminal"] {
@@ -627,6 +631,24 @@ enum PremiumVisualQA {
                 }
                 AppleWidgetCard(item: setup, width: 144, showsLabels: true, fallback: AnyView(AIActivityCompactView(item: setup)))
             }.padding(20).background(DockDesign.page), name: "ai-tiles-" + suffix, size: NSSize(width: 786, height: 100), scheme: scheme, directory: directory)
+        }
+    }
+
+    /// Redesign vocabulary specimens in light/dark × standard, Reduce Transparency and
+    /// Increase Contrast, injected through `dockAccessibilityPreview` only.
+    private static func exportRedesignUI(to directory: URL) async throws {
+        let variants: [(String, ColorSchemeContrast, Bool)] = [("standard", .standard, false),
+                                                              ("reduce-transparency", .standard, true),
+                                                              ("increase-contrast", .increased, false)]
+        for component in DesignSystemGallery.Component.allCases {
+            for scheme in [ColorScheme.light, .dark] {
+                for (variant, contrast, transparency) in variants {
+                    try await render(DesignSystemGallery(component: component),
+                                     name: "redesign-\(component.rawValue)-\(scheme == .dark ? "dark" : "light")-\(variant)",
+                                     size: component.renderSize, scheme: scheme, directory: directory,
+                                     contrast: contrast, reduceTransparency: transparency)
+                }
+            }
         }
     }
 
