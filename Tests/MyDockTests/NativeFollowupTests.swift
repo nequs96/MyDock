@@ -55,6 +55,62 @@ struct NativeFollowupTests {
         #expect(decisions == [.hide])
     }
 
+    @MainActor private func completeRevealDwell(with completionState: DockRevealMonitor.Snapshot) async
+        -> (decisions: [DockRevealMonitor.Decision], snapshotRequests: [Bool]) {
+        var state = revealState()
+        var snapshotRequests: [Bool] = []
+        let dwell = AsyncStream<Void>.makeStream()
+        let presentations = AsyncStream<DockRevealMonitor.Decision>.makeStream()
+        var decisions: [DockRevealMonitor.Decision] = []
+        let monitor = DockRevealMonitor(snapshot: { forDwell in
+            snapshotRequests.append(forDwell)
+            return state
+        }, present: {
+            decisions.append($0)
+            presentations.continuation.yield($0)
+        }, waitForDwell: {
+            var iterator = dwell.stream.makeAsyncIterator()
+            guard await iterator.next() != nil else { throw CancellationError() }
+        })
+        defer {
+            monitor.stop()
+            dwell.continuation.finish()
+            presentations.continuation.finish()
+        }
+        var iterator = presentations.stream.makeAsyncIterator()
+        monitor.sample()
+        #expect(await iterator.next() == .hide)
+        // Change native state while the dwell is pending, without a periodic sample.
+        state = completionState
+        dwell.continuation.yield(())
+        _ = await iterator.next()
+        return (decisions, snapshotRequests)
+    }
+
+    @Test @MainActor func overviewAppearingDuringDwellSuppressesRevealAtCompletion() async {
+        var state = revealState()
+        state.overviewPresent = true
+        let result = await completeRevealDwell(with: state)
+        #expect(result.snapshotRequests == [false, true])
+        #expect(result.decisions == [.hide, .suppress])
+        #expect(!result.decisions.contains(.show))
+    }
+
+    @Test @MainActor func ordinaryDwellRevealsAtCompletion() async {
+        let result = await completeRevealDwell(with: revealState())
+        #expect(result.snapshotRequests == [false, true])
+        #expect(result.decisions == [.hide, .show])
+    }
+
+    @Test @MainActor func interactionRetentionDuringDwellPrecedesSuppression() async {
+        var state = revealState()
+        state.retainsInteraction = true
+        state.overviewPresent = true
+        state.systemDockOverlaps = true
+        let result = await completeRevealDwell(with: state)
+        #expect(result.decisions == [.hide, .show])
+    }
+
     @Test @MainActor func vanishedPresentationCanStartAnotherDwellWhenItReturns() async throws {
         var state: DockRevealMonitor.Snapshot? = revealState()
         var decisions: [DockRevealMonitor.Decision] = []

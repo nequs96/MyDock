@@ -53,8 +53,8 @@ final class CustomDockWindowController {
     private let store: ProfileStore
     private let openSettings: (MyDockSettingsPage) -> Void
     private let overviewIsPresent: (NSRect, [NSRect]) -> Bool
-    private lazy var revealMonitor = DockRevealMonitor(snapshot: { [weak self] forDwell in
-        self?.revealSnapshot(forDwell: forDwell)
+    private lazy var revealMonitor = DockRevealMonitor(snapshot: { [weak self] _ in
+        self?.revealSnapshot()
     }, present: { [weak self] decision in
         guard let self else { return }
         switch decision {
@@ -410,17 +410,17 @@ final class CustomDockWindowController {
         store.activate(store.customProfiles[destination].id)
     }
 
-    private func revealSnapshot(forDwell: Bool) -> DockRevealMonitor.Snapshot? {
+    private func revealSnapshot() -> DockRevealMonitor.Snapshot? {
         // Queued pointer events can outlive mode/profile changes.
         guard canPresentDock, let panel else { return nil }
         let settings = store.state.settings
         let retainsInteraction = revealMonitor.menuTrackingDepth > 0 || DockInteractionState.isResizing
         // Preserve the existing precedence: menu/resize retention bypasses native sampling.
-        let dockFrames = retainsInteraction || forDwell ? [] : SystemDockVisibilityReader.visibleDockFrames()
-        let overviewPresent = !forDwell && !retainsInteraction && screen(for: settings).map {
+        let dockFrames = retainsInteraction ? [] : SystemDockVisibilityReader.visibleDockFrames()
+        let overviewPresent = !retainsInteraction && screen(for: settings).map {
             overviewIsPresent($0.frame, dockFrames)
         } == true
-        let overlaps = (forDwell || (!retainsInteraction && !overviewPresent)) && settings.hideCustomDockWhenSystemDockAppears
+        let overlaps = !retainsInteraction && !overviewPresent && settings.hideCustomDockWhenSystemDockAppears
             && SystemDockVisibilityReader.isVisible(overlapping: expandedFrame)
         return DockRevealMonitor.Snapshot(canPresent: true, retainsInteraction: retainsInteraction,
             overviewPresent: overviewPresent, systemDockOverlaps: overlaps,
