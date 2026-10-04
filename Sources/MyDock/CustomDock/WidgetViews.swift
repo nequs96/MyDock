@@ -1339,7 +1339,7 @@ private struct BatteryPopoutView: View {
                         Image(systemName: batterySymbol(battery.percentage, charging: battery.isCharging))
                             .font(.title2).frame(width: 30)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(battery.name).font(.headline)
+                            Text(battery.displayName).font(.headline)
                             Text(battery.isCharging ? "Charging" : "Not charging")
                                 .font(.caption).foregroundStyle(.secondary)
                         }

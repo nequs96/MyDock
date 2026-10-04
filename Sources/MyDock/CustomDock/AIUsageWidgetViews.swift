@@ -55,6 +55,7 @@ private struct AILimitsCompactView: View {
             .overlay(alignment: .topTrailing) {
                 if let provider = selectedProvider, configuration.aiLimitsSnapshot?.reading(for: provider)?.lastRefreshError != nil {
                     Image(systemName: "exclamationmark.circle.fill").font(.system(size: 9)).foregroundStyle(.orange)
+                        .padding(.top, 7).padding(.trailing, 9)
                         .help("Stale: refresh failed, last successful reading shown").accessibilityLabel("Stale: refresh failed, last successful reading shown")
                 }
             }

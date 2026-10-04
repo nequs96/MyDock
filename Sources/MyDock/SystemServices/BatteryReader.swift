@@ -7,10 +7,16 @@ struct BatteryReading: Equatable, Hashable, Identifiable {
     var isCharging: Bool
     var isInternal: Bool
 
+    var displayName: String { BatteryReader.displayName(name: name, isInternal: isInternal) }
+
     var id: String { "\(name)-\(isInternal)" }
 }
 
 enum BatteryReader {
+    static func displayName(name: String, isInternal: Bool) -> String {
+        isInternal ? "Mac battery" : name
+    }
+
     static func read() -> [BatteryReading] {
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let handles = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [AnyObject] else { return [] }
