@@ -1152,7 +1152,7 @@ enum MyDockSettingsPage: String, Codable, CaseIterable, Identifiable {
     var searchTerms: String {
         switch self {
         case .dock: "dock setup profiles mode display position focus native switching auto save freeze"
-        case .appearance: "appearance material glass dark frosted cards labels widget width density size spacing radius tint"
+        case .appearance: "appearance material glass dark frosted cards labels widget width density size spacing radius tint edge hairline contrast only surface plain tile floating inset auto clear solid midnight style"
         case .behavior: "behavior auto hide reveal desktop running apps minimized windows previews trash badges magnification accessibility"
         case .general: "general backup restore diagnostics export saved docks"
         case .permissions: "permissions privacy calendar reminders location automation notification screen recording accessibility"
