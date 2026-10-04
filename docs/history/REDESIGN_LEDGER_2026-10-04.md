@@ -512,3 +512,13 @@ Unchanged: preference-key height measuring, the 640 pt cap and `RefreshDemandHol
 ### RD-09 launched
 
 `widget-visuals` agent, base `1f420c4`. Its brief includes RD-08's content-shaping guidance. RD-10 (Codex) started from `e7fd022`, which does not include RD-08's shared popout views; its content may be reconciled at merge.
+
+### RD-10 — merged `7e1b74a` (branch commit `59bcf9d`)
+
+- **Implementation:** implemented. The faces for Stock and Watchlist, Stripe, Paddle, Shopify, AI Limits and AI Activity, System Activity and Network Activity follow the module grammar. Their samples match, and their popout content uses grouped rows.
+- **Orchestrator review:**
+  - Viewed `contact-faces-glass-dark`. The faces are consistent: one value plus a label, honest setup/unavailable/stale states, and red only for state.
+  - **Defect for the fix wave:** the AI Limits popout (`facesb-popout-ai-limits-ready-light`) puts the settings first and the usage reading last. It also still draws its own Refresh row and freshness lines. RD-10 started from `e7fd022`, before RD-08's shell. The fix: lead with the reading via `WidgetPopoutHero`, move the provider list and display options into a settings group, and drop the duplicate freshness. The other RD-10 popouts need the same check against the RD-08 shell.
+- **Verification:**
+  - Worker: `RedesignFacesBTests` passed 8 of 8, with 110 renders. The full suite stalled in the Codex sandbox (LaunchServices).
+  - Integration, unsandboxed: `./TestMyDock.sh` passed **586 tests in 75 suites** (`.build/redesign-rd10-test.log`).
