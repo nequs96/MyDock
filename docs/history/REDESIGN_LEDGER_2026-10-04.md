@@ -522,3 +522,18 @@ Unchanged: preference-key height measuring, the 640 pt cap and `RefreshDemandHol
 - **Verification:**
   - Worker: `RedesignFacesBTests` passed 8 of 8, with 110 renders. The full suite stalled in the Codex sandbox (LaunchServices).
   - Integration, unsandboxed: `./TestMyDock.sh` passed **586 tests in 75 suites** (`.build/redesign-rd10-test.log`).
+- Canonical app after RD-10:
+  - The previous instance was quit normally.
+  - The app was rebuilt; its SHA-256 starts `6655e2322ef2e911`.
+  - It was relaunched as PID 35331.
+
+### RD-11 launched (`dock-surface` agent, base `19d9d39`)
+
+The popout morph is scoped down:
+- Popouts are SwiftUI `.popover`, which is an `NSPopover` in a separate window. A true `glassEffectID` morph from the Dock module across windows is not possible.
+- Replacing the popover with a custom panel is out of scope because of the focus, keyboard and hit-testing risk.
+- RD-11 instead delivers an appear spring and an active anchor state. The `glassEffectID` wiring is kept for a future in-panel presentation.
+
+Other changes in RD-11:
+- `DockStarterPreset` moves out of `DockManagerView.swift` into `UI/DockStarterPresets.swift` (orchestrator-approved, mechanical).
+- Starter presets gain quick styles.
