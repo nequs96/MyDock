@@ -94,6 +94,7 @@ enum PremiumVisualQA {
             try await exportDockStyleUI(to: directory, store: store)
             return
         }
+        if ProcessInfo.processInfo.environment["MYDOCK_WIDGETSURFACE_QA"] == "1" { try await exportWidgetSurfaceUI(to: directory, store: store); return }
         let names = ["System Activity", "Clock", "AI Limits"]
         let everyday = try store.createProfileAndPersist(kind: .custom, name: "Everyday")
         for bundle in ["com.apple.finder", "com.microsoft.VSCode", "com.apple.Terminal"] {
@@ -680,7 +681,7 @@ enum PremiumVisualQA {
         }
     }
 
-    private static func render<Content: View>(_ view: Content, name: String, size: NSSize,
+    static func render<Content: View>(_ view: Content, name: String, size: NSSize,
                                               scheme: ColorScheme, directory: URL, contrast: ColorSchemeContrast = .standard,
                                               reduceTransparency: Bool = false, fixtureClick: NSPoint? = nil) async throws {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),

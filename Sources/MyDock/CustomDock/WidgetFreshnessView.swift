@@ -1,5 +1,19 @@
 import SwiftUI
 
+/// Freshness of a widget's saved data, shared by the popout status line and the Dock indicator.
+enum WidgetFreshnessState: Equatable {
+    case updating, fresh, stale, empty
+
+    /// A single small dot colour; nil draws nothing.
+    var dotColor: Color? {
+        switch self {
+        case .fresh: WidgetPalette.positive
+        case .stale: WidgetPalette.warning
+        case .updating, .empty: nil
+        }
+    }
+}
+
 struct WidgetFreshnessView: View {
     @ObservedObject var coordinator: WidgetDataCoordinator
     var item: DockItem
@@ -23,44 +37,65 @@ struct WidgetFreshnessView: View {
     var body: some View {
         if let query {
             TimelineView(.periodic(from: .now, by: 60)) { context in
-                VStack(alignment: .leading, spacing: 5) {
+                let state = state(query, at: context.date)
+                VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
-                        if coordinator.refreshing.contains(query) { ProgressView().controlSize(.mini) }
-                        Text(status(at: context.date)).font(.caption2).foregroundStyle(.secondary)
+                        if state == .updating {
+                            ProgressView().controlSize(.mini).accessibilityHidden(true)
+                        } else if let color = state.dotColor {
+                            Circle().fill(color).frame(width: 6, height: 6).accessibilityHidden(true)
+                        }
+                        Text(status(query, state: state)).font(.system(size: 11)).foregroundStyle(.secondary)
                         Spacer()
                         Button("Retry", action: refresh).controlSize(.small)
-                            .disabled(coordinator.refreshing.contains(query))
+                            .disabled(state == .updating)
                     }
                     if let error = coordinator.errors[query] {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                        Text(error).font(.system(size: 11)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }.accessibilityElement(children: .contain)
             }
         }
     }
-    private func status(at now: Date) -> String {
-        if coordinator.refreshing.contains(query!) { return "Updating…" }
-        guard let date = fetchedAt else { return "No saved data yet" }
+    private func state(_ query: WidgetDataQuery, at now: Date) -> WidgetFreshnessState {
+        if coordinator.refreshing.contains(query) { return .updating }
+        guard let date = fetchedAt else { return .empty }
         let age = max(0, now.timeIntervalSince(date))
-        let stale = coordinator.errors[query!] != nil || age > (item.widgetKind == "Stock" || item.widgetKind == "Watchlist" ? Double(configuration.stockRefreshIntervalMinutes) * 120 : 600)
-        return "\(stale ? "Saved data · " : "Updated ")\(date.formatted(.relative(presentation: .numeric)))"
+        let limit = item.widgetKind == "Stock" || item.widgetKind == "Watchlist" ? Double(configuration.stockRefreshIntervalMinutes) * 120 : 600
+        return coordinator.errors[query] != nil || age > limit ? .stale : .fresh
+    }
+    private func status(_ query: WidgetDataQuery, state: WidgetFreshnessState) -> String {
+        switch state {
+        case .updating: return "Updating…"
+        case .empty: return "No saved data yet"
+        case .fresh, .stale:
+            let relative = fetchedAt.map { $0.formatted(.relative(presentation: .numeric)) } ?? ""
+            return (state == .stale ? "Saved data · " : "Updated ") + relative
+        }
     }
 }
 
+/// Exactly one minimal indicator per widget: a tiny spinner while AI Activity refreshes, or a small
+/// warning dot when a refresh failed. AI Limits draws its own per-provider stale mark, so it is skipped here.
 struct WidgetFreshnessIndicator: View {
     @ObservedObject var coordinator: WidgetDataCoordinator
     var item: DockItem
+    @Environment(\.dockModuleRadius) private var moduleRadius
+    @DockAccessibilityStyle() private var accessibility
+    /// Keeps the dot inside the rounded corner for any module radius.
+    private var inset: CGFloat { max(6, min(10, moduleRadius * 0.45)) }
     var body: some View {
         let c = item.widgetConfiguration ?? WidgetConfiguration()
         if let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: c), item.widgetKind == "AI Activity", coordinator.refreshing.contains(query) {
-            ProgressView().controlSize(.mini).scaleEffect(0.5).frame(width: 10, height: 10).padding(3)
+            ProgressView().controlSize(.mini).scaleEffect(0.5).frame(width: 10, height: 10).padding(inset - 2)
                 .help("Updating local activity").accessibilityHidden(true)
-        } else if item.widgetKind != "AI Limits", // its face shows a per-provider stale badge itself
+        } else if item.widgetKind != "AI Limits", // its face shows a per-provider stale mark itself
                   let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: c), coordinator.errors[query] != nil {
-            // Inset so the badge stays inside the rounded widget corner.
-            Image(systemName: "exclamationmark.circle.fill").font(.system(size: 9)).foregroundStyle(.orange)
-                .padding(.top, 7).padding(.trailing, 9)
+            Circle().fill(WidgetPalette.warning)
+                .overlay { if accessibility.contrast == .increased { Circle().strokeBorder(Color.primary.opacity(0.6), lineWidth: 1) } }
+                .frame(width: 6, height: 6)
+                .padding(.top, inset).padding(.trailing, inset)
                 .help("Saved data · open this widget to review the refresh error")
                 .accessibilityLabel("Refresh failed; saved data shown")
         }

@@ -91,6 +91,8 @@ struct WidgetCompactView: View {
         }.overlay(alignment: .topTrailing) {
             if !sampleMode { WidgetFreshnessIndicator(coordinator: store.widgetData, item: currentItem) }
         }
+        // Per-widget surface, accent, label visibility and glass tint for the container and faces.
+        .widgetPresentation(WidgetPresentationValues(configuration: configuration, settings: settings))
     }
     @ViewBuilder private var content: some View {
         switch kind {
