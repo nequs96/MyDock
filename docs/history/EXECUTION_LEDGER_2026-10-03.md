@@ -2608,3 +2608,46 @@ User explicitly authorized finishing the file-defined work with medium specialis
 All workers accepted the handoff's common constraints. Coordinator only orchestrates, reviews and edits ledger/current evidence. No source/test edits by coordinator, no optional/deferred feature expansion, commit/publication, live account/permission/native-preference/destructive validation. Shared tests/builds/project generation/launch/renders wait for an integration freeze.
 
 Implementation status: resumed, in progress. Verification status: prior first-wave results remain historical; no new integrated acceptance yet. New confirmed required dependency: Activity reader computed scope but omitted it from its returned snapshot, and the old apply path could attribute missing-scope/in-flight results to a current root. A owns correction and deterministic fixtures before the next validation. Native consumes A's production-default network guard; Product consumes A/B shared contracts without editing their files.
+
+## Completion handoff execution — 4 October 2026 (Claude coordinator)
+
+The user asked Claude to execute [CLAUDE_COMPLETION_HANDOFF_2026-10-04.md](CLAUDE_COMPLETION_HANDOFF_2026-10-04.md) as orchestrator.
+
+**Preconditions:**
+- At first another session was still writing to the tree. Files changed after staging and after the user's first commits.
+- At the user's request the coordinator waited for that session to stop, then confirmed a clean tree that stayed stable for 45 s at `88fce44` (the user's baseline commits `114745a`, `dbf837f`, `aa7b172`, `7bc29ee`, `88fce44`).
+- Agents used isolated git worktrees branched from the committed baseline. The user chose this, overriding the handoff's no-commit/shared-tree wording.
+
+**Baseline verification (88fce44):** contrary to the handoff's expectation, the committed tree **did not compile**.
+- The app target had two errors in Package C's area:
+  - `SettingsAppearanceEditing.Undo.restore` was not MainActor-isolated.
+  - `copyUtilityText` / `utilityCopyFailureMessage` were private across files.
+- The coordinator fixed these as integration edits (`460cf08`).
+- The test target still failed because the `WidgetDataCoordinator` initializer order made trailing closures bind to `queryMaker`. That went to Package A.
+- Python tooling passed 10 tests. `git diff --check` passed.
+
+**Package A — merged 0653c53 (branch commit fba8251).**
+- Fixes:
+  - `WidgetDataCoordinator.init(store:loader:queryMaker:)` puts `loader` first, so a trailing closure is the loader.
+  - **Production bug:** `AIActivityReader.read` computed `sourceScope` but did not return it on the snapshot, so `apply`'s scope guard rejected every real AI Activity refresh. It is now returned.
+  - The ProductRuntimeTests fixture now returns a scoped snapshot.
+- Verified already present (from the previous session) and retained:
+  - Source-scope attribution (root, alias, legacy, period, timezone, semantic version).
+  - In-flight attribution re-check in `finishRefresh`.
+  - Copilot verified last-good retention (exact identity, `.transient` only, same scope, original timestamps, sanitized `lastRefreshError`).
+  - Normalized App Folder identity.
+  - Default-production network guards: `requireNetwork()` / `allowsNetwork` in Weather, Copilot, favicon, artwork, Market, Stripe, Paddle, Shopify, the default coordinator loader and the update check. Injected sessions/transports are still allowed.
+- The coordinator spot-checked every guard site.
+
+**Package B — merged (branch commits decaa51, fd9b575) + coordinator doc fix a39ceeb.**
+- No Swift source changes were needed. Alarm generations and fake-client coverage, Calendar selection, ZIP size/mode checks, the update-check guard, login states and reveal extraction were already present.
+- Added a Calendar start/end boundary fixture and a ZIP short-stream tooling case.
+- DOCK_INTERACTION now uses the real menu labels: "Windows…", "Close Window…", "Quit <app>".
+- B also changed UNINSTALL's backup text to say the personal-data toggle includes cached widget data. **The coordinator rejected that:** `BackupManager` always strips provider readings (line 184). The doc now says backups always exclude credentials, permissions and cached readings. The matching incorrect Settings help text (`SettingsView` ~557) was routed to Package C.
+
+**Integrated check (A + B on main):**
+- `./TestMyDock.sh`: **490 tests in 62 suites passed, 0 failed, 5 opt-in skips**.
+- Python tooling: **11 passed** (`PYTHONDONTWRITEBYTECODE=1`).
+- `git diff --check` clean.
+- Alarm delivery, EventKit, login/reboot, the native window matrix and release qualification remain **open/blocked**.
+- Note for the user: `Tests/Tooling/__pycache__/*.pyc` is committed and should be untracked.
