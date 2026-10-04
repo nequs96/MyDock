@@ -26,7 +26,7 @@ struct SavedCollectionDockFace: View {
         VStack(alignment: width <= 54 ? .center : .leading, spacing: 3) {
             HStack(spacing: 5) {
                 WidgetIcon(kind: kind, size: 16)
-                MetricText(value: "\(count)", unit: width <= 54 ? "" : kind == "File Shelf" ? "files" : kind == "Text Snippets" ? "snippets" : "links", size: 21)
+                MetricText(value: "\(count)", unit: width <= 54 ? "" : SavedCollectionUnit.text(kind: kind, count: count), size: 21)
             }
             if layout == .wide { Text(latest).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1) }
         }.padding(.horizontal, 9).frame(width: width, height: 54)

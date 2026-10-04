@@ -182,14 +182,20 @@ struct NetworkDockFace: View {
 }
 
 struct DiskDockFace: View {
+    @Environment(\.dockWidgetContentWidth) private var width
     var snapshot: DiskSpaceSnapshot?
     @Environment(\.widgetLayout) private var layout
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            WidgetHeader(kind: "Disk Space", title: "Disk", trailing: layout == .wide ? snapshot?.totalText : nil)
-            MetricText(value: snapshot?.availableText ?? "—", unit: "free", size: 16)
+            if width <= 54 {
+                Text("Free").font(.system(size: 8, weight: .semibold)).foregroundStyle(.secondary)
+                MetricText(value: snapshot?.availableText ?? "—", size: 13)
+            } else {
+                WidgetHeader(kind: "Disk Space", title: "Disk", trailing: layout == .wide ? snapshot?.totalText : nil)
+                MetricText(value: snapshot?.availableText ?? "—", unit: "free", size: 16)
+            }
             if let snapshot { UsageBar(fraction: snapshot.usedFraction, color: snapshot.usedFraction > 0.9 ? .orange : .secondary) }
-        }.padding(.horizontal, 9)
+        }.padding(.horizontal, width <= 54 ? 5 : 9)
     }
 }
 
@@ -240,6 +246,17 @@ enum WeatherDockTemperatureFormatter {
     }
 }
 
+enum WeatherForecastFaceLayout {
+    static func primaryWidth(temperatureText: String) -> CGFloat {
+        max(54, CGFloat(temperatureText.count) * 14)
+    }
+
+    static func columnCount(width: CGFloat, temperatureText: String, availableHours: Int) -> Int {
+        let remaining = max(0, width - 18 - primaryWidth(temperatureText: temperatureText))
+        return min(max(0, availableHours), 3, Int(remaining / 37))
+    }
+}
+
 struct WeatherDockFace: View {
     @Environment(\.dockWidgetContentWidth) private var width
     var configuration: WidgetConfiguration
@@ -252,12 +269,16 @@ struct WeatherDockFace: View {
                     MetricText(value: WeatherDockTemperatureFormatter.text(forecast.temperature, unit: configuration.weatherUnit), size: 20)
                 }.padding(.horizontal, 4)
             } else if layout == .wide {
+                let temperature = WeatherDockTemperatureFormatter.text(forecast.temperature, unit: configuration.weatherUnit)
+                let hours = forecast.hourly.filter { $0.timestamp > .now }
+                let columns = WeatherForecastFaceLayout.columnCount(width: width, temperatureText: temperature, availableHours: hours.count)
                 HStack(spacing: 7) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(configuration.weatherLocation?.name ?? "Weather").font(.system(size: 8, weight: .semibold)).lineLimit(1)
-                        MetricText(value: WeatherDockTemperatureFormatter.text(forecast.temperature, unit: configuration.weatherUnit), size: 22)
-                    }.frame(maxWidth: 68, alignment: .leading)
-                    ForEach(Array(forecast.hourly.filter { $0.timestamp > .now }.prefix(3)), id: \.timestamp) { hour in
+                        MetricText(value: temperature, size: 22)
+                    }.frame(width: WeatherForecastFaceLayout.primaryWidth(temperatureText: temperature), alignment: .leading)
+                        .layoutPriority(1)
+                    ForEach(Array(hours.prefix(columns)), id: \.timestamp) { hour in
                         VStack(spacing: 2) {
                             Text(hour.timestamp.formattedTime(in: forecast.timeZoneIdentifier)).font(.system(size: 7)).foregroundStyle(.secondary).lineLimit(1)
                             WidgetIcon(kind: "Weather", symbol: WeatherCode.symbol(hour.weatherCode, isDay: forecast.isDay), size: 16)
@@ -367,11 +388,21 @@ struct LocalWidgetDockFace: View {
             let snapshot = kind == "Stock" ? c.stockSnapshot : c.watchlistStocks.first { $0.symbol == c.watchlistSelectedSymbol }?.snapshot ?? c.watchlistStocks.first?.snapshot
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
-                    WidgetHeader(kind: kind, title: snapshot?.symbol ?? (c.stockSymbol.isEmpty ? "Set ticker" : c.stockSymbol))
-                    if let snapshot, let latest = snapshot.latest { MetricText(value: latest.close.formatted(.number.precision(.fractionLength(2))), unit: snapshot.currency, size: 17) }
+                    let ticker = snapshot?.symbol ?? (c.stockSymbol.isEmpty ? "Set ticker" : c.stockSymbol)
+                    if width <= 54 {
+                        Text(FinancialFacePresentation.shortTicker(ticker)).font(.system(size: 8, weight: .semibold))
+                            .lineLimit(1).minimumScaleFactor(0.7).help(ticker)
+                        if let snapshot, let latest = snapshot.latest {
+                            MetricText(value: latest.close.formatted(.number.precision(.fractionLength(2))), size: 12)
+                            Text(snapshot.currency).font(.system(size: 7)).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    } else {
+                        WidgetHeader(kind: kind, title: ticker)
+                        if let snapshot, let latest = snapshot.latest { MetricText(value: latest.close.formatted(.number.precision(.fractionLength(2))), unit: snapshot.currency, size: 17) }
+                    }
                 }
-                if layout == .trend, let snapshot { MicroSparkline(values: snapshot.points.suffix(30).map(\.close), color: (snapshot.change ?? 0) < 0 ? .red : .green).frame(width: 53, height: 26) }
-            }.padding(.horizontal, 9)
+                if layout == .trend, width > 54, let snapshot { MicroSparkline(values: snapshot.points.suffix(30).map(\.close), color: (snapshot.change ?? 0) < 0 ? .red : .green).frame(width: 53, height: 26) }
+            }.padding(.horizontal, width <= 54 ? 5 : 9)
         default:
             HStack(spacing: 7) {
                 WidgetIcon(kind: kind, size: layout == .icon ? 30 : 20)
@@ -419,6 +450,29 @@ struct BusinessDockFace: View {
 }
 
 
+enum SavedCollectionUnit {
+    static func text(kind: String, count: Int) -> String {
+        let (one, many) = kind == "File Shelf" ? ("file", "files") : kind == "Text Snippets" ? ("snippet", "snippets") : ("link", "links")
+        return count == 1 ? one : many
+    }
+}
+
+enum FinancialFacePresentation {
+    static func shortTicker(_ symbol: String) -> String {
+        symbol.count <= 6 ? symbol : String(symbol.prefix(5)) + "+"
+    }
+}
+
+enum WorldClockFaceDateFormatter {
+    static func text(_ date: Date, timeZone: TimeZone) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.timeZone = timeZone
+        formatter.setLocalizedDateFormatFromTemplate("MMM d")
+        return formatter.string(from: date)
+    }
+}
+
 struct WorldClockDockFace: View {
     var configuration: WidgetConfiguration
     @Environment(\.widgetLayout) private var layout
@@ -433,7 +487,7 @@ struct WorldClockDockFace: View {
                 if layout == .wide {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(zone.identifier.split(separator: "/").last.map(String.init)?.replacingOccurrences(of: "_", with: " ") ?? "Local").font(.system(size: 9, weight: .medium)).lineLimit(1)
-                        Text(formattedDate(context.date, timeZone: zone)).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1)
+                        Text(WorldClockFaceDateFormatter.text(context.date, timeZone: zone)).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
             }.padding(.horizontal, 9)
@@ -447,11 +501,16 @@ struct RemindersDockFace: View {
     var context: String
     @Environment(\.widgetLayout) private var layout
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: layout == .wide ? 2 : 4) {
             WidgetHeader(kind: "Reminders", title: layout == .compact ? "Tasks" : "Reminders")
-            if let count { MetricText(value: "\(count)", unit: "to do", size: 21) }
+            if layout == .wide {
+                HStack(alignment: .lastTextBaseline, spacing: 8) {
+                    if let count { MetricText(value: "\(count)", unit: "to do", size: 19) }
+                    else { Text("Set up").font(.system(size: 12, weight: .medium)) }
+                    Text(context).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            } else if let count { MetricText(value: "\(count)", unit: "to do", size: 21) }
             else { Text("Set up").font(.system(size: 12, weight: .medium)) }
-            if layout == .wide { Text(context).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1) }
         }.padding(.horizontal, 9)
     }
 }

@@ -466,7 +466,7 @@ enum PremiumVisualQA {
                 size: NSSize(width: 510, height: 110), scheme: scheme, directory: directory)
             try await render(WidgetPopout(store: store, item: alarm, profileID: id).padding(20).background(WidgetDesign.surface),
                 name: "surface-alarm-edit-\(suffix)", size: NSSize(width: 460, height: 520), scheme: scheme, directory: directory,
-                fixtureClick: NSPoint(x: 373, y: 322))
+                fixtureClick: NSPoint(x: 373, y: 357))
             for state in ["empty", "ongoing"] {
                 // Calendar's private production views have no injected service/state hook. These
                 // are explicitly labeled presentation fixtures, not EventKit/popout acceptance.
