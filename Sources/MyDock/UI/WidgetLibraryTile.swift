@@ -102,7 +102,7 @@ struct WidgetGalleryView: View {
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var widgets: [WidgetDefinition] {
         let order = ["Calendar", "Reminders", "Sticky Note", "Clock", "World Clock", "Weather", "Focus Timer", "Now Playing"]
-        return WidgetRegistry.all.filter { category.includes($0) && (query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.description.localizedCaseInsensitiveContains(query)) }
+        return WidgetRegistry.all.filter { category.includes($0) && WidgetDiscovery.matches($0, query: query) }
             .sorted {
                 let first = order.firstIndex(of: $0.name) ?? 100
                 let second = order.firstIndex(of: $1.name) ?? 100

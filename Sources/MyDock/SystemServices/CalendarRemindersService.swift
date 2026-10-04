@@ -137,6 +137,7 @@ actor CalendarRemindersService {
         let end = Calendar.current.date(byAdding: .day, value: 7, to: now) ?? now.addingTimeInterval(7 * 86_400)
         let predicate = eventStore.predicateForEvents(withStart: now, end: end, calendars: selected)
         let events = eventStore.events(matching: predicate)
+            .filter { $0.endDate > now }
             .filter { includeAllDay || !$0.isAllDay }
             .map { event in
                 let title = displayTitle(event.title)
@@ -151,11 +152,8 @@ actor CalendarRemindersService {
                     meetingURL: meetingURL(event)
                 )
             }
-            .sorted { CalendarEventOrdering.precedes($0, $1, now: now) }
-            .prefix(60)
-            .map { $0 }
         guard hasFullAccess(to: .event) else { throw CalendarRemindersServiceError.accessDenied }
-        return events
+        return CalendarEventOrdering.select(events, calendarIDs: calendarIDs, includeAllDay: includeAllDay, now: now)
     }
 
     func reminders(calendarID: String) async throws -> [ReminderSnapshot] {
@@ -278,9 +276,18 @@ actor CalendarRemindersService {
 }
 
 enum CalendarEventOrdering {
+    /// Empty IDs mean all calendars; a nonempty scope never falls back to unrelated events.
+    static func select(_ events: [CalendarEventSnapshot], calendarIDs: [String],
+                       includeAllDay: Bool, now: Date = .now) -> [CalendarEventSnapshot] {
+        events.filter { $0.endDate > now && (includeAllDay || !$0.isAllDay)
+            && (calendarIDs.isEmpty || calendarIDs.contains($0.calendarID)) }
+            .sorted { precedes($0, $1, now: now) }
+            .prefix(60).map { $0 }
+    }
+
     static func precedes(_ lhs: CalendarEventSnapshot, _ rhs: CalendarEventSnapshot, now: Date = .now) -> Bool {
-        let lhsOngoing = !lhs.isAllDay && lhs.startDate <= now && lhs.endDate >= now
-        let rhsOngoing = !rhs.isAllDay && rhs.startDate <= now && rhs.endDate >= now
+        let lhsOngoing = !lhs.isAllDay && lhs.startDate <= now && lhs.endDate > now
+        let rhsOngoing = !rhs.isAllDay && rhs.startDate <= now && rhs.endDate > now
         if lhsOngoing != rhsOngoing { return lhsOngoing }
         if lhs.isAllDay != rhs.isAllDay { return !lhs.isAllDay }
         if lhs.startDate != rhs.startDate { return lhs.startDate < rhs.startDate }
@@ -288,6 +295,6 @@ enum CalendarEventOrdering {
     }
 
     static func compactEvent(from events: [CalendarEventSnapshot], now: Date = .now) -> CalendarEventSnapshot? {
-        events.sorted { precedes($0, $1, now: now) }.first
+        events.filter { $0.endDate > now }.sorted { precedes($0, $1, now: now) }.first
     }
 }

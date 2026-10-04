@@ -21,6 +21,13 @@ enum GitHubCopilotUsernamePolicy {
 }
 
 enum GitHubCopilotCredentialStore {
+    static let didChange = Notification.Name("MyDock.CopilotCredentialsDidChange")
+    private static let authority = CopilotCredentialAuthority()
+    static var revision: UInt64 { authority.revision }
+    private static func changed() {
+        authority.invalidate()
+        NotificationCenter.default.post(name: didChange, object: nil)
+    }
     private static let account = "github-copilot"
     private static var service: String { Product.bundleIdentifier + ".integration-credentials" }
 
@@ -63,6 +70,7 @@ enum GitHubCopilotCredentialStore {
         } else if status != errSecSuccess {
             throw GitHubCopilotCredentialError.keychain(status)
         }
+        changed()
     }
 
     static func delete() throws {
@@ -71,6 +79,7 @@ enum GitHubCopilotCredentialStore {
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw GitHubCopilotCredentialError.keychain(status)
         }
+        changed()
     }
 
     private static var baseQuery: [String: Any] {
@@ -147,7 +156,8 @@ enum GitHubCopilotBillingParser {
                                                               resetsAt: nextMonthlyReset(after: now),
                                                               durationMinutes: nil)],
                                       updatedAt: now,
-                                      message: nil)
+                                      message: nil,
+                                      verifiedAccountIdentity: "github:" + returnedUsername.lowercased())
     }
 
     private static func isCopilotCredit(_ item: [String: Any]) -> Bool {
@@ -219,13 +229,14 @@ enum GitHubCopilotBillingClient {
     static func read(credentials: GitHubCopilotCredentials,
                      monthlyAllowance: Int,
                      now: Date = .now,
-                     session: URLSession = .shared) async throws -> AIProviderLimitReading {
+                     session: URLSession? = nil) async throws -> AIProviderLimitReading {
+        if session == nil { try AppRuntimeEnvironment.requireNetwork() }
         guard (1...1_000_000).contains(monthlyAllowance) else {
             throw GitHubCopilotBillingError.invalidResponse
         }
         let request = try makeRequest(username: credentials.username, token: credentials.token, now: now)
 
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await (session ?? .shared).bytes(for: request)
         guard let response = response as? HTTPURLResponse else {
             throw GitHubCopilotBillingError.invalidResponse
         }
@@ -247,6 +258,22 @@ enum GitHubCopilotBillingClient {
     }
 }
 
+extension GitHubCopilotBillingError {
+    /// Authentication and unsupported/malformed responses cannot inherit a previous account's allowance.
+    static func limitFailure(_ error: Error, requestedUsername: String) -> AILimitReadFailure {
+        let kind: AILimitFailureKind
+        switch error {
+        case GitHubCopilotBillingError.httpStatus(401), GitHubCopilotBillingError.httpStatus(403): kind = .authentication
+        case GitHubCopilotBillingError.httpStatus(429): kind = .transient
+        case GitHubCopilotBillingError.httpStatus(let status) where (500...599).contains(status): kind = .transient
+        case is URLError: kind = .transient
+        default: kind = .unavailable
+        }
+        return .init(kind: kind, requestedAccountIdentity: "github:" + requestedUsername.lowercased(),
+                     message: DataSourceProvenance.sanitized(error.localizedDescription))
+    }
+}
+
 struct GitHubCopilotLimitAdapter: AILimitProviderAdapter {
     let provider: AIProvider = .copilot
     var monthlyAllowance: Int?
@@ -262,8 +289,18 @@ struct GitHubCopilotLimitAdapter: AILimitProviderAdapter {
                                           plan: nil, windows: [], updatedAt: nil,
                                           message: "Set the included monthly Copilot AI-credit allowance in this widget's controls.")
         }
-        return try await GitHubCopilotBillingClient.read(credentials: credentials,
-                                                         monthlyAllowance: monthlyAllowance,
-                                                         now: now)
+        do {
+            return try await GitHubCopilotBillingClient.read(credentials: credentials, monthlyAllowance: monthlyAllowance, now: now)
+        } catch {
+            throw GitHubCopilotBillingError.limitFailure(error, requestedUsername: credentials.username)
+        }
     }
+}
+
+/// In-memory authority generation rejects results begun before a successful credential mutation.
+private final class CopilotCredentialAuthority: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: UInt64 = 0
+    var revision: UInt64 { lock.lock(); defer { lock.unlock() }; return value }
+    func invalidate() { lock.lock(); defer { lock.unlock() }; value &+= 1 }
 }

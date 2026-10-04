@@ -36,7 +36,9 @@ final class ProfileStore: ObservableObject {
         .appendingPathComponent("utility-drafts", isDirectory: true).appendingPathComponent("drafts.json"))
 
     /// Provider readings (never written to state.json). See `WidgetRuntimeCache`.
-    lazy var runtimeCache = WidgetRuntimeCache(fileURL: fileURL.deletingLastPathComponent().appendingPathComponent("runtime-cache.json"))
+    lazy var runtimeCache = runtimeCacheOverride ?? WidgetRuntimeCache(fileURL: fileURL.deletingLastPathComponent().appendingPathComponent("runtime-cache.json"))
+    private let runtimeCacheOverride: WidgetRuntimeCache?
+    private var runtimeMigrationPending = false
 
     private let fileURL: URL
     let allowsSystemChanges: Bool
@@ -48,11 +50,12 @@ final class ProfileStore: ObservableObject {
     @Published private(set) var isSaving = false
     var canRetryPersistence: Bool { storageWritable }
 
-    init(fileURL: URL? = nil, allowsSystemChanges: Bool = true, stateWriter: RevisionedStateWriter? = nil) {
+    init(fileURL: URL? = nil, allowsSystemChanges: Bool = true, stateWriter: RevisionedStateWriter? = nil, runtimeCache: WidgetRuntimeCache? = nil) {
         self.allowsSystemChanges = allowsSystemChanges && AppRuntimeEnvironment.allowsNativeEffects
         let support = AppRuntimeEnvironment.applicationSupportDirectory
         self.fileURL = fileURL ?? support.appendingPathComponent("state.json")
         self.writer = stateWriter ?? RevisionedStateWriter()
+        self.runtimeCacheOverride = runtimeCache
         if FileManager.default.fileExists(atPath: self.fileURL.path) {
             do {
                 let data = try BackupManager.boundedArchiveData(from: self.fileURL)
@@ -115,27 +118,84 @@ final class ProfileStore: ObservableObject {
                 let merged = WidgetRuntimeReadings.preferringNewer(cached: runtimeCache.readings(for: item.id), embedded: embedded)
                 runtimeCache.set(merged, for: item.id)
                 configuration.resolveRuntimeReadings(runtimeCache.readings(for: item.id))
+                runtimeCache.set(configuration.runtimeReadings, for: item.id)
+                configuration.stripRuntimeReadings()
                 if configuration != item.widgetConfiguration { state.profiles[profileIndex].items[itemIndex].widgetConfiguration = configuration }
             }
         }
         runtimeCache.prune(keeping: live)
         // Strip legacy embedded readings only once the cache durably holds them.
-        if foundEmbedded, runtimeCache.flush() {
-            commit(immediately: false)
+        if foundEmbedded {
+            runtimeMigrationPending = true
+            do {
+                try finishPendingRuntimeMigration()
+                commit(immediately: false)
+            } catch {
+                persistenceWarning = error.localizedDescription
+            }
         }
     }
 
-    /// Keeps the cache in step with in-memory widgets after an authored save: mirrors readings and prunes removed widgets.
+    /// A legacy state file remains the disk fallback until its readings have a durable cache copy.
+    /// Routine authored saves must not bypass the launch migration's failure boundary.
+    private func finishPendingRuntimeMigration() throws {
+        guard runtimeMigrationPending else { return }
+        guard runtimeCache.flush() else {
+            throw EditSessionSaveError.failed("Saved provider readings could not be moved to their cache. The original saved data has been kept. Retry saving after storage is available.")
+        }
+        runtimeMigrationPending = false
+    }
+
+    /// Authored mutations retain the newest matching cache readings, absorb legacy imports, and prune deletions.
     private func mirrorRuntimeCache() {
         guard storageWritable else { return }
         var live = Set<UUID>()
-        for profile in state.profiles {
-            for item in profile.items where item.type == .widget {
+        var authored = state
+        for profileIndex in authored.profiles.indices {
+            for itemIndex in authored.profiles[profileIndex].items.indices {
+                let item = authored.profiles[profileIndex].items[itemIndex]
+                guard item.type == .widget, var configuration = item.widgetConfiguration else { continue }
                 live.insert(item.id)
-                runtimeCache.set(item.widgetConfiguration?.runtimeReadings ?? WidgetRuntimeReadings(), for: item.id)
+                let merged = WidgetRuntimeReadings.preferringNewer(cached: runtimeCache.readings(for: item.id),
+                                                                  embedded: configuration.runtimeReadings)
+                configuration.resolveRuntimeReadings(merged)
+                runtimeCache.set(configuration.runtimeReadings, for: item.id)
+                configuration.stripRuntimeReadings()
+                authored.profiles[profileIndex].items[itemIndex].widgetConfiguration = configuration
             }
         }
+        if authored != state { state = authored }
         runtimeCache.prune(keeping: live)
+    }
+
+    /// Runtime projection belongs to presentation only; authored profiles and edit sessions remain unchanged.
+    func presentationItem(_ item: DockItem) -> DockItem {
+        var projected = item
+        // Inert library/render samples have no repository owner and keep their explicit example readings.
+        guard state.profiles.contains(where: { $0.items.contains(where: { $0.id == item.id }) }) else { return projected }
+        projected.widgetConfiguration?.resolveRuntimeReadings(runtimeCache.readings(for: item.id))
+        return projected
+    }
+
+    func presentationProfile(_ profile: DockProfile) -> DockProfile {
+        guard state.profiles.contains(where: { $0.id == profile.id }) else { return profile }
+        var projected = profile
+        // The profile already establishes ownership; avoid a whole-repository lookup for every face.
+        projected.items = profile.items.map { item in
+            var item = item
+            item.widgetConfiguration?.resolveRuntimeReadings(runtimeCache.readings(for: item.id))
+            return item
+        }
+        return projected
+    }
+
+    func presentationConfiguration(for item: DockItem, in profileID: UUID) -> WidgetConfiguration {
+        guard let current = state.profiles.first(where: { $0.id == profileID })?.items.first(where: { $0.id == item.id }) else {
+            return item.widgetConfiguration ?? WidgetConfiguration()
+        }
+        var configuration = current.widgetConfiguration ?? WidgetConfiguration()
+        configuration.resolveRuntimeReadings(runtimeCache.readings(for: current.id))
+        return configuration
     }
 
     /// Opens the private utility drafts once at launch: prunes drafts whose widget or profile no longer exists
@@ -479,6 +539,7 @@ final class ProfileStore: ObservableObject {
     }
 
     func replaceProfiles(_ profiles: [DockProfile]) throws {
+        let profiles = profiles.map(\.strippedOfRuntimeReadings)
         var next = state.profiles
         for profile in profiles {
             guard let index = next.firstIndex(where: { $0.id == profile.id && $0.kind == profile.kind }) else { throw ProfileDraftMergeError.profileRemoved }
@@ -499,6 +560,7 @@ final class ProfileStore: ObservableObject {
     }
 
     func replaceProfile(_ profile: DockProfile) {
+        let profile = profile.strippedOfRuntimeReadings
         guard let index = state.profiles.firstIndex(where: { $0.id == profile.id }),
               state.profiles[index].kind == profile.kind,
               state.profiles[index] != profile else { return }
@@ -546,18 +608,21 @@ final class ProfileStore: ObservableObject {
         guard let profileIndex = state.profiles.firstIndex(where: { $0.id == profileID }),
               let itemIndex = state.profiles[profileIndex].items.firstIndex(where: { $0.id == itemID }),
               state.profiles[profileIndex].items[itemIndex].type == .widget else { return .missingTarget }
-        let previous = state.profiles[profileIndex].items[itemIndex].widgetConfiguration
-        var configuration = previous ?? WidgetConfiguration()
+        let authored = state.profiles[profileIndex].items[itemIndex]
+        let previous = presentationItem(authored).widgetConfiguration ?? WidgetConfiguration()
+        var configuration = previous
         update(&configuration)
+        configuration.invalidateUnchangedReadings(after: previous)
         do { try ProfileSemanticValidator.validate(configuration) }
         catch { persistenceWarning = error.localizedDescription; return .rejected(error.localizedDescription) }
         guard configuration != previous else { return .unchanged }
-        state.profiles[profileIndex].items[itemIndex].widgetConfiguration = configuration
-        if configuration.strippedOfRuntimeReadings == (previous ?? WidgetConfiguration()).strippedOfRuntimeReadings {
-            // Provider readings only: update the cache, never the authored state file or its revision.
+        if configuration.strippedOfRuntimeReadings == previous.strippedOfRuntimeReadings {
+            // A cache notification updates consumers, without publishing authored state, history or revisions.
             runtimeCache.set(configuration.runtimeReadings, for: itemID)
             return .accepted
         }
+        runtimeCache.set(configuration.runtimeReadings, for: itemID)
+        state.profiles[profileIndex].items[itemIndex].widgetConfiguration = configuration.strippedOfRuntimeReadings
         commit(immediately: false)
         return .accepted
     }
@@ -621,6 +686,7 @@ final class ProfileStore: ObservableObject {
 
     private func persistCandidate(_ candidate: PersistentState) throws {
         guard storageWritable else { throw EditSessionSaveError.failed(persistenceWarning ?? "Saving is disabled to protect this data.") }
+        try finishPendingRuntimeMigration()
         revision &+= 1
         do {
             try writer.writeImmediately(candidate, to: fileURL, revision: revision)
@@ -637,6 +703,12 @@ final class ProfileStore: ObservableObject {
         guard storageWritable else {
             hasUnpersistedChanges = true
             persistenceError = persistenceWarning ?? "Saving is disabled to protect the original data."
+            return
+        }
+        do { try finishPendingRuntimeMigration() }
+        catch {
+            hasUnpersistedChanges = true
+            persistenceError = error.localizedDescription
             return
         }
         revision &+= 1

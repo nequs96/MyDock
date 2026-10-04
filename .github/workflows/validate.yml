@@ -26,6 +26,8 @@ jobs:
           test "$SDK_MAJOR" -ge 26 || { echo "This source requires macOS SDK 26+ for Liquid Glass APIs."; exit 1; }
       - name: Unit and regression tests
         run: ./TestMyDock.sh
+      - name: Release manifest failure fixtures
+        run: python3 -m unittest discover -s Tests/Tooling -p 'test_*.py'
       - name: Universal release build
         run: ./BuildMyDock.sh
       - name: Verify architecture and bundle
@@ -33,14 +35,22 @@ jobs:
           lipo build/MyDock.app/Contents/MacOS/MyDock -verify_arch arm64 x86_64
           codesign --verify --deep --strict build/MyDock.app
           plutil -lint build/MyDock.app/Contents/Info.plist
-      - name: Xcode app and Focus metadata
+      - name: Xcode qualification artifact and Focus metadata
         run: |
           command -v xcodegen >/dev/null || brew install xcodegen
           ./GenerateXcodeProject.sh
-          xcodebuild -project MyDock.xcodeproj -scheme MyDock -configuration Release -derivedDataPath .build/ci-xcode CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project MyDock.xcodeproj -scheme MyDock -configuration Release -derivedDataPath .build/ci-xcode ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
           test -d .build/ci-xcode/Build/Products/Release/MyDock.app/Contents/Resources/Metadata.appintents
+      - name: Record and archive the exact Xcode artifact
+        run: |
+          APP_PATH=.build/ci-xcode/Build/Products/Release/MyDock.app
+          lipo "$APP_PATH/Contents/MacOS/MyDock" -verify_arch arm64 x86_64
+          plutil -lint "$APP_PATH/Contents/Info.plist"
+          mkdir -p .build/ci-artifact
+          ditto -c -k --keepParent "$APP_PATH" .build/ci-artifact/MyDock-Xcode.zip
+          python3 Scripts/WriteReleaseManifest.py --app "$APP_PATH" --output .build/ci-artifact/release-manifest.json --qualification ci --archive .build/ci-artifact/MyDock-Xcode.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: MyDock-local-validation-${{ matrix.os }}
-          path: build/MyDock.app
+          name: MyDock-Xcode-qualification-${{ matrix.os }}
+          path: .build/ci-artifact/
           retention-days: 7

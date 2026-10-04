@@ -437,6 +437,7 @@ struct WorldClockDockFace: View {
                     }
                 }
             }.padding(.horizontal, 9)
+                .help("Primary city: \(zone.identifier). " + WidgetTimingPresentation.dayRelation(offset: WorldClockCityCatalog.dayOffset(from: .current, to: zone, at: context.date), reference: "this Mac"))
         }
     }
 }

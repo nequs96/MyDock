@@ -228,7 +228,7 @@ struct ProductRuntimeTests {
         store.updateWidgetConfiguration(itemID: second.id, in: id) { $0.cardWidth = .wide }
         _ = await (a, b)
         #expect(count == 1)
-        let items = try #require(store.activeCustomProfile?.items)
+        let items = try #require(store.activeCustomProfile.map { store.presentationProfile($0).items })
         #expect(items.allSatisfy { $0.widgetConfiguration?.aiLimitsSnapshot?.fetchedAt == Date(timeIntervalSince1970: 123) })
         #expect(items[1].widgetConfiguration?.cardWidth == .wide)
         store.flush()

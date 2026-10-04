@@ -25,6 +25,7 @@ enum AppRuntimeEnvironment {
     // with injected backends. The default application graph never escapes.
     static var allowsNativeEffects: Bool { !isIsolated }
     static var allowsCredentials: Bool { !isIsolated }
+    static var allowsNetwork: Bool { !isIsolated }
 
     static var applicationSupportDirectory: URL {
         if let validationRoot { return validationRoot.appendingPathComponent("ApplicationSupport", isDirectory: true) }
@@ -48,16 +49,23 @@ enum AppRuntimeEnvironment {
         guard allowsNativeEffects else { throw ValidationBoundaryError.nativeEffectsDisabled }
     }
 
+    /// Guard default production transports before creating sessions or resolving DNS.
+    /// Explicitly injected fixture transports remain independent of this boundary.
+    static func requireNetwork() throws {
+        guard allowsNetwork else { throw ValidationBoundaryError.networkDisabled }
+    }
+
     static func requireCredentials() throws {
         guard allowsCredentials else { throw ValidationBoundaryError.credentialsDisabled }
     }
 }
 
 enum ValidationBoundaryError: LocalizedError {
-    case nativeEffectsDisabled, credentialsDisabled
+    case nativeEffectsDisabled, credentialsDisabled, networkDisabled
     var errorDescription: String? {
         switch self {
         case .nativeEffectsDisabled: "Native actions and permission requests are disabled in this isolated validation session."
+        case .networkDisabled: "External requests are disabled in this isolated validation session."
         case .credentialsDisabled: "Connected credentials are unavailable in this isolated validation session."
         }
     }

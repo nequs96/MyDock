@@ -45,9 +45,10 @@ struct CustomDockView: View {
     @ObservedObject private var systemAppearance = DockSystemAppearance.shared
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var store: ProfileStore
+    @ObservedObject private var runtimeCache: WidgetRuntimeCache
     private var sourceProfile: DockProfile
     var profile: DockProfile {
-        isPreview ? sourceProfile : store.state.profiles.first(where: { $0.id == sourceProfile.id }) ?? sourceProfile
+        isPreview ? sourceProfile : store.presentationProfile(store.state.profiles.first(where: { $0.id == sourceProfile.id }) ?? sourceProfile)
     }
     var isPreview = false
     var usesLivePreviewData = false
@@ -55,6 +56,7 @@ struct CustomDockView: View {
     init(store: ProfileStore, profile: DockProfile, isPreview: Bool = false, usesLivePreviewData: Bool = false,
          openSettings: @escaping (MyDockSettingsPage) -> Void = { _ in }) {
         self.store = store
+        runtimeCache = store.runtimeCache
         sourceProfile = profile
         self.isPreview = isPreview
         self.usesLivePreviewData = usesLivePreviewData

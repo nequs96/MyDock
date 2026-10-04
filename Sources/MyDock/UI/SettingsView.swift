@@ -1046,6 +1046,7 @@ struct SettingsView: View {
     private func saveCopilotCredentials() {
         do {
             try GitHubCopilotCredentialStore.write(username: copilotUsernameDraft, token: copilotTokenDraft)
+            store.invalidateCopilotLimitReadings()
             copilotTokenDraft = ""
             copilotCredentialsSaved = true
             copilotCredentialsMessage = "Saved in Keychain. AI Limits can now read personal Copilot billing usage."
@@ -1057,6 +1058,7 @@ struct SettingsView: View {
     private func removeCopilotCredentials() {
         do {
             try GitHubCopilotCredentialStore.delete()
+            store.invalidateCopilotLimitReadings()
             copilotTokenDraft = ""
             copilotCredentialsSaved = false
             copilotCredentialsMessage = "Removed from Keychain."

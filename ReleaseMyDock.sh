@@ -54,4 +54,6 @@ xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
 xcrun stapler staple "$DMG_PATH"
 xcrun stapler validate "$DMG_PATH"
 shasum -a 256 "$DMG_PATH" > "$DMG_PATH.sha256"
+python3 Scripts/WriteReleaseManifest.py --app "$APP_PATH" --output "$OUTPUT_DIRECTORY/release-manifest.json" \
+  --qualification release --archive "$DMG_PATH"
 printf 'Signed and notarized release: %s\n' "$DMG_PATH"

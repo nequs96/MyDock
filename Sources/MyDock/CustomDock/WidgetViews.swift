@@ -60,14 +60,22 @@ enum WidgetProviderRegistry {
 
 struct WidgetCompactView: View {
     @ObservedObject var store: ProfileStore
+    @ObservedObject private var runtimeCache: WidgetRuntimeCache
     var item: DockItem
     var profileID: UUID
     var sampleMode = false
     var presentationSettings: AppSettings? = nil
     var layoutOverride: WidgetLayout? = nil
+    init(store: ProfileStore, item: DockItem, profileID: UUID, sampleMode: Bool = false,
+         presentationSettings: AppSettings? = nil, layoutOverride: WidgetLayout? = nil) {
+        self.store = store; self.item = item; self.profileID = profileID
+        self.sampleMode = sampleMode; self.presentationSettings = presentationSettings; self.layoutOverride = layoutOverride
+        _runtimeCache = ObservedObject(wrappedValue: store.runtimeCache)
+    }
+    private var currentItem: DockItem { sampleMode ? item : store.presentationItem(item) }
     private var settings: AppSettings { presentationSettings ?? store.effectiveSettings(profileID: profileID) }
     private var kind: String { item.widgetKind ?? item.title }
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    private var configuration: WidgetConfiguration { currentItem.widgetConfiguration ?? WidgetConfiguration() }
     private var layout: WidgetLayout { layoutOverride ?? WidgetPresentationCatalog.resolvedLayout(for: kind, configuration: configuration, compactDefault: settings.customDockWidgetStyle == .compact) }
     private var width: CGFloat { settings.customDockPosition == .bottom ? CGFloat(WidgetPresentationCatalog.width(for: kind, layout: layout)) : 54 }
     var body: some View {
@@ -81,29 +89,35 @@ struct WidgetCompactView: View {
                     .environment(\.widgetIconAppearance, configuration.iconAppearance)
             }
         }.overlay(alignment: .topTrailing) {
-            if !sampleMode { WidgetFreshnessIndicator(coordinator: store.widgetData, item: item) }
+            if !sampleMode { WidgetFreshnessIndicator(coordinator: store.widgetData, item: currentItem) }
         }
     }
     @ViewBuilder private var content: some View {
         switch kind {
         case "Clock", "Focus Timer", "Stopwatch", "Countdown", "Sticky Note", "Time Progress", "Hydration", "Quick Checklist", "Stock", "Watchlist", "Calculator", "Shortcuts", "App Folder":
-            LocalWidgetDockFace(item: item)
+            LocalWidgetDockFace(item: currentItem)
         default:
-            WidgetProviderRegistry.provider(for: kind).compactView(store: store, item: item, profileID: profileID)
+            WidgetProviderRegistry.provider(for: kind).compactView(store: store, item: currentItem, profileID: profileID)
         }
     }
 }
 
 struct WidgetPopout: View {
     @ObservedObject var store: ProfileStore
+    @ObservedObject private var runtimeCache: WidgetRuntimeCache
     var item: DockItem
     var profileID: UUID
     var showsCustomize = true
     var showsHeader = true
     @Environment(\.dismiss) private var dismiss
     @State private var showsAppearance = false
+    init(store: ProfileStore, item: DockItem, profileID: UUID, showsCustomize: Bool = true, showsHeader: Bool = true) {
+        self.store = store; self.item = item; self.profileID = profileID
+        self.showsCustomize = showsCustomize; self.showsHeader = showsHeader
+        _runtimeCache = ObservedObject(wrappedValue: store.runtimeCache)
+    }
     private var currentItem: DockItem {
-        store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id } ?? item
+        store.presentationItem(store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id } ?? item)
     }
 
     var body: some View {
@@ -448,7 +462,11 @@ private struct AppFolderPopoutView: View {
                                     HStack(spacing: 8) {
                                         Image(nsImage: NSWorkspace.shared.icon(forFile: application.url.path))
                                             .resizable().scaledToFit().frame(width: 26, height: 26)
-                                        Text(application.name).lineLimit(1)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(application.name).lineLimit(1)
+                                            Text(InstalledApplicationIdentity.normalizedURL(application.url).deletingLastPathComponent().path)
+                                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                        }
                                         if !application.hasExistingBundlePath {
                                             Label("Missing", systemImage: "exclamationmark.triangle.fill")
                                                 .font(.caption2).foregroundStyle(.orange)
@@ -457,6 +475,8 @@ private struct AppFolderPopoutView: View {
                                     }
                                 }
                                 .buttonStyle(.plain).disabled(!application.hasExistingBundlePath)
+                                .help(InstalledApplicationIdentity.normalizedURL(application.url).path)
+                                .accessibilityLabel("Open \(application.name), selected copy at \(InstalledApplicationIdentity.normalizedURL(application.url).path)")
                                 if !application.hasExistingBundlePath {
                                     Button("Replace…") { replaceApplication(application) }
                                         .font(.caption).help("Choose the application's new location")
@@ -491,8 +511,8 @@ private struct AppFolderPopoutView: View {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK else { return }
-        let existingIDs = Set(applications.map(\.id))
-        let selected = panel.urls.map(AppFolderApplication.init(url:)).filter { !existingIDs.contains($0.id) }
+        var knownIDs = Set(applications.map(\.id))
+        let selected = panel.urls.map(AppFolderApplication.init(url:)).filter { knownIDs.insert($0.id).inserted }
         guard !selected.isEmpty else { message = "Those apps are already in this folder."; return }
         store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderApplications.append(contentsOf: selected) }
         message = nil
@@ -597,7 +617,7 @@ private struct WorldClockPopoutView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Primary").font(.caption).foregroundStyle(.secondary)
+                Text("Primary city · shown in Dock").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Text(WorldClockCityCatalog.all.first(where: { $0.id == configuration.worldClockTimeZoneID })?.name ?? configuration.worldClockTimeZoneID)
                     .font(.subheadline.weight(.medium))
@@ -620,6 +640,10 @@ private struct WorldClockPopoutView: View {
                     Text("No matching city or time zone.").font(.caption).foregroundStyle(.secondary)
                 }
             }
+            if !configuration.worldClockAdditionalTimeZoneIDs.isEmpty {
+                Text("Additional cities · dates relative to the primary city")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             ForEach(configuration.worldClockAdditionalTimeZoneIDs, id: \.self) { id in
                 timeZoneRow(id)
             }
@@ -630,6 +654,8 @@ private struct WorldClockPopoutView: View {
                         .font(.system(size: 34, weight: .medium, design: .rounded).monospacedDigit())
                     Text(formattedDate(context.date, timeZone: timeZone))
                         .foregroundStyle(.secondary)
+                    Text(WidgetTimingPresentation.dayRelation(offset: WorldClockCityCatalog.dayOffset(from: .current, to: timeZone, at: context.date), reference: "this Mac"))
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
@@ -673,7 +699,7 @@ private struct WorldClockPopoutView: View {
                         Text(formattedDate(context.date, timeZone: zone)).foregroundStyle(.secondary)
                         let offset = WorldClockCityCatalog.dayOffset(from: timeZone, to: zone, at: context.date)
                         if offset != 0 {
-                            Text(offset > 0 ? "+\(offset)d" : "\(offset)d")
+                            Text(offset > 0 ? "+\(offset) day" : "\(offset) day")
                                 .foregroundStyle(.secondary)
                                 .help("Local date is \(abs(offset)) day\(abs(offset) == 1 ? "" : "s") \(offset > 0 ? "ahead of" : "behind") the primary city")
                         }
@@ -796,6 +822,10 @@ private struct CountdownPopoutView: View {
             } else {
                 targetDateControls
             }
+            Text(configuration.countdownMode == .duration
+                 ? "Start requests a macOS completion alert. The timer still runs if alerts are unavailable. Pause and Reset cancel its alert."
+                 : "Set or Update Target requests a macOS alert at the chosen time. Clear Target cancels it.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let notificationMessage {
                 Text(notificationMessage).font(.caption).foregroundStyle(.secondary)
             }
@@ -841,7 +871,7 @@ private struct CountdownPopoutView: View {
                                     CountdownNotificationService.cancel(itemID: item.id)
                                     return
                                 }
-                                notificationMessage = "macOS will notify you when the countdown finishes."
+                                notificationMessage = "Completion alert scheduled with macOS. Delivery depends on your notification settings."
                             } catch {
                                 guard CountdownNotificationService.isCurrent(itemID: item.id,
                                                                              operationID: operationID) else { return }
@@ -935,7 +965,7 @@ private struct CountdownPopoutView: View {
                     CountdownNotificationService.cancel(itemID: item.id)
                     return
                 }
-                notificationMessage = "macOS will notify you when the target arrives."
+                notificationMessage = "Target alert scheduled with macOS. Delivery depends on your notification settings."
             } catch {
                 guard CountdownNotificationService.isCurrent(itemID: item.id,
                                                              operationID: operationID) else { return }
@@ -1372,6 +1402,12 @@ private struct FocusTimerPopoutView: View {
             timerTextView
                 .font(.system(size: 34, weight: .medium, design: .rounded).monospacedDigit())
                 .frame(maxWidth: .infinity, alignment: .center)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                if configuration.focusRemaining(at: context.date) <= 0 {
+                    Label("Session complete · Reset to start a new session.", systemImage: "checkmark.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             HStack {
                 Button(configuration.focusStartedAt == nil ? "Start" : "Pause") {
                     store.updateWidgetConfiguration(itemID: item.id, in: profileID) { value in
@@ -1442,6 +1478,9 @@ private struct StickyNotePopoutView: View {
                         saveNote(value)
                     }
                 }
+            Text("\(noteDraft.utf8.count.formatted()) / 1,048,576 UTF-8 bytes · text above this limit stays in the recovery draft.")
+                .font(.caption).foregroundStyle(noteDraft.utf8.count > 1_048_576 ? Color.red : Color.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             if let noteSaveError {
                 Text(noteSaveError).font(.caption).foregroundStyle(.red)
                     .accessibilityLabel("Note not saved. " + noteSaveError)

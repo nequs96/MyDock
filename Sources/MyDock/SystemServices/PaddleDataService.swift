@@ -90,6 +90,7 @@ struct URLSessionPaddleDataTransport: PaddleDataTransport {
     private static let session = BoundedHTTPFetch.ephemeralSession()
 
     func response(for request: URLRequest) async throws -> PaddleHTTPResponse {
+        try AppRuntimeEnvironment.requireNetwork()
         do {
             let (data, response) = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 5000000)
             return PaddleHTTPResponse(statusCode: response.statusCode, data: data)

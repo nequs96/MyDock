@@ -1,3 +1,4 @@
+import CryptoKit
 import CoreFoundation
 import Foundation
 
@@ -111,6 +112,68 @@ struct AILimitWindow: Codable, Hashable, Identifiable {
     }
 }
 
+/// Paths identify local data scope, never an authenticated account. Hashes keep private paths out of cached labels.
+enum AIUsageSourceScope {
+    static func directory(provider: AIProvider, homeDirectory: URL? = nil, environment: [String: String]? = nil) -> URL? {
+        let home = homeDirectory ?? FileManager.default.homeDirectoryForCurrentUser
+        let environment = environment ?? (homeDirectory == nil ? ProcessInfo.processInfo.environment : [:])
+        switch provider {
+        case .codex:
+            let configured = environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+            return (configured ?? home.appendingPathComponent(".codex", isDirectory: true)).appendingPathComponent("sessions", isDirectory: true)
+        case .claude:
+            return AIAccountService.claudeDirectory(home: home, environment: environment).appendingPathComponent("projects", isDirectory: true)
+        case .grok: return home.appendingPathComponent(".grok/sessions", isDirectory: true)
+        default: return nil
+        }
+    }
+
+    private static func root(provider: AIProvider, homeDirectory: URL?, environment: [String: String]?) -> String {
+        guard let url = directory(provider: provider, homeDirectory: homeDirectory, environment: environment) else {
+            return provider.rawValue + "|provider-api"
+        }
+        return url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    private static func hash(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func activity(provider: AIProvider, range: AIActivityRange, homeDirectory: URL? = nil,
+                         environment: [String: String]? = nil, timeZone: TimeZone = .current, now: Date = .now,
+                         semanticVersion: Int = AIActivitySnapshot.currentSemanticVersion) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        // Sliding ranges change their start each day; MTD retains same-month offline readings.
+        let intervalStart = range.interval(endingAt: now, calendar: calendar).start.timeIntervalSince1970
+        return "activity-v\(semanticVersion)|\(provider.rawValue)|\(range.rawValue)|\(timeZone.identifier)|\(Int64(intervalStart))|" +
+            hash(root(provider: provider, homeDirectory: homeDirectory, environment: environment))
+    }
+
+    static func limits(providers: [AIProvider], homeDirectory: URL? = nil, environment: [String: String]? = nil, now: Date = .now) -> String {
+        let roots = Set(providers).sorted { $0.rawValue < $1.rawValue }.map {
+            $0.rawValue + "|" + root(provider: $0, homeDirectory: homeDirectory, environment: environment)
+        }.joined(separator: ";")
+        var period = ""
+        if providers.contains(.copilot) {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+            let start = calendar.dateInterval(of: .month, for: now)!.start.timeIntervalSince1970
+            period = "|\(Int64(start))"
+        }
+        return "limits-v1|UTC\(period)|" + hash(roots)
+    }
+}
+
+enum AILimitFailureKind: String, Codable { case transient, authentication, unavailable }
+
+/// Only the Copilot adapter can attach a requested identity that its supported response subsequently verifies.
+struct AILimitReadFailure: Error {
+    var kind: AILimitFailureKind
+    var requestedAccountIdentity: String?
+    var message: String
+}
+
 struct AIProviderLimitReading: Codable, Hashable, Identifiable {
     var provider: AIProvider
     var availability: AILimitAvailability
@@ -118,12 +181,18 @@ struct AIProviderLimitReading: Codable, Hashable, Identifiable {
     var windows: [AILimitWindow]
     var updatedAt: Date?
     var message: String?
+    var verifiedAccountIdentity: String?
+    var requestedAccountIdentity: String?
+    var failureKind: AILimitFailureKind?
+    var lastRefreshError: String?
     var id: AIProvider { provider }
 
-    private enum CodingKeys: String, CodingKey { case provider, availability, plan, windows, updatedAt, message }
+    private enum CodingKeys: String, CodingKey { case provider, availability, plan, windows, updatedAt, message, verifiedAccountIdentity, requestedAccountIdentity, failureKind, lastRefreshError }
 
     init(provider: AIProvider, availability: AILimitAvailability, plan: String? = nil, windows: [AILimitWindow],
-         updatedAt: Date? = nil, message: String? = nil) {
+         updatedAt: Date? = nil, message: String? = nil, verifiedAccountIdentity: String? = nil,
+         requestedAccountIdentity: String? = nil, failureKind: AILimitFailureKind? = nil, lastRefreshError: String? = nil) {
+        self.verifiedAccountIdentity = verifiedAccountIdentity; self.requestedAccountIdentity = requestedAccountIdentity; self.failureKind = failureKind; self.lastRefreshError = lastRefreshError
         self.provider = provider; self.availability = availability; self.plan = plan
         self.windows = windows; self.updatedAt = updatedAt; self.message = message
     }
@@ -139,6 +208,10 @@ struct AIProviderLimitReading: Codable, Hashable, Identifiable {
             .prefix(AIUsageDomain.maximumWindows).map { $0.sanitized(for: decodedProvider) }
         updatedAt = try values.decodeIfPresent(Date.self, forKey: .updatedAt).flatMap { AIUsageDomain.isSupported($0) ? $0 : nil }
         message = try values.decodeIfPresent(String.self, forKey: .message)
+        verifiedAccountIdentity = try values.decodeIfPresent(String.self, forKey: .verifiedAccountIdentity)
+        requestedAccountIdentity = try values.decodeIfPresent(String.self, forKey: .requestedAccountIdentity)
+        failureKind = try values.decodeIfPresent(AILimitFailureKind.self, forKey: .failureKind)
+        lastRefreshError = try values.decodeIfPresent(String.self, forKey: .lastRefreshError)
     }
 
     var isValid: Bool {
@@ -150,11 +223,12 @@ struct AIProviderLimitReading: Codable, Hashable, Identifiable {
 struct AILimitsSnapshot: Codable, Hashable {
     var fetchedAt: Date
     var readings: [AIProviderLimitReading]
+    var sourceScope: String?
 
-    private enum CodingKeys: String, CodingKey { case fetchedAt, readings }
+    private enum CodingKeys: String, CodingKey { case fetchedAt, readings, sourceScope }
 
-    init(fetchedAt: Date, readings: [AIProviderLimitReading]) {
-        self.fetchedAt = fetchedAt; self.readings = readings
+    init(fetchedAt: Date, readings: [AIProviderLimitReading], sourceScope: String? = nil) {
+        self.fetchedAt = fetchedAt; self.readings = readings; self.sourceScope = sourceScope
     }
 
     init(from decoder: Decoder) throws {
@@ -162,6 +236,7 @@ struct AILimitsSnapshot: Codable, Hashable {
         let fetched = try values.decode(Date.self, forKey: .fetchedAt)
         fetchedAt = AIUsageDomain.isSupported(fetched) ? fetched : .distantPast
         readings = Array(try values.decode([AIProviderLimitReading].self, forKey: .readings).prefix(AIProvider.allCases.count * 4))
+        sourceScope = try values.decodeIfPresent(String.self, forKey: .sourceScope)
     }
 
     var isValid: Bool {
@@ -263,17 +338,19 @@ struct AIActivitySnapshot: Codable, Hashable {
     var totals: AIActivityDailyPoint
     /// 1 counted session-days and duplicate log records; 2 counts distinct sessions in the range and de-duplicates records.
     var semanticVersion: Int
+    var sourceScope: String?
 
     static let currentSemanticVersion = 2
     var hasCurrentSemantics: Bool { semanticVersion >= Self.currentSemanticVersion }
 
     private enum CodingKeys: String, CodingKey {
-        case provider, range, fetchedAt, sourceDescription, available, estimated, partial, message, points, totals, semanticVersion
+        case provider, range, fetchedAt, sourceDescription, available, estimated, partial, message, points, totals, semanticVersion, sourceScope
     }
 
     init(provider: AIProvider, range: AIActivityRange, fetchedAt: Date, sourceDescription: String, available: Bool,
          estimated: Bool, partial: Bool, message: String? = nil, points: [AIActivityDailyPoint], totals: AIActivityDailyPoint,
-         semanticVersion: Int = AIActivitySnapshot.currentSemanticVersion) {
+         semanticVersion: Int = AIActivitySnapshot.currentSemanticVersion, sourceScope: String? = nil) {
+        self.sourceScope = sourceScope
         self.semanticVersion = semanticVersion
         self.provider = provider; self.range = range; self.fetchedAt = fetchedAt
         self.sourceDescription = sourceDescription; self.available = available; self.estimated = estimated
@@ -296,6 +373,7 @@ struct AIActivitySnapshot: Codable, Hashable {
             .prefix(AIUsageDomain.maximumPoints).filter(\.isValid)
         totals = try values.decode(AIActivityDailyPoint.self, forKey: .totals).clamped()
         semanticVersion = try values.decodeIfPresent(Int.self, forKey: .semanticVersion) ?? 1
+        sourceScope = try values.decodeIfPresent(String.self, forKey: .sourceScope)
     }
 
     var isValid: Bool {
@@ -385,9 +463,10 @@ enum CodexRateLimitParser {
 }
 
 enum CodexAppServerLimitReader {
-    static func read(now: Date = .now) throws -> AIProviderLimitReading {
+    static func read(now: Date = .now, environment: [String: String]? = nil) throws -> AIProviderLimitReading {
+        try AppRuntimeEnvironment.requireCredentials()
         guard let executable = executableURL() else { throw AIUsageError.codexCLIUnavailable }
-        let response = try CodexAccountRPC.request(executable: executable, method: "account/rateLimits/read")
+        let response = try CodexAccountRPC.request(executable: executable, method: "account/rateLimits/read", environment: environment)
         return try CodexRateLimitParser.reading(from: response, now: now)
     }
 
@@ -401,10 +480,11 @@ protocol AILimitProviderAdapter {
 
 struct CodexLimitAdapter: AILimitProviderAdapter {
     let provider: AIProvider = .codex
+    var environment: [String: String]? = nil
 
     func read(now: Date) async throws -> AIProviderLimitReading {
         try AppRuntimeEnvironment.requireCredentials()
-        return try CodexAppServerLimitReader.read(now: now)
+        return try CodexAppServerLimitReader.read(now: now, environment: environment)
     }
 }
 
@@ -504,7 +584,9 @@ enum AILimitsCollector {
     static func collect(providers: [AIProvider], now: Date = .now,
                         copilotMonthlyCreditAllowance: Int? = nil,
                         adapters: [any AILimitProviderAdapter]? = nil) async -> AILimitsSnapshot {
-        let adapters = adapters ?? defaultAdapters(copilotMonthlyCreditAllowance: copilotMonthlyCreditAllowance)
+        let environment = ProcessInfo.processInfo.environment
+        let sourceScope = AIUsageSourceScope.limits(providers: providers, environment: environment, now: now)
+        let adapters = adapters ?? defaultAdapters(copilotMonthlyCreditAllowance: copilotMonthlyCreditAllowance, environment: environment)
         let readers = Dictionary(adapters.map { ($0.provider, $0) }, uniquingKeysWith: { first, _ in first })
         var readings: [AIProviderLimitReading] = []
         for provider in providers {
@@ -512,6 +594,11 @@ enum AILimitsCollector {
             let reader = readers[provider] ?? UnavailableLimitAdapter(provider: provider)
             do {
                 readings.append(try await reader.read(now: now))
+            } catch let failure as AILimitReadFailure {
+                readings.append(.init(provider: provider,
+                    availability: failure.kind == .authentication ? .setupRequired : (failure.kind == .unavailable ? .unavailable : .error),
+                    windows: [], message: DataSourceProvenance.sanitized(failure.message), requestedAccountIdentity: failure.requestedAccountIdentity,
+                    failureKind: failure.kind))
             } catch {
                 let needsSetup: Bool
                 if let usageError = error as? AIUsageError {
@@ -525,14 +612,14 @@ enum AILimitsCollector {
                                                        message: error.localizedDescription))
             }
         }
-        return AILimitsSnapshot(fetchedAt: now, readings: readings)
+        return AILimitsSnapshot(fetchedAt: now, readings: readings, sourceScope: sourceScope)
     }
 
-    private static func defaultAdapters(copilotMonthlyCreditAllowance: Int?) -> [any AILimitProviderAdapter] {
+    private static func defaultAdapters(copilotMonthlyCreditAllowance: Int?, environment: [String: String]) -> [any AILimitProviderAdapter] {
         AIProvider.allCases.map { provider in
             switch provider {
-            case .codex: CodexLimitAdapter() as any AILimitProviderAdapter
-            case .claude: ClaudeStatusLineLimitAdapter() as any AILimitProviderAdapter
+            case .codex: CodexLimitAdapter(environment: environment) as any AILimitProviderAdapter
+            case .claude: ClaudeStatusLineLimitAdapter(environment: environment) as any AILimitProviderAdapter
             case .copilot: GitHubCopilotLimitAdapter(monthlyAllowance: copilotMonthlyCreditAllowance) as any AILimitProviderAdapter
             default: UnavailableLimitAdapter(provider: provider) as any AILimitProviderAdapter
             }
@@ -603,6 +690,7 @@ enum AIActivityReader {
 
     static func read(provider: AIProvider, range: AIActivityRange, now: Date = .now, timeZone: TimeZone = .current,
                      homeDirectory: URL? = nil, environment: [String: String]? = nil) -> AIActivitySnapshot {
+        let environment = environment ?? (homeDirectory == nil ? ProcessInfo.processInfo.environment : [:])
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         let interval = range.interval(endingAt: now, calendar: calendar)
@@ -614,21 +702,11 @@ enum AIActivityReader {
         guard homeDirectory != nil || AppRuntimeEnvironment.allowsCredentials else {
             return unavailable(provider: provider, range: range, now: now, message: "Local activity is disabled in isolated validation.")
         }
-        let root = homeDirectory ?? FileManager.default.homeDirectoryForCurrentUser
-        let source: URL
-        switch provider {
-        case .codex:
-            let configured = homeDirectory == nil ? (environment ?? ProcessInfo.processInfo.environment)["CODEX_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) } : nil
-            source = (configured ?? root.appendingPathComponent(".codex", isDirectory: true)).appendingPathComponent("sessions", isDirectory: true)
-        case .claude:
-            // The same resolver as account setup and the limits bridge, so all three read one installation.
-            source = AIAccountService.claudeDirectory(home: root, environment: environment ?? (homeDirectory == nil ? ProcessInfo.processInfo.environment : [:]))
-                .appendingPathComponent("projects", isDirectory: true)
-        case .grok:
-            source = root.appendingPathComponent(".grok/sessions", isDirectory: true)
-        case .cursor, .geminiCLI, .copilot, .antigravity:
+        guard let source = AIUsageSourceScope.directory(provider: provider, homeDirectory: homeDirectory, environment: environment) else {
             return unavailable(provider: provider, range: range, now: now, message: "This provider does not expose a supported local activity source.")
         }
+        let sourceScope = AIUsageSourceScope.activity(provider: provider, range: range, homeDirectory: homeDirectory,
+                                                      environment: environment, timeZone: timeZone, now: now)
         var daily: [Date: MutablePoint] = [:]
         var sessionsByIDAndDay: Set<SessionActivity> = []
         var dedupe = DedupeState()

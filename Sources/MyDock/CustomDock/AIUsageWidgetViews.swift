@@ -44,6 +44,12 @@ private struct AILimitsCompactView: View {
             } else { Text("Set up").font(.system(size: 13, weight: .medium)) }
         }.padding(.horizontal, 9).frame(width: width, height: 54)
             .help("AI Limits · Open to see provider windows")
+            .overlay(alignment: .topTrailing) {
+                if let provider = selectedProvider, configuration.aiLimitsSnapshot?.reading(for: provider)?.lastRefreshError != nil {
+                    Image(systemName: "exclamationmark.circle.fill").font(.system(size: 9)).foregroundStyle(.orange)
+                        .help("Refresh failed; saved reading shown").accessibilityLabel("Refresh failed; saved reading shown")
+                }
+            }
     }
 }
 
@@ -184,8 +190,16 @@ private struct AILimitsPopoutView: View {
                 Text(reading.provider.title).font(.subheadline.weight(.semibold))
                 Spacer()
                 if let plan = reading.plan { Text(plan.capitalized).font(.caption2).foregroundStyle(.secondary) }
-                if reading.availability == .available { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                if reading.lastRefreshError != nil { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).accessibilityLabel("Refresh failed; saved reading shown") }
+                else if reading.availability == .available { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
                 else { Text("—").foregroundStyle(.secondary) }
+            }
+            if let error = reading.lastRefreshError {
+                Label("Refresh failed · saved reading shown. " + error, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            if let identity = reading.verifiedAccountIdentity {
+                Text("Verified account: " + identity).font(.caption2).foregroundStyle(.secondary)
             }
             if reading.windows.isEmpty, let message = reading.message {
                 Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -394,8 +408,7 @@ struct AIActivityPopoutView: View {
     @State private var recoveryMessage: String?
 
     private var configuration: WidgetConfiguration {
-        store.state.profiles.first(where: { $0.id == profileID })?.items.first(where: { $0.id == item.id })?.widgetConfiguration
-            ?? item.widgetConfiguration ?? WidgetConfiguration()
+        store.presentationConfiguration(for: item, in: profileID)
     }
     private var snapshot: AIActivitySnapshot? {
         guard let snapshot = configuration.aiActivitySnapshot, snapshot.provider == configuration.aiActivityProvider,

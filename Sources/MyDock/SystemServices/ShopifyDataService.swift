@@ -138,6 +138,7 @@ struct URLSessionShopifyDataTransport: ShopifyDataTransport {
     private static let session = BoundedHTTPFetch.ephemeralSession()
 
     func response(for request: URLRequest) async throws -> ShopifyHTTPResponse {
+        try AppRuntimeEnvironment.requireNetwork()
         do {
             let (data, response) = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 8000000)
             return ShopifyHTTPResponse(statusCode: response.statusCode, data: data)

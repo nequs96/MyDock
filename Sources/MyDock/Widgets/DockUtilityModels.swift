@@ -131,6 +131,21 @@ struct ConversionUnit: Identifiable {
     }
 }
 
+enum ConversionResultFormatter {
+    /// Six significant digits keep common measurements readable. Scientific notation
+    /// preserves very small nonzero values and avoids impractically long large results.
+    static func text(_ value: Double, locale: Locale = .current) -> String {
+        guard value.isFinite else { return "—" }
+        let magnitude = abs(value)
+        let style = FloatingPointFormatStyle<Double>.number
+            .precision(.significantDigits(1...6)).grouping(.never).locale(locale)
+        if magnitude > 0 && (magnitude < 0.0001 || magnitude >= 1_000_000_000) {
+            return value.formatted(style.notation(.scientific))
+        }
+        return (value == 0 ? 0 : value).formatted(style)
+    }
+}
+
 enum HexColor {
     static func components(_ input: String) -> (red: Double, green: Double, blue: Double)? {
         var text = input.trimmingCharacters(in: .whitespacesAndNewlines)

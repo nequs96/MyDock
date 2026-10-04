@@ -79,7 +79,7 @@ private struct StripePopoutView: View {
                 }
                 .padding(.vertical, 3)
             } else if snapshot != nil {
-                Text("No \(configuration.stripeCurrency) data is available for this account yet.")
+                Text("No \(configuration.stripeCurrency) data is available. Choose a currency reported by this account in the Currency menu.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -243,7 +243,7 @@ private struct StripePopoutView: View {
 
     private var currencyOptions: [String] {
         let options = snapshot?.currencyCodes ?? []
-        return options.isEmpty ? [configuration.stripeCurrency] : options
+        return options.contains(configuration.stripeCurrency) ? options : [configuration.stripeCurrency] + options
     }
 
     private var isStale: Bool {

@@ -2,6 +2,11 @@ import SwiftUI
 
 struct ConnectionsCenterView: View {
     @ObservedObject var store: ProfileStore
+    @ObservedObject private var runtimeCache: WidgetRuntimeCache
+    init(store: ProfileStore) {
+        self.store = store
+        _runtimeCache = ObservedObject(wrappedValue: store.runtimeCache)
+    }
     @State private var provider = "Stripe"
     @State private var name = ""
     @State private var secret = ""
@@ -33,7 +38,7 @@ struct ConnectionsCenterView: View {
 
     /// Newest stored reading among widgets assigned to this connection; nothing is fetched here.
     private func provenance(for row: ConnectionRow) -> DataSourceProvenance {
-        let items = store.state.profiles.flatMap(\.items).compactMap { $0.widgetConfiguration }
+        let items = store.state.profiles.map { store.presentationProfile($0) }.flatMap(\.items).compactMap { $0.widgetConfiguration }
         switch row.kind {
         case "Stripe":
             let match = items.filter { $0.stripeAccountID == row.identifier }

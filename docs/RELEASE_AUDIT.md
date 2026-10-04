@@ -1,88 +1,17 @@
-# Canonical MyDock build baseline
+# Canonical MyDock development baseline
 
-Recorded **3 October 2026** (Europe/Warsaw), after integrating the corrective batch and the design/architecture improvements tracked in the [execution ledger](history/EXECUTION_LEDGER_2026-10-03.md). The source of truth remains `Sources/MyDock/`, and the canonical app remains **`build/MyDock.app`** (git `f1c90b5`, 4 October 2026 follow-up wave included).
+Recorded 4 October 2026, first delegated follow-up wave. Source remains `Sources/MyDock/`; canonical app remains `build/MyDock.app`. Current working-tree wave2 edits are not yet represented by this tested artifact.
 
-## What changed since the preceding baseline
+Status rechecked 4 October at 06:37 UTC: the canonical executable/hash/signature/architectures/plist still match this baseline. Later source is unfinished and integration-unverified; syntax checking found a malformed new Reliability test, and all three medium specialists are stopped by usage limits. Default-production network isolation guards, Settings scope and diagnostics preview remain open. See [verified work status](history/VERIFIED_WORK_STATUS_2026-10-04.md). No later source/build/native acceptance is implied by the results below.
 
-The [ledger](history/EXECUTION_LEDGER_2026-10-03.md) records each package, with separate implementation and verification fields. The following changes are implemented and covered by fixtures. None of them is natively accepted.
+The first wave separates external readings from in-memory authored edits, protects legacy cache migration and atomic save outcomes, consumes capability metadata in discovery, clarifies repeated instances and converter precision, extracts reveal monitoring, corrects login-state reporting and fixes exact-artifact CI tooling. Scope, dependencies and acceptance are in [the execution ledger](history/EXECUTION_LEDGER_2026-10-03.md). AI configured-root attribution remains a known next-wave gap.
 
-**State and recovery**
-- Future and oversized state files are refused before model decode, are left untouched, and disable saving.
-- Create, duplicate and Restore validate and persist before anything is published.
-- Sticky Note and snippet/link drafts survive rejected or failed saves, dismissal and relaunch.
-- Removals have a bounded 15-second undo.
-- Routine edits are coalesced off the main thread. Critical saves and quit still wait for disk.
+`./TestMyDock.sh` passed: **445 individual passes,5 explicit skips,450 reported tests in56 suites,0 failures**. Five isolated Python manifest fixtures passed. Xcode project regeneration, shell/project/plist/entitlement syntax and whitespace checks passed. Initial compile failures were corrected by their owners before the successful run.
 
-**Providers**
-- AI and market/billing/weather numbers are domain-bounded.
-- AI Activity deduplicates records, and its Sessions total counts distinct sessions.
-- One Claude config-directory resolver is used everywhere.
-- Shopify replaces credentials for the same store correctly, with bounded pagination.
-- Stripe fetches partial nested item lists or excludes them.
-- Paddle setup asks for `metrics.read`.
-- A network counter reset no longer produces a rate spike.
-- Response size is capped while streaming.
-- Changing tenant clears the old figures.
+`./BuildMyDock.sh` succeeded after process absence was checked. The canonical executable is universal arm64+x86_64, both slices declare macOS13.0, strict ad-hoc signature and plist checks pass. SHA-256: `67810611f8cb9431f4025d0174a3cc647a99ec8afcb3e16e6f1d642f177fd8c0`. Source/build/test input fingerprint: `c2a69f7861219837f5aa1d3585232de9b56921ab6f73eb341f757959e67567de`. Inputs stayed unchanged during validation.
 
-**Native actions**
-- Window discovery for the context menu no longer depends on monitor toggles.
-- Window identity uses the raw title plus the installed-copy and launch identity, and resolves windows by native AX object.
-- The resize grip has a hit area of at least 14 pt.
-- A narrow presentation signature stops unrelated settings from re-rooting the Dock.
-- Mid-transition style or Off changes normalize the Dock immediately.
-- Performance signposts were added.
+The exact canonical executable launched as PID5317 with a private validation root and native/credential effects disabled. Normal termination was accepted; the process exited0 and absence was verified. This is an isolated launch/quit check. It does not certify production-data isolation by a disposable-user trace, native actions, compositor/motion, permissions, VoiceOver, live accounts or notification delivery.
 
-**Lifecycle**
-- Shortcuts can be cancelled.
-- Folder popouts show loading, cancel obsolete work and cap their output.
-- Location and Reminders have deadlines.
-- Hydration reconciles its reminders at startup and on wake.
-- Refresh is driven by typed demand from popouts as well as the Dock.
+The CLI app lacks App Intents metadata. Full Xcode, Developer ID/notarization, Focus discovery, signed login/install/update/rollback, supported-OS and Intel runtime qualification remain blocked/open. No native preference mutation, permission grant, account connection, destructive validation, commit or publication occurred in this continuation.
 
-**Product**
-- Widget setup comes before appearance, and the Settings header is compact.
-- Edit, Activate and Apply are explained.
-- Workspace actions are labelled.
-- Example labels and VoiceOver labels were added.
-- The AirDrop and Trash provider faces are restored.
-- File Shelf has Locate and Retry.
-- The Trash dialog states its Finder-wide scope.
-- Focus guidance is accurate for CLI-built bundles.
-
-**Validation isolation**
-- `AppRuntimeEnvironment` sends isolated runs to a private root with memory-only defaults.
-- It blocks native effects and credentials, including the real `~/.claude`, the Codex app-server, AI logs and the Trash watcher.
-
-**Xcode project**
-- `MyDock.xcodeproj` was regenerated with `./GenerateXcodeProject.sh` and lists every source and test file. The previous project was missing 8 sources and 15 test files added since 24f9c76.
-
-## Current verification
-
-- `./TestMyDock.sh` (isolated): **405 tests in 49 suites passed, 0 failed, 5 explicit opt-ins skipped.** Log: `.build/orchestrate/test-final2.log`.
-- MyDock was quit with a normal quit Apple Event before building. The process exit was verified and no running bundle was overwritten.
-- `./BuildMyDock.sh` exited 0.
-  - Executable SHA-256: `a35bb831bb9867b89c16478be5f0f78a78e84355ee6b4f83d5ed847becf591bd`.
-  - Universal x86_64 + arm64.
-  - `codesign --verify --strict` passes (ad-hoc).
-  - Log: `.build/orchestrate/build-wave5.log`.
-- The canonical `build/MyDock.app` was relaunched (PID 98053). The coordinator did not exercise any UI or native scenario.
-- [BUILD_BASELINE.json](BUILD_BASELINE.json) records the source, test and app hashes. The source fingerprint is `a01678fe…fabe76`.
-
-## Follow-up wave (4 October 2026)
-
-- **Provider caches:** provider readings now persist only in a separate private `runtime-cache.json`. They are excluded from state, backups and history. Existing embedded readings are migrated once at launch (PR-13 phase 1).
-- **Provenance and help:** popouts and Connections show each reading's source, metric, freshness and state (PR-15). Settings has privacy and limitations help (PR-20).
-- **Refactors:** the widget capability registry is typed (PR-17), and the Dock controller is split into four files.
-- **Refresh demand:** editor previews and the Battery popout keep refreshing while the Dock is hidden.
-- **Evidence:**
-  - An isolated render export produced 143 PNGs under `.build/visual-qa/corrective-batch-20261004*`.
-  - A synthetic writer/geometry baseline is in `.build/orchestrate/perf/synthetic-performance.json`. These are not UI latency figures.
-
-## Not verified
-
-- **Native acceptance has not been run.** That covers H1–H9 in the ledger: Close/Quit with unsaved documents, window identity with two installed copies, resize pointer feel and frame pacing, glass on real wallpaper, interrupted motion, VoiceOver, Finder/AirDrop/Trash, permissions, and native Dock preference restoration.
-- **No Xcode build has run** because full Xcode is absent. The App Intents metadata, the UI test suite, signing, notarization and Gatekeeper are all unverified.
-- **Live accounts were not used.** Stripe, Paddle, Shopify, market data, Claude, Codex and Copilot were checked against fixtures only.
-- **No production performance measurements.** The signposts exist, but no Instruments trace has been recorded.
-
-This is a local ad-hoc development build, not a qualified distribution. The previous baseline is preserved in [history/RELEASE_EVIDENCE_PRE_CORRECTIVE_BATCH_2026-10-03.md](history/RELEASE_EVIDENCE_PRE_CORRECTIVE_BATCH_2026-10-03.md) and [history/BUILD_BASELINE_PRE_CORRECTIVE_BATCH_2026-10-03.json](history/BUILD_BASELINE_PRE_CORRECTIVE_BATCH_2026-10-03.json). Nothing was pushed or published.
+Logs and machine-readable inputs/evidence are under `.build/orchestrate-20261004/`. [BUILD_BASELINE.json](BUILD_BASELINE.json) identifies the exact artifact. Host: Apple Silicon, macOS27.0.1(26A434), Swift6.3, SDK26.4. [Preceding evidence](history/RELEASE_EVIDENCE_PRE_COORDINATED_FOLLOWUP_2026-10-04.md) and older renders/performance measurements remain explicitly historical.

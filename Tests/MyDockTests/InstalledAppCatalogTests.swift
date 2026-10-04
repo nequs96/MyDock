@@ -70,6 +70,7 @@ struct InstalledAppCatalogTests {
     }
     @Test func unreadableHistoryRefreshKeepsPreviouslyLoadedActivity() {
         var configuration = AIActivityPreviewData.item().widgetConfiguration!
+        configuration.aiActivitySnapshot?.sourceScope = AIUsageSourceScope.activity(provider: configuration.aiActivityProvider, range: configuration.aiActivityRange)
         let previous = configuration.aiActivitySnapshot!
         var unreadable = previous
         unreadable.available = false; unreadable.partial = true

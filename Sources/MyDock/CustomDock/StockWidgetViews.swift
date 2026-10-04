@@ -88,7 +88,7 @@ private struct StockPopoutView: View {
     @State private var refreshRequestID = UUID()
 
     private var configuration: WidgetConfiguration {
-        currentConfiguration ?? item.widgetConfiguration ?? WidgetConfiguration()
+        store.presentationConfiguration(for: item, in: profileID)
     }
     private var currentConfiguration: WidgetConfiguration? {
         store.state.profiles.first(where: { $0.id == profileID })?.items
@@ -133,7 +133,7 @@ private struct StockPopoutView: View {
                 chartContent
                 controls
                 if let snapshot {
-                    Text("End-of-day data · Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
+                    Text("End-of-day close: \(snapshot.latest?.date.formatted(date: .abbreviated, time: .omitted) ?? "Unavailable") · fetched \(snapshot.fetchedAt.formatted(date: .abbreviated, time: .shortened))")
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
             } else {
@@ -344,7 +344,7 @@ private struct WatchlistPopoutView: View {
     @State private var refreshRequestID = UUID()
 
     private var configuration: WidgetConfiguration {
-        currentConfiguration ?? item.widgetConfiguration ?? WidgetConfiguration()
+        store.presentationConfiguration(for: item, in: profileID)
     }
     private var currentConfiguration: WidgetConfiguration? {
         store.state.profiles.first(where: { $0.id == profileID })?.items
@@ -448,6 +448,10 @@ private struct WatchlistPopoutView: View {
                             if let snapshot = stock.snapshot, let latest = snapshot.latest {
                                 Text(latest.close.formatted(.currency(code: snapshot.currency)))
                                     .font(.caption2.monospacedDigit()).lineLimit(1)
+                                TimelineView(.periodic(from: .now, by: 60)) { context in
+                                    Text(WidgetTimingPresentation.readingStatus(fetchedAt: snapshot.fetchedAt, now: context.date, maximumAge: Double(interval) * 120))
+                                        .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                                }
                             } else {
                                 Text("No quote").font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                             }

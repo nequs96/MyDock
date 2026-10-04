@@ -48,6 +48,7 @@ struct URLSessionMarketDataTransport: MarketDataTransport {
     private static let session = BoundedHTTPFetch.ephemeralSession()
 
     func data(for request: URLRequest) async throws -> Data {
+        try AppRuntimeEnvironment.requireNetwork()
         let result: (data: Data, response: HTTPURLResponse)
         do {
             result = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 5_000_000)

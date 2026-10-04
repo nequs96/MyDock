@@ -18,6 +18,18 @@ enum ConnectionTenantPolicy {
 }
 
 extension ProfileStore {
+    /// Explicit save/disconnect invalidates the previous Copilot authority, including in-flight requests.
+    func invalidateCopilotLimitReadings() {
+        widgetData.connectionsDidChange()
+        for profile in state.profiles {
+            for item in profile.items where item.widgetKind == "AI Limits" {
+                updateWidgetConfiguration(itemID: item.id, in: profile.id) { configuration in
+                    configuration.aiLimitsSnapshot?.readings.removeAll { $0.provider == .copilot }
+                }
+            }
+        }
+    }
+
     /// Removes persisted figures for one connection while keeping the widget assigned to it.
     /// Returns how many widgets were cleared.
     @discardableResult
@@ -26,7 +38,7 @@ extension ProfileStore {
         var cleared = 0
         for profile in state.profiles {
             for item in profile.items where item.type == .widget {
-                guard let configuration = item.widgetConfiguration else { continue }
+                guard let configuration = presentationItem(item).widgetConfiguration else { continue }
                 let matches: Bool
                 switch connection {
                 case .stripe(let id): matches = item.widgetKind == "Stripe" && configuration.stripeAccountID == id && configuration.stripeSnapshot != nil

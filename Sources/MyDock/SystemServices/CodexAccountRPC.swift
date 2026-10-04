@@ -4,7 +4,8 @@ import Darwin
 /// A bounded read-only session: initialize first, then request account data.
 /// Keeping stdin open until the reply avoids cancelling the server at EOF.
 enum CodexAccountRPC {
-    static func request(executable: URL, method: String, parameters: [String: Any] = [:], timeout: TimeInterval = 12) throws -> Data {
+    static func request(executable: URL, method: String, parameters: [String: Any] = [:], timeout: TimeInterval = 12, environment: [String: String]? = nil) throws -> Data {
+        try AppRuntimeEnvironment.requireCredentials()
         let process = Process()
         let input = Pipe(), output = Pipe(), errors = Pipe()
         process.executableURL = executable
@@ -13,7 +14,7 @@ enum CodexAccountRPC {
         process.standardOutput = output
         process.standardError = errors
         process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
-        var environment = ProcessInfo.processInfo.environment
+        var environment = environment ?? ProcessInfo.processInfo.environment
         environment["RUST_LOG"] = "off"
         process.environment = environment
         try process.run()

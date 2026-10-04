@@ -4,6 +4,7 @@ import SwiftUI
 /// workspace, with native scrolling and an always reachable dismiss control.
 struct WidgetConfigurationSheet: View {
     @ObservedObject var store: ProfileStore
+    @ObservedObject private var runtimeCache: WidgetRuntimeCache
     var item: DockItem
     var profileID: UUID
     var maximumHeight: CGFloat = 640
@@ -12,8 +13,12 @@ struct WidgetConfigurationSheet: View {
     @State private var showsAppearance = false
     @State private var editorDemand = RefreshDemandHolder(kind: .editor)
 
+    init(store: ProfileStore, item: DockItem, profileID: UUID, maximumHeight: CGFloat = 640) {
+        self.store = store; self.item = item; self.profileID = profileID; self.maximumHeight = maximumHeight
+        _runtimeCache = ObservedObject(wrappedValue: store.runtimeCache)
+    }
     private var currentItem: DockItem {
-        store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id } ?? item
+        store.presentationItem(store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id } ?? item)
     }
 
     var body: some View {

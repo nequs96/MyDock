@@ -2,17 +2,44 @@ import AppKit
 import Combine
 import ServiceManagement
 
+/// Registration and eligibility are different: approval can be revoked in System Settings.
+enum LoginItemState: Equatable {
+    case unavailable, notRegistered, enabled, requiresApproval, notFound, unknown
+
+    init(status: SMAppService.Status) {
+        switch status {
+        case .notRegistered: self = .notRegistered
+        case .enabled: self = .enabled
+        case .requiresApproval: self = .requiresApproval
+        case .notFound: self = .notFound
+        @unknown default: self = .unknown
+        }
+    }
+
+    var registrationRequested: Bool { self == .enabled || self == .requiresApproval }
+    var message: String {
+        switch self {
+        case .unavailable: "Login launch is unavailable in this build or isolated session."
+        case .notRegistered: "Not registered to launch at login."
+        case .enabled: "Registered and allowed to launch at login."
+        case .requiresApproval: "Registered, but macOS approval is required before MyDock can launch at login."
+        case .notFound: "macOS could not find this login service. Check the installed app in Login Items."
+        case .unknown: "macOS returned an unrecognized login-item status. Check Login Items."
+        }
+    }
+}
+
 @MainActor
 final class LaunchAtLoginController: ObservableObject {
     static let shared = LaunchAtLoginController()
-    @Published private(set) var enabled = false
-    @Published private(set) var requiresApproval = false
+    @Published private(set) var state: LoginItemState = .unavailable
+    var enabled: Bool { state == .enabled }
+    var requiresApproval: Bool { state == .requiresApproval }
     @Published private(set) var errorMessage: String?
     var isAvailable: Bool { AppRuntimeEnvironment.allowsNativeEffects && Bundle.main.bundleIdentifier == Product.bundleIdentifier && Bundle.main.bundleURL.pathExtension == "app" }
     private init() { refresh() }
     func refresh() {
-        enabled = isAvailable && [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
-        requiresApproval = isAvailable && SMAppService.mainApp.status == .requiresApproval
+        state = isAvailable ? LoginItemState(status: SMAppService.mainApp.status) : .unavailable
     }
     func setEnabled(_ enabled: Bool) {
         guard isAvailable else { return }
@@ -73,6 +100,7 @@ final class UpdateCheckService: ObservableObject {
         checking = true; releaseURL = nil
         defer { checking = false }
         do {
+            try AppRuntimeEnvironment.requireNetwork()
             let configuration = URLSessionConfiguration.ephemeral
             configuration.timeoutIntervalForRequest = 8; configuration.timeoutIntervalForResource = 12
             configuration.httpCookieStorage = nil; configuration.urlCredentialStorage = nil

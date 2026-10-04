@@ -114,6 +114,7 @@ struct URLSessionStripeDataTransport: StripeDataTransport {
     private static let session = BoundedHTTPFetch.ephemeralSession()
 
     func response(for request: URLRequest) async throws -> StripeHTTPResponse {
+        try AppRuntimeEnvironment.requireNetwork()
         do {
             let (data, response) = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 5000000)
             return StripeHTTPResponse(statusCode: response.statusCode, data: data)

@@ -35,6 +35,7 @@ struct CommandLibrary: View {
         let detail: String
         let symbol: String
         var item: DockItem?
+        var enabled = true
         let action: () -> Void
     }
     private var entries: [Entry] {
@@ -48,13 +49,16 @@ struct CommandLibrary: View {
         }
         if allowsAdding && (category == "All" || category == "Apps") {
             result += apps.map { item in
-                Entry(id: item.url?.path ?? item.id.uuidString, title: item.displayName, detail: "Application", symbol: "app", item: item, action: { add(item); close() })
+                Entry(id: WidgetDiscovery.applicationKey(item) ?? item.id.uuidString, title: item.displayName,
+                      detail: WidgetDiscovery.containsApplication(item, in: profile.items) ? "Application · Already added" : "Application · " + (item.url?.deletingLastPathComponent().path ?? ""),
+                      symbol: "app", item: item, enabled: !WidgetDiscovery.containsApplication(item, in: profile.items),
+                      action: { guard !WidgetDiscovery.containsApplication(item, in: profile.items) else { return }; add(item); close() })
             }
         }
         if allowsAdding && profile.kind == .custom && (category == "All" || category == "Widgets") {
             result += WidgetRegistry.all.map { widget in
                 let item = DockItem.widget(widget.name)
-                return Entry(id: widget.name, title: widget.name, detail: widget.description, symbol: widget.symbol, item: item, action: { add(item); close() })
+                return Entry(id: widget.name, title: (profile.items.contains { $0.widgetKind == widget.name } ? "Add another " : "Add ") + widget.name, detail: widget.description, symbol: widget.symbol, item: item, action: { add(item); close() })
             }
         }
         if allowsAdding && (category == "All" || category == "System") {
@@ -65,7 +69,12 @@ struct CommandLibrary: View {
                 result.append(Entry(id: name, title: name, detail: "Browse", symbol: "plus", action: { close(); browse(name) }))
             }
         }
-        return result.filter { query.isEmpty || ($0.title + " " + $0.detail).localizedCaseInsensitiveContains(query) }
+        return result.filter { entry in
+            if let kind = entry.item?.widgetKind, let definition = WidgetRegistry.definition(named: kind) {
+                return WidgetDiscovery.matches(definition, query: query) || entry.title.localizedStandardContains(query)
+            }
+            return query.isEmpty || (entry.title + " " + entry.detail).localizedStandardContains(query)
+        }
     }
 
     var body: some View {
@@ -116,11 +125,11 @@ struct CommandLibrary: View {
                                 }.padding(.horizontal, 12).padding(.vertical, 8)
                                     .background(index == selected ? DockDesign.hover : .clear, in: RoundedRectangle(cornerRadius: 8))
                                     .contentShape(Rectangle())
-                            }.buttonStyle(.plain).id(entry.id)
+                            }.buttonStyle(.plain).disabled(!entry.enabled).id(entry.id)
                                 .contextMenu {
                                     if let item = entry.item, item.type == .widget {
                                         ForEach(WidgetPresentationCatalog.options(for: item.widgetKind ?? item.title)) { option in
-                                            Button("Add " + option.title) {
+                                            Button((profile.items.contains { $0.widgetKind == item.widgetKind } ? "Add another · " : "Add · ") + option.title) {
                                                 var configured = item
                                                 configured.widgetConfiguration?.widgetLayout = option.layout
                                                 add(configured); close()
@@ -151,6 +160,6 @@ struct CommandLibrary: View {
             }
             .onExitCommand(perform: close)
     }
-    private func performSelected() { if entries.indices.contains(selected) { entries[selected].action() } }
+    private func performSelected() { if entries.indices.contains(selected), entries[selected].enabled { entries[selected].action() } }
 }
 

@@ -204,6 +204,7 @@ struct TextSnippetsView: View {
     @ObservedObject private var drafts: DockUtilityDraftStore
     var item: DockItem
     var profileID: UUID
+    @State private var savedSearch = ""
     @State private var title = ""
     @State private var text = ""
     @State private var message: String?
@@ -218,6 +219,10 @@ struct TextSnippetsView: View {
     private var waitingToResume: Bool { !draftLoaded && retainedDraft != nil }
     private var hasInput: Bool { editingID != nil || !title.isEmpty || !text.isEmpty }
     private var entries: [TextSnippet] { item.widgetConfiguration?.textSnippets ?? [] }
+    private var visibleEntries: [TextSnippet] {
+        let query = savedSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        return entries.filter { query.isEmpty || ($0.title + " " + $0.text).localizedStandardContains(query) }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Reusable words, one click away.").font(.system(size: 17, weight: .semibold))
@@ -237,11 +242,14 @@ struct TextSnippetsView: View {
                 Button(editingID == nil ? "Save Snippet" : "Save Changes", action: save)
                     .disabled(waitingToResume || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (editingID == nil && entries.count >= 50))
             }
+            if !entries.isEmpty {
+                TextField("Search saved snippets", text: $savedSearch).accessibilityLabel("Search saved snippet names and text")
+            }
             if entries.isEmpty { collectionEmpty("No snippets yet", detail: "Save an email reply, address, command or any text you reuse.") }
             else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(entries) { entry in
+                        ForEach(visibleEntries) { entry in
                             VStack(alignment: .leading, spacing: 5) {
                                 HStack {
                                     Text(entry.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
@@ -255,6 +263,7 @@ struct TextSnippetsView: View {
                         }
                     }
                 }.frame(maxHeight: 230)
+                if visibleEntries.isEmpty { Text("No saved snippets match. Your draft is separate from this search.").font(.caption).foregroundStyle(.secondary) }
             }
             UndoNotice(pending: $undoPending) { removed in
                 store.updateWidgetConfiguration(itemID: item.id, in: profileID) { removed.restore(into: &$0.textSnippets, capacity: 50) }
@@ -486,7 +495,7 @@ struct UnitConverterView: View {
         guard let number = Double(normalized) else { return nil }
         return ConversionUnit.convert(number, from: from, to: to)
     }
-    private var resultText: String { result.map { $0.formatted(.number.precision(.significantDigits(1...12))) } ?? "—" }
+    private var resultText: String { result.map { ConversionResultFormatter.text($0) } ?? "—" }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Picker("Convert", selection: $category) { ForEach(ConversionCategory.allCases) { Text($0.title).tag($0) } }
@@ -507,7 +516,7 @@ struct UnitConverterView: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(18).background(WidgetDesign.inset, in: RoundedRectangle(cornerRadius: 14))
             HStack {
-                Text(category == .data ? "kB / MB / GB are decimal. KiB / MiB / GiB are binary." : category == .volume ? "Gallon and cup use US measures." : "Updates as you type.")
+                Text("Rounded to 6 significant digits. " + (category == .data ? "kB / MB / GB are decimal. KiB / MiB / GiB are binary." : category == .volume ? "Gallon and cup use US measures." : "Updates as you type."))
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 Button(copied ? "Copied" : "Copy Result") { copied = copyUtilityText(resultText) }.disabled(result == nil)
@@ -561,7 +570,7 @@ struct DockColorPickerView: View {
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.18), lineWidth: 1)).accessibilityLabel("Selected color \(hex)")
             HStack {
                 TextField("#RRGGBB", text: Binding(get: { hexDraft }, set: { hexDraft = String($0.prefix(7)); message = nil })).onSubmit(applyHex).accessibilityLabel("HEX color")
-                Button("Apply", action: applyHex)
+                Button("Apply to Preview", action: applyHex)
                 Button("Copy HEX") { message = copyUtilityText(hex) ? "HEX copied." : utilityCopyFailureMessage }
             }
             HStack {
@@ -569,6 +578,8 @@ struct DockColorPickerView: View {
                 Spacer()
                 Button("Copy RGB") { message = copyUtilityText(rgbText) ? "RGB copied." : utilityCopyFailureMessage }
             }
+            Text("Apply updates the selected color preview. Save Color adds that color to this widget’s saved palette.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Divider()
             HStack {
                 Text("Saved palette").font(.system(size: 13, weight: .semibold))

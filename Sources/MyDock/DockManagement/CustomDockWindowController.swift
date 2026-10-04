@@ -34,15 +34,11 @@ final class CustomDockWindowController {
     private var observation: AnyCancellable?
     private var screenObservation: AnyCancellable?
     private var runtimeObservations: [AnyCancellable] = []
-    private var menuObservations: [AnyCancellable] = []
-    private var menuTrackingDepth = 0
     private var presentationVisible = false
     private var lastPresentation: DockPresentationSignature?
     private var transitionGeneration = UUID()
     private var transitionInFlight: DockTransitionPolicy.Snapshot?
     private var applicationObservation: AnyCancellable?
-    private var mouseMonitor: Any?
-    private var localMouseMonitor: Any?
     private var profileGestureMonitor: Any?
     private var revealPanel: NSPanel?
     private var expandedFrame = NSRect.zero
@@ -52,31 +48,38 @@ final class CustomDockWindowController {
     private var perpendicularSwipeDelta: CGFloat = 0
     private var parallelSwipeDelta: CGFloat = 0
     private var commandScrollDelta: CGFloat = 0
-    private var presentationTask: Task<Void, Never>?
-    private var pendingRevealTask: Task<Void, Never>?
     private var usingDisplayFallback = false
     private var noScreenAvailable = false
     private let store: ProfileStore
     private let openSettings: (MyDockSettingsPage) -> Void
     private let overviewIsPresent: (NSRect, [NSRect]) -> Bool
+    private lazy var revealMonitor = DockRevealMonitor(snapshot: { [weak self] forDwell in
+        self?.revealSnapshot(forDwell: forDwell)
+    }, present: { [weak self] decision in
+        guard let self else { return }
+        switch decision {
+        case .show: self.showDockPanel()
+        case .hide, .dwell: self.hideDockPanel()
+        case .suppress: self.hideDockPanelForSystemDock()
+        }
+    })
 
     init(store: ProfileStore, openSettings: @escaping (MyDockSettingsPage) -> Void = { _ in },
          overviewIsPresent: @escaping (NSRect, [NSRect]) -> Bool = { SystemOverviewPolicy.isPresent(screen: $0, dockFrames: $1) }) {
         self.store = store
         self.openSettings = openSettings
         self.overviewIsPresent = overviewIsPresent
-        menuObservations = [
-            NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification).sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.menuTrackingDepth += 1 }
-            },
-            NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification).sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.menuTrackingDepth = max(0, (self?.menuTrackingDepth ?? 0) - 1) }
-            }
-        ]
         _ = store.widgetLifecycle
         observation = store.$state.receive(on: RunLoop.main).sink { [weak self] state in
             self?.update(state: state)
         }
+        runtimeObservations.append(store.runtimeCache.$entries.dropFirst().receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                // Cache publication updates the observed faces. Geometry-only signatures
+                // keep the current hosting root intact when readings change.
+                self.update(state: self.store.state)
+            })
         runtimeObservations.append(store.$dockResizePreview.dropFirst()
             .throttle(for: .milliseconds(8), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
@@ -127,7 +130,7 @@ final class CustomDockWindowController {
         DockBadgeMonitor.shared.setEnabled(state.settings.showAppBadges)
         guard state.settings.setupMode != .nativeOnly,
               let profileID = state.settings.activeCustomProfileID,
-              let profile = state.profiles.first(where: { $0.id == profileID && $0.kind == .custom }) else {
+              let authoredProfile = state.profiles.first(where: { $0.id == profileID && $0.kind == .custom }) else {
             usingDisplayFallback = false
             noScreenAvailable = false
             SystemActivityMonitor.shared.setDockVisible(false)
@@ -142,11 +145,11 @@ final class CustomDockWindowController {
             panel?.alphaValue = 0
             panel?.orderOut(nil)
             revealPanel?.orderOut(nil)
-            presentationTask?.cancel(); presentationTask = nil
-            stopMouseMonitoring()
+            revealMonitor.stop()
             stopProfileGestureMonitoring()
             return
         }
+        let profile = store.presentationProfile(authoredProfile)
         guard let screen = screen(for: state.settings) else {
             SystemActivityMonitor.shared.setDockVisible(false)
             NetworkActivityMonitor.shared.setDockVisible(false)
@@ -160,8 +163,7 @@ final class CustomDockWindowController {
             panel?.alphaValue = 0
             panel?.orderOut(nil)
             revealPanel?.orderOut(nil)
-            presentationTask?.cancel(); presentationTask = nil
-            stopMouseMonitoring()
+            revealMonitor.stop()
             stopProfileGestureMonitoring()
             return
         }
@@ -207,16 +209,16 @@ final class CustomDockWindowController {
             self.panel = panel
             expandedFrame = place(panel, on: screen, profile: profile, settings: resolvedSettings)
         }
-        startPresentationMonitoring()
+        revealMonitor.startSampling()
         updateRevealPanel(on: screen, shouldShowHandle: state.settings.showRevealHandle)
         configureWindowMode(desktop: state.settings.customDockDesktopMode)
         startProfileGestureMonitoring()
         if (state.settings.automaticallyHideCustomDock && !state.settings.customDockDesktopMode)
             || state.settings.hideCustomDockWhenSystemDockAppears {
-            startMouseMonitoring()
-            updateAutoHide(mouseLocation: NSEvent.mouseLocation)
+            revealMonitor.startPointerMonitoring()
+            revealMonitor.sample()
         } else {
-            stopMouseMonitoring()
+            revealMonitor.stopPointerMonitoring()
             revealPanel?.orderOut(nil)
             presentDock(visible: true)
             SystemActivityMonitor.shared.setDockVisible(true)
@@ -334,45 +336,6 @@ final class CustomDockWindowController {
         revealPanel?.collectionBehavior = behavior
     }
 
-    private func startPresentationMonitoring() {
-        guard presentationTask == nil else { return }
-        presentationTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
-                guard let self else { return }
-                updateAutoHide(mouseLocation: NSEvent.mouseLocation)
-            }
-        }
-    }
-
-    private func startMouseMonitoring() {
-        let eventMask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDown, .leftMouseDragged]
-        if mouseMonitor == nil {
-            mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.updateAutoHide(mouseLocation: NSEvent.mouseLocation)
-                }
-            }
-        }
-        if localMouseMonitor == nil {
-            localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: eventMask) { [weak self] event in
-                Task { @MainActor [weak self] in
-                    self?.updateAutoHide(mouseLocation: NSEvent.mouseLocation)
-                }
-                return event
-            }
-        }
-    }
-
-    private func stopMouseMonitoring() {
-        pendingRevealTask?.cancel()
-        pendingRevealTask = nil
-        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
-        if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }
-        mouseMonitor = nil
-        localMouseMonitor = nil
-    }
-
     private func startProfileGestureMonitoring() {
         guard profileGestureMonitor == nil else { return }
         profileGestureMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
@@ -447,78 +410,23 @@ final class CustomDockWindowController {
         store.activate(store.customProfiles[destination].id)
     }
 
-    private func updateAutoHide(mouseLocation: NSPoint) {
-        // Mouse events can already be queued when changing modes or removing a profile.
-        guard canPresentDock, let panel else { return }
-        // Menus are separate AppKit windows, so their submenus are outside the Dock's hover frame.
-        // Keep the anchor alive for the entire tracking session, including spacer submenus.
-        if menuTrackingDepth > 0 || DockInteractionState.isResizing {
-            pendingRevealTask?.cancel(); pendingRevealTask = nil
-            showDockPanel()
-            return
-        }
-        let dockFrames = SystemDockVisibilityReader.visibleDockFrames()
-        if let screen = screen(for: store.state.settings), overviewIsPresent(screen.frame, dockFrames) {
-            pendingRevealTask?.cancel(); pendingRevealTask = nil
-            hideDockPanelForSystemDock()
-            return
-        }
-        if store.state.settings.hideCustomDockWhenSystemDockAppears,
-           SystemDockVisibilityReader.isVisible(overlapping: expandedFrame) {
-            pendingRevealTask?.cancel()
-            pendingRevealTask = nil
-            hideDockPanelForSystemDock()
-            return
-        }
-        if store.state.settings.customDockDesktopMode {
-            pendingRevealTask?.cancel()
-            pendingRevealTask = nil
-            showDockPanel()
-            return
-        }
-        guard store.state.settings.automaticallyHideCustomDock else {
-            pendingRevealTask?.cancel()
-            pendingRevealTask = nil
-            showDockPanel()
-            return
-        }
-        let popoutFrames = (panel.childWindows ?? []).map(\.frame)
-        if presentationVisible && CustomDockVisibilityPolicy.shouldRevealImmediately(mouseLocation: mouseLocation,
-                                                               expandedFrame: expandedFrame,
-                                                               popoutFrames: popoutFrames) {
-            pendingRevealTask?.cancel()
-            pendingRevealTask = nil
-            showDockPanel()
-        } else if CustomDockVisibilityPolicy.isAtRevealEdge(mouseLocation: mouseLocation, revealFrame: revealFrame) {
-            scheduleDwellReveal()
-            hideDockPanel()
-        } else {
-            pendingRevealTask?.cancel()
-            pendingRevealTask = nil
-            hideDockPanel()
-        }
-    }
-
-    private func scheduleDwellReveal() {
-        guard canPresentDock, pendingRevealTask == nil else { return }
-        pendingRevealTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
-            guard let self, self.canPresentDock else { return }
-            self.pendingRevealTask = nil
-            if self.store.state.settings.hideCustomDockWhenSystemDockAppears,
-               SystemDockVisibilityReader.isVisible(overlapping: self.expandedFrame) {
-                self.hideDockPanelForSystemDock()
-                return
-            }
-            let mouseLocation = NSEvent.mouseLocation
-            let popoutFrames = (self.panel?.childWindows ?? []).map(\.frame)
-            if CustomDockVisibilityPolicy.shouldReveal(mouseLocation: mouseLocation,
-                                                       expandedFrame: self.expandedFrame,
-                                                       revealFrame: self.revealFrame,
-                                                       popoutFrames: popoutFrames) {
-                self.showDockPanel()
-            }
-        }
+    private func revealSnapshot(forDwell: Bool) -> DockRevealMonitor.Snapshot? {
+        // Queued pointer events can outlive mode/profile changes.
+        guard canPresentDock, let panel else { return nil }
+        let settings = store.state.settings
+        let retainsInteraction = revealMonitor.menuTrackingDepth > 0 || DockInteractionState.isResizing
+        // Preserve the existing precedence: menu/resize retention bypasses native sampling.
+        let dockFrames = retainsInteraction || forDwell ? [] : SystemDockVisibilityReader.visibleDockFrames()
+        let overviewPresent = !forDwell && !retainsInteraction && screen(for: settings).map {
+            overviewIsPresent($0.frame, dockFrames)
+        } == true
+        let overlaps = (forDwell || (!retainsInteraction && !overviewPresent)) && settings.hideCustomDockWhenSystemDockAppears
+            && SystemDockVisibilityReader.isVisible(overlapping: expandedFrame)
+        return DockRevealMonitor.Snapshot(canPresent: true, retainsInteraction: retainsInteraction,
+            overviewPresent: overviewPresent, systemDockOverlaps: overlaps,
+            desktopMode: settings.customDockDesktopMode, autoHide: settings.automaticallyHideCustomDock,
+            visible: presentationVisible, mouseLocation: NSEvent.mouseLocation, expandedFrame: expandedFrame,
+            revealFrame: revealFrame, popoutFrames: (panel.childWindows ?? []).map(\.frame))
     }
 
     private func showDockPanel() {

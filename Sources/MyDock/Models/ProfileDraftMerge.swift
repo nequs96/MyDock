@@ -15,6 +15,7 @@ enum ProfileDraftMergeError: LocalizedError {
 extension DockProfileDraft {
     /// Apply only the user's edits to the current profile. Runtime widget updates remain intact.
     func merged(with latest: DockProfile) throws -> DockProfile {
+        let latest = latest.strippedOfRuntimeReadings
         guard latest.id == original.id, latest.kind == original.kind else {
             throw ProfileDraftMergeError.profileRemoved
         }

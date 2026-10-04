@@ -1,5 +1,9 @@
 # MyDock implementation and acceptance status
 
+## Coordinator-only follow-up — 4 October 2026
+
+The first newly delegated wave passed 445 individual tests plus 5 explicit skips (450 reported/56 suites), and 5 Python manifest fixtures. The canonical universal ad-hoc app was rebuilt, launched with isolated state and cleanly quit. This is fixture/static/build/isolated-launch evidence; native acceptance remains open. Current wave-two source differs from that artifact and is unfinished/unverified: a syntax-only check fails in a new Reliability test, and all three specialists are stopped by usage limits. Settings scope, diagnostics preview and default-production network isolation guards remain unstarted. See the [4 October verified status](history/VERIFIED_WORK_STATUS_2026-10-04.md) and [execution ledger](history/EXECUTION_LEDGER_2026-10-03.md). All earlier counts below are dated historical evidence.
+
 **Updated:** 3 October 2026 (Europe/Warsaw). **Scope:** the 30-ticket roadmap in [the repository review](history/REPOSITORY_REVIEW_2026-09-29.md).
 
 This is the canonical current status. The original audit records the pre-implementation findings. The original implementation pass preserved uncommitted work and did not mutate the user's Apple Dock. Later user-authorized replacement-mode checks verified native visibility preference application and restoration. No commit, push, publication or live account connection was performed. The repository cleanup preserves a complete source snapshot and earlier local artifacts outside the repository; see [the archive index](history/README.md).

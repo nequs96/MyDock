@@ -249,7 +249,7 @@ struct DockManagerView: View {
                         Button("New macOS Dock") { prepareCreation(kind: .native) }
                         Button("Import Current macOS Dock") { prepareCreation(kind: .native, source: "Current macOS Dock") }
                     }
-                SidebarRow { Label("Explore", systemImage: "square.grid.2x2") } action: { showingPresets = true }
+                SidebarRow { Label("Presets", systemImage: "square.grid.2x2") } action: { showingPresets = true }
                 SidebarRow(selected: showsSettings) { Label("Settings", systemImage: "gearshape") } action: { openSettings() }
                 if !store.state.settings.onboardingComplete {
                     SidebarRow { Label("Finish setup", systemImage: "checkmark.circle") } action: { onContinueSetup() }
@@ -783,7 +783,7 @@ struct DockManagerView: View {
     private var presetPicker: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text(resolvedPreset == nil ? "Explore Docks" : "Preview your new Dock").font(.system(size: 20, weight: .semibold))
+                Text(resolvedPreset == nil ? "Dock Presets" : "Preview your new Dock").font(.system(size: 20, weight: .semibold))
                 Spacer()
                 Button("Cancel") { resolvedPreset = nil; showingPresets = false }
             }

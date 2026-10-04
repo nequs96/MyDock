@@ -144,10 +144,13 @@ struct DataSourceProvenance: Equatable {
 
     static func aiLimits(snapshot: AILimitsSnapshot?, error: String? = nil, now: Date = .now) -> DataSourceProvenance {
         let unavailable = snapshot?.readings.filter { $0.availability != .available }.count ?? 0
-        let flags = unavailable > 0 ? ["\(unavailable) provider\(unavailable == 1 ? "" : "s") unavailable or not set up"] : []
+        var flags = unavailable > 0 ? ["\(unavailable) provider\(unavailable == 1 ? "" : "s") unavailable or not set up"] : []
+        let retained = snapshot?.readings.filter { $0.lastRefreshError != nil } ?? []
+        if !retained.isEmpty { flags.append("Saved windows retain their original provider update time") }
+        let successfulDate = snapshot?.readings.filter { $0.availability == .available }.compactMap(\.updatedAt).max() ?? snapshot?.fetchedAt
         return derive(source: "Provider apps and sign-ins on this Mac",
-                      metric: "Provider-reported usage windows, not inferred", lastRefresh: snapshot?.fetchedAt,
-                      error: error, flags: flags, now: now)
+                      metric: "Provider-reported usage windows, not inferred", lastRefresh: successfulDate,
+                      error: error ?? retained.first?.lastRefreshError, flags: flags, now: now)
     }
 
     static func aiActivity(snapshot: AIActivitySnapshot?, error: String?, now: Date = .now) -> DataSourceProvenance {

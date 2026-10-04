@@ -27,6 +27,7 @@ enum SiteFaviconFetcher {
     }
 
     static func fetchIconData(for destination: URL) async -> Data? {
+        guard AppRuntimeEnvironment.allowsNetwork else { return nil }
         guard let iconURL = faviconURL(for: destination), let host = iconURL.host else { return nil }
         let hasPublicDNS = await Task.detached(priority: .utility) {
             resolvesOnlyToPublicAddresses(host)

@@ -18,6 +18,7 @@ enum NowPlayingArtwork {
     }
 
     static func fetchSpotifyArtwork(at url: URL) async -> Data? {
+        guard AppRuntimeEnvironment.allowsNetwork else { return nil }
         guard spotifyURL(from: url.absoluteString) != nil else { return nil }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 5

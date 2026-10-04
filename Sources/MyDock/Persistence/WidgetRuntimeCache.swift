@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import OSLog
 
@@ -39,12 +40,12 @@ struct WidgetRuntimeReadings: Codable, Equatable {
         snapshot.points.count <= 10_000 && snapshot.points.allSatisfy { $0.close.isFinite && $0.close >= 0 && $0.volume >= 0 }
     }
 
-    /// Per reading, the newer `fetchedAt` wins; ties keep the cached value.
+    /// Matching identities prefer newer timestamps (ties keep cache); corrected AI semantics supersede legacy totals.
     static func preferringNewer(cached: WidgetRuntimeReadings?, embedded: WidgetRuntimeReadings) -> WidgetRuntimeReadings {
         guard var result = cached else { return embedded }
         func pick<V: Codable & Equatable>(_ keyPath: WritableKeyPath<WidgetRuntimeReadings, Tagged<V>?>, _ date: (V) -> Date) {
             guard let new = embedded[keyPath: keyPath] else { return }
-            if let old = result[keyPath: keyPath], date(old.value) >= date(new.value) { return }
+            if let old = result[keyPath: keyPath], old.identity == new.identity, date(old.value) >= date(new.value) { return }
             result[keyPath: keyPath] = new
         }
         pick(\.stock) { $0.fetchedAt }
@@ -52,7 +53,15 @@ struct WidgetRuntimeReadings: Codable, Equatable {
         pick(\.paddle) { $0.fetchedAt }
         pick(\.shopify) { $0.fetchedAt }
         pick(\.aiLimits) { $0.fetchedAt }
-        pick(\.aiActivity) { $0.fetchedAt }
+        if let new = embedded.aiActivity {
+            let old = result.aiActivity.flatMap { $0.identity == new.identity ? $0 : nil }
+            // Corrected semantics supersede legacy totals without rewriting their original timestamps.
+            let semanticUpgrade = old.map { !$0.value.hasCurrentSemantics && new.value.hasCurrentSemantics } ?? true
+            let semanticDowngrade = old.map { $0.value.hasCurrentSemantics && !new.value.hasCurrentSemantics } ?? false
+            if !semanticDowngrade && (semanticUpgrade || (old.map { $0.value.fetchedAt < new.value.fetchedAt } ?? true)) {
+                result.aiActivity = new
+            }
+        }
         pick(\.weather) { $0.fetchedAt }
         for (key, snapshot) in embedded.watchlist ?? [:] {
             if let old = result.watchlist?[key], old.fetchedAt >= snapshot.fetchedAt { continue }
@@ -66,7 +75,11 @@ extension WidgetConfiguration {
     static func watchlistKey(symbol: String, currency: String) -> String { "\(symbol.uppercased())|\(currency)" }
 
     private var stockIdentity: String { Self.watchlistKey(symbol: stockSymbol, currency: stockCurrency) }
-    private var aiActivityIdentity: String { "\(aiActivityProvider.rawValue)|\(aiActivityRange.rawValue)" }
+    private var aiLimitsIdentity: String { aiLimitsIdentity(scope: AIUsageSourceScope.limits(providers: aiLimitsVisibleProviders)) }
+    private func aiLimitsIdentity(scope: String) -> String {
+        aiLimitsVisibleProviders.map(\.rawValue).sorted().joined(separator: ";") + "|\(aiCopilotMonthlyCreditAllowance ?? 0)|" + scope
+    }
+    private var aiActivityIdentity: String { AIUsageSourceScope.activity(provider: aiActivityProvider, range: aiActivityRange) }
     private var weatherIdentity: String { "\(weatherLocation?.id ?? "")|\(weatherUnit.rawValue)" }
 
     /// The runtime readings currently held by this configuration, tagged with their present identity.
@@ -76,8 +89,8 @@ extension WidgetConfiguration {
         readings.stripe = stripeSnapshot.map { .init(identity: stripeAccountID, value: $0) }
         readings.paddle = paddleSnapshot.map { .init(identity: paddleAccountID, value: $0) }
         readings.shopify = shopifySnapshot.map { .init(identity: shopifyStoreID, value: $0) }
-        readings.aiLimits = aiLimitsSnapshot.map { .init(identity: "limits", value: $0) }
-        readings.aiActivity = aiActivitySnapshot.map { .init(identity: aiActivityIdentity, value: $0) }
+        readings.aiLimits = aiLimitsSnapshot.map { .init(identity: aiLimitsIdentity(scope: $0.sourceScope ?? "unattributed"), value: $0) }
+        readings.aiActivity = aiActivitySnapshot.map { .init(identity: $0.sourceScope ?? "unattributed", value: $0) }
         readings.weather = cachedWeatherForecast.map { .init(identity: weatherIdentity, value: $0) }
         var watchlist: [String: StockMarketSnapshot] = [:]
         for stock in watchlistStocks { if let snapshot = stock.snapshot { watchlist[Self.watchlistKey(symbol: stock.symbol, currency: stock.currency)] = snapshot } }
@@ -86,19 +99,41 @@ extension WidgetConfiguration {
     }
 
     /// Replaces every runtime reading with the cached ones whose identity still matches this configuration.
-    mutating func resolveRuntimeReadings(_ readings: WidgetRuntimeReadings?) {
+    mutating func resolveRuntimeReadings(_ readings: WidgetRuntimeReadings?, activityScope: String? = nil, limitsScope: String? = nil) {
         stripRuntimeReadings()
         guard let readings = readings?.sanitized() else { return }
         if let r = readings.stock, r.identity == stockIdentity { stockSnapshot = r.value }
-        if let r = readings.stripe, r.identity == stripeAccountID { stripeSnapshot = r.value }
-        if let r = readings.paddle, r.identity == paddleAccountID { paddleSnapshot = r.value }
-        if let r = readings.shopify, r.identity == shopifyStoreID { shopifySnapshot = r.value }
-        if let r = readings.aiLimits { aiLimitsSnapshot = r.value }
-        if let r = readings.aiActivity, r.identity == aiActivityIdentity { aiActivitySnapshot = r.value }
+        if let r = readings.stripe, r.identity == stripeAccountID, r.value.period == stripePeriod { stripeSnapshot = r.value }
+        if let r = readings.paddle, r.identity == paddleAccountID, r.value.period == paddlePeriod { paddleSnapshot = r.value }
+        if let r = readings.shopify, r.identity == shopifyStoreID, r.value.period == shopifyPeriod { shopifySnapshot = r.value }
+        if let r = readings.aiLimits, r.identity == aiLimitsIdentity(scope: limitsScope ?? AIUsageSourceScope.limits(providers: aiLimitsVisibleProviders)),
+           r.value.sourceScope == (limitsScope ?? AIUsageSourceScope.limits(providers: aiLimitsVisibleProviders)) { aiLimitsSnapshot = r.value }
+        if let r = readings.aiActivity, r.identity == (activityScope ?? aiActivityIdentity), r.value.sourceScope == (activityScope ?? aiActivityIdentity),
+           r.value.provider == aiActivityProvider, r.value.range == aiActivityRange, r.value.hasCurrentSemantics { aiActivitySnapshot = r.value }
         if let r = readings.weather, r.identity == weatherIdentity { cachedWeatherForecast = r.value }
         for index in watchlistStocks.indices {
             let stock = watchlistStocks[index]
             watchlistStocks[index].snapshot = readings.watchlist?[Self.watchlistKey(symbol: stock.symbol, currency: stock.currency)]
+        }
+    }
+
+    /// Unchanged values keep their original query identity when a user changes setup.
+    /// Otherwise an old account/location quote could be silently retagged for the new selection.
+    mutating func invalidateUnchangedReadings(after previous: WidgetConfiguration) {
+        var matching = self
+        matching.resolveRuntimeReadings(previous.runtimeReadings)
+        if stockSnapshot == previous.stockSnapshot { stockSnapshot = matching.stockSnapshot }
+        if stripeSnapshot == previous.stripeSnapshot { stripeSnapshot = matching.stripeSnapshot }
+        if paddleSnapshot == previous.paddleSnapshot { paddleSnapshot = matching.paddleSnapshot }
+        if shopifySnapshot == previous.shopifySnapshot { shopifySnapshot = matching.shopifySnapshot }
+        if cachedWeatherForecast == previous.cachedWeatherForecast { cachedWeatherForecast = matching.cachedWeatherForecast }
+        if aiActivitySnapshot == previous.aiActivitySnapshot { aiActivitySnapshot = matching.aiActivitySnapshot }
+        if aiLimitsSnapshot == previous.aiLimitsSnapshot { aiLimitsSnapshot = matching.aiLimitsSnapshot }
+        for index in watchlistStocks.indices {
+            let stock = watchlistStocks[index]
+            if let old = previous.watchlistStocks.first(where: { $0.id == stock.id }), old.snapshot == stock.snapshot {
+                watchlistStocks[index].snapshot = matching.watchlistStocks[index].snapshot
+            }
         }
     }
 
@@ -110,6 +145,14 @@ extension WidgetConfiguration {
 
     var strippedOfRuntimeReadings: WidgetConfiguration {
         var copy = self; copy.stripRuntimeReadings(); return copy
+    }
+}
+
+extension DockItem {
+    var strippedOfRuntimeReadings: DockItem {
+        var copy = self
+        copy.widgetConfiguration?.stripRuntimeReadings()
+        return copy
     }
 }
 
@@ -135,7 +178,7 @@ extension PersistentState {
 /// Bounded, versioned, private cache of provider readings keyed by widget item ID (`runtime-cache.json`).
 /// It is disposable: unreadable or oversized files are set aside, and a failed flush never blocks quitting.
 @MainActor
-final class WidgetRuntimeCache {
+final class WidgetRuntimeCache: ObservableObject {
     nonisolated static let version = 1
     nonisolated static let maximumBytes = 4 * 1_024 * 1_024
     nonisolated static let maximumEntries = 2_000
@@ -150,16 +193,17 @@ final class WidgetRuntimeCache {
     }
     private struct VersionEnvelope: Decodable { var version: Int? }
 
-    private(set) var entries: [UUID: Entry] = [:]
+    @Published private(set) var entries: [UUID: Entry] = [:]
     private(set) var recovered = false
     let fileURL: URL
-    private let writer = Writer()
+    private let writer: Writer
     private let logger = Logger(subsystem: Product.bundleIdentifier, category: "runtime-cache")
     private var generation: UInt64 = 0
     private var dirty = false
 
-    init(fileURL: URL) {
+    init(fileURL: URL, persistEntries: (@Sendable ([UUID: Entry], URL) throws -> Void)? = nil) {
         self.fileURL = fileURL
+        self.writer = Writer(persistEntries: persistEntries ?? { try WidgetRuntimeCache.persist($0, to: $1) })
         load()
     }
 
@@ -262,6 +306,9 @@ final class WidgetRuntimeCache {
         private let queue = DispatchQueue(label: "app.mydock.runtime-cache-writer", qos: .utility)
         private let lock = NSLock()
         private var latest: UInt64 = 0
+        private let persistEntries: @Sendable ([UUID: Entry], URL) throws -> Void
+
+        init(persistEntries: @escaping @Sendable ([UUID: Entry], URL) throws -> Void) { self.persistEntries = persistEntries }
 
         private func announce(_ generation: UInt64) { lock.lock(); latest = max(latest, generation); lock.unlock() }
         private func isCurrent(_ generation: UInt64) -> Bool { lock.lock(); defer { lock.unlock() }; return latest == generation }
@@ -271,13 +318,13 @@ final class WidgetRuntimeCache {
             announce(generation)
             queue.asyncAfter(deadline: .now() + .milliseconds(750)) { [self] in
                 guard isCurrent(generation) else { return }
-                completion(Result { try WidgetRuntimeCache.persist(entries, to: url) })
+                completion(Result { try persistEntries(entries, url) })
             }
         }
 
         func writeNow(_ entries: [UUID: Entry], to url: URL, generation: UInt64) -> Result<Void, Error> {
             announce(generation)
-            return queue.sync { Result { try WidgetRuntimeCache.persist(entries, to: url) } }
+            return queue.sync { Result { try persistEntries(entries, url) } }
         }
     }
 

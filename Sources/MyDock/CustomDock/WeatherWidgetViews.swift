@@ -21,7 +21,7 @@ private struct WeatherCompactWidgetView: View {
     @ObservedObject private var accessibility = AccessibilityDisplayState.shared
 
     private var configuration: WidgetConfiguration {
-        currentConfiguration ?? item.widgetConfiguration ?? WidgetConfiguration()
+        store.presentationConfiguration(for: item, in: profileID)
     }
 
     private var currentConfiguration: WidgetConfiguration? {
@@ -101,7 +101,7 @@ private struct WeatherPopoutWidgetView: View {
     @ObservedObject private var accessibility = AccessibilityDisplayState.shared
 
     private var configuration: WidgetConfiguration {
-        currentConfiguration ?? item.widgetConfiguration ?? WidgetConfiguration()
+        store.presentationConfiguration(for: item, in: profileID)
     }
     private var location: WeatherLocation? { configuration.weatherLocation }
     private var forecast: WeatherForecast? { configuration.cachedWeatherForecast }
@@ -144,7 +144,7 @@ private struct WeatherPopoutWidgetView: View {
             }
             if let forecast { forecastContent(forecast) }
             if let forecast {
-                Text("Updated \(forecast.fetchedAt.formatted(date: .omitted, time: .shortened))")
+                Text("Updated \(forecast.fetchedAt.formatted(date: .omitted, time: .shortened)) · forecast times: \(forecast.timeZoneIdentifier)")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
             if let errorMessage {
@@ -322,10 +322,14 @@ private struct WeatherPopoutWidgetView: View {
     }
 
     private func conditionDetails(_ forecast: WeatherForecast) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
         HStack(spacing: 0) {
             detailCell("Humidity", value: "\(forecast.relativeHumidity)%", symbol: "humidity")
             detailCell("Wind", value: "\(Int(forecast.windSpeed.rounded())) km/h", symbol: "wind")
             detailCell("Precipitation", value: "\(forecast.precipitation.formatted(.number.precision(.fractionLength(0...1)))) mm", symbol: "drop")
+        }
+        Text("The temperature setting changes °C / °F. Wind stays in km/h and precipitation in mm.")
+            .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 

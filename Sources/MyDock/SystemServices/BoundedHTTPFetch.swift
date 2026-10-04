@@ -4,6 +4,7 @@ enum BoundedHTTPFetchError: Error, Equatable {
     case notHTTP
     case tooLarge
     case deadlineExceeded
+    case invalidLimit
 }
 
 /// Streams a response and stops as soon as the byte limit is exceeded, so an oversized
@@ -19,6 +20,8 @@ enum BoundedHTTPFetch {
 
     static func fetch(_ request: URLRequest, session: URLSession, maximumBytes: Int,
                       maximumDuration: TimeInterval = 60) async throws -> (data: Data, response: HTTPURLResponse) {
+        guard maximumBytes > 0 else { throw BoundedHTTPFetchError.invalidLimit }
+        try Task.checkCancellation()
         let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else { throw BoundedHTTPFetchError.notHTTP }
         let data = try await collect(bytes, expectedLength: http.expectedContentLength,
@@ -31,11 +34,16 @@ enum BoundedHTTPFetch {
     static func collect<Bytes: AsyncSequence>(_ bytes: Bytes, expectedLength: Int64 = -1, maximumBytes: Int,
                                               maximumDuration: TimeInterval = 60) async throws -> Data
     where Bytes.Element == UInt8 {
+        guard maximumBytes > 0 else { throw BoundedHTTPFetchError.invalidLimit }
+        guard maximumDuration > 0, maximumDuration.isFinite else { throw BoundedHTTPFetchError.deadlineExceeded }
+        try Task.checkCancellation()
         if expectedLength > Int64(maximumBytes) { throw BoundedHTTPFetchError.tooLarge }
         let deadline = Date.now.addingTimeInterval(maximumDuration)
         var data = Data()
         if expectedLength > 0 { data.reserveCapacity(Int(min(expectedLength, Int64(maximumBytes)))) }
         for try await byte in bytes {
+            try Task.checkCancellation()
+            if Date.now > deadline { throw BoundedHTTPFetchError.deadlineExceeded }
             if data.count >= maximumBytes { throw BoundedHTTPFetchError.tooLarge }
             data.append(byte)
             if data.count & 0x3FFF == 0 {

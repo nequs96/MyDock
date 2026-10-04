@@ -21,6 +21,7 @@ struct AddLibrary: View {
     @State private var keyboardNavigation = false
     @State private var recentlyAdded: Set<String> = []
     @State private var actionError: String?
+    @State private var capabilityFilter: WidgetDiscoveryFilter = .all
 
     init(store: ProfileStore, profile: DockProfile, commandMode: Bool = false, allowsAdding: Bool = true,
          initialQuery: String = "", initialCategory: String = "All",
@@ -51,7 +52,7 @@ struct AddLibrary: View {
     private func matches(_ text: String) -> Bool { searchText.isEmpty || text.localizedStandardContains(searchText) }
     private var widgets: [WidgetDefinition] {
         guard profile.kind == .custom, ["All", "Widgets"].contains(category) else { return [] }
-        return WidgetRegistry.all.filter { matches($0.name + " " + $0.description + " " + $0.category.rawValue + ($0.name == "AI Activity" ? " Codex Claude tokens sessions" : "")) }
+        return WidgetRegistry.all.filter { capabilityFilter.includes($0) && WidgetDiscovery.matches($0, query: searchText) }
     }
     private var applications: [Entry] {
         guard ["All", "Applications"].contains(category) else { return [] }
@@ -78,7 +79,7 @@ struct AddLibrary: View {
     }
     private func identity(_ item: DockItem) -> String {
         switch item.type {
-        case .application: "app:" + (item.url?.standardizedFileURL.resolvingSymlinksInPath().path ?? item.bundleIdentifier ?? item.title)
+        case .application: "app:" + (WidgetDiscovery.applicationKey(item) ?? item.id.uuidString)
         case .widget: "widget:" + (item.widgetKind ?? item.title)
         default: item.id.uuidString
         }
@@ -110,12 +111,22 @@ struct AddLibrary: View {
                     Spacer()
                     Button("Done", action: close).controlSize(.small)
                 }.padding(.horizontal, 22).padding(.vertical, 18)
+                if profile.kind == .custom && ["All", "Widgets"].contains(category) {
+                    HStack {
+                        Picker("Widget capabilities", selection: $capabilityFilter) {
+                            ForEach(WidgetDiscoveryFilter.allCases) { Text($0.rawValue).tag($0) }
+                        }.frame(maxWidth: 250)
+                        Spacer()
+                        Text("Permissions may depend on the action or setup you choose.")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }.padding(.horizontal, 22).padding(.bottom, 12)
+                }
                 Divider()
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 24) {
                             if navigationEntries.isEmpty && scan?.unreadableLocations == 0 && !(loading && ["All", "Applications"].contains(category)) {
-                                emptyState(title: searchText.isEmpty ? "No applications found" : "No items found", detail: searchText.isEmpty ? "Choose an application from another location." : "Try another name or category.", symbol: searchText.isEmpty ? "app.dashed" : "magnifyingglass")
+                                emptyState(title: category == "Applications" && searchText.isEmpty ? "No applications found" : "No items found", detail: category == "Applications" && searchText.isEmpty ? "Choose an application from another location." : "Try another search, category or widget filter.", symbol: "magnifyingglass")
                             }
                             if !widgets.isEmpty {
                                 ForEach(WidgetCategory.allCases, id: \.rawValue) { group in
@@ -160,6 +171,7 @@ struct AddLibrary: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refreshID = UUID() }
         .onChange(of: query) { _ in selected = 0; keyboardNavigation = false }
         .onChange(of: category) { _ in selected = 0; keyboardNavigation = false }
+        .onChange(of: capabilityFilter) { _ in selected = 0; keyboardNavigation = false }
         .onExitCommand(perform: escape)
     }
     private var sidebar: some View {
@@ -182,7 +194,7 @@ struct AddLibrary: View {
                 }
             }
             Spacer()
-            Text("Click + to add an item.").font(.caption).foregroundStyle(.secondary)
+            Text(profile.kind == .custom ? "Add widgets again to create separate instances." : "Click + to add an item.").font(.caption).foregroundStyle(.secondary)
             Button { refreshID = UUID() } label: { Label("Refresh Applications", systemImage: "arrow.clockwise") }
                 .buttonStyle(.borderless).font(.caption).disabled(loading)
         }.padding(12).background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
@@ -196,6 +208,10 @@ struct AddLibrary: View {
             Text("Example").font(.caption2).foregroundStyle(.secondary)
                 .accessibilityLabel("Example preview for \(widget.name)")
             itemCaption(entry)
+            if !WidgetDiscovery.setupSummary(widget).isEmpty {
+                Text(WidgetDiscovery.setupSummary(widget)).font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Text(widget.description).font(.caption).foregroundStyle(.secondary).lineLimit(2).frame(height: 30, alignment: .topLeading)
         }.padding(10).background(isSelected(entry.id) ? Color.accentColor.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
             .id(entry.id)
@@ -230,12 +246,14 @@ struct AddLibrary: View {
         }
     }
     private func addButton(_ entry: Entry) -> some View {
-        Button { perform(entry) } label: {
-            if added(entry) { Image(systemName: "checkmark").foregroundStyle(.secondary) }
+        let repeatedWidget = added(entry) && entry.item?.type == .widget
+        return Button { perform(entry) } label: {
+            if repeatedWidget { Text("Add another").font(.caption).foregroundStyle(Color.accentColor) }
+            else if added(entry) { Image(systemName: "checkmark").foregroundStyle(.secondary) }
             else { Image(systemName: entry.browseAction == nil ? "plus.circle.fill" : "plus.circle").foregroundStyle(Color.accentColor) }
-        }.buttonStyle(.borderless).font(.system(size: 17)).frame(width: 26, height: 26)
-            .disabled(added(entry)).help(added(entry) ? "Added to this Dock" : "Add \(entry.title)")
-            .accessibilityLabel(added(entry) ? "\(entry.title), Added" : "Add \(entry.title)")
+        }.buttonStyle(.borderless).font(.system(size: 17)).frame(minWidth: 26, minHeight: 26)
+            .disabled(added(entry) && !repeatedWidget).help(repeatedWidget ? "Add another \(entry.title) with its own settings" : added(entry) ? "Added to this Dock" : "Add \(entry.title)")
+            .accessibilityLabel(repeatedWidget ? "Add another \(entry.title)" : added(entry) ? "\(entry.title), Added" : "Add \(entry.title)")
     }
     private var appSection: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -278,8 +296,9 @@ struct AddLibrary: View {
         }.frame(maxWidth: .infinity).padding(.vertical, 70)
     }
     private func perform(_ entry: Entry) {
-        guard !added(entry) else { return }
-        if let item = entry.item {
+        if let item = entry.item, !WidgetDiscovery.canAdd(item, alreadyAdded: added(entry)) { return }
+        if var item = entry.item {
+            if item.type == .widget { item.id = UUID() }
             if item.type == .application, let url = item.url, InstalledAppCatalog.validatedApplication(at: url) == nil {
                 actionError = "This application is no longer available. Refreshing applications…"; refreshID = UUID(); return
             }

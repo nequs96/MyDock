@@ -56,7 +56,7 @@ struct WidgetRuntimeCacheTests {
         #expect(String(decoding: legacyData, as: UTF8.self).contains("stripeSnapshot"))
 
         let store = ProfileStore(fileURL: file, allowsSystemChanges: false)
-        let loaded = try #require(store.state.profiles.first?.items)
+        let loaded = try #require(store.state.profiles.first.map { store.presentationProfile($0).items })
         #expect(loaded[0].widgetConfiguration?.stripeSnapshot != nil)
         #expect(loaded[1].widgetConfiguration?.stockSnapshot?.latest?.close == 42)
         #expect(loaded[2].widgetConfiguration?.watchlistStocks.first?.snapshot != nil)
@@ -72,8 +72,8 @@ struct WidgetRuntimeCacheTests {
         #expect(decoded.schemaVersion == Product.stateSchemaVersion)
 
         let relaunched = ProfileStore(fileURL: file, allowsSystemChanges: false)
-        #expect(relaunched.state.profiles[0].items[0].widgetConfiguration?.stripeSnapshot != nil)
-        #expect(relaunched.state.profiles[0].items[2].widgetConfiguration?.watchlistStocks.first?.snapshot?.symbol == "MSFT")
+        #expect(relaunched.presentationProfile(relaunched.state.profiles[0]).items[0].widgetConfiguration?.stripeSnapshot != nil)
+        #expect(relaunched.presentationProfile(relaunched.state.profiles[0]).items[2].widgetConfiguration?.watchlistStocks.first?.snapshot?.symbol == "MSFT")
     }
 
     @Test func newerCachedReadingBeatsOlderEmbeddedOne() throws {
@@ -90,7 +90,7 @@ struct WidgetRuntimeCacheTests {
         legacy.profiles[0].items[0].widgetConfiguration?.stripeSnapshot = stripe("acct", at: Date(timeIntervalSince1970: 1_000))
         try JSONEncoder().encode(legacy).write(to: file)
         let relaunched = ProfileStore(fileURL: file, allowsSystemChanges: false)
-        #expect(relaunched.state.profiles[0].items[0].widgetConfiguration?.stripeSnapshot?.fetchedAt == newer.fetchedAt)
+        #expect(relaunched.presentationProfile(relaunched.state.profiles[0]).items[0].widgetConfiguration?.stripeSnapshot?.fetchedAt == newer.fetchedAt)
     }
 
     @Test func refreshNeverRewritesStateOrCommits() async throws {
@@ -108,7 +108,7 @@ struct WidgetRuntimeCacheTests {
         await coordinator.refresh(item: stock, profileID: profileID)
         try await Task.sleep(for: .milliseconds(400))
 
-        #expect(store.state.profiles[0].items[0].widgetConfiguration?.stockSnapshot == loaded)
+        #expect(store.presentationProfile(store.state.profiles[0]).items[0].widgetConfiguration?.stockSnapshot == loaded)
         #expect(store.runtimeCache.readings(for: stock.id)?.stock?.value == loaded)
         #expect(try Data(contentsOf: file) == bytes)
         #expect(counter.writes == writes)
@@ -130,7 +130,7 @@ struct WidgetRuntimeCacheTests {
         let relaunched = ProfileStore(fileURL: file, allowsSystemChanges: false)
         let offline = WidgetDataCoordinator(store: relaunched) { _, _ in throw MarketDataError.invalidResponse }
         await offline.refresh(item: stock, profileID: profileID)
-        #expect(relaunched.state.profiles[0].items[0].widgetConfiguration?.stockSnapshot == loaded)
+        #expect(relaunched.presentationProfile(relaunched.state.profiles[0]).items[0].widgetConfiguration?.stockSnapshot == loaded)
         #expect(!read(file).contains("\"stockSnapshot\""))
     }
 
@@ -176,8 +176,8 @@ struct WidgetRuntimeCacheTests {
         #expect(store.runtimeCache.readings(for: other.id)?.stripe != nil)
         store.flush()
         let relaunched = ProfileStore(fileURL: file, allowsSystemChanges: false)
-        #expect(relaunched.state.profiles[0].items[0].widgetConfiguration?.stripeSnapshot == nil)
-        #expect(relaunched.state.profiles[0].items[1].widgetConfiguration?.stripeSnapshot != nil)
+        #expect(relaunched.presentationProfile(relaunched.state.profiles[0]).items[0].widgetConfiguration?.stripeSnapshot == nil)
+        #expect(relaunched.presentationProfile(relaunched.state.profiles[0]).items[1].widgetConfiguration?.stripeSnapshot != nil)
 
         // A reading cached for another connection is never shown for the current one.
         var cached = try #require(relaunched.runtimeCache.readings(for: other.id))
@@ -185,7 +185,7 @@ struct WidgetRuntimeCacheTests {
         relaunched.runtimeCache.set(cached, for: other.id)
         #expect(relaunched.runtimeCache.flush())
         let third = ProfileStore(fileURL: file, allowsSystemChanges: false)
-        #expect(third.state.profiles[0].items[1].widgetConfiguration?.stripeSnapshot == nil)
+        #expect(third.presentationProfile(third.state.profiles[0]).items[1].widgetConfiguration?.stripeSnapshot == nil)
     }
 
     @Test func corruptOversizedAndFutureCachesAreSetAsideWithoutBlocking() throws {

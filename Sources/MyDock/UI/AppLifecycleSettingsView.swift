@@ -15,8 +15,10 @@ struct AppLifecycleSettingsView: View {
                         ForEach(MyDockInterfaceAppearance.allCases) { Text($0.title).tag($0.rawValue) }
                     }.pickerStyle(.segmented).frame(width: 220)
                 }
-                Toggle("Launch at login", isOn: Binding(get: { login.enabled }, set: { login.setEnabled($0) })).disabled(!login.isAvailable)
+                Toggle("Launch at login", isOn: Binding(get: { login.state.registrationRequested }, set: { login.setEnabled($0) })).disabled(!login.isAvailable)
+                Text(login.state.message).font(DockDesign.caption).foregroundStyle(.secondary)
                 if login.requiresApproval { Button("Approve in Login Items…") { login.openApprovalSettings() } }
+                if login.state == .notFound || login.state == .unknown { Button("Open Login Items…") { login.openApprovalSettings() } }
                 if let error = login.errorMessage { Text(error).font(DockDesign.caption).foregroundStyle(.orange) }
             }
             DockSettingSection(title: "Updates") {

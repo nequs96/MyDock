@@ -53,9 +53,9 @@ private struct CalendarCompactWidgetView: View {
                 }
                 if configuration.calendarLayout != .date && dockLayout == .wide {
                     VStack(alignment: contentWidth > 54 ? .leading : .center, spacing: 3) {
-                        if let next = CalendarEventOrdering.compactEvent(from: events) {
+                        if let next = CalendarEventOrdering.compactEvent(from: events, now: context.date) {
                             Text(next.title).font(.system(size: 9, weight: .semibold)).lineLimit(1)
-                            Text(next.timeDescription).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1)
+                            Text(WidgetTimingPresentation.eventStatus(next, now: context.date)).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1)
                         } else {
                             Text(errorMessage != nil ? "Unavailable" : accessAvailable ? "No events" : "Calendar")
                                 .font(.system(size: 9, weight: .medium)).lineLimit(1)
@@ -190,6 +190,8 @@ private struct CalendarPopoutWidgetView: View {
                     Toggle("Show all-day events", isOn: $showAllDaySelection)
                 }
                 .font(.caption)
+                Text("Showing: " + selectedCalendarLabel + " · next seven days")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
 
             if configuration.calendarLayout == .date {
@@ -220,14 +222,18 @@ private struct CalendarPopoutWidgetView: View {
                         }
                     }
                 }
-                let visibleEvents = configuration.calendarLayout == .nextEvent
-                    ? Array(events.prefix(1)) : events
-                DockScrollView {
-                    LazyVStack(alignment: .leading, spacing: 7) {
-                        ForEach(visibleEvents) { event in eventRow(event) }
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    let visibleEvents = configuration.calendarLayout == .nextEvent
+                        ? CalendarEventOrdering.compactEvent(from: events, now: context.date).map { [$0] } ?? []
+                        : events.filter { $0.endDate > context.date }.sorted { CalendarEventOrdering.precedes($0, $1, now: context.date) }
+                    DockScrollView {
+                        LazyVStack(alignment: .leading, spacing: 7) {
+                            ForEach(visibleEvents) { event in eventRow(event) }
+                            if visibleEvents.isEmpty { Text("No upcoming events in this reading. Refresh to check again.").font(.caption).foregroundStyle(.secondary) }
+                        }
                     }
+                    .frame(maxHeight: 260)
                 }
-                .frame(maxHeight: 260)
             }
             if let errorMessage, !isLoading, configuration.calendarLayout == .date {
                 Text(errorMessage).font(.caption).foregroundStyle(.red)
@@ -259,8 +265,12 @@ private struct CalendarPopoutWidgetView: View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(event.title).font(.callout.weight(.medium)).lineLimit(2)
-                Text(event.startDate.formatted(date: .abbreviated, time: .shortened) + " · " + event.calendarTitle)
+                Text(event.startDate.formatted(date: .abbreviated, time: event.isAllDay ? .omitted : .shortened) + " · " + event.calendarTitle)
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text(WidgetTimingPresentation.eventStatus(event, now: context.date))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 4)
             if let url = event.meetingURL {
@@ -273,8 +283,11 @@ private struct CalendarPopoutWidgetView: View {
 
     private var selectedCalendarLabel: String {
         let selected = calendars.filter { configuration.selectedCalendarIDs.contains($0.id) }
-        guard !configuration.selectedCalendarIDs.isEmpty else { return "All" }
-        return selected.map(\.title).joined(separator: ", ")
+        guard !configuration.selectedCalendarIDs.isEmpty else { return "All accessible calendars" }
+        let missing = configuration.selectedCalendarIDs.count - selected.count
+        let names = selected.map(\.title).joined(separator: ", ")
+        if missing > 0 { return (names.isEmpty ? "Selected calendars" : names) + " · \(missing) unavailable" }
+        return names
     }
 
     private func updateLayout(_ layout: CalendarWidgetLayout) {
@@ -458,6 +471,8 @@ private struct RemindersPopoutWidgetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
+            Text("Apple Reminders · changes update your Reminders lists. Quick Checklist keeps separate tasks in MyDock.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Picker("List", selection: $selectedList) {
                     Text("All lists").tag("")

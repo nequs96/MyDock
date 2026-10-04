@@ -24,6 +24,8 @@ struct DiskSpaceWidgetProvider: DockWidgetProvider {
 private struct DiskSpaceView: View {
     var compact = false
     @State private var snapshot: DiskSpaceSnapshot?
+    @State private var sampledAt: Date?
+    @State private var refreshFailed = false
     @Environment(\.dockWidgetContentWidth) private var width
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -45,7 +47,14 @@ private struct DiskSpaceView: View {
                     } else { Text("Disk reading unavailable. Try refreshing.").font(.caption).foregroundStyle(.secondary) }
                 }
                 HStack {
-                    Text("Updates every minute while open.").font(.caption).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        if let sampledAt {
+                            TimelineView(.periodic(from: .now, by: 60)) { context in
+                                Text(WidgetTimingPresentation.readingStatus(fetchedAt: sampledAt, now: context.date, maximumAge: 120))
+                            }
+                        }
+                        Text(refreshFailed ? "Refresh failed. The last successful reading is retained." : "Samples the volume containing your home folder every minute while open.")
+                    }.font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Button("Refresh") { Task { await refresh() } }
                 }
@@ -62,7 +71,8 @@ private struct DiskSpaceView: View {
     private func refresh() async {
         let reading = await Task.detached(priority: .utility) { DiskSpaceSnapshot.read() }.value
         guard !Task.isCancelled else { return }
-        snapshot = reading
+        if let reading { snapshot = reading; sampledAt = .now; refreshFailed = false }
+        else { refreshFailed = true }
     }
 }
 
@@ -77,6 +87,7 @@ struct QuickCalculatorView: View {
     @State private var expression = ""
     @State private var message: String?
     @State private var history: [String] = []
+    @FocusState private var expressionFocused: Bool
     private var result: Double? { try? QuickCalculator.calculate(expression) }
     private var resultText: String { result.map { $0.formatted(.number.precision(.significantDigits(1...12))) } ?? "—" }
     private let keys = ["C", "(", ")", "÷", "7", "8", "9", "×", "4", "5", "6", "−", "1", "2", "3", "+", "0", ".", "%", "="]
@@ -84,11 +95,11 @@ struct QuickCalculatorView: View {
         VStack(alignment: .leading, spacing: 14) {
             WidgetSection(title: "Quick calculation") {
                 TextField("e.g. (120 + 35) × 2", text: Binding(get: { expression }, set: { expression = String($0.prefix(256)); message = nil }))
-                    .onSubmit(calculate).accessibilityLabel("Calculation expression")
+                    .onSubmit(calculate).focused($expressionFocused).accessibilityLabel("Calculation expression")
                 HStack(alignment: .firstTextBaseline) {
                     Text(resultText).font(.system(size: 34, weight: .medium)).monospacedDigit().lineLimit(2).minimumScaleFactor(0.65)
                     Spacer()
-                    Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(resultText, forType: .string) } label: { Image(systemName: "doc.on.doc") }
+                    Button { message = copyUtilityText(resultText) ? "Result copied. Paste with ⌘V." : utilityCopyFailureMessage } label: { Image(systemName: "doc.on.doc") }
                         .disabled(result == nil).accessibilityLabel("Copy result")
                 }
                 if let message { Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
@@ -106,8 +117,10 @@ struct QuickCalculatorView: View {
                     ForEach(Array(history.enumerated()), id: \.offset) { _, value in Text(value).font(.caption).textSelection(.enabled) }
                 }
             }
-            Text("Percent divides a number by 100: 200 × 15% = 30.").font(.caption).foregroundStyle(.secondary)
+            Text("Type an expression and press Return to calculate. Percent divides a number by 100: 200 × 15% = 30. Expression and history clear when this popout closes.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
+        .onAppear { expressionFocused = true }
     }
     private func calculate() {
         do {

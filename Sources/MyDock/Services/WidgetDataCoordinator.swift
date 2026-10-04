@@ -7,7 +7,7 @@ struct WidgetDataQuery: Hashable, Sendable {
     var kind: String
     var key: String
 
-    static func make(kind: String?, configuration c: WidgetConfiguration) -> Self? {
+    static func make(kind: String?, configuration c: WidgetConfiguration, now: Date = .now) -> Self? {
         switch kind {
         case "Stripe" where !c.stripeAccountID.isEmpty:
             Self(kind: "Stripe", key: "\(c.stripeAccountID)|\(c.stripePeriod.rawValue)")
@@ -20,9 +20,9 @@ struct WidgetDataQuery: Hashable, Sendable {
         case "Watchlist" where !c.watchlistStocks.isEmpty:
             Self(kind: "Watchlist", key: c.watchlistStocks.map { "\($0.symbol)|\($0.currency)" }.joined(separator: ";"))
         case "AI Limits":
-            Self(kind: "AI Limits", key: c.aiLimitsVisibleProviders.map(\.rawValue).sorted().joined(separator: ";") + "|\(c.aiCopilotMonthlyCreditAllowance ?? 0)")
+            Self(kind: "AI Limits", key: c.aiLimitsVisibleProviders.map(\.rawValue).sorted().joined(separator: ";") + "|\(c.aiCopilotMonthlyCreditAllowance ?? 0)|" + AIUsageSourceScope.limits(providers: c.aiLimitsVisibleProviders, now: now))
         case "AI Activity":
-            Self(kind: "AI Activity", key: "\(c.aiActivityProvider.rawValue)|\(c.aiActivityRange.rawValue)")
+            Self(kind: "AI Activity", key: AIUsageSourceScope.activity(provider: c.aiActivityProvider, range: c.aiActivityRange, now: now))
         default: nil
         }
     }
@@ -36,14 +36,16 @@ enum WidgetDataValue {
     var partialError: String? {
         if case .watchlist(_, let failed) = self, !failed.isEmpty { return "Some symbols did not refresh: " + failed.prefix(10).joined(separator: ", ") + ". Saved quotes were kept." }
         if case .activity(let snapshot) = self, !snapshot.available, snapshot.partial { return "Local activity couldn’t be read. Try refreshing." }
+        if case .limits(let snapshot) = self, snapshot.readings.contains(where: { $0.availability == .error || $0.lastRefreshError != nil }) {
+            return "Some provider limits could not refresh. Saved readings are shown only for a matching verified account."
+        }
         return nil
     }
 
-    func apply(to c: inout WidgetConfiguration) {
+    func apply(to c: inout WidgetConfiguration, now: Date = .now) {
         switch self {
         case .stripe(let snapshot):
             c.stripeSnapshot = snapshot
-            if !snapshot.currencyCodes.contains(c.stripeCurrency) { c.stripeCurrency = snapshot.currencyCodes.first ?? "USD" }
         case .paddle(let snapshot): c.paddleSnapshot = snapshot
         case .shopify(let snapshot): c.shopifySnapshot = snapshot
         case .stock(let snapshot): c.stockSnapshot = snapshot
@@ -51,12 +53,33 @@ enum WidgetDataValue {
             for index in c.watchlistStocks.indices {
                 if let snapshot = snapshots[c.watchlistStocks[index].symbol] { c.watchlistStocks[index].snapshot = snapshot }
             }
-        case .limits(let snapshot): c.aiLimitsSnapshot = snapshot
-        case .activity(let snapshot):
+        case .limits(var snapshot):
+            let scope = AIUsageSourceScope.limits(providers: c.aiLimitsVisibleProviders, now: now)
+            guard snapshot.sourceScope == scope else { return }
+            if let previous = c.aiLimitsSnapshot, previous.sourceScope == scope {
+                snapshot.readings = snapshot.readings.map { reading in
+                    guard reading.provider == .copilot, reading.failureKind == .transient,
+                          let identity = reading.requestedAccountIdentity,
+                          let old = previous.reading(for: reading.provider), old.availability == .available,
+                          reading.availability == .error, !identity.isEmpty,
+                          old.verifiedAccountIdentity == identity, !old.windows.isEmpty else { return reading }
+                    var retained = old
+                    retained.lastRefreshError = DataSourceProvenance.sanitized(reading.message ?? "Refresh failed. The saved reading is shown.")
+                    return retained
+                }
+                if !snapshot.readings.isEmpty, snapshot.readings.allSatisfy({ $0.lastRefreshError != nil }) {
+                    snapshot.fetchedAt = previous.fetchedAt
+                }
+            }
+            c.aiLimitsSnapshot = snapshot
+        case .activity(var snapshot):
+            guard snapshot.provider == c.aiActivityProvider, snapshot.range == c.aiActivityRange, snapshot.hasCurrentSemantics else { return }
+            let scope = AIUsageSourceScope.activity(provider: c.aiActivityProvider, range: c.aiActivityRange, now: now)
+            guard snapshot.sourceScope == scope else { return }
             // An unreadable refresh must not erase useful history. A successful
             // empty scan can replace it (for example, after logs are removed).
             if !snapshot.available, snapshot.partial, c.aiActivitySnapshot?.available == true,
-               c.aiActivitySnapshot?.hasCurrentSemantics == true { return }
+               c.aiActivitySnapshot?.hasCurrentSemantics == true, c.aiActivitySnapshot?.sourceScope == scope { return }
             c.aiActivitySnapshot = snapshot
         }
     }
@@ -70,6 +93,7 @@ final class WidgetDataCoordinator: ObservableObject {
     private weak var store: ProfileStore?
     private var observation: AnyCancellable?
     private var wakeObservation: AnyCancellable?
+    private var credentialObservation: AnyCancellable?
     private var visible = false
     private var jobs: [WidgetDataQuery: Task<Void, Never>] = [:]
     private var jobIntervals: [WidgetDataQuery: TimeInterval] = [:]
@@ -83,6 +107,8 @@ final class WidgetDataCoordinator: ObservableObject {
     init(store: ProfileStore, loader: ((WidgetDataQuery, WidgetConfiguration) async throws -> WidgetDataValue)? = nil) {
         self.store = store
         self.loader = loader ?? Self.load
+        credentialObservation = NotificationCenter.default.publisher(for: GitHubCopilotCredentialStore.didChange)
+            .receive(on: RunLoop.main).sink { [weak self] _ in self?.store?.invalidateCopilotLimitReadings() }
         observation = store.$state.receive(on: RunLoop.main).sink { [weak self] _ in self?.reconcile() }
         wakeObservation = NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
             .receive(on: RunLoop.main).sink { [weak self] _ in self?.restartVisibleJobs() }
@@ -138,6 +164,10 @@ final class WidgetDataCoordinator: ObservableObject {
             jobs[query] = Task { [weak self] in
                 while !Task.isCancelled {
                     guard self?.store != nil else { return }
+                    // Root/time-zone/period changes restart the query even without an authored edit.
+                    guard WidgetDataQuery.make(kind: query.kind, configuration: configuration) == query else {
+                        self?.reconcile(); return
+                    }
                     await self?.refresh(query, configuration: configuration, force: false)
                     let interval = Self.interval(query, configuration: configuration)
                     let delay = self?.failures[query].map { min(3_600, 60 * pow(2, Double(min($0, 6)))) } ?? interval
@@ -167,6 +197,7 @@ final class WidgetDataCoordinator: ObservableObject {
             let loader = self.loader
             let limiter = self.limiter
             let requestID = UUID()
+            let credentialRevision = GitHubCopilotCredentialStore.revision
             requestIDs[query] = requestID
             request = Task { [weak self] in
                 let result: Result<WidgetDataValue, Error>
@@ -182,7 +213,7 @@ final class WidgetDataCoordinator: ObservableObject {
                         result = .failure(error)
                     }
                 } catch { result = .failure(error) }
-                self?.finishRefresh(result, query: query, requestID: requestID, cancelled: Task.isCancelled)
+                self?.finishRefresh(result, query: query, requestID: requestID, credentialRevision: credentialRevision, cancelled: Task.isCancelled)
             }
             requests[query] = request
             refreshing.insert(query)
@@ -192,12 +223,12 @@ final class WidgetDataCoordinator: ObservableObject {
 
     /// A shared request owns its result once, regardless of how many tiles await it.
     private func finishRefresh(_ result: Result<WidgetDataValue, Error>, query: WidgetDataQuery,
-                               requestID: UUID, cancelled: Bool) {
+                               requestID: UUID, credentialRevision: UInt64, cancelled: Bool) {
         guard requestIDs[query] == requestID else { return }
         defer {
             requests[query] = nil; requestIDs[query] = nil; refreshing.remove(query)
         }
-        guard !cancelled else { return }
+        guard !cancelled, credentialRevision == GitHubCopilotCredentialStore.revision else { return }
         switch result {
         case .success(let value):
             cache[query] = (.now, value)
@@ -228,6 +259,8 @@ final class WidgetDataCoordinator: ObservableObject {
     }
 
     private static func load(_ query: WidgetDataQuery, _ c: WidgetConfiguration) async throws -> WidgetDataValue {
+        // The default graph cannot reach account processes, credential stores or remote providers in validation.
+        try AppRuntimeEnvironment.requireNetwork()
         switch query.kind {
         case "Stripe":
             guard let key = try StripeAPIKeyStore.read(accountID: c.stripeAccountID) else { throw StripeDataError.missingKey }

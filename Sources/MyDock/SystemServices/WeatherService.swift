@@ -24,6 +24,8 @@ protocol WeatherProvider: Sendable {
 }
 
 struct OpenMeteoWeatherProvider: WeatherProvider {
+    /// A supplied session is an explicit fixture transport; the default is production.
+    var session: URLSession? = nil
     func searchLocations(_ query: String) async throws -> [WeatherLocation] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.count >= 2 else { throw WeatherServiceError.invalidSearch }
@@ -35,7 +37,7 @@ struct OpenMeteoWeatherProvider: WeatherProvider {
             URLQueryItem(name: "format", value: "json")
         ]
         guard let url = components?.url else { throw WeatherServiceError.invalidSearch }
-        let (data, _) = try await Self.fetch(url)
+        let (data, _) = try await fetch(url)
         let response = try JSONDecoder().decode(GeocodingResponse.self, from: data)
         let results = response.results ?? []
         guard !results.isEmpty else { throw WeatherServiceError.locationNotFound }
@@ -63,7 +65,7 @@ struct OpenMeteoWeatherProvider: WeatherProvider {
             URLQueryItem(name: "timeformat", value: "unixtime")
         ]
         guard let url = components?.url else { throw WeatherServiceError.malformedResponse }
-        let (data, _) = try await Self.fetch(url)
+        let (data, _) = try await fetch(url)
         return try Self.decodeForecast(data, location: location, fetchedAt: .now)
     }
 
@@ -106,14 +108,15 @@ struct OpenMeteoWeatherProvider: WeatherProvider {
                               hourly: hourly)
     }
 
-    private static func fetch(_ url: URL) async throws -> (Data, HTTPURLResponse) {
+    private func fetch(_ url: URL) async throws -> (Data, HTTPURLResponse) {
+        if session == nil { try AppRuntimeEnvironment.requireNetwork() }
         guard let host = url.host?.lowercased(), host == "api.open-meteo.com" || host == "geocoding-api.open-meteo.com" else {
             throw WeatherServiceError.serviceUnavailable
         }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
         request.setValue("MyDock weather widget", forHTTPHeaderField: "User-Agent")
         do {
-            let (data, response) = try await BoundedHTTPFetch.fetch(request, session: .shared, maximumBytes: 2_000_000)
+            let (data, response) = try await BoundedHTTPFetch.fetch(request, session: session ?? .shared, maximumBytes: 2_000_000)
             guard (200..<300).contains(response.statusCode) else { throw WeatherServiceError.serviceUnavailable }
             return (data, response)
         } catch let error as WeatherServiceError {

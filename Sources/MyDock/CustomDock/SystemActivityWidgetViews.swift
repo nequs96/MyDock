@@ -268,6 +268,8 @@ private struct SystemActivityPopoutWidgetView: View {
                 healthRow("Uptime", value: uptimeSummary, symbol: "clock")
                 healthRow("Load · 1 / 5 / 15 min", value: loadAverageSummary, symbol: "chart.bar.xaxis")
                 healthRow("Swap used", value: swapSummary, symbol: "externaldrive")
+                Text("CPU is busy time across all logical processors (0–100%). Load is the average number of runnable tasks over 1, 5 and 15 minutes, not a percentage. Memory and swap are byte counts.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if let memory = monitor.memory {
                 WidgetSection(title: "Memory breakdown") {

@@ -124,6 +124,7 @@ private struct NowPlayingPopoutWidgetView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 110)
             } else if let snapshot {
+                Text("Playback source: " + source.title).font(.caption).foregroundStyle(.secondary)
                 trackDetails(snapshot)
                 playbackControls(snapshot)
             } else {

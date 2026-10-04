@@ -1006,7 +1006,7 @@ struct AppFolderApplication: Codable, Hashable, Identifiable, Sendable {
     var bundleIdentifier: String?
     var name: String
     var url: URL
-    var id: String { bundleIdentifier ?? url.path }
+    var id: String { url.standardizedFileURL.resolvingSymlinksInPath().path }
     var hasExistingBundlePath: Bool { url.isFileURL && FileManager.default.fileExists(atPath: url.path) }
 
     init(url: URL) {
@@ -1036,12 +1036,13 @@ struct DockProfileDraft: Equatable {
     var isDirty: Bool { profile != original }
 
     init(profile: DockProfile) {
-        original = profile
-        self.profile = profile
+        original = profile.strippedOfRuntimeReadings
+        self.profile = original
     }
 
     mutating func update(_ change: (inout DockProfile) -> Void) {
         change(&profile)
+        profile = profile.strippedOfRuntimeReadings
     }
 
     mutating func discard() {
@@ -1049,8 +1050,8 @@ struct DockProfileDraft: Equatable {
     }
 
     mutating func markSaved(_ savedProfile: DockProfile) {
-        original = savedProfile
-        profile = savedProfile
+        original = savedProfile.strippedOfRuntimeReadings
+        profile = original
     }
 
     mutating func moveItems(_ itemIDs: Set<UUID>, direction: DockItemMoveDirection) {
@@ -1200,7 +1201,7 @@ enum DockPosition: String, Codable, CaseIterable, Identifiable {
     var title: String { rawValue.capitalized }
 }
 
-struct PersistentState: Codable {
+struct PersistentState: Codable, Equatable {
     var schemaVersion = Product.stateSchemaVersion
     var profiles: [DockProfile] = []
     var settings = AppSettings()

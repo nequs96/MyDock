@@ -134,7 +134,8 @@ struct AIActivityDedupeTests {
         let current = AIActivitySnapshot(provider: .codex, range: .sevenDays, fetchedAt: .now, sourceDescription: "x", available: true,
                                          estimated: false, partial: false, points: [],
                                          totals: AIActivityDailyPoint(date: .now, sessions: 2, toolCalls: 0, totalTokens: 1, cachedInputTokens: 0,
-                                                                      inputTokens: 0, outputTokens: 0, requests: 0, reportedCostUSD: nil))
+                                                                      inputTokens: 0, outputTokens: 0, requests: 0, reportedCostUSD: nil),
+                                         sourceScope: AIUsageSourceScope.activity(provider: .codex, range: .sevenDays))
         var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(current)) as? [String: Any])
         json["semanticVersion"] = nil
         let old = try JSONDecoder().decode(AIActivitySnapshot.self, from: JSONSerialization.data(withJSONObject: json))
@@ -143,6 +144,8 @@ struct AIActivityDedupeTests {
         #expect(current.hasCurrentSemantics)
 
         var configuration = WidgetConfiguration()
+        configuration.aiActivityProvider = old.provider
+        configuration.aiActivityRange = old.range
         configuration.aiActivitySnapshot = old
         var unreadable = current
         unreadable.available = false; unreadable.partial = true
@@ -219,7 +222,7 @@ struct ConnectionIdentityTests {
         other.widgetConfiguration?.stripeAccountID = "conn-2"; other.widgetConfiguration?.stripeSnapshot = snapshot("conn-2")
         _ = try store.createProfile(DockProfile(name: "P", kind: .custom, items: [mine, other]))
         #expect(store.clearPersistedSnapshots(for: .stripe("conn-1")) == 1)
-        let items = try #require(store.state.profiles.last?.items)
+        let items = try #require(store.state.profiles.last.map { store.presentationProfile($0).items })
         #expect(items[0].widgetConfiguration?.stripeSnapshot == nil)
         #expect(items[0].widgetConfiguration?.stripeAccountID == "conn-1")
         #expect(items[1].widgetConfiguration?.stripeSnapshot != nil)
