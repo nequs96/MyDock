@@ -1,5 +1,13 @@
 # MyDock implementation and acceptance status
 
+## Completion handoff — 4 October 2026 (current)
+
+The [completion handoff](history/CLAUDE_COMPLETION_HANDOFF_2026-10-04.md) is executed. Its verification and fix wave (independent Codex audit and renders, then fixes) is integrated at git `d0ad2d4`. `./TestMyDock.sh` passes **506 tests in 64 suites, 0 failed, 5 opt-in skips**, and Python tooling passes 11. The canonical `build/MyDock.app` was rebuilt and passed a bounded isolated launch/quit; see [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
+
+The [execution ledger](history/EXECUTION_LEDGER_2026-10-03.md) "Final reconciliation after the completion handoff" section is the current per-item record. Native H1–H9 acceptance, live accounts and the Xcode/signing release remain open or blocked. OP-01–OP-07 and other Batch 3 items stay deferred.
+
+Sections below are dated evidence for earlier builds.
+
 ## Coordinator-only follow-up — 4 October 2026
 
 The first newly delegated wave passed 445 individual tests plus 5 explicit skips (450 reported/56 suites), and 5 Python manifest fixtures. The canonical universal ad-hoc app was rebuilt, launched with isolated state and cleanly quit. This is fixture/static/build/isolated-launch evidence; native acceptance remains open. Current wave-two source differs from that artifact and is unfinished/unverified: a syntax-only check fails in a new Reliability test, and all three specialists are stopped by usage limits. Settings scope, diagnostics preview and default-production network isolation guards remain unstarted. See the [4 October verified status](history/VERIFIED_WORK_STATUS_2026-10-04.md) and [execution ledger](history/EXECUTION_LEDGER_2026-10-03.md). All earlier counts below are dated historical evidence.

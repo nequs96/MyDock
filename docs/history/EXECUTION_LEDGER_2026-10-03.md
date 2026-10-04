@@ -2651,3 +2651,92 @@ The user asked Claude to execute [CLAUDE_COMPLETION_HANDOFF_2026-10-04.md](CLAUD
 - `git diff --check` clean.
 - Alarm delivery, EventKit, login/reboot, the native window matrix and release qualification remain **open/blocked**.
 - Note for the user: `Tests/Tooling/__pycache__/*.pyc` is committed and should be untracked.
+
+**Package C — merged (branch commits e882ec3, 83fab8f, 4edc7fa).**
+
+Package C reported items 1–7 as already implemented by the previous session.
+- **Coordinator spot checks:** Settings scope control, diagnostics preview payload/sheet, Alarm save→begin→schedule→isCurrent/stillMatches ordering.
+- **Settings backup help text corrected:** cached provider readings are always excluded.
+- **AI Limits stale presentation:** "Stale · last successful reading <original time>. Refresh failed: <error>".
+- **Rejected first handback:** C's first handback claimed this AI Limits edit, but it was never committed. The coordinator sent it back, and it was then committed (4edc7fa) with a test.
+
+**Coordinator integration de91ec3:**
+- Project regenerated.
+- **492 tests passed, 5 opt-in skips.**
+- Python 11 OK; diff-check clean.
+
+### Verification and fix wave — Codex gpt-6.1-sol (high) agents, then Sonnet workers
+
+At the user's request the coordinator (Claude Opus) ran workers via Codex CLI (`codex exec -m gpt-6.1-sol -c model_reasoning_effort="high" --worktree`). When the user's Codex quota ran low, remaining work moved to Claude Sonnet workers. Prompts and results are in `.build/codex-runs/`.
+
+**X1 independent audit (read-only).**
+- 13/19 handoff items VERIFIED with file:line evidence. A7, C3, C4, C5 and C7 are PARTIAL for test-coverage gaps.
+- No unguarded default production network path: every HTTP entry point is guarded, and the low-level primitives require explicit sessions.
+- Three defects:
+  - **D1:** appearance Undo could mutate a Dock while "App defaults" was displayed.
+  - **D2:** reveal dwell completion skipped the system-overview recheck, and DOCK_INTERACTION overstated the guarantee.
+  - **D3:** Quick Style thumbnails were hardcoded blue.
+- X1's full-suite runs stalled under the Codex sandbox (file/pasteboard access). These are environment limits; the coordinator's unsandboxed runs are the integration evidence.
+
+**X2 render qualification.**
+- 8 isolated export modes, all exit 0, **325 PNGs covering all 35 families**, light/dark and left/right Docks.
+- Added a DEBUG-only `SURFACES` mode (merged 5dc01b2).
+- Defects found: Weather Forecast "2…" (P1); clipped stale badges; narrow Stock/Watchlist/Disk losing ticker or "free"; unreadable Weather pickers; crowded Alarm edit row; Reminders header clipping; "InternalBattery-0"; "1 links"; World Clock date truncation; misleading QA fixtures; icon-repeating wide gallery faces.
+- The coordinator independently viewed the P1 and badge images.
+
+**F-B (Codex) — merged 259a9e0:** dwell completion takes a fresh snapshot with the same retention/suppression precedence as sampling. Three fixtures added; doc corrected. Unsandboxed full suite: 495 passed.
+
+**F-C1 (Codex WIP a8309f2, completed and verified by a Sonnet worker) — merged 2e76d29.**
+- Undo is scope-guarded (`isAvailable`/`restore(editingProfileID:)`) and cleared on scope change. Tests cover both directions, Dock→Dock and a deleted target.
+- `previewColor` helper: thumbnails use the profile colour, neutral for defaults.
+- Stale popout fixture rendered through DockScrollView.
+- FOCUSED AI fixtures carry source scope and a stub loader.
+- Gallery uses supported semantic layouts.
+
+**F-C2 (Codex WIP b5dbdfa, completed and verified by a Sonnet worker) — merged.**
+- `WeatherForecastFaceLayout` keeps the temperature first; stale badge inset; `FinancialFacePresentation.shortTicker` plus Disk free label; stacked Weather settings; Alarm Save on its own row with a wrapping summary; Reminders header; `BatteryReader.displayName`; `SavedCollectionUnit` plurals; `WorldClockFaceDateFormatter`. Tests added for each helper.
+- Two justified out-of-list edits: a one-line DockUtilityWidgetViews call site and the QA fixture click coordinate.
+
+**Coordinator integration fix d0ad2d4:** the coordinator's own integrated render showed **two** overlapping stale badges on AI Limits faces, because the generic `WidgetFreshnessIndicator` and the face badge both fired. The generic indicator now defers to the AI Limits face and is inset inside the corner. Re-rendered; single badge confirmed.
+
+**Final integrated results (d0ad2d4):**
+- `./TestMyDock.sh` **506 tests in 64 suites passed, 0 failed, 5 opt-in skips**.
+- Python tooling 11 OK; `git diff --check` clean; Xcode project complete.
+- MyDock was quit normally and exit verified. `./BuildMyDock.sh` exit 0.
+  - Executable SHA-256 `d700e1b56fcf8d0f6b79289f413d2761d99c4334382edfdf13bc3b21ca7d6f39`, universal, minos 13.0, SDK 26.4, strict ad-hoc signature valid.
+  - No App Intents metadata.
+- **Isolated launch:** fresh `MYDOCK_VALIDATION_ROOT`, 12 s, normal quit, status 0, writes confined to the validation root.
+- Your app relaunched.
+- Evidence docs refreshed; previous baseline archived as `PRE_COMPLETION_HANDOFF_2026-10-04`.
+
+### Final reconciliation after the completion handoff (supersedes earlier dispositions where they differ)
+
+**43 MD findings.** Implemented with fixtures:
+- A01–A07, A09
+- D01, D02, D03 (installed-copy identity verified this pass), D05, D06
+- S01–S05 (S05 Battery/editor demand verified)
+- P01–P10 (P02 source-scope attribution completed)
+- U01–U06
+- E01, E02
+- Q01 (network guards verified), Q03 (guidance), Q05
+
+Partial: **A08** (persistent preference deferred) and **Q02** (behavioural/native coverage gaps; Xcode UI suite blocked). Deferred: **D04**. Blocked: **Q04** (full Xcode/signing). Native acceptance for every D/S/U item remains **open**.
+
+**20 PR packages.**
+
+| Status | Packages | Notes |
+|---|---|---|
+| Implemented | PR-01, PR-02, PR-03, PR-04, PR-05, PR-13, PR-14, PR-15, PR-20 | PR-05: disposable-user trace blocked. PR-13: phases 1–2. PR-15: no live health claims. PR-20: help, diagnostics preview, uninstall/support docs. |
+| Partial | PR-06, PR-07, PR-08, PR-09, PR-10, PR-11, PR-12, PR-16, PR-17, PR-18 | PR-06: capture/tutorial deferred. PR-07: Organize deferred. PR-08/PR-11: all-35 keyboard/VoiceOver/locale sweep open. PR-09: per-property overrides deferred. PR-10: spatial insertion deferred. PR-12: compositor qualification open. PR-16: persistence/masking deferred. PR-17: typed family payloads unstarted. PR-18: real measurements open. |
+| Blocked | PR-19 | Release qualification. |
+
+**7 OP opportunities:** all deferred pending a product decision.
+
+**41 workflows (F01–F41):** none accepted as complete native user workflows. Fixture, build and isolated-launch evidence is supporting only.
+
+**35 widget families (W01–W35):** all have provider, registry, render and side coverage (Codex X2 plus coordinator renders).
+- Family-specific fixes this pass: W01/W02 narrow faces; W04 header; W06 forecast and pickers; W09 name; W15 date; W18 edit row; W23 stale presentation and badge; W27 free label; W31/W32 plurals; W35 identity.
+- Calendar production empty/ongoing states have no fixture hook and were presentation-fixture only.
+- No family has native, keyboard or VoiceOver acceptance.
+
+**H1–H9 (40 procedures):** none executed. They need a controlled desktop, permissions, live accounts, full Xcode and signing.

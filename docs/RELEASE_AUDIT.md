@@ -1,17 +1,59 @@
 # Canonical MyDock development baseline
 
-Recorded 4 October 2026, first delegated follow-up wave. Source remains `Sources/MyDock/`; canonical app remains `build/MyDock.app`. Current working-tree wave2 edits are not yet represented by this tested artifact.
+Recorded on **4 October 2026**, after the [completion handoff](history/CLAUDE_COMPLETION_HANDOFF_2026-10-04.md) and its verification and fix wave were executed. Source remains in `Sources/MyDock/`. The canonical app remains **`build/MyDock.app`**, built from git `d0ad2d4`. Per-item outcomes are recorded in [the execution ledger](history/EXECUTION_LEDGER_2026-10-03.md).
 
-Status rechecked 4 October at 06:37 UTC: the canonical executable/hash/signature/architectures/plist still match this baseline. Later source is unfinished and integration-unverified; syntax checking found a malformed new Reliability test, and all three medium specialists are stopped by usage limits. Default-production network isolation guards, Settings scope and diagnostics preview remain open. See [verified work status](history/VERIFIED_WORK_STATUS_2026-10-04.md). No later source/build/native acceptance is implied by the results below.
+## What this baseline contains
 
-The first wave separates external readings from in-memory authored edits, protects legacy cache migration and atomic save outcomes, consumes capability metadata in discovery, clarifies repeated instances and converter precision, extracts reveal monitoring, corrects login-state reporting and fixes exact-artifact CI tooling. Scope, dependencies and acceptance are in [the execution ledger](history/EXECUTION_LEDGER_2026-10-03.md). AI configured-root attribution remains a known next-wave gap.
+- **Package A (reliability):**
+  - The coordinator loader API order is fixed.
+  - AI Activity snapshots now carry their source scope. Previously, every real AI Activity refresh was rejected.
+  - Previous-session work was verified: AI source-scope and in-flight attribution, Copilot last-good retention, App Folder installed-copy identity, and default-production network guards in isolated validation.
+- **Package B (native):**
+  - Calendar boundary fixture added.
+  - ZIP short-stream tooling case added.
+  - Corrected interaction and uninstall docs.
+  - Alarm generations, Calendar selection, ZIP checks and the update-check guard were verified.
+- **Package C (product):**
+  - Settings "Editing: This Dock / App defaults" scope.
+  - Exact-byte diagnostics preview.
+  - Alarm edit flow.
+  - Timing and status copy.
+  - Normalized-URL duplicate guards.
+  - AI Limits stale presentation with the original success time.
+  - Corrected backup help text: cached provider readings are always excluded.
+- **Independent verification:** Codex `gpt-6.1-sol` auditor X1 and render agent X2 checked the work.
+- **Fixes from that audit:**
+  - Appearance Undo now refuses to act outside the displayed scope.
+  - Quick Style thumbnails follow the selected Dock's colour.
+  - The reveal dwell rechecks system overview before showing the Dock.
+  - Weather Forecast keeps its temperature.
+  - Stale badges sit inside the rounded corner, with one badge per AI Limits face.
+  - Narrow Stock/Watchlist/Disk side faces, Weather pickers, the Alarm edit row and the Reminders header are fixed.
+  - The battery shows a display name, collection counts use the correct singular or plural, and the World Clock date fits.
+  - The QA fixtures are honest.
 
-`./TestMyDock.sh` passed: **445 individual passes,5 explicit skips,450 reported tests in56 suites,0 failures**. Five isolated Python manifest fixtures passed. Xcode project regeneration, shell/project/plist/entitlement syntax and whitespace checks passed. Initial compile failures were corrected by their owners before the successful run.
+## Current verification
 
-`./BuildMyDock.sh` succeeded after process absence was checked. The canonical executable is universal arm64+x86_64, both slices declare macOS13.0, strict ad-hoc signature and plist checks pass. SHA-256: `67810611f8cb9431f4025d0174a3cc647a99ec8afcb3e16e6f1d642f177fd8c0`. Source/build/test input fingerprint: `c2a69f7861219837f5aa1d3585232de9b56921ab6f73eb341f757959e67567de`. Inputs stayed unchanged during validation.
+| Check | Result |
+|---|---|
+| `./TestMyDock.sh` (isolated, outside any agent sandbox) | **506 tests in 64 suites passed, 0 failed, 5 explicit opt-in skips.** Log: `.build/orchestrate-c2/test-badgefix.log` |
+| Python tooling (`PYTHONDONTWRITEBYTECODE=1`) | **11 passed** |
+| `git diff --check` / Xcode project | Clean. `./GenerateXcodeProject.sh` regenerated the project, and every Swift source and test is listed. |
+| Canonical build | MyDock was quit normally and its exit verified. `./BuildMyDock.sh` exited 0. |
+| Executable | SHA-256 `d700e1b56fcf8d0f6b79289f413d2761d99c4334382edfdf13bc3b21ca7d6f39`. Universal x86_64 + arm64; minimum macOS 13.0; SDK 26.4; version 0.1.0 (1). |
+| Signature and metadata | Strict deep ad-hoc signature valid; no TeamIdentifier; plist lint OK. **No `Metadata.appintents`** (CLI build). |
+| Isolated launch | The exact canonical executable ran with a fresh `MYDOCK_VALIDATION_ROOT` for 12 s, then quit normally with status 0. It wrote only `ApplicationSupport/state.json` and `MyDock/instance.lock` inside that root. This is bounded launch/quit evidence, not a disposable-user trace. |
+| Renders | Isolated DEBUG exports: Codex X2 produced 325 PNGs covering all 35 families, both appearances and side Docks. The coordinator rendered the integrated tree in the ADAPTIVE and SURFACES modes. The images were inspected. |
+| Relaunch | Your normal `build/MyDock.app` was relaunched (PID 78338). |
 
-The exact canonical executable launched as PID5317 with a private validation root and native/credential effects disabled. Normal termination was accepted; the process exited0 and absence was verified. This is an isolated launch/quit check. It does not certify production-data isolation by a disposable-user trace, native actions, compositor/motion, permissions, VoiceOver, live accounts or notification delivery.
+The source fingerprint is `347cd61b…a37138`; see [BUILD_BASELINE.json](BUILD_BASELINE.json).
 
-The CLI app lacks App Intents metadata. Full Xcode, Developer ID/notarization, Focus discovery, signed login/install/update/rollback, supported-OS and Intel runtime qualification remain blocked/open. No native preference mutation, permission grant, account connection, destructive validation, commit or publication occurred in this continuation.
+## Not verified
 
-Logs and machine-readable inputs/evidence are under `.build/orchestrate-20261004/`. [BUILD_BASELINE.json](BUILD_BASELINE.json) identifies the exact artifact. Host: Apple Silicon, macOS27.0.1(26A434), Swift6.3, SDK26.4. [Preceding evidence](history/RELEASE_EVIDENCE_PRE_COORDINATED_FOLLOWUP_2026-10-04.md) and older renders/performance measurements remain explicitly historical.
+- **Native acceptance has not been run.** H1–H9 cover 40 procedures: window and Quit with unsaved documents, resize, glass on wallpaper, motion and Mission Control, small windows and VoiceOver, Finder, AirDrop and Trash, permissions and preference restoration, failure traces, and release.
+- **Live provider accounts were not used.**
+- **No Xcode build, signing or notarization.** Full Xcode is absent, so Focus discovery and CI or distribution qualification are also unverified.
+- **Calendar rendering is partial.** Its production empty and ongoing states have no fixture hook, so they were rendered through presentation fixtures only.
+- **No real performance or energy measurements.**
+
+The previous baseline is preserved in [history/RELEASE_EVIDENCE_PRE_COMPLETION_HANDOFF_2026-10-04.md](history/RELEASE_EVIDENCE_PRE_COMPLETION_HANDOFF_2026-10-04.md). Nothing was pushed or published.
