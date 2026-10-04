@@ -18,38 +18,42 @@ struct DockAppearanceInspector: View {
                 Button(action: close) { Image(systemName: "xmark").frame(width: DockDesign.controlHeight, height: DockDesign.controlHeight).contentShape(Rectangle()) }.buttonStyle(.plain).help("Close inspector").accessibilityLabel("Close inspector")
             }
             if profile.kind == .custom {
-                HStack {
-                    Text("Size").foregroundStyle(.secondary)
+                GroupedSection("Appearance", footer: profile.appearance == nil ? "Follows app defaults." : "This Dock has its own appearance.") {
+                GroupedRow("Size") {
                     Slider(value: Binding(get: { settings.customDockSize }, set: { value in edit { $0.size = value } }), in: 0.65...1.5, onEditingChanged: { if !$0 { store.flush() } })
                         .accessibilityLabel("Dock size")
                         .accessibilityValue("\(Int((settings.customDockSize * 100).rounded())) percent")
                     Text("\(Int((settings.customDockSize * 100).rounded()))%")
                         .monospacedDigit().frame(width: 40, alignment: .trailing)
                 }
-                HStack(spacing: 16) {
+                GroupedRow("Position on this Mac") {
                     Picker("Position on this Mac", selection: Binding(get: { settings.customDockPosition }, set: { value in store.updateSettings { $0.customDockPosition = value } })) {
                         ForEach(DockPosition.allCases) { Text($0.title).tag($0) }
-                    }
+                    }.labelsHidden()
+                }
+                GroupedRow("Material") {
                     Picker("Material", selection: Binding(get: { settings.customDockMaterial }, set: { value in edit { $0.material = value }; store.flush() })) {
                         ForEach(CustomDockMaterial.allCases) { Text($0.title).tag($0) }
+                    }.labelsHidden()
+                }
+                GroupedRow("Spacing") {
+                    HStack {
+                        Slider(value: Binding(get: { settings.customDockItemSpacing }, set: { value in edit { $0.spacing = value } }), in: DockAppearanceBounds.itemSpacing, onEditingChanged: { if !$0 { store.flush() } })
+                            .accessibilityLabel("Item spacing")
+                            .accessibilityValue("\(Int(settings.customDockItemSpacing.rounded())) points")
+                        Text("\(Int(settings.customDockItemSpacing.rounded())) pt")
+                            .monospacedDigit().frame(width: 40, alignment: .trailing).accessibilityHidden(true)
                     }
                 }
-                HStack {
-                    Text("Spacing").foregroundStyle(.secondary)
-                    Slider(value: Binding(get: { settings.customDockItemSpacing }, set: { value in edit { $0.spacing = value } }), in: DockAppearanceBounds.itemSpacing, onEditingChanged: { if !$0 { store.flush() } })
-                        .accessibilityLabel("Item spacing")
-                        .accessibilityValue("\(Int(settings.customDockItemSpacing.rounded())) points")
-                    Text("\(Int(settings.customDockItemSpacing.rounded())) pt")
-                        .monospacedDigit().frame(width: 40, alignment: .trailing).accessibilityHidden(true)
+                GroupedRow("Theme") {
                     Picker("Theme", selection: Binding(get: { settings.customDockTheme }, set: { value in edit { $0.theme = value }; store.flush() })) {
                         ForEach(CustomDockTheme.allCases) { Text($0.title).tag($0) }
-                    }.labelsHidden().frame(width: 100)
+                    }.labelsHidden()
                 }
-                HStack {
-                    Text(profile.appearance == nil ? "Follows the global appearance in Settings" : "This Dock has its own appearance; global changes won't affect it").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
-                    Spacer()
-                    if profile.appearance != nil { Button("Reset to Global") { store.setAppearance(nil, for: profile.id) }.font(.system(size: 11))
-                        .help("Remove this Dock's own appearance and follow the global appearance in Settings again") }
+                if profile.appearance != nil {
+                    GroupedRow("Reset to Global", role: .button) { store.setAppearance(nil, for: profile.id) }
+                        .help("Remove this Dock's own appearance and follow the global appearance in Settings again")
+                }
                 }
             } else {
                 Text("This layout is applied to Apple’s Dock. Widgets and appearance belong to custom Docks.")
@@ -77,18 +81,23 @@ struct DockItemInspector: View {
                 Spacer()
                 Button("Done", action: close).keyboardShortcut(.defaultAction)
             }
+            GroupedSection("Item") {
             if item.type == .folder {
-                TextField("Folder name", text: Binding(get: { draft.folderCustomName ?? "" }, set: { draft.folderCustomName = $0 }))
-                Toggle("Show name in Dock", isOn: Binding(get: { draft.showFolderLabel ?? false }, set: { draft.showFolderLabel = $0 }))
+                GroupedRow("Folder name") { TextField("Folder name", text: Binding(get: { draft.folderCustomName ?? "" }, set: { draft.folderCustomName = $0 })) }
+                GroupedRow("Show name in Dock", isOn: Binding(get: { draft.showFolderLabel ?? false }, set: { draft.showFolderLabel = $0 }))
+                GroupedRow("Icon color") {
                 Picker("Icon color", selection: Binding(get: { draft.folderIconColor?.rawValue ?? "" }, set: { draft.folderIconColor = DockProfileColor(rawValue: $0) })) {
                     Text("Original icon").tag("")
                     ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
+                }.labelsHidden()
                 }
-                TextField("Icon letter", text: Binding(get: { draft.folderIconLetter ?? "" }, set: { draft.folderIconLetter = String($0.prefix(1)) }))
-                TextField("Icon number", text: Binding(get: { draft.folderIconNumber ?? "" }, set: { draft.folderIconNumber = String($0.prefix(3)) }))
+                GroupedRow("Icon letter") { TextField("Icon letter", text: Binding(get: { draft.folderIconLetter ?? "" }, set: { draft.folderIconLetter = String($0.prefix(1)) })) }
+                GroupedRow("Icon number") { TextField("Icon number", text: Binding(get: { draft.folderIconNumber ?? "" }, set: { draft.folderIconNumber = String($0.prefix(3)) })) }
             } else if item.type == .spacer {
+                GroupedRow("Width") {
                 Picker("Width", selection: Binding(get: { draft.spacerKind ?? .small }, set: { draft.spacerKind = $0 })) {
                     ForEach(SpacerKind.allCases) { Text($0.title).tag($0) }
+                }.labelsHidden()
                 }
             } else {
                 if let path = item.url?.path { Text(path).font(DockDesign.caption).foregroundStyle(.secondary).textSelection(.enabled) }
@@ -96,7 +105,8 @@ struct DockItemInspector: View {
                     .foregroundStyle(.secondary).font(DockDesign.body)
             }
             if [.application, .file, .folder].contains(item.type) {
-                Button(AppLauncher.isMissingTarget(item) ? "Locate Missing Item…" : "Replace…", action: replace)
+                GroupedRow(AppLauncher.isMissingTarget(item) ? "Locate Missing Item…" : "Replace…", role: .button, action: replace)
+            }
             }
         }.padding(24).frame(width: 420).background(DockDesign.page)
             .onChange(of: draft) { update($0) }

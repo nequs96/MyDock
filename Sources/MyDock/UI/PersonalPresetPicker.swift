@@ -8,25 +8,23 @@ struct PersonalPresetPicker: View {
     @State private var message: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Personal presets").font(.system(size: 13, weight: .semibold))
-                Spacer()
-                Button("Import…") { importPreset() }
-            }
+        GroupedSection("Personal presets", footer: message ?? library.errorMessage) {
+            GroupedRow("Import…", role: .button) { importPreset() }
             if library.entries.isEmpty {
-                Text("Save a Dock as a preset or import one to keep it here.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                GroupedRow("Save or import a Dock preset to keep it here.")
             }
             ForEach(library.entries) { entry in
-                HStack {
-                    Button(entry.profile.name) { select(ProfileSanitizer.newIdentity(entry.profile)) }
-                    Spacer()
-                    Button("Export…") { exportPreset(entry.id) }
-                    Button("Remove", role: .destructive) { library.remove(entry.id) }
-                }.font(.caption)
+                GroupedRow(entry.profile.name) {
+                    HStack {
+                        Button("Use") { select(ProfileSanitizer.newIdentity(entry.profile)) }
+                            .accessibilityLabel("Use preset \(entry.profile.name)")
+                        Button("Export…") { exportPreset(entry.id) }
+                            .accessibilityLabel("Export preset \(entry.profile.name)")
+                        Button("Remove", role: .destructive) { library.remove(entry.id) }
+                            .accessibilityLabel("Remove preset \(entry.profile.name)")
+                    }
+                }
             }
-            if let message = message ?? library.errorMessage { Text(message).font(.caption).foregroundStyle(.secondary) }
         }
     }
     private func importPreset() {

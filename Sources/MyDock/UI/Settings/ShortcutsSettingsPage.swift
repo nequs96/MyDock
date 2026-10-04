@@ -11,12 +11,9 @@ extension SettingsView {
     DockScrollView {
         VStack(alignment: .leading, spacing: 20) {
         SettingsPageHeader(page: selectedPage)
-            DockSettingSection(title: "Global profile shortcuts") {
-                Text("Assign a keyboard shortcut to switch to any saved macOS Dock or Custom Dock profile. Shortcuts work while MyDock is in the background, require at least two modifiers, and are stored only on this Mac.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            GroupedSection("Global profile shortcuts", footer: "Shortcuts need two modifiers, work from any app, stay on this Mac and are excluded from backups; registration failures appear beside each Dock.") {
                 if store.state.profiles.isEmpty {
-                    Text("Create a Dock profile in Manage Docks to assign a shortcut.")
-                        .font(.callout).foregroundStyle(.secondary)
+                    GroupedRow("Create a Dock profile in Manage Docks to assign a shortcut.")
                 } else {
                     ForEach(store.state.profiles) { profile in
                         SettingsShortcutRow(
@@ -29,11 +26,7 @@ extension SettingsView {
                         )
                     }
                 }
-            }
-            DockSettingSection(title: "Shortcut privacy") {
-                Text("Shortcuts are excluded from profile backups because key combinations are local to this Mac. MyDock shows a warning beside any shortcut the system could not register.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
+            }.id("Global profile shortcuts")
         }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
     }
     }

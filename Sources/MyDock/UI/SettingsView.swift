@@ -16,7 +16,6 @@ struct SettingsView: View {
     private let initialPage: MyDockSettingsPage?
     @State var selectedPage: MyDockSettingsPage
     @State private var settingsSearch = ""
-    @State var advancedAppearanceExpanded = false
     @State var appearanceProfileID: UUID?
     @State var previousAppearance: SettingsAppearanceEditing.Undo?
     @State var appearanceScopeMessage: String?
@@ -106,7 +105,7 @@ struct SettingsView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 118, maximum: 180), spacing: 3, alignment: .leading)], alignment: .leading, spacing: 3) {
                             ForEach(MyDockSettingsPage.allCases) { page in
                                 Button { selectedPage = page } label: {
-                                    Label(page.title, systemImage: page.symbol)
+                                    SettingsSidebarLabel(page: page)
                                         .font(.system(size: 11.5, weight: selectedPage == page ? .semibold : .medium))
                                         .foregroundStyle(selectedPage == page ? Color.primary : Color.secondary)
                                         .lineLimit(1)
@@ -159,7 +158,6 @@ struct SettingsView: View {
             if !settingsSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 SettingsSearchResults(query: settingsSearch) { result in
                     selectedPage = result.page
-                    if result.title == "Corner roundness and tint" { advancedAppearanceExpanded = true }
                     settingsSearch = ""
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(100))

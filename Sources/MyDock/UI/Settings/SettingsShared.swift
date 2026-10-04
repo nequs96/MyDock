@@ -75,24 +75,19 @@ struct SettingsShortcutRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(profile.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                    Text(profile.kind.title).font(.system(size: 11)).foregroundStyle(.tertiary)
+            GroupedRow(profile.name, subtitle: profile.kind.title) {
+                HStack(spacing: 12) {
+                    Text(shortcut?.displayString ?? "—").font(.system(size: 13, weight: .medium).monospaced())
+                        .foregroundStyle(shortcut == nil ? Color.secondary : Color.primary)
+                    Button(shortcut == nil ? "Set…" : "Change…", action: edit)
+                        .accessibilityLabel("\(shortcut == nil ? "Set" : "Edit") keyboard shortcut for \(profile.name)")
                 }
-                Spacer(minLength: 8)
-                Text(shortcut?.displayString ?? "—").font(.system(size: 13, weight: .medium).monospaced())
-                    .foregroundStyle(shortcut == nil ? Color.secondary : Color.primary)
-                    .padding(.horizontal, 10).frame(minWidth: 80, minHeight: 28)
-                    .background(DockDesign.input, in: RoundedRectangle(cornerRadius: 6))
-                Button(shortcut == nil ? "Set…" : "Change…", action: edit)
-                    .accessibilityLabel("\(shortcut == nil ? "Set" : "Edit") keyboard shortcut for \(profile.name)")
-            }.frame(minHeight: 40)
+            }
             if let registrationMessage {
                 Label(registrationMessage, systemImage: "exclamationmark.triangle.fill")
                     .font(DockDesign.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
-        }.padding(.vertical, 4)
+        }
     }
 
 }

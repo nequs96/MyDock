@@ -11,20 +11,18 @@ extension SettingsView {
     DockScrollView {
         VStack(alignment: .leading, spacing: 20) {
         SettingsPageHeader(page: selectedPage)
-        DockSettingSection(title: "AI accounts on this Mac") {
-            Text("MyDock finds existing Codex and Claude Code accounts automatically. Sign in with the provider to connect a new account.")
-                .font(DockDesign.caption).foregroundStyle(.secondary)
+        GroupedSection("AI accounts on this Mac", footer: "Existing Codex and Claude Code accounts appear automatically; sign in with the provider to add one.") {
             AIAccountConnectionView(provider: .codex, allowsAccountActions: store.allowsSystemChanges)
             AIAccountConnectionView(provider: .claude, allowsAccountActions: store.allowsSystemChanges, showsLimitsSetup: true)
-        }
+        }.id("AI accounts on this Mac")
         ConnectionsCenterView(store: store)
         PrivacyHelpSection()
-        DockSettingSection(title: "Market data") {
+        GroupedSection("Market data") {
             integrationSummary("Alpha Vantage", symbol: "chart.line.uptrend.xyaxis", connected: marketAPIKeySaved)
             DisclosureGroup("Manage API key", isExpanded: $marketConnectionExpanded) {
             VStack(alignment: .leading, spacing: 12) {
-            Text("Stock and Watchlist use Alpha Vantage's end-of-day market data. Create a personal API key on their website; free-tier request limits apply. The key is stored in this Mac's Keychain and is never included in backups.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("Stock and Watchlist use Alpha Vantage end-of-day data with free-tier limits; your personal key stays in Keychain, outside backups.")
+                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             SecureField(marketAPIKeySaved ? "Key saved in Keychain" : "Alpha Vantage API key", text: $marketAPIKeyDraft)
                 .textFieldStyle(DockTextFieldStyle())
             HStack {
@@ -40,15 +38,15 @@ extension SettingsView {
             }.padding(.top, 12)
             }
             if let marketAPIKeyMessage {
-                Text(marketAPIKeyMessage).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(marketAPIKeyMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
             }
-        }
-        DockSettingSection(title: "GitHub Copilot usage") {
+        }.id("Market data")
+        GroupedSection("GitHub Copilot usage") {
             integrationSummary("GitHub Copilot", symbol: "sparkles", connected: copilotCredentialsSaved)
             DisclosureGroup("Manage credentials", isExpanded: $copilotConnectionExpanded) {
             VStack(alignment: .leading, spacing: 12) {
-            Text("Connect a personal Copilot plan to show AI-credit usage in AI Limits. MyDock uses GitHub's read-only billing endpoint. Organization or enterprise billed usage is not included. The fine-grained token needs Plan: read access; the secret stays in this Mac's Keychain and is excluded from profiles and backups.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("Personal Copilot AI-credit usage uses read-only billing; organization and enterprise usage are excluded. Give the token Plan: read access; it stays in Keychain, outside profiles and backups.")
+                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             TextField("GitHub username", text: $copilotUsernameDraft)
                 .textFieldStyle(DockTextFieldStyle())
                 .textContentType(.username)
@@ -74,9 +72,9 @@ extension SettingsView {
             }.padding(.top, 12)
             }
             if let copilotCredentialsMessage {
-                Text(copilotCredentialsMessage).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(copilotCredentialsMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
             }
-        }
+        }.id("GitHub Copilot usage")
         }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
     }
     .onAppear {
@@ -86,12 +84,7 @@ extension SettingsView {
     }
 
     private func integrationSummary(_ title: String, symbol: String, connected: Bool) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol).font(.system(size: 16)).foregroundStyle(.secondary).frame(width: 24)
-            Text(title).font(.system(size: 13, weight: .medium))
-            Spacer()
-            Text(connected ? "Connected" : "Not connected").font(DockDesign.caption).foregroundStyle(.secondary)
-        }.frame(minHeight: 32)
+        GroupedRow(title, symbol: symbol, color: .green, value: connected ? "Connected" : "Not connected")
     }
 
     private func updateMarketAPIKeyState() {

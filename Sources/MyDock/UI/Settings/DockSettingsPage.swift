@@ -11,25 +11,25 @@ extension SettingsView {
     DockScrollView {
         VStack(alignment: .leading, spacing: 20) {
         SettingsPageHeader(page: selectedPage)
-        DockSettingSection(title: "Dock setup") {
+        GroupedSection("Dock setup") {
             SettingsControlRow(title: "Mode") {
                 Picker("Mode", selection: Binding(get: { store.state.settings.setupMode }, set: { store.setSetupMode($0) })) {
                     ForEach(SetupMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
             }
-            Toggle("Show active profile name in menu bar", isOn: Binding(
+            GroupedRow("Show active profile name in menu bar", isOn: Binding(
                 get: { store.state.settings.showActiveProfileNameInMenuBar },
                 set: { enabled in store.updateSettings { $0.showActiveProfileNameInMenuBar = enabled } }
             ))
-            Text("When both Docks are active, their profile names appear together beside the menu-bar icon.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text("Both active Dock names appear beside the menu-bar icon.")
+                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
             if store.state.settings.setupMode == .customMain {
                 if store.activeCustomProfile == nil {
-                    Text("Select or create a Custom Dock profile first. Apple's Dock remains available until a Custom Dock profile is active.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text("Create or select a Custom Dock first; Apple’s Dock remains available until then.")
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    Text("Apple’s Dock stays hidden when you move the pointer to the screen edge. MyDock restores your original Dock settings when you change modes or quit.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text("Apple’s Dock stays hidden; MyDock restores its settings on mode change or quit.")
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             if let errorMessage = nativeDockVisibility.errorMessage {
@@ -65,7 +65,7 @@ extension SettingsView {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Applying \(store.nativeProfiles.first(where: { $0.id == nativeProfileSwitchTargetID })?.name ?? "macOS Dock profile")…")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             if let nativeProfileSwitchMessage {
@@ -110,31 +110,31 @@ extension SettingsView {
             }
             if let selectedID = store.state.settings.customDockDisplayID,
                !displayOptions.contains(where: { $0.id == selectedID }) {
-                Text("The selected display is disconnected. MyDock is showing on the main display and will return when it reconnects. Choose Main display to keep it there.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text("Display disconnected: using the main display until it reconnects. Select Main display to stay there.")
+                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
-        }
-        DockSettingSection(title: "Focus filters") {
+        }.id("Dock setup")
+        GroupedSection("Focus filters") {
             Text(FocusFilterAvailability.guidance())
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }
-        DockSettingSection(title: "Native Dock switching") {
-            Toggle("Automatically save Dock changes", isOn: Binding(
+                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+        }.id("Focus filters")
+        GroupedSection("Native Dock switching") {
+            GroupedRow("Automatically save Dock changes", isOn: Binding(
                 get: { store.state.settings.automaticallySaveNativeDockChanges },
                 set: { enabled in store.updateSettings { $0.automaticallySaveNativeDockChanges = enabled } }
             ))
-            Text("When enabled, changes you make directly in Apple's Dock update the selected macOS Dock profile. MyDock checks pinned apps and spacers every five seconds; turning this off stops the check.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("Save Apple Dock edits to the selected profile, checking apps and spacers every five seconds.")
+                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             if store.state.settings.automaticallySaveNativeDockChanges,
                store.state.settings.activeNativeProfileID == nil {
                 Text("Select a macOS Dock profile to start automatic saving.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
             }
             if let message = nativeDockAutoSave.errorMessage, store.state.settings.automaticallySaveNativeDockChanges {
                 Text(message).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
-            Toggle("Freeze desktop during Dock restart", isOn: Binding(
+            GroupedRow("Freeze desktop during Dock restart", isOn: Binding(
                 get: { store.state.settings.smoothNativeDockSwitches },
                 set: { enabled in
                     store.updateSettings { $0.smoothNativeDockSwitches = enabled }
@@ -155,12 +155,12 @@ extension SettingsView {
                 }
             ))
             .disabled(!supportsScreenCaptureFreeze)
-            Text("Optional on macOS 14 and later. A one-frame image of each display stays in memory only while the Dock restarts. Without Screen Recording access, Dock switching still works without the visual effect.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("macOS 14+: keeps one frame per display in memory during restart. Switching works without Screen Recording access.")
+                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             if let screenCaptureMessage {
-                Text(screenCaptureMessage).font(.caption).foregroundStyle(.secondary)
+                Text(screenCaptureMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
             }
-        }
+        }.id("Native Dock switching")
         }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
     }
     }
