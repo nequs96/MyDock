@@ -296,3 +296,45 @@ Only the orchestrator edits this file, `docs/IMPLEMENTATION_STATUS.md` and `docs
 - each widget's saved icon appearance.
 
 Mono becomes the default icon appearance for **newly created** widgets only. The orchestrator sets it at the creation site after RD-05 reports it.
+
+### RD-04 — merged (branch commit `6f240f2`), with integration fix `116eac9`
+
+**Implementation:** implemented.
+
+- **Surface (`DockSurfaceLayers` resolver):**
+  - The backing fill, the tint and the edge each exist only when they contribute.
+  - Clear + edge none + tint 0 + opacity 0 draws only the native clear glass.
+  - Edge: `.hairline` is today's 1 pt outline. `.contrastOnly` and `.none` draw nothing unless Increase Contrast is on, which always draws a 2 pt edge.
+  - Tint `.auto` uses 0.06 of the profile colour.
+- **Geometry (`DockPanelGeometry`):** pure functions for the panel frame, the reveal strip at the screen edge and the keep-visible area across the floating gap. `DockPresentationSettings` carries the four new fields.
+- **Glass container and IDs:** `DockGlassGroup(spacing: 0)` wraps the item stack for glass materials. `dockModuleRadius` is injected, (radius − padding) ÷ scale. `glassEffectID` is set on widget and folder popout anchors.
+- **Indicators and chrome:**
+  - New running dots: none existed before.
+  - Red badge with no stroke (white edge under Increase Contrast).
+  - Invisible spacers.
+  - Boxless folder glyph (`FolderIconView.swift`, under the folder-icon allowance).
+  - Slim reveal handle.
+
+**Orchestrator review:**
+
+- **Old profiles:** an old profile (hairline, custom 0.08) resolves to today's layers (test). The worker reports that the frosted, solid and dark GLASS corner captures are byte-identical to before.
+- **Defect fixed by the orchestrator:** `runningPinnedItemIDs` called `AppLauncher.resolvedURL` from the view body. That is a disk stat, and possibly an `NSWorkspace` lookup plus an Info.plist read, for every idle pinned app on every hover or magnification re-render. `DockRunningIndicatorPolicy` now consults it only when an app with the item's bundle identifier is running. A new test proves idle apps never resolve.
+- **Product note:** running dots are a new always-on indicator, which matches the brief's "small dot indicators".
+- **Follow-up for RD-11:** the Dock surface is drawn behind and outside the `GlassEffectContainer`, so it is unproven whether widget glass blends with the Dock glass natively. Move the surface into the container if native inspection shows separate layers.
+
+**Renders:** 89 PNGs in the worker's `.build/visual-qa/RD-04/`, all with transparent corners on the transparent-host captures. The orchestrator viewed:
+- `dockstyle-clear-bottom-light`: no edge or tint, dots, a badge, a gap and a boxless folder. Widgets still use tiles until RD-05.
+- `dockstyle-floating-inset`: insets 0 and 24 at each position, with the reveal strip at the edge.
+
+**Verification on integration:**
+
+- `./TestMyDock.sh`: **546 tests in 69 suites passed** (`.build/redesign-rd04-test.log`).
+- Canonical rebuild:
+  - The previous instance was quit normally. `./BuildMyDock.sh` exited 0, and the SHA-256 starts `83ff34e4a9f89ad7`.
+  - `build/MyDock.app` relaunched (PID 9228).
+
+**Native Liquid Glass compositing is unverified.** Exports draw the material fallback.
+
+### RD-06 launched (`widget-gallery` agent, Opus), base `116eac9`
+
+Render mode `MYDOCK_GALLERY_QA`.
