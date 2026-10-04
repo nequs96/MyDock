@@ -18,7 +18,7 @@ struct SettingsView: View {
     @State private var settingsSearch = ""
     @State private var advancedAppearanceExpanded = false
     @State private var appearanceProfileID: UUID?
-    @State private var previousAppearance: (UUID?, ProfileAppearance?, AppSettings, DockProfileColor?)?
+    @State private var previousAppearance: SettingsAppearanceEditing.Undo?
     @State private var appearanceScopeMessage: String?
     @State private var diagnosticsPreview: DiagnosticsPreviewPayload?
     @State private var editingAppearanceContinuously = false
@@ -791,20 +791,13 @@ struct SettingsView: View {
     }
 
     private func rememberAppearance() {
-        previousAppearance = (appearanceProfileID,
-            appearanceProfileID.flatMap { id in store.customProfiles.first(where: { $0.id == id })?.appearance }, store.state.settings,
-            appearanceProfileID.flatMap { id in store.customProfiles.first(where: { $0.id == id }).flatMap { DockProfileColor(rawValue: $0.color) } })
+        previousAppearance = SettingsAppearanceEditing.capture(in: store, profileID: appearanceProfileID)
     }
 
     private func updateAppearance(immediately: Bool = false, _ change: (inout AppSettings) -> Void) {
-        guard appearanceProfileID == nil || store.customProfiles.contains(where: { $0.id == appearanceProfileID }) else { return }
         if !editingAppearanceContinuously { rememberAppearance() }
-        var settings = appearanceSettings
-        change(&settings)
-        if let id = appearanceProfileID {
-            store.setAppearance(ProfileAppearance(settings: settings), for: id, immediately: immediately,
-                                recordHistory: !editingAppearanceContinuously)
-        } else { store.updateSettings(immediately: immediately) { $0 = ProfileAppearance(settings: settings).applying(to: $0) } }
+        SettingsAppearanceEditing.update(in: store, profileID: appearanceProfileID, immediately: immediately,
+                                         recordHistory: !editingAppearanceContinuously, change: change)
     }
 
     private func appearanceSliderEditingChanged(_ editing: Bool) {
@@ -818,12 +811,7 @@ struct SettingsView: View {
     }
 
     private func undoAppearance() {
-        guard let previous = previousAppearance else { return }
-        if let id = previous.0 {
-            store.setAppearance(previous.1, for: id)
-            if let color = previous.3 { store.setProfileColor(id, to: color) }
-        }
-        else { store.updateSettings { $0 = ProfileAppearance(settings: previous.2).applying(to: $0) } }
+        previousAppearance?.restore(in: store)
         previousAppearance = nil
     }
 
