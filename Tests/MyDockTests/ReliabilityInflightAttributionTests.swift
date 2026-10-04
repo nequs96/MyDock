@@ -29,12 +29,12 @@ struct ReliabilityInflightAttributionTests {
         var environment = ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("A").path]
         let now = Date(timeIntervalSince1970: 1_791_115_200)
         let gate = AttributionGate()
-        let coordinator = WidgetDataCoordinator(store: store, queryMaker: { kind, configuration in
-            WidgetDataQuery.make(kind: kind, configuration: configuration, now: now, homeDirectory: root, environment: environment)
-        }) { query, _ in
+        let coordinator = WidgetDataCoordinator(store: store, loader: { query, _ in
             await gate.hold()
             return .limits(.init(fetchedAt: now, readings: [], sourceScope: query.aiSourceScope))
-        }
+        }, queryMaker: { kind, configuration in
+            WidgetDataQuery.make(kind: kind, configuration: configuration, now: now, homeDirectory: root, environment: environment)
+        })
         let refresh = Task { await coordinator.refresh(item: item, profileID: id) }
         await gate.waitForStart()
         environment["CLAUDE_CONFIG_DIR"] = root.appendingPathComponent("B").path
@@ -69,12 +69,12 @@ struct ReliabilityInflightAttributionTests {
         let formatter = ISO8601DateFormatter()
         var now = try #require(formatter.date(from: "2026-10-31T23:59:59Z"))
         let gate = AttributionGate()
-        let coordinator = WidgetDataCoordinator(store: store, queryMaker: { kind, configuration in
-            WidgetDataQuery.make(kind: kind, configuration: configuration, now: now)
-        }) { query, _ in
+        let coordinator = WidgetDataCoordinator(store: store, loader: { query, _ in
             await gate.hold()
             return .limits(.init(fetchedAt: Date(timeIntervalSince1970: 1_791_115_200), readings: [], sourceScope: query.aiSourceScope))
-        }
+        }, queryMaker: { kind, configuration in
+            WidgetDataQuery.make(kind: kind, configuration: configuration, now: now)
+        })
         let refresh = Task { await coordinator.refresh(item: item, profileID: id) }
         await gate.waitForStart(); now = now.addingTimeInterval(2)
         await gate.release(); await refresh.value
