@@ -555,8 +555,8 @@ struct SettingsView: View {
                 DockSettingSection(title: "Saved Docks") {
                     Toggle("Include personal widget data", isOn: $includePersonalBackupData)
                     Text(includePersonalBackupData
-                         ? "Includes notes, history, and cached widget data. Keep this file private. Credentials and permissions are excluded."
-                         : "Layout only: notes, histories, cached data, local calendar selections, and connection assignments are removed. App, file, folder, and link locations remain in the layout.")
+                         ? "Includes notes, checklists, snippets, shelf files, histories, timers, alarms and saved selections. Keep this file private. Credentials, permissions and cached provider readings are always excluded."
+                         : "Layout only: notes, checklists, snippets, histories, timers, alarms, local calendar selections and connection assignments are removed. App, file, folder, and link locations remain in the layout. Cached provider readings are never included.")
                         .font(DockDesign.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     HStack {
                         Button("Back Up…") { exportBackup() }
