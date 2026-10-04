@@ -62,4 +62,12 @@ struct ProductVisualFixTests {
         #expect(WorldClockFaceDateFormatter.text(date, timeZone: west) != WorldClockFaceDateFormatter.text(date, timeZone: east))
         #expect(WorldClockFaceDateFormatter.text(date, timeZone: east).count < formattedDate(date, timeZone: east).count)
     }
+
+    @Test func savedCollectionUnitsAreSingularForOne() {
+        #expect(SavedCollectionUnit.text(kind: "Quick Links", count: 1) == "link")
+        #expect(SavedCollectionUnit.text(kind: "Quick Links", count: 0) == "links")
+        #expect(SavedCollectionUnit.text(kind: "Text Snippets", count: 1) == "snippet")
+        #expect(SavedCollectionUnit.text(kind: "File Shelf", count: 2) == "files")
+        #expect(SavedCollectionUnit.text(kind: "File Shelf", count: 1) == "file")
+    }
 }

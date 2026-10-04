@@ -450,6 +450,13 @@ struct BusinessDockFace: View {
 }
 
 
+enum SavedCollectionUnit {
+    static func text(kind: String, count: Int) -> String {
+        let (one, many) = kind == "File Shelf" ? ("file", "files") : kind == "Text Snippets" ? ("snippet", "snippets") : ("link", "links")
+        return count == 1 ? one : many
+    }
+}
+
 enum FinancialFacePresentation {
     static func shortTicker(_ symbol: String) -> String {
         symbol.count <= 6 ? symbol : String(symbol.prefix(5)) + "+"
@@ -496,9 +503,14 @@ struct RemindersDockFace: View {
     var body: some View {
         VStack(alignment: .leading, spacing: layout == .wide ? 2 : 4) {
             WidgetHeader(kind: "Reminders", title: layout == .compact ? "Tasks" : "Reminders")
-            if let count { MetricText(value: "\(count)", unit: "to do", size: layout == .wide ? 19 : 21) }
+            if layout == .wide {
+                HStack(alignment: .lastTextBaseline, spacing: 8) {
+                    if let count { MetricText(value: "\(count)", unit: "to do", size: 19) }
+                    else { Text("Set up").font(.system(size: 12, weight: .medium)) }
+                    Text(context).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            } else if let count { MetricText(value: "\(count)", unit: "to do", size: 21) }
             else { Text("Set up").font(.system(size: 12, weight: .medium)) }
-            if layout == .wide { Text(context).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1) }
         }.padding(.horizontal, 9)
     }
 }
