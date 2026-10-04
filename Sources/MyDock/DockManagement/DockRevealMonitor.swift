@@ -33,6 +33,7 @@ final class DockRevealMonitor {
 
     private let snapshot: (_ forDwell: Bool) -> Snapshot?
     private let present: (Decision) -> Void
+    private let waitForDwell: @MainActor () async throws -> Void
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var samplingTask: Task<Void, Never>?
@@ -40,9 +41,13 @@ final class DockRevealMonitor {
     private var menuObservations: [AnyCancellable] = []
     private(set) var menuTrackingDepth = 0
 
-    init(snapshot: @escaping (_ forDwell: Bool) -> Snapshot?, present: @escaping (Decision) -> Void) {
+    init(snapshot: @escaping (_ forDwell: Bool) -> Snapshot?, present: @escaping (Decision) -> Void,
+         waitForDwell: @escaping @MainActor () async throws -> Void = {
+             try await Task.sleep(for: .milliseconds(350))
+         }) {
         self.snapshot = snapshot
         self.present = present
+        self.waitForDwell = waitForDwell
         menuObservations = [
             NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification).sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.menuTrackingDepth += 1 }
@@ -114,12 +119,18 @@ final class DockRevealMonitor {
 
     private func scheduleDwell() {
         guard dwellTask == nil else { return }
+        let waitForDwell = self.waitForDwell
         dwellTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            do {
+                try await waitForDwell()
+                try Task.checkCancellation()
+            } catch { return }
             guard let self else { return }
             dwellTask = nil
             guard let state = snapshot(true), state.canPresent else { return }
-            if state.systemDockOverlaps { present(.suppress); return }
+            // Fresh completion snapshots use the same retention/suppression precedence as samples.
+            if state.retainsInteraction { present(.show); return }
+            if state.decision == .suppress { present(.suppress); return }
             if CustomDockVisibilityPolicy.shouldReveal(mouseLocation: state.mouseLocation,
                 expandedFrame: state.expandedFrame, revealFrame: state.revealFrame,
                 popoutFrames: state.popoutFrames) { present(.show) }
