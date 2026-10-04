@@ -26,6 +26,7 @@ struct DockLayoutPreview: View {
     var body: some View {
         GeometryReader { geometry in
             CustomDockView(store: store, profile: profile, isPreview: true, usesLivePreviewData: usesLiveData)
+                .environment(\.dockModuleRadius, DockSurfaceMetrics.moduleRadius(settings: settings, scale: scale))
                 .frame(width: horizontal ? min(length, max(100, geometry.size.width - 20)) : crossLength,
                        height: horizontal ? crossLength : min(length, maximumSideLength))
                 .frame(width: geometry.size.width, height: geometry.size.height)

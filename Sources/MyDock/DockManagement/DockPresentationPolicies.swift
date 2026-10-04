@@ -35,6 +35,82 @@ enum DockSurfaceMetrics {
         }
         return length(lengths, spacing: CGFloat(settings.customDockItemSpacing), scale: scale) + 22 * scale
     }
+
+    /// Concentric module radius for `dockModuleRadius`, in the widget's own (unscaled)
+    /// coordinates: widgets lay out at 1× and the Dock scales them by `scale`. As rendered,
+    /// `moduleRadius × scale + padding == customDockCornerRadius` (clamped at 0).
+    static func moduleRadius(settings: AppSettings, scale: CGFloat) -> CGFloat {
+        guard scale.isFinite, scale > 0 else { return DockDesign.Module.defaultRadius }
+        let rendered = DockDesign.Module.radius(dockRadius: CGFloat(settings.customDockCornerRadius),
+                                                dockPadding: padding(settings: settings, scale: scale))
+        return rendered / scale
+    }
+}
+
+/// Pure panel placement shared by the window controller and tests. The floating inset
+/// moves the panel away from its screen edge; the reveal strip stays at the edge and the
+/// hover area grows back over the gap so the pointer path from edge to Dock is continuous.
+enum DockPanelGeometry {
+    /// Historical gap between the panel and its screen edge.
+    static let edgeMargin: CGFloat = 10
+    static let revealHandleThickness: CGFloat = 6
+    static let revealHandleLength: CGFloat = 38
+
+    /// `customDockFloatingInset` bounded to `DockAppearanceBounds.floatingInset`; non-finite is 0.
+    static func floatingInset(_ value: Double) -> CGFloat {
+        guard value.isFinite else { return 0 }
+        let bounds = DockAppearanceBounds.floatingInset
+        return CGFloat(min(max(value, bounds.lowerBound), bounds.upperBound))
+    }
+
+    /// `contentLength` is the item run plus the Dock's own padding; `crossLength` the panel thickness.
+    static func frame(position: DockPosition, placementArea visible: NSRect, contentLength: CGFloat,
+                      crossLength: CGFloat, floatingInset: Double) -> NSRect {
+        let maxLength = position == .bottom ? visible.width - 40 : visible.height - 60
+        let length = min(max(contentLength, 100), max(maxLength, 100))
+        let offset = edgeMargin + Self.floatingInset(floatingInset)
+        switch position {
+        case .bottom:
+            return NSRect(x: visible.midX - length / 2, y: visible.minY + offset, width: length, height: crossLength)
+        case .left:
+            return NSRect(x: visible.minX + offset, y: visible.midY - length / 2, width: crossLength, height: length)
+        case .right:
+            return NSRect(x: visible.maxX - crossLength - offset, y: visible.midY - length / 2, width: crossLength, height: length)
+        }
+    }
+
+    /// The reveal strip always hugs the screen edge, whatever the inset.
+    static func revealFrame(position: DockPosition, placementArea visible: NSRect) -> NSRect {
+        let size = revealHandleThickness, length = revealHandleLength
+        switch position {
+        case .bottom: return NSRect(x: visible.midX - length / 2, y: visible.minY + 1, width: length, height: size)
+        case .left: return NSRect(x: visible.minX + 1, y: visible.midY - length / 2, width: size, height: length)
+        case .right: return NSRect(x: visible.maxX - size - 1, y: visible.midY - length / 2, width: size, height: length)
+        }
+    }
+
+    /// The panel frame extended toward its screen edge by the inset, used for
+    /// keep-visible decisions so crossing the gap does not hide a floating Dock.
+    static func hoverFrame(expanded: NSRect, position: DockPosition, floatingInset: Double) -> NSRect {
+        let inset = Self.floatingInset(floatingInset)
+        switch position {
+        case .bottom: return NSRect(x: expanded.minX, y: expanded.minY - inset, width: expanded.width, height: expanded.height + inset)
+        case .left: return NSRect(x: expanded.minX - inset, y: expanded.minY, width: expanded.width + inset, height: expanded.height)
+        case .right: return NSRect(x: expanded.minX, y: expanded.minY, width: expanded.width + inset, height: expanded.height)
+        }
+    }
+}
+
+/// Running-app dots. Unpinned runtime entries are running by construction; pinned apps
+/// match by their installed-copy URL (saved, or resolved after relocation).
+enum DockRunningIndicatorPolicy {
+    static func isRunning(_ item: DockItem, pinned: Bool, runningURLs: Set<URL>, resolvedURL: () -> URL?) -> Bool {
+        guard item.type == .application else { return false }
+        guard pinned else { return true }
+        if let url = item.url, runningURLs.contains(InstalledApplicationIdentity.normalizedURL(url)) { return true }
+        if let url = resolvedURL(), runningURLs.contains(InstalledApplicationIdentity.normalizedURL(url)) { return true }
+        return false
+    }
 }
 
 /// Only settings that change Dock presentation, placement, monitoring or reveal
@@ -66,6 +142,10 @@ struct DockPresentationSettings: Equatable {
     var showAppBadges: Bool
     var clickFocusedAppToMinimize: Bool
     var magnificationEnabled: Bool
+    var edgeStyle: DockEdgeStyle
+    var widgetSurface: DockWidgetSurface
+    var floatingInset: Double
+    var tintMode: DockTintMode
 
     init(_ s: AppSettings) {
         setupMode = s.setupMode; position = s.customDockPosition; size = s.customDockSize
@@ -79,6 +159,8 @@ struct DockPresentationSettings: Equatable {
         showRunningApps = s.showRunningApps; showMinimizedWindows = s.showMinimizedWindows
         showWindowPreviews = s.showWindowPreviews; showTrash = s.showTrash; showAppBadges = s.showAppBadges
         clickFocusedAppToMinimize = s.clickFocusedAppToMinimize; magnificationEnabled = s.magnificationEnabled
+        edgeStyle = s.customDockEdgeStyle; widgetSurface = s.customDockWidgetSurface
+        floatingInset = s.customDockFloatingInset; tintMode = s.customDockTintMode
     }
 }
 

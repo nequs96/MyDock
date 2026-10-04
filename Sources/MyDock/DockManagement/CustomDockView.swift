@@ -18,19 +18,31 @@ private struct DockResizeCursor: NSViewRepresentable {
 }
 
 
+/// A slim, quiet capsule at the screen edge of an auto-hidden Dock. Increase Contrast makes
+/// it thicker and stronger; Reduce Transparency draws it opaque.
 struct RevealHandleView: View {
     var position: DockPosition
-    var color: Color
     var isVisible: Bool
-    @ObservedObject private var accessibility = AccessibilityDisplayState.shared
+    @DockAccessibilityStyle() private var accessibility
+    @Environment(\.colorScheme) private var scheme
+
+    private var thickness: CGFloat { accessibility.contrast == .increased ? 4 : 3 }
+    private var fill: Color {
+        let increased = accessibility.contrast == .increased
+        if accessibility.reduceTransparency {
+            return increased ? .primary : Color(white: scheme == .dark ? 0.52 : 0.62)
+        }
+        return Color.primary.opacity(increased ? 0.8 : 0.26)
+    }
 
     var body: some View {
         Group {
             if isVisible {
                 Capsule()
-                    .fill(accessibility.reduceTransparency ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor)) : AnyShapeStyle(.ultraThinMaterial))
-                    .overlay(Capsule().fill(color.opacity(accessibility.reduceTransparency ? 1 : 0.65)))
+                    .fill(fill)
+                    .frame(width: position == .bottom ? nil : thickness, height: position == .bottom ? thickness : nil)
                     .padding(position == .bottom ? .horizontal : .vertical, 4)
+                    .accessibilityHidden(true)
             } else {
                 Color.clear
             }
@@ -77,6 +89,12 @@ struct CustomDockView: View {
     @State private var resizeGripHovered = false
     @State private var linkIconMessage: String?
     @ObservedObject private var accessibility = AccessibilityDisplayState.shared
+    @DockAccessibilityStyle() private var accessibilityStyle
+    @Namespace private var popoutGlass
+    #if DEBUG
+    @Environment(\.dockPreviewRunningBundleIdentifiers) private var previewRunningBundleIdentifiers
+    @Environment(\.dockPreviewBadges) private var previewBadges
+    #endif
     @ObservedObject private var windowMonitor = WindowAccessibilityMonitor.shared
     @ObservedObject private var nowPlayingMonitor = NowPlayingMonitor.shared
     @ObservedObject private var dockBadgeMonitor = DockBadgeMonitor.shared
@@ -300,6 +318,8 @@ struct CustomDockView: View {
                                     .coordinateSpace(name: "dockItems")
                                     .onContinuousHover(coordinateSpace: .named("dockItems")) { phase in updateHover(phase, horizontal: true) }
                                     .padding(.horizontal, 1)
+                                    .modifier(DockItemStackPresentation(glassGroup: usesGlassGroup,
+                                        moduleRadius: DockSurfaceMetrics.moduleRadius(settings: settings, scale: size)))
                             }
                             .scrollDisabled(popouts.anchorID != nil)
                             .scrollIndicators(.hidden)
@@ -315,6 +335,8 @@ struct CustomDockView: View {
                                     .coordinateSpace(name: "dockItems")
                                     .onContinuousHover(coordinateSpace: .named("dockItems")) { phase in updateHover(phase, horizontal: false) }
                                     .padding(.vertical, 1)
+                                    .modifier(DockItemStackPresentation(glassGroup: usesGlassGroup,
+                                        moduleRadius: DockSurfaceMetrics.moduleRadius(settings: settings, scale: size)))
                             }
                             .scrollDisabled(popouts.anchorID != nil)
                             .scrollIndicators(.hidden)
@@ -461,15 +483,49 @@ struct CustomDockView: View {
         (DockProfileColor(rawValue: profile.color) ?? .blue).displayColor
     }
 
+    /// One glass container around the items on macOS 26 so glass widget modules blend
+    /// and morph with each other. Reduce Transparency and non-glass materials skip it.
+    private var usesGlassGroup: Bool {
+        [.liquidGlass, .liquidGlassClear].contains(settings.customDockMaterial) && !accessibilityStyle.reduceTransparency
+    }
+
+    /// Pinned apps whose installed copy is running. Unpinned runtime entries are running by construction.
+    private var runningPinnedItemIDs: Set<UUID> {
+        #if DEBUG
+        if isPreview && !usesLivePreviewData, let identifiers = previewRunningBundleIdentifiers {
+            return Set(profile.items.filter { $0.type == .application && identifiers.contains($0.bundleIdentifier ?? "") }.map(\.id))
+        }
+        #endif
+        guard !isPreview || usesLivePreviewData else { return [] }
+        let running = Set(runtimeApplications.compactMap(\.url).map(InstalledApplicationIdentity.normalizedURL))
+        guard !running.isEmpty else { return [] }
+        return Set(profile.items.filter { item in
+            DockRunningIndicatorPolicy.isRunning(item, pinned: true, runningURLs: running,
+                                                 resolvedURL: { AppLauncher.resolvedURL(for: item) })
+        }.map(\.id))
+    }
+
+    private func badge(for item: DockItem) -> String? {
+        guard item.type == .application, let bundleIdentifier = item.bundleIdentifier else { return nil }
+        #if DEBUG
+        if isPreview && !usesLivePreviewData, let badges = previewBadges { return badges[bundleIdentifier] }
+        #endif
+        return dockBadgeMonitor.badges[bundleIdentifier]
+    }
+
     @ViewBuilder private func itemViews(horizontal: Bool, size: CGFloat) -> some View {
+        let runningPinned = runningPinnedItemIDs
         ForEach(renderModel.positionedEntries(settings: settings, scale: size), id: \.visualID) { positioned in
             let entry = positioned.entry
             switch entry {
             case .item(let item, let pinned):
                 if item.type == .spacer {
-                    let spacer = RoundedRectangle(cornerRadius: 2).fill(.primary.opacity(0.12))
+                    // An invisible gap: it keeps its length, drag and drop target, and label.
+                    let spacer = Color.clear
                         .frame(width: horizontal ? entry.length(settings: settings, scale: size) : 42 * size,
                                height: horizontal ? 42 * size : entry.length(settings: settings, scale: size))
+                        .contentShape(Rectangle())
+                        .accessibilityElement()
                         .accessibilityLabel(item.displayName)
                     if isPreview { spacer.allowsHitTesting(false) }
                     else { spacer
@@ -477,7 +533,9 @@ struct CustomDockView: View {
                         .dropDestination(for: DockDragPayload.self) { values, _ in handleTypedDrop(values, before: item.id) }
                     }
                 } else {
-                    itemView(item, horizontal: horizontal, size: size, pinned: pinned, center: positioned.center)
+                    itemView(item, horizontal: horizontal, size: size, pinned: pinned, center: positioned.center,
+                             isRunning: pinned ? runningPinned.contains(item.id)
+                                : DockRunningIndicatorPolicy.isRunning(item, pinned: false, runningURLs: [], resolvedURL: { nil }))
                         .matchedGeometryEffect(id: positioned.visualID, in: profileTransformation)
                         .transition(.scale(scale: 0.85).combined(with: .opacity))
                 }
@@ -516,7 +574,8 @@ struct CustomDockView: View {
         }
     }
 
-    @ViewBuilder private func itemView(_ item: DockItem, horizontal: Bool, size: CGFloat, pinned: Bool, center: CGFloat = 0) -> some View {
+    @ViewBuilder private func itemView(_ item: DockItem, horizontal: Bool, size: CGFloat, pinned: Bool, center: CGFloat = 0,
+                                       isRunning: Bool = false) -> some View {
         let tileWidth = DockSurfaceMetrics.itemLength(item, settings: settings, scale: size)
         let tile = Button {
             guard !isPreview else { return }
@@ -574,6 +633,9 @@ struct CustomDockView: View {
                 }
             }
             .frame(width: tileWidth, height: 54 * size)
+            // Popout anchors carry a glass identity so a popout can morph from its module (macOS 26).
+            .modifier(DockPopoutGlassAnchor(id: [.widget, .folder].contains(item.type) ? item.id.uuidString : nil,
+                                            namespace: popoutGlass))
             .background(popouts.tabIDs.contains(item.id) ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 13 * size))
             .overlay(alignment: .bottomTrailing) {
                 if AppLauncher.isMissingTarget(item) {
@@ -585,21 +647,9 @@ struct CustomDockView: View {
                 }
             }
             .overlay(alignment: .topTrailing) {
-                if item.type == .application,
-                   let bundleIdentifier = item.bundleIdentifier,
-                   let badge = dockBadgeMonitor.badges[bundleIdentifier] {
-                    Text(badge)
-                        .font(.system(size: 10 * size, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .fixedSize()
-                        .padding(.horizontal, 5 * size)
-                        .padding(.vertical, 2 * size)
-                        .background(.red, in: Capsule())
-                        .overlay(Capsule().stroke(.white.opacity(0.8), lineWidth: 0.75 * size))
-                        .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+                if let badge = badge(for: item) {
+                    DockBadgeView(text: badge, scale: size)
                         .offset(x: 4 * size, y: -2 * size)
-                        .accessibilityLabel("Notification badge \(badge)")
                 }
             }
             .help(AppLauncher.isMissingTarget(item) ? "\(item.displayName) · Saved location unavailable" : item.displayName)
@@ -609,6 +659,12 @@ struct CustomDockView: View {
             ? "Saved location unavailable. Re-add the item from its current location."
             : "")
         .scaleEffect(magnification(center: center, isWidget: item.type == .widget), anchor: magnificationAnchor)
+        // After magnification: the dot stays at the screen-edge side while the icon grows.
+        .overlay(alignment: runningIndicatorAlignment) {
+            // Inside the tile's 3 pt inset and the icon canvas margin: clear of the artwork and
+            // never clipped by the scroll viewport.
+            if isRunning { DockRunningIndicator(scale: size) }
+        }
         .zIndex(hoveredItemID == item.id ? 2 : 0)
         .onHover { isHovered in
             guard settings.magnificationEnabled,
@@ -805,6 +861,14 @@ struct CustomDockView: View {
     private var renderModel: DockRenderModel {
         DockRenderModel(profile: profile, settings: settings, runningApplications: runningApps.map(\.item),
                         windows: isPreview && !usesLivePreviewData ? [] : windowMonitor.windows, runningMediaSources: isPreview && !usesLivePreviewData ? Set(NowPlayingSource.allCases) : nowPlayingMonitor.runningSources)
+    }
+
+    private var runningIndicatorAlignment: Alignment {
+        switch settings.customDockPosition {
+        case .bottom: .bottom
+        case .left: .leading
+        case .right: .trailing
+        }
     }
 
     private var magnificationAnchor: UnitPoint {
@@ -1027,3 +1091,82 @@ private struct DockScrollClip: ViewModifier {
         }
     }
 }
+
+/// Glass container and concentric module radius around the Dock's item stack. The stack,
+/// its laziness, hover coordinate space and scrolling are unchanged.
+private struct DockItemStackPresentation: ViewModifier {
+    var glassGroup: Bool
+    var moduleRadius: CGFloat
+    @ViewBuilder func body(content: Content) -> some View {
+        if glassGroup {
+            // Spacing 0: modules blend only when they touch (morphs), never at rest.
+            DockGlassGroup(spacing: 0) { content.environment(\.dockModuleRadius, moduleRadius) }
+        } else {
+            content.environment(\.dockModuleRadius, moduleRadius)
+        }
+    }
+}
+
+/// Wiring for popout morphs: the anchor's glass gets a stable identity in the Dock namespace.
+private struct DockPopoutGlassAnchor: ViewModifier {
+    var id: String?
+    var namespace: Namespace.ID
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.glassEffectID(id, in: namespace)
+        } else {
+            content
+        }
+    }
+}
+
+/// A small round dot for a running app; no capsule or box behind it.
+struct DockRunningIndicator: View {
+    var scale: CGFloat
+    @DockAccessibilityStyle() private var accessibility
+    var body: some View {
+        let increased = accessibility.contrast == .increased
+        let diameter = (increased ? 5 : 4) * scale
+        Circle()
+            .fill(Color.primary.opacity(increased ? 1 : 0.7))
+            .frame(width: diameter, height: diameter)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// A clean red capsule with white semibold digits. Increase Contrast adds a white edge.
+struct DockBadgeView: View {
+    var text: String
+    var scale: CGFloat
+    @DockAccessibilityStyle() private var accessibility
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10 * scale, weight: .semibold).monospacedDigit())
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 5 * scale)
+            .frame(minWidth: 16 * scale, minHeight: 16 * scale)
+            .background(Capsule().fill(Color(nsColor: .systemRed)))
+            .overlay {
+                if accessibility.contrast == .increased { Capsule().dockInnerEdge(.white, lineWidth: 1) }
+            }
+            .accessibilityLabel("Notification badge \(text)")
+    }
+}
+
+#if DEBUG
+private struct DockPreviewRunningBundleIdentifiersKey: EnvironmentKey { static let defaultValue: Set<String>? = nil }
+private struct DockPreviewBadgesKey: EnvironmentKey { static let defaultValue: [String: String]? = nil }
+extension EnvironmentValues {
+    /// Render-only: running apps for sample previews, which never read the live process list.
+    var dockPreviewRunningBundleIdentifiers: Set<String>? {
+        get { self[DockPreviewRunningBundleIdentifiersKey.self] } set { self[DockPreviewRunningBundleIdentifiersKey.self] = newValue }
+    }
+    /// Render-only: badge text by bundle identifier for sample previews.
+    var dockPreviewBadges: [String: String]? {
+        get { self[DockPreviewBadgesKey.self] } set { self[DockPreviewBadgesKey.self] = newValue }
+    }
+}
+#endif
