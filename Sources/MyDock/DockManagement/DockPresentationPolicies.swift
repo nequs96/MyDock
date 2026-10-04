@@ -104,10 +104,14 @@ enum DockPanelGeometry {
 /// Running-app dots. Unpinned runtime entries are running by construction; pinned apps
 /// match by their installed-copy URL (saved, or resolved after relocation).
 enum DockRunningIndicatorPolicy {
-    static func isRunning(_ item: DockItem, pinned: Bool, runningURLs: Set<URL>, resolvedURL: () -> URL?) -> Bool {
+    /// `resolvedURL` touches the file system, so it is consulted only when an app with the item's
+    /// bundle identifier is running (`runningBundleIdentifiers` nil skips that gate).
+    static func isRunning(_ item: DockItem, pinned: Bool, runningURLs: Set<URL>,
+                          runningBundleIdentifiers: Set<String>? = nil, resolvedURL: () -> URL?) -> Bool {
         guard item.type == .application else { return false }
         guard pinned else { return true }
         if let url = item.url, runningURLs.contains(InstalledApplicationIdentity.normalizedURL(url)) { return true }
+        if let identifiers = runningBundleIdentifiers, !identifiers.contains(item.bundleIdentifier ?? "") { return false }
         if let url = resolvedURL(), runningURLs.contains(InstalledApplicationIdentity.normalizedURL(url)) { return true }
         return false
     }

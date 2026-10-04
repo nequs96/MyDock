@@ -250,4 +250,21 @@ struct RedesignDockSurfaceTests {
         #expect(!DockRunningIndicatorPolicy.isRunning(.widget("Clock"), pinned: false, runningURLs: running, resolvedURL: { nil }))
         #expect(!DockRunningIndicatorPolicy.isRunning(.file(at: url), pinned: true, runningURLs: running, resolvedURL: { url }))
     }
+
+    @Test func runningIndicatorResolvesMovedAppsOnlyWhenItsBundleIsRunning() {
+        let url = URL(fileURLWithPath: "/Applications/Safari.app")
+        var moved = DockItem.application(at: url)
+        moved.url = URL(fileURLWithPath: "/Volumes/Old/Safari.app")
+        moved.bundleIdentifier = "com.apple.Safari"
+        let running: Set<URL> = [InstalledApplicationIdentity.normalizedURL(url)]
+        var resolutions = 0
+        let resolve: () -> URL? = { resolutions += 1; return url }
+        // Hover and magnification re-evaluate the Dock body; idle apps must not touch the disk.
+        #expect(!DockRunningIndicatorPolicy.isRunning(moved, pinned: true, runningURLs: running,
+                                                      runningBundleIdentifiers: ["com.apple.Terminal"], resolvedURL: resolve))
+        #expect(resolutions == 0)
+        #expect(DockRunningIndicatorPolicy.isRunning(moved, pinned: true, runningURLs: running,
+                                                     runningBundleIdentifiers: ["com.apple.Safari"], resolvedURL: resolve))
+        #expect(resolutions == 1)
+    }
 }

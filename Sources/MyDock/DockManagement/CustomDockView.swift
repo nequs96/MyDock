@@ -499,8 +499,10 @@ struct CustomDockView: View {
         guard !isPreview || usesLivePreviewData else { return [] }
         let running = Set(runtimeApplications.compactMap(\.url).map(InstalledApplicationIdentity.normalizedURL))
         guard !running.isEmpty else { return [] }
+        let runningIdentifiers = Set(runtimeApplications.compactMap(\.bundleIdentifier))
         return Set(profile.items.filter { item in
             DockRunningIndicatorPolicy.isRunning(item, pinned: true, runningURLs: running,
+                                                 runningBundleIdentifiers: runningIdentifiers,
                                                  resolvedURL: { AppLauncher.resolvedURL(for: item) })
         }.map(\.id))
     }
