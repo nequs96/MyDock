@@ -281,3 +281,18 @@ Only the orchestrator edits this file, `docs/IMPLEMENTATION_STATUS.md` and `docs
   - `widgetGlassTint` from `configuration.glassTint ?? .none`.
 
   The rest of that file stays untouched until RD-08.
+
+### Wave 2 launch — 4 October 2026 (base `e8ce88b`)
+
+- **RD-04:** `dock-surface` agent (Opus), isolated worktree. Render mode `MYDOCK_DOCKSTYLE_QA`, in a new file `UI/RedesignQA/DockStyleQA.swift` with one dispatch line.
+- **RD-05:** `widget-visuals` agent (Opus), isolated worktree. Render mode `MYDOCK_WIDGETSURFACE_QA`, in `UI/RedesignQA/WidgetSurfaceQA.swift` with one dispatch line.
+- **RD-06 and RD-07:** queued behind the two-build limit.
+
+**Approved default change (recorded per brief §3):** the module-grammar faces, the type scale and the harmonised `WidgetPalette` apply to every widget surface, including the `.tile` migration default. This is the redesign the user authorized: brief §5.3 restyles every face. Each existing profile keeps:
+- its Dock material;
+- its edge (hairline);
+- its tint;
+- its tile container;
+- each widget's saved icon appearance.
+
+Mono becomes the default icon appearance for **newly created** widgets only. The orchestrator sets it at the creation site after RD-05 reports it.
