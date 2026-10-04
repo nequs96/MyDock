@@ -13,16 +13,34 @@ struct WidgetEmblem: View {
     var body: some View { WidgetIcon(kind: kind, size: size, appearance: .init(legacy: style)) }
 }
 
+extension WidgetIconAppearance {
+    /// Redesign titles for the icon treatments. Raw values and the model's `title` are unchanged.
+    var displayTitle: String {
+        switch self {
+        case .accent: "Color"
+        case .soft: "Soft"
+        case .mono: "Mono"
+        case .outline: "Outline"
+        }
+    }
+}
+
 /// Compatibility for icon-only actions. Data widgets never use this to switch layout.
 struct WidgetIconTile: View {
     var item: DockItem
     var style: WidgetIconStyle
     var width: CGFloat = 54
+    @Environment(\.widgetShowsLabel) private var showsLabel
     var body: some View {
-        HStack(spacing: 7) {
-            WidgetIcon(kind: item.widgetKind ?? item.title, size: 28, appearance: .init(legacy: style))
-            if width > 54 { Text(item.displayName).font(.system(size: 10, weight: .medium)).lineLimit(2) }
-        }.frame(width: width, height: 54)
+        let showsName = width > 54 && showsLabel
+        VStack(spacing: 2) {
+            WidgetToggleGlyph(kind: item.widgetKind ?? item.title, diameter: showsName ? 30 : 36)
+                .environment(\.widgetIconAppearance, .init(legacy: style))
+            if showsName {
+                Text(item.displayName).font(DockDesign.Module.label).lineLimit(1)
+                    .minimumScaleFactor(DockDesign.Module.minimumTextSize / 11)
+            }
+        }.padding(.horizontal, 6).frame(width: width, height: 54)
     }
 }
 
@@ -83,14 +101,15 @@ struct WidgetAppearanceControls: View {
                             Button {
                                 store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.iconAppearance = appearance }
                             } label: {
-                                VStack(spacing: 4) {
-                                    WidgetIcon(kind: kind, symbol: kind == "AI Activity" ? (configuration.aiActivityProvider == .codex ? "terminal" : "sparkle") : nil, size: 28, appearance: appearance)
-                                        .frame(width: 44, height: 40)
-                                        .background(configuration.iconAppearance == appearance ? DockDesign.accent.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(configuration.iconAppearance == appearance ? DockDesign.accent.opacity(0.55) : .clear, lineWidth: 1))
-                                    Text(appearance.title).font(.system(size: 10)).foregroundStyle(.secondary)
+                                let selected = configuration.iconAppearance == appearance
+                                VStack(spacing: 5) {
+                                    WidgetIcon(kind: kind, symbol: kind == "AI Activity" ? (configuration.aiActivityProvider == .codex ? "terminal" : "sparkle") : nil, size: 32, appearance: appearance)
+                                        .frame(width: 42, height: 42)
+                                        .overlay(Circle().strokeBorder(selected ? DockDesign.accent : .clear, lineWidth: 2))
+                                    Text(appearance.displayTitle).font(.system(size: 11, weight: selected ? .semibold : .regular))
+                                        .foregroundStyle(selected ? .primary : .secondary)
                                 }
-                            }.buttonStyle(.plain).accessibilityLabel("\(appearance.title) icon")
+                            }.buttonStyle(.plain).accessibilityLabel("\(appearance.displayTitle) icon")
                                 .accessibilityAddTraits(configuration.iconAppearance == appearance ? .isSelected : [])
                         }
                     }

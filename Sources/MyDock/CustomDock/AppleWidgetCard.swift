@@ -12,7 +12,6 @@ struct AppleWidgetSurface: View {
     var cornerRadius: CGFloat = 16
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).fill(Color.primary.opacity(0.045))
-            .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.5))
     }
 }
 
@@ -45,7 +44,8 @@ struct WidgetCardPreview: View {
         WidgetContainer(width: width, kind: kind) { sample }
             .environment(\.dockWidgetContentWidth, width).environment(\.widgetLayout, selected).environment(\.widgetIconAppearance, appearance)
             .scaleEffect(displayScale).frame(width: width * displayScale, height: 54 * displayScale)
-            .accessibilityLabel("\(kind), illustrative sample preview")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Self.accessibilityLabel(kind: kind))
     }
     @ViewBuilder private var sample: some View {
         switch kind {
@@ -60,14 +60,17 @@ struct WidgetCardPreview: View {
         case "Reminders": RemindersDockFace(count: 3, context: "Weekend errands")
         case "Stripe", "Paddle", "Shopify": BusinessDockFace(kind: kind, title: kind, metric: "Revenue", value: "$2.4K", context: "Today")
         case "Alarm":
-            VStack(alignment: .leading, spacing: 3) { WidgetHeader(kind: kind, title: "Alarm"); MetricText(value: "07:30", size: 18); if selected == .standard { Text("Morning").font(.system(size: 8)).foregroundStyle(.secondary) } }.padding(.horizontal, 9)
+            // Mirrors the live Alarm face: label and the next alarm time; its name on wider layouts.
+            ModuleStack(kind: kind, label: "Alarm", value: "7:30", trailing: width >= 100 ? "Morning" : nil).moduleInsets()
         case "Calendar":
-            HStack(spacing: 8) {
-                VStack(spacing: 0) { HStack(spacing: 3) { WidgetIcon(kind: kind, size: 9); Text("THU").font(.system(size: 8, weight: .bold)).foregroundStyle(.secondary) }; Text("1").font(.system(size: 26, weight: .medium)) }
-                if selected == .wide { VStack(alignment: .leading, spacing: 3) { Text("Design review").font(.system(size: 10, weight: .semibold)); Text("10:30 AM").font(.system(size: 9)).foregroundStyle(.secondary) } }
-            }.padding(.horizontal, 9)
+            CalendarSampleFace(kind: kind, wide: selected == .wide)
         case "AI Limits":
-            VStack(alignment: .leading, spacing: 3) { WidgetHeader(kind: kind, title: "Claude"); MetricText(value: "72%", unit: "left", size: 19); if selected == .standard { Text("Session window").font(.system(size: 8)).foregroundStyle(.secondary) }; UsageBar(fraction: 0.72, color: WidgetPalette.accent(kind)) }.padding(.horizontal, 9)
+            // Mirrors the live AI Limits face: provider label, remaining percentage and its meter.
+            VStack(alignment: .leading, spacing: 3) {
+                WidgetHeader(kind: kind, title: "Claude")
+                MetricText(value: "72%", unit: "left", size: 19)
+                UsageBar(fraction: 0.72, color: WidgetPalette.accent(kind))
+            }.moduleInsets()
         default: LocalWidgetDockFace(item: sampleItem)
         }
     }
@@ -91,6 +94,33 @@ struct WidgetCardPreview: View {
         config.cachedWeatherForecast = WeatherForecast(temperature: 21, apparentTemperature: 20, relativeHumidity: 50, precipitation: 0, windSpeed: 8, weatherCode: 2, isDay: true, fetchedAt: .now, timeZoneIdentifier: "Europe/Warsaw",
             hourly: (1...3).map { .init(timestamp: Date.now.addingTimeInterval(Double($0) * 3600), temperature: Double(21 + $0), precipitationProbability: nil, weatherCode: 2) })
         return config
+    }
+}
+
+extension WidgetCardPreview {
+    /// VoiceOver label for every sample: "<Family>, sample preview".
+    static func accessibilityLabel(kind: String) -> String { "\(kind), sample preview" }
+}
+
+/// Sample Calendar face in the module grammar: weekday over the day, the next event on wide layouts.
+private struct CalendarSampleFace: View {
+    var kind: String
+    var wide: Bool
+    @Environment(\.dockWidgetContentWidth) private var width
+    @Environment(\.widgetAccent) private var accent
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(spacing: 0) {
+                Text("THU").font(DockDesign.Module.label).foregroundStyle(WidgetPalette.resolved(kind: kind, accent: accent))
+                Text("1").font(DockDesign.Module.valueLarge)
+            }
+            if wide && width > 54 {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Design review").font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                    Text("10:30 AM").font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }.moduleInsets()
     }
 }
 
