@@ -10,6 +10,8 @@ struct LibrarySearchField: NSViewRepresentable {
     let choose: () -> Void
     let cancel: () -> Void
     var compact = false
+    /// Overrides the compact (13 pt) or regular (16 pt) size, e.g. inside a search pill.
+    var fontSize: CGFloat? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextField {
@@ -17,7 +19,9 @@ struct LibrarySearchField: NSViewRepresentable {
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = compact ? .default : .none
-        field.font = .systemFont(ofSize: compact ? 13 : 16)
+        field.font = .systemFont(ofSize: fontSize ?? (compact ? 13 : 16))
+        field.cell?.usesSingleLineMode = true
+        field.cell?.lineBreakMode = .byTruncatingTail
         field.textColor = .labelColor
         field.placeholderString = placeholder
         field.delegate = context.coordinator
@@ -30,6 +34,7 @@ struct LibrarySearchField: NSViewRepresentable {
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
         field.placeholderString = placeholder
+        field.setAccessibilityLabel(placeholder)
         if field.stringValue != text { field.stringValue = text }
     }
     final class Coordinator: NSObject, NSTextFieldDelegate {
