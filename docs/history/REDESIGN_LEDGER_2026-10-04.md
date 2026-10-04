@@ -442,3 +442,31 @@ Running dots, the badge and the boxless folder are consistent across all three.
 - **RD-09:** `CalendarRemindersWidgetViews`, `AlarmWidgetViews`, `UtilityWidgetViews`, `DockUtilityWidgetViews`, `NowPlayingWidgetViews`, `WeatherWidgetViews`, `AirDropWidgetViews` and `TrashWidgetViews`. RD-09 also owns their samples in `AppleWidgetCard.swift`, so that sample and live faces match.
 - **RD-10:** `StockWidgetViews`, `StripeWidgetViews`, `PaddleWidgetViews`, `ShopifyWidgetViews`, `AIUsageWidgetViews`, `SystemActivityWidgetViews` and `NetworkActivityWidgetViews`.
 - **AppleWidgetCard.swift edits:** RD-10 edits only its families' sample cases. Conflicts there are resolved by the orchestrator.
+
+### RD-07 — merged (branch commit `4d84790`), plus integration commit `e7fd022`
+
+**Implementation:** implemented.
+
+- **Settings shell:** the sidebar shows white glyphs on coloured rounded squares. Every page uses `GroupedSection`/`GroupedRow` with trailing toggles and short footers.
+- **Appearance page order:** hero (`DockLayoutPreview` over a wallpaper), then Style (five `StyleSwatch`es), Glass, Layout, Widgets and Scope.
+- **Quick styles:** `DockQuickStyle` maps exactly to the ledger. `apply` goes through the existing scope-aware `updateAppearance` path. `matches` drives the selected ring; no match means "Custom".
+- **Other surfaces:** `DockInspector` and `PersonalPresetPicker` use grouped rows. The settings-specific helpers in `DockDesign.swift` are restyled.
+- **Search:** `SettingsSearchCatalog` covers the new controls. The orchestrator added the matching `MyDockSettingsPage.appearance.searchTerms`, because RD-07 did not own the model file.
+
+**Orchestrator review:**
+- Viewed `settings-appearance-light-wide`, `settings-appearance-section-glass-dark` and `settings-behavior-dark-wide`. They read as macOS 26 System Settings.
+- **Defects for the fix wave:**
+  1. The Glass section has both a "Finish" picker (which includes both Liquid Glass finishes) and a separate "Glass finish" Clear/Frosted segmented control. That is redundant: keep one control, or show the segmented control only for glass materials and drop the glass entries from Finish.
+  2. Some footers are still long, e.g. Behavior's window-preview footnote.
+  3. The window shows "Settings" twice: once in the toolbar title and once in the sidebar header.
+
+**Verification:**
+- The worker ran 560 tests and exported 74 renders.
+- Integration: `./TestMyDock.sh` passed **571 tests in 73 suites** (`.build/redesign-rd07-test.log`).
+- The canonical app was rebuilt (SHA-256 starts `185acbbe84effab0`) and relaunched as PID 26220.
+
+### Wave 3 launches
+
+- **RD-08** (`widget-visuals` agent): base `92cc970`.
+- **RD-10** (Codex, effort high): `../MyDock-wt/RD-10`, base `e7fd022`.
+- **RD-09** (`widget-visuals`, second instance): queued for the next build slot.
