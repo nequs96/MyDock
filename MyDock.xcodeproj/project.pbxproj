@@ -110,6 +110,7 @@
 		96F5FA8BBE121DDCC3402ED9 /* WindowPreviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A801E2B79EF9A3199D538A77 /* WindowPreviewService.swift */; };
 		97544E0B6AB1FE1B137EF4F7 /* SystemActivityWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9CD952672513A407C3038B /* SystemActivityWidgetViews.swift */; };
 		978BE9CDE5834A30BA3CD20C /* AccessibilityDisplayState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD1C3241C068010754E2F1FA /* AccessibilityDisplayState.swift */; };
+		980BC47089FB16B25071F385 /* SettingsScopeUndoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20CB3F5CCF73DFC414EC1195 /* SettingsScopeUndoTests.swift */; };
 		9893978AB463F55376CA31B1 /* DockUtilityDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7202D83FFADC50ADBC76218 /* DockUtilityDraftStore.swift */; };
 		998CCEB5A73E85B7E3047D23 /* WidgetLifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F36AD810B7EF2933EC9E74B4 /* WidgetLifecycleCoordinator.swift */; };
 		9A98F1FC8A8DEA925105C612 /* DockSwitchFreezeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 616B4F9ABB3E6AD721E9CB70 /* DockSwitchFreezeProvider.swift */; };
@@ -147,6 +148,7 @@
 		BE288BCB25796B456800E4DD /* PersonalPresetPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 262E66F3B0C1253FAC08FACC /* PersonalPresetPicker.swift */; };
 		BE5DE7BFD6FF0825DB7D30CC /* AIUsageWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C48ECB2A627715F75BC2A1EB /* AIUsageWidgetViews.swift */; };
 		BF4C42464E31828585B4A79B /* ReliabilityLastGoodLimitsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2405228EBFD806F8BAB34CE5 /* ReliabilityLastGoodLimitsTests.swift */; };
+		BF5F5C06E6F5111926C1D324 /* ProductVisualFixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E287C0BEFE53EC935A37C9AB /* ProductVisualFixTests.swift */; };
 		BF7E9EE081899935E28D7561 /* MyDockApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DBF2E68F40E7667A236F357 /* MyDockApp.swift */; };
 		BFE3D7F801FD3E8342C742E4 /* ConnectionsCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 348899CA10515885D4B2596E /* ConnectionsCenterView.swift */; };
 		C327B7F00439EA14382315AF /* FolderContentsPopout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 974BECC1D427C16C9C949FDD /* FolderContentsPopout.swift */; };
@@ -237,6 +239,7 @@
 		1B817FD02D713E0939CD51AE /* ProductCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductCompletionTests.swift; sourceTree = "<group>"; };
 		1CB08DD3123F6A2945D39AB7 /* PrivacyHelpCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyHelpCopy.swift; sourceTree = "<group>"; };
 		1F1C05B99A85467489504E03 /* ReliabilityPhaseTwoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReliabilityPhaseTwoTests.swift; sourceTree = "<group>"; };
+		20CB3F5CCF73DFC414EC1195 /* SettingsScopeUndoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScopeUndoTests.swift; sourceTree = "<group>"; };
 		2128A00815BBB2691B453251 /* ShopifyWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShopifyWidgetViews.swift; sourceTree = "<group>"; };
 		21BB8DEFC665A3B140F40C4D /* NativeDockAutoSaveMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDockAutoSaveMonitor.swift; sourceTree = "<group>"; };
 		21CFEE1F14847708B9EDFA1A /* LocalClockFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalClockFormatter.swift; sourceTree = "<group>"; };
@@ -381,6 +384,7 @@
 		DF3C90F5D4626629139D515F /* CollectionUndoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionUndoTests.swift; sourceTree = "<group>"; };
 		E030830768B2AEE03C513374 /* DockBadgeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockBadgeService.swift; sourceTree = "<group>"; };
 		E050EBD242DC6526F45B8596 /* AppLifecycleSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleSettingsView.swift; sourceTree = "<group>"; };
+		E287C0BEFE53EC935A37C9AB /* ProductVisualFixTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductVisualFixTests.swift; sourceTree = "<group>"; };
 		E42A2A828698ED3D13EEAF85 /* ProfileSemanticValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSemanticValidator.swift; sourceTree = "<group>"; };
 		E4391DEE41DFB03AEF70D857 /* WeatherService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherService.swift; sourceTree = "<group>"; };
 		E47778F8A12065845D562899 /* SingleInstanceLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SingleInstanceLock.swift; sourceTree = "<group>"; };
@@ -707,6 +711,7 @@
 				1B817FD02D713E0939CD51AE /* ProductCompletionTests.swift */,
 				9B78BC2E210B872B542DE57D /* ProductFollowupTests.swift */,
 				022E91F5CADD855D3FB8EC84 /* ProductRuntimeTests.swift */,
+				E287C0BEFE53EC935A37C9AB /* ProductVisualFixTests.swift */,
 				235A6EF464B88B722984AF93 /* ProductWorkflowCorrectionTests.swift */,
 				0601AC91180E955D288421C6 /* ProfileEditingTests.swift */,
 				61EFFFDFDB6B3FA1CDA44C99 /* ProfileStoreTests.swift */,
@@ -725,6 +730,7 @@
 				C1CD485758A259B9E773C53B /* RoadmapRegressionTests.swift */,
 				B3A98F2172D7E906C0B42229 /* RoutineCommitCoalescingTests.swift */,
 				6BFF9B73C085230A3EAC20D6 /* RuntimeIsolationTests.swift */,
+				20CB3F5CCF73DFC414EC1195 /* SettingsScopeUndoTests.swift */,
 				891F2782B98F97E60488485B /* SingleInstanceLockTests.swift */,
 				033BF0CF7388EC380F3EB807 /* WeatherServiceTests.swift */,
 				E91CBE858AEB6F9F89C19223 /* WidgetPresentationTests.swift */,
@@ -1050,6 +1056,7 @@
 				7A70C2FFCC5F1D7934DDB5E1 /* ProductCompletionTests.swift in Sources */,
 				575FADD9DB93499178EA09C4 /* ProductFollowupTests.swift in Sources */,
 				EB2565637C769DBE6976C18A /* ProductRuntimeTests.swift in Sources */,
+				BF5F5C06E6F5111926C1D324 /* ProductVisualFixTests.swift in Sources */,
 				2ED347E3E21D3D06FD870176 /* ProductWorkflowCorrectionTests.swift in Sources */,
 				D20244766A9FC478201602AC /* ProfileEditingTests.swift in Sources */,
 				D8BD75C1D7F81A1921950A48 /* ProfileStoreTests.swift in Sources */,
@@ -1068,6 +1075,7 @@
 				E15F1873FC6B565D44295706 /* RoadmapRegressionTests.swift in Sources */,
 				0297A6F344771B91AC055190 /* RoutineCommitCoalescingTests.swift in Sources */,
 				81E3A442675305C40BA66FC4 /* RuntimeIsolationTests.swift in Sources */,
+				980BC47089FB16B25071F385 /* SettingsScopeUndoTests.swift in Sources */,
 				F4C1B5C6C7F49A8859CAF97E /* SingleInstanceLockTests.swift in Sources */,
 				5660989F72E82026CE5A979D /* WeatherServiceTests.swift in Sources */,
 				A75A4619E29F94C0AEDB6347 /* WidgetPresentationTests.swift in Sources */,
