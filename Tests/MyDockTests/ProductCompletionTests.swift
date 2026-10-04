@@ -146,4 +146,13 @@ struct ProductCompletionTests {
         #expect(WidgetDiscovery.canAdd(other, alreadyAdded: false))
         #expect(WidgetDiscovery.canAdd(.widget("Clock"), alreadyAdded: true))
     }
+
+    @Test func dayRelationAndReadingStatusStayHonest() {
+        #expect(WidgetTimingPresentation.dayRelation(offset: 0, reference: "this Mac") == "Same date as this Mac")
+        #expect(WidgetTimingPresentation.dayRelation(offset: 1, reference: "this Mac") == "1 day ahead of this Mac")
+        #expect(WidgetTimingPresentation.dayRelation(offset: -2, reference: "this Mac") == "2 days behind this Mac")
+        let then = Date(timeIntervalSince1970: 0)
+        #expect(WidgetTimingPresentation.readingStatus(fetchedAt: then, now: then.addingTimeInterval(500), maximumAge: 120).hasPrefix("Saved reading"))
+        #expect(WidgetTimingPresentation.readingStatus(fetchedAt: then, now: then.addingTimeInterval(60), maximumAge: 120).hasPrefix("Updated"))
+    }
 }
