@@ -470,3 +470,45 @@ Running dots, the badge and the boxless folder are consistent across all three.
 - **RD-08** (`widget-visuals` agent): base `92cc970`.
 - **RD-10** (Codex, effort high): `../MyDock-wt/RD-10`, base `e7fd022`.
 - **RD-09** (`widget-visuals`, second instance): queued for the next build slot.
+
+### RD-08 — merged `1f420c4` (branch commit `2355025`)
+
+**Implementation:** implemented.
+
+**Sheet (504 pt wide).** Top to bottom:
+- a header with the title and a "Done" glass pill (Escape closes);
+- a live `WidgetCompactView`, scaled up on this profile's `DockMaterialSurface` strip over a wallpaper;
+- a `SizePager` over the family's layouts;
+- Content: the provider's popout content;
+- Appearance:
+  - Accent: Auto, Mono, or a profile colour;
+  - Icon: Color, Soft, Mono or Outline;
+  - Label: Auto (nil), On or Off;
+  - Glass tint: shown only on the glass surface;
+- Data: omitted when empty;
+- Remove Widget: confirmed, then removed through the profile edit session with undo.
+
+Unchanged: preference-key height measuring, the 640 pt cap and `RefreshDemandHolder`.
+
+**Popout shell.**
+- A Module-label header with a freshness line, on `dockGlass(.regular)` with radius 28 (concentric with the grouped sections).
+- New `showsData` parameter, defaulting to true.
+- Every parameter and call site is kept, and `CustomDockView` is untouched.
+
+**Families restyled** (the ones in `WidgetViews.swift`): Clock, timers, World Clock, Time Progress, Hydration, Battery, App Folder (now a launch grid with edit rows), Shortcuts and Sticky Note.
+- A DEBUG `BatteryQAFixture` was added.
+- Shared views: `WidgetPopoutHero`, `WidgetRoundButtonStyle`, `WidgetStepperRow` and `WidgetCircleButtonStyle`.
+
+**Orchestrator review.**
+- Viewed `widgetsheet-surface-glass-dark` (reads as iOS 26 Edit Widget) and `widgetpopout-countdown-light` (iOS timer pattern).
+- Minor issue for the fix wave: the Clock sheet's Content repeats the big time and date directly under the preview. For families whose Content is only a hero, the sheet should omit the hero.
+
+**Verification.**
+- Worker: 574 tests passed and 56 renders were produced.
+- Integration:
+  - `./TestMyDock.sh` passed **578 tests in 74 suites** (`.build/redesign-rd08-test.log`).
+  - Canonical app quit normally and rebuilt; SHA-256 starts `f8c0339f9df15874`; relaunched as PID 33749.
+
+### RD-09 launched
+
+`widget-visuals` agent, base `1f420c4`. Its brief includes RD-08's content-shaping guidance. RD-10 (Codex) started from `e7fd022`, which does not include RD-08's shared popout views; its content may be reconciled at merge.
