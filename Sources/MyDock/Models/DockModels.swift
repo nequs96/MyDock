@@ -55,6 +55,49 @@ enum CustomDockWidgetStyle: String, Codable, CaseIterable, Identifiable {
     var title: String { self == .cards ? "Adaptive widgets" : "Compact defaults" }
 }
 
+enum DockEdgeStyle: String, Codable, CaseIterable {
+    case none, hairline, contrastOnly
+}
+
+enum DockWidgetSurface: String, Codable, CaseIterable {
+    case glass, plain, tile
+}
+
+enum DockTintMode: String, Codable {
+    case custom, auto
+}
+
+enum WidgetAccent: Codable, Hashable {
+    case auto, mono, profile(DockProfileColor)
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        switch value {
+        case "auto": self = .auto
+        case "mono": self = .mono
+        default:
+            if value.hasPrefix("profile."), let color = DockProfileColor(rawValue: String(value.dropFirst(8))) {
+                self = .profile(color)
+            } else {
+                self = .auto
+            }
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .auto: try container.encode("auto")
+        case .mono: try container.encode("mono")
+        case .profile(let color): try container.encode("profile." + color.rawValue)
+        }
+    }
+}
+
+enum WidgetGlassTint: String, Codable {
+    case none, accent
+}
+
 enum WidgetIconStyle: String, Codable, CaseIterable, Identifiable {
     case live, gradient, tinted, outline
     var id: String { rawValue }
@@ -387,6 +430,10 @@ struct WidgetConfiguration: Codable, Hashable {
     var iconStyle: WidgetIconStyle
     var widgetLayout: WidgetLayout?
     var iconAppearance: WidgetIconAppearance
+    // Nil preserves the inherited presentation of older configurations.
+    var widgetAccent: WidgetAccent?
+    var showsLabel: Bool?
+    var glassTint: WidgetGlassTint?
     var aiActivitySecondaryMetric: AIActivitySecondaryMetric
     var systemSecondaryMetric: SystemSecondaryMetric
     var shelfFiles: [ShelfFile]
@@ -484,6 +531,7 @@ struct WidgetConfiguration: Codable, Hashable {
     var cachedWeatherForecast: WeatherForecast?
 
     private enum CodingKeys: String, CodingKey {
+        case widgetAccent, showsLabel, glassTint
         case shelfFiles, textSnippets, quickLinks, savedColors
         case cardWidth, iconStyle, checklistEntries, widgetLayout, iconAppearance, aiActivitySecondaryMetric, systemSecondaryMetric
         case noteText, noteBackground, focusDurationSeconds, focusElapsedBeforeStart, focusStartedAt
@@ -513,6 +561,9 @@ struct WidgetConfiguration: Codable, Hashable {
         iconStyle = .live
         widgetLayout = nil
         iconAppearance = .soft
+        widgetAccent = nil
+        showsLabel = nil
+        glassTint = nil
         aiActivitySecondaryMetric = .sessions
         systemSecondaryMetric = .memory
         shelfFiles = []
@@ -615,6 +666,9 @@ struct WidgetConfiguration: Codable, Hashable {
         cardWidth = try values.decodeIfPresent(WidgetCardWidth.self, forKey: .cardWidth) ?? .standard
         iconStyle = try values.decodeIfPresent(WidgetIconStyle.self, forKey: .iconStyle) ?? .live
         iconAppearance = try values.decodeIfPresent(WidgetIconAppearance.self, forKey: .iconAppearance) ?? WidgetIconAppearance(legacy: iconStyle)
+        widgetAccent = try? values.decodeIfPresent(WidgetAccent.self, forKey: .widgetAccent)
+        showsLabel = try values.decodeIfPresent(Bool.self, forKey: .showsLabel)
+        glassTint = try? values.decodeIfPresent(WidgetGlassTint.self, forKey: .glassTint)
         widgetLayout = try values.decodeIfPresent(WidgetLayout.self, forKey: .widgetLayout)
         if widgetLayout == nil, !values.contains(.iconAppearance), values.contains(.cardWidth) {
             widgetLayout = cardWidth == .compact ? .compact : cardWidth == .wide ? .wide : .standard
@@ -1113,6 +1167,10 @@ struct AppSettings: Codable, Equatable {
     var customDockItemSpacing: Double = 8
     var customDockCornerRadius: Double = 24
     var customDockTintStrength: Double = 0.08
+    var customDockEdgeStyle: DockEdgeStyle = .hairline
+    var customDockWidgetSurface: DockWidgetSurface = .tile
+    var customDockFloatingInset: Double = 0
+    var customDockTintMode: DockTintMode = .custom
     var customDockGlassOpacity: Double = 0
     var dockAnimationsEnabled = true
     var dockAnimationStyle: DockAnimationStyle = .slide
@@ -1139,6 +1197,7 @@ struct AppSettings: Codable, Equatable {
     var lastSettingsPage: MyDockSettingsPage = .dock
 
     private enum CodingKeys: String, CodingKey {
+        case customDockEdgeStyle, customDockWidgetSurface, customDockFloatingInset, customDockTintMode
         case customDockTheme
         case customDockGlassOpacity, dockAnimationsEnabled, dockAnimationStyle
         case setupMode, activeNativeProfileID, activeCustomProfileID, customDockPosition, customDockSize
@@ -1164,6 +1223,10 @@ struct AppSettings: Codable, Equatable {
         customDockItemSpacing = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockItemSpacing), default: 8, range: DockAppearanceBounds.itemSpacing)
         customDockCornerRadius = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockCornerRadius), default: 24, range: DockAppearanceBounds.cornerRadius)
         customDockTintStrength = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockTintStrength), default: 0.08, range: DockAppearanceBounds.tintStrength)
+        customDockEdgeStyle = (try? values.decodeIfPresent(DockEdgeStyle.self, forKey: .customDockEdgeStyle)) ?? .hairline
+        customDockWidgetSurface = (try? values.decodeIfPresent(DockWidgetSurface.self, forKey: .customDockWidgetSurface)) ?? .tile
+        customDockFloatingInset = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockFloatingInset), default: 0, range: DockAppearanceBounds.floatingInset)
+        customDockTintMode = (try? values.decodeIfPresent(DockTintMode.self, forKey: .customDockTintMode)) ?? .custom
         customDockWidgetStyle = try values.decodeIfPresent(CustomDockWidgetStyle.self, forKey: .customDockWidgetStyle) ?? .cards
         showWidgetLabels = try values.decodeIfPresent(Bool.self, forKey: .showWidgetLabels) ?? true
         customDockDisplayID = try values.decodeIfPresent(UInt32.self, forKey: .customDockDisplayID)
