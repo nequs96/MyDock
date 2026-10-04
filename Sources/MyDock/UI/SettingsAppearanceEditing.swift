@@ -9,7 +9,7 @@ enum SettingsAppearanceEditing {
         let settings: AppSettings
         let color: DockProfileColor?
 
-        func restore(in store: ProfileStore) {
+        @MainActor func restore(in store: ProfileStore) {
             if let profileID {
                 guard store.customProfiles.contains(where: { $0.id == profileID }) else { return }
                 store.setAppearance(appearance, for: profileID)

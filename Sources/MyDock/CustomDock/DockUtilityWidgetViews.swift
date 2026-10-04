@@ -461,10 +461,10 @@ private func collectionEmpty(_ title: String, detail: String) -> some View {
 }
 
 private let utilityIsolatedActionMessage = "Native file, clipboard, sharing, and screen-sampling actions are disabled in this isolated session."
-private var utilityCopyFailureMessage: String { AppRuntimeEnvironment.allowsNativeEffects ? "This text could not be copied." : utilityIsolatedActionMessage }
+var utilityCopyFailureMessage: String { AppRuntimeEnvironment.allowsNativeEffects ? "This text could not be copied." : utilityIsolatedActionMessage }
 
 @discardableResult
-private func copyUtilityText(_ value: String) -> Bool {
+func copyUtilityText(_ value: String) -> Bool {
     guard AppRuntimeEnvironment.allowsNativeEffects else { return false }
     NSPasteboard.general.clearContents()
     return NSPasteboard.general.setString(value, forType: .string)
