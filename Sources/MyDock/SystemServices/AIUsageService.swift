@@ -782,7 +782,8 @@ enum AIActivityReader {
                                                                toolCalls: totals.toolCalls, totalTokens: totals.totalTokens,
                                                                cachedInputTokens: totals.cachedInputTokens, inputTokens: totals.inputTokens,
                                                                outputTokens: totals.outputTokens, requests: totals.requests,
-                                                               reportedCostUSD: totals.reportedCostUSD))
+                                                               reportedCostUSD: totals.reportedCostUSD),
+                                  sourceScope: sourceScope)
     }
 
     private static func unavailable(provider: AIProvider, range: AIActivityRange, now: Date, message: String) -> AIActivitySnapshot {
