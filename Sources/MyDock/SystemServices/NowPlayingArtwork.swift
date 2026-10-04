@@ -17,9 +17,21 @@ enum NowPlayingArtwork {
         return url
     }
 
-    static func fetchSpotifyArtwork(at url: URL) async -> Data? {
-        guard AppRuntimeEnvironment.allowsNetwork else { return nil }
+    typealias FixtureTransport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
+
+    static func fetchSpotifyArtwork(at url: URL, transport: FixtureTransport? = nil) async -> Data? {
+        guard transport != nil || AppRuntimeEnvironment.allowsNetwork else { return nil }
         guard spotifyURL(from: url.absoluteString) != nil else { return nil }
+        if let transport {
+            do {
+                try Task.checkCancellation()
+                let (data, response) = try await transport(URLRequest(url: url))
+                guard !Task.isCancelled, (200..<300).contains(response.statusCode),
+                      response.mimeType?.lowercased().hasPrefix("image/") == true,
+                      data.count <= maximumRemoteBytes else { return nil }
+                return data
+            } catch { return nil }
+        }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 5
         configuration.timeoutIntervalForResource = 8

@@ -5,7 +5,6 @@ import Darwin
 /// Keeping stdin open until the reply avoids cancelling the server at EOF.
 enum CodexAccountRPC {
     static func request(executable: URL, method: String, parameters: [String: Any] = [:], timeout: TimeInterval = 12, environment: [String: String]? = nil) throws -> Data {
-        try AppRuntimeEnvironment.requireCredentials()
         let process = Process()
         let input = Pipe(), output = Pipe(), errors = Pipe()
         process.executableURL = executable

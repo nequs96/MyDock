@@ -26,9 +26,21 @@ enum SiteFaviconFetcher {
         return icon.url
     }
 
-    static func fetchIconData(for destination: URL) async -> Data? {
-        guard AppRuntimeEnvironment.allowsNetwork else { return nil }
+    typealias FixtureTransport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
+
+    static func fetchIconData(for destination: URL, transport: FixtureTransport? = nil) async -> Data? {
+        guard transport != nil || AppRuntimeEnvironment.allowsNetwork else { return nil }
         guard let iconURL = faviconURL(for: destination), let host = iconURL.host else { return nil }
+        if let transport {
+            do {
+                try Task.checkCancellation()
+                let (data, response) = try await transport(URLRequest(url: iconURL))
+                guard !Task.isCancelled, (200..<300).contains(response.statusCode),
+                      response.mimeType?.lowercased().hasPrefix("image/") == true,
+                      data.count <= maximumResponseBytes else { return nil }
+                return normalizedPNG(from: data)
+            } catch { return nil }
+        }
         let hasPublicDNS = await Task.detached(priority: .utility) {
             resolvesOnlyToPublicAddresses(host)
         }.value

@@ -18,7 +18,9 @@ struct SettingsView: View {
     @State private var settingsSearch = ""
     @State private var advancedAppearanceExpanded = false
     @State private var appearanceProfileID: UUID?
-    @State private var previousAppearance: (UUID?, ProfileAppearance?, AppSettings)?
+    @State private var previousAppearance: (UUID?, ProfileAppearance?, AppSettings, DockProfileColor?)?
+    @State private var appearanceScopeMessage: String?
+    @State private var diagnosticsPreview: DiagnosticsPreviewPayload?
     @State private var editingAppearanceContinuously = false
     @State private var editingShortcutProfile: DockProfile?
     @State private var backupMessage: String?
@@ -52,6 +54,7 @@ struct SettingsView: View {
         self.embeddedInWorkspace = embeddedInWorkspace
         self.sidebarVisible = sidebarVisible
         _selectedPage = State(initialValue: initialPage ?? store.state.settings.lastSettingsPage)
+        _appearanceProfileID = State(initialValue: store.activeCustomProfile?.id)
     }
 
     private var visiblePages: [MyDockSettingsPage] {
@@ -324,21 +327,43 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 20) {
                 SettingsPageHeader(page: selectedPage)
                 DockSettingSection(title: "Appearance scope") {
-                    SettingsControlRow(title: "Apply appearance to") {
-                        Picker("Apply appearance to", selection: $appearanceProfileID) {
-                            Text("Global default").tag(Optional<UUID>.none)
-                            ForEach(store.customProfiles) { Text($0.name).tag(Optional($0.id)) }
-                        }
+                    SettingsControlRow(title: "Editing") {
+                        Picker("Editing", selection: Binding(
+                            get: { appearanceProfileID != nil },
+                            set: { thisDock in
+                                appearanceProfileID = thisDock ? store.activeCustomProfile?.id ?? store.customProfiles.first?.id : nil
+                                appearanceScopeMessage = nil
+                            })) {
+                            Text("This Dock").tag(true).disabled(store.customProfiles.isEmpty)
+                            Text("App defaults").tag(false)
+                        }.pickerStyle(.segmented).frame(width: 240)
                     }
+                    if appearanceProfileID != nil {
+                        SettingsControlRow(title: "Dock") {
+                            Picker("Dock to edit", selection: $appearanceProfileID) {
+                                ForEach(store.customProfiles) { Text($0.name).tag(Optional($0.id)) }
+                            }
+                        }
+                    } else {
+                        Text(store.customProfiles.isEmpty ? "Create a custom Dock to edit its appearance. You can edit app defaults now." : "Defaults apply to Docks that use inherited appearance. Saved Dock overrides and Dock colors stay as they are.")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let appearanceScopeMessage { Text(appearanceScopeMessage).font(.caption).foregroundStyle(.secondary) }
                     if let id = appearanceProfileID {
-                        Toggle("Use global appearance", isOn: Binding(
+                        Toggle("Use app defaults", isOn: Binding(
                             get: { store.customProfiles.first(where: { $0.id == id })?.appearance == nil },
                             set: { inherit in
                                 rememberAppearance()
                                 store.setAppearance(inherit ? nil : ProfileAppearance(settings: appearanceSettings), for: id)
                             }))
-                        Text("This profile can inherit the global appearance or keep its own material, density, and cards.")
+                        Text("This Dock can inherit app defaults or keep its full saved appearance. Editing a control creates a full Dock override.")
                             .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if appearanceProfileID != nil {
+                        Button("Reset to app defaults") {
+                            guard let id = appearanceProfileID, store.customProfiles.contains(where: { $0.id == id }) else { return }
+                            rememberAppearance(); store.setAppearance(nil, for: id)
+                        }
                     }
                     if previousAppearance != nil {
                         Button("Undo last appearance change") { undoAppearance() }
@@ -358,9 +383,9 @@ struct SettingsView: View {
                         appearancePreset("Frosted glass", material: .liquidGlass, tint: 0.02)
                         appearancePreset("Midnight", material: .dark, tint: 0.10)
                     }
-                    if let profile = appearanceProfileID.flatMap({ id in store.customProfiles.first { $0.id == id } }) ?? store.activeCustomProfile {
+                    if let profile = appearanceProfileID.flatMap({ id in store.customProfiles.first { $0.id == id } }) {
                         SettingsControlRow(title: "Dock color") {
-                            Picker("Dock color", selection: Binding(get: { DockProfileColor(rawValue: profile.color) ?? .blue }, set: { store.setProfileColor(profile.id, to: $0) })) {
+                            Picker("Dock color", selection: Binding(get: { DockProfileColor(rawValue: profile.color) ?? .blue }, set: { rememberAppearance(); store.setProfileColor(profile.id, to: $0) })) {
                                 ForEach(DockProfileColor.allCases) { Text($0.title).tag($0) }
                             }
                         }
@@ -714,6 +739,19 @@ struct SettingsView: View {
         .onAppear {
             if let initialPage { persistSettingsPage(initialPage) }
         }
+        .onChange(of: store.customProfiles.map(\.id)) { ids in
+            if let id = appearanceProfileID, !ids.contains(id) {
+                appearanceProfileID = nil
+                editingAppearanceContinuously = false
+                appearanceScopeMessage = "The selected Dock was removed. Editing app defaults now."
+            }
+        }
+        .sheet(item: $diagnosticsPreview) { payload in
+            DiagnosticsPreviewSheet(payload: payload) { diagnosticsPreview = nil } saved: {
+                diagnosticsMessage = "Saved the reviewed redacted diagnostics."
+                diagnosticsPreview = nil
+            }
+        }
         .onChange(of: selectedPage) { page in persistSettingsPage(page) }
         .onChange(of: store.state.settings.lastSettingsPage) { selectedPage = $0 }
         .sheet(item: $editingShortcutProfile) { profile in
@@ -742,10 +780,9 @@ struct SettingsView: View {
 
     private var appearancePreview: some View {
         var profile = appearanceProfileID.flatMap { id in store.customProfiles.first { $0.id == id } }
-            ?? store.activeCustomProfile
             ?? DockProfile(name: "Preview", kind: .custom, items: [.widget("Clock"), .widget("Weather"), .widget("Sticky Note")])
         profile.appearance = ProfileAppearance(settings: appearanceSettings)
-        return DockLayoutPreview(store: store, profile: profile, maximumSideLength: 180, usesLiveData: store.allowsSystemChanges)
+        return DockLayoutPreview(store: store, profile: profile, maximumSideLength: 180, usesLiveData: false)
             .accessibilityLabel("Dock appearance preview, sample data")
     }
 
@@ -755,10 +792,12 @@ struct SettingsView: View {
 
     private func rememberAppearance() {
         previousAppearance = (appearanceProfileID,
-            appearanceProfileID.flatMap { id in store.customProfiles.first(where: { $0.id == id })?.appearance }, store.state.settings)
+            appearanceProfileID.flatMap { id in store.customProfiles.first(where: { $0.id == id })?.appearance }, store.state.settings,
+            appearanceProfileID.flatMap { id in store.customProfiles.first(where: { $0.id == id }).flatMap { DockProfileColor(rawValue: $0.color) } })
     }
 
     private func updateAppearance(immediately: Bool = false, _ change: (inout AppSettings) -> Void) {
+        guard appearanceProfileID == nil || store.customProfiles.contains(where: { $0.id == appearanceProfileID }) else { return }
         if !editingAppearanceContinuously { rememberAppearance() }
         var settings = appearanceSettings
         change(&settings)
@@ -780,7 +819,10 @@ struct SettingsView: View {
 
     private func undoAppearance() {
         guard let previous = previousAppearance else { return }
-        if let id = previous.0 { store.setAppearance(previous.1, for: id) }
+        if let id = previous.0 {
+            store.setAppearance(previous.1, for: id)
+            if let color = previous.3 { store.setProfileColor(id, to: color) }
+        }
         else { store.updateSettings { $0 = ProfileAppearance(settings: previous.2).applying(to: $0) } }
         previousAppearance = nil
     }
@@ -938,16 +980,11 @@ struct SettingsView: View {
     }
 
     private func exportDiagnostics() {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "MyDock-Diagnostics.json"
-        panel.allowedContentTypes = [.json]
-        panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            try DiagnosticsService.shared.reportData(for: store).write(to: url, options: .atomic)
-            diagnosticsMessage = "Saved redacted diagnostics."
+            diagnosticsPreview = DiagnosticsPreviewPayload(data: try DiagnosticsService.shared.reportData(for: store))
+            diagnosticsMessage = nil
         } catch {
-            diagnosticsMessage = "Could not export diagnostics: \(error.localizedDescription)"
+            diagnosticsMessage = "Could not prepare diagnostics: \(error.localizedDescription)"
         }
     }
 
