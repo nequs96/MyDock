@@ -10,12 +10,12 @@ An ordinary app click asks macOS to open the saved installed application URL. My
 | --- | --- |
 | Not running / no windows | Request opening the selected application. The app decides whether to create a window. |
 | One visible window | Request opening/activating that application; the app and macOS decide window focus. |
-| Multiple windows | Activate/open the application. A click does not choose a particular window. Use its **Windows** context submenu for a specific observed window. |
+| Multiple windows | Activate/open the application. A click does not choose a particular window. Use the **Windows…** context-menu command, which discovers the app's windows and lists them for selection. |
 | Minimized windows | The app decides ordinary-open behavior. Use the specific window action to request restoration through Accessibility. |
 
 If **Click focused app to minimize** is enabled, a click first attempts to minimize the focused window of the exact running copy. If that attempt cannot succeed, MyDock makes the ordinary open request. This behavior needs Accessibility; basic opening does not. Multiple processes belonging to one installed copy can be ambiguous, and MyDock refuses identity-dependent actions rather than choosing arbitrarily.
 
-The context menu discovers windows on demand, independently of optional background minimized-window monitoring. Window actions revalidate the process and sampled native accessibility object. A stale window or another installed copy is not substituted. **Close Window** requests normal document closing; **Quit App** requests normal application termination. Another app can show an unsaved-document dialog and cancel either request. MyDock does not force quit or treat a request as proof of exit.
+The context menu discovers windows on demand, independently of optional background minimized-window monitoring. Window actions revalidate the process and sampled native accessibility object. A stale window or another installed copy is not substituted. **Close Window…** lists windows and requests normal closing of the chosen one; **Quit <app name>** requests normal application termination. Another app can show an unsaved-document dialog and cancel either request. MyDock does not force quit or treat a request as proof of exit.
 
 ## Widgets, files and folders
 
