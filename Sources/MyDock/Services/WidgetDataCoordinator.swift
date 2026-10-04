@@ -262,7 +262,7 @@ final class WidgetDataCoordinator: ObservableObject {
             }.map { (profile.id, $0.id) }
         }
         for (profileID, itemID) in targets {
-            store.updateWidgetConfiguration(itemID: itemID, in: profileID) { c in
+            store.publishRuntimeReadings(itemID: itemID, in: profileID) { c in
                 guard queryMaker(query.kind, c) == query else { return }
                 value.apply(to: &c, sourceScope: query.aiSourceScope)
             }

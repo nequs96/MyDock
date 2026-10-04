@@ -627,6 +627,23 @@ final class ProfileStore: ObservableObject {
         return .accepted
     }
 
+    /// The only write path for provider readings: resolves the display configuration (authored values plus
+    /// identity-matched cache readings), lets the provider update it, and stores only the resulting readings in the
+    /// cache. Authored profile state, history, undo and edit sessions are never touched; authored changes made by
+    /// `update` are ignored by design.
+    @discardableResult
+    func publishRuntimeReadings(itemID: UUID, in profileID: UUID, update: (inout WidgetConfiguration) -> Void) -> WidgetConfigurationUpdateResult {
+        guard let authored = state.profiles.first(where: { $0.id == profileID })?.items.first(where: { $0.id == itemID }),
+              authored.type == .widget else { return .missingTarget }
+        let previous = presentationItem(authored).widgetConfiguration ?? WidgetConfiguration()
+        var display = previous
+        update(&display)
+        // Readings keep the identity of the authored configuration, never a retagged one.
+        var resolved = authored.widgetConfiguration ?? WidgetConfiguration()
+        resolved.resolveRuntimeReadings(display.runtimeReadings)
+        return runtimeCache.set(resolved.runtimeReadings, for: itemID) ? .accepted : .unchanged
+    }
+
     /// Critical Save/dismissal boundaries validate and write before acknowledging input.
     func updateWidgetConfigurationAndPersist(itemID: UUID, in profileID: UUID, update: (inout WidgetConfiguration) -> Void) throws {
         var candidate = state
