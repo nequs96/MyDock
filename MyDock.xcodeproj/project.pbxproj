@@ -221,9 +221,11 @@
 		F1A7080F7817FCF1B81D916A /* UtilityWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F36D2DAF74B9B7ED303CD3 /* UtilityWidgetViews.swift */; };
 		F3966C536E638B97EDC932A5 /* StripeWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51088F3122DB5D13D0F9C40 /* StripeWidgetViews.swift */; };
 		F4C1B5C6C7F49A8859CAF97E /* SingleInstanceLockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 891F2782B98F97E60488485B /* SingleInstanceLockTests.swift */; };
+		F552426A6FFD891BA093575D /* RedesignWidgetSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B75535511F666CE55BC49B4 /* RedesignWidgetSheetTests.swift */; };
 		F581CFE231439478F23A4C5E /* DockProfileStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81913F94F463C9DF77BA059 /* DockProfileStatus.swift */; };
 		F5D1599F3629431E621ACCC4 /* DockUtilityWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9BD2DD6D0CACDD0441DDB85 /* DockUtilityWidgetViews.swift */; };
 		F86485F16DE127145CD04F56 /* DockUtilityExpansionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE911CCE3F17E817C08D58A6 /* DockUtilityExpansionTests.swift */; };
+		F8A11768ED505DDC20865568 /* WidgetSheetQA.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29EDA8B6DFFC2C36604B1AC0 /* WidgetSheetQA.swift */; };
 		F8DE0DA2732848B21F1FA62B /* DiagnosticsPreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 067DDB2D4EC463C8422F4A80 /* DiagnosticsPreviewSheet.swift */; };
 		F9535B70D67C9ECB3DF142CD /* DockLayoutPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89389BAE8CB75C819B69DE04 /* DockLayoutPreview.swift */; };
 		F9CC003830669CDA06F42006 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = D775FAF79BFB59E8B642EF42 /* AppIcon.icns */; };
@@ -295,6 +297,7 @@
 		27618B6C5A0B18A92503A28D /* DisposableSystemAcceptanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisposableSystemAcceptanceTests.swift; sourceTree = "<group>"; };
 		27892125A92FEAAD242BECB1 /* DiagnosticsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsService.swift; sourceTree = "<group>"; };
 		28D203EEDBDDDFD2D20AECEE /* N2UtilityRepairTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = N2UtilityRepairTests.swift; sourceTree = "<group>"; };
+		29EDA8B6DFFC2C36604B1AC0 /* WidgetSheetQA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSheetQA.swift; sourceTree = "<group>"; };
 		2A362720EE164869D7D987E3 /* PaddleDataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaddleDataService.swift; sourceTree = "<group>"; };
 		2C00D315B55785F3BD5242D1 /* QuickCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickCalculator.swift; sourceTree = "<group>"; };
 		2C6FBCDC2304858F53F40B30 /* DataSourceProvenanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataSourceProvenanceView.swift; sourceTree = "<group>"; };
@@ -308,6 +311,7 @@
 		39841DDAA32CD2529F828B4C /* DockStyleQA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockStyleQA.swift; sourceTree = "<group>"; };
 		3A358C7441BD6FDCFF5D64E8 /* DockSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSettingsPage.swift; sourceTree = "<group>"; };
 		3AB2654BD3B4F432A2D7179F /* DockItemContextMenus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockItemContextMenus.swift; sourceTree = "<group>"; };
+		3B75535511F666CE55BC49B4 /* RedesignWidgetSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedesignWidgetSheetTests.swift; sourceTree = "<group>"; };
 		3D1F984DB1813FD4A6A142CA /* ProfileSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSanitizer.swift; sourceTree = "<group>"; };
 		3DDEB8903C269E742496D5AF /* MenuBarProfileTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarProfileTitle.swift; sourceTree = "<group>"; };
 		3EB5D4FEF7D060E8D2EE2874 /* SystemActivityReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemActivityReader.swift; sourceTree = "<group>"; };
@@ -554,6 +558,7 @@
 			children = (
 				39841DDAA32CD2529F828B4C /* DockStyleQA.swift */,
 				809D3CEFF57072D9A910444E /* GalleryQA.swift */,
+				29EDA8B6DFFC2C36604B1AC0 /* WidgetSheetQA.swift */,
 				519F84867C2589AE4B57BBE7 /* WidgetSurfaceQA.swift */,
 			);
 			path = RedesignQA;
@@ -848,6 +853,7 @@
 				B5631536558138043849A381 /* RedesignDockSurfaceTests.swift */,
 				AAB530BF00AFF3A9DEDF5155 /* RedesignGalleryTests.swift */,
 				C0FB3C15F8FF5FF725A3FC52 /* RedesignWidgetChromeTests.swift */,
+				3B75535511F666CE55BC49B4 /* RedesignWidgetSheetTests.swift */,
 				484A3A5DD7A830602D8A5AFE /* RegistryCapabilityTests.swift */,
 				482FC38E0DAC4350992C74B7 /* RegistryQualificationTests.swift */,
 				71C627CEA641F8C8BD8E10F4 /* ReliabilityAuthoredRuntimeBoundaryTests.swift */,
@@ -1181,6 +1187,7 @@
 				D3F6B13101791465E9798554 /* WidgetRefreshLimiter.swift in Sources */,
 				A5210C2B6D498BAE1B8E7F19 /* WidgetRuntimeCache.swift in Sources */,
 				B514CA0C8665C8879F92803C /* WidgetSetupDraftStore.swift in Sources */,
+				F8A11768ED505DDC20865568 /* WidgetSheetQA.swift in Sources */,
 				AA9CCC39F592F730D0DD8A53 /* WidgetSurfaceQA.swift in Sources */,
 				E004ACFDED82AF111A0D6644 /* WidgetTimingPresentation.swift in Sources */,
 				5AE9D055964926B98F82E0AE /* WidgetViews.swift in Sources */,
@@ -1227,6 +1234,7 @@
 				0AB99B843F40C51C4075DC96 /* RedesignDockSurfaceTests.swift in Sources */,
 				4A35FF142940FAC6A580A042 /* RedesignGalleryTests.swift in Sources */,
 				B1BB81A0C9CD05757C8BAECD /* RedesignWidgetChromeTests.swift in Sources */,
+				F552426A6FFD891BA093575D /* RedesignWidgetSheetTests.swift in Sources */,
 				530764B83A822A476509DA5B /* RegistryCapabilityTests.swift in Sources */,
 				DA5CED898253F8C72345F666 /* RegistryQualificationTests.swift in Sources */,
 				057B1DBD3EEABD5D19FF524A /* ReliabilityAuthoredRuntimeBoundaryTests.swift in Sources */,

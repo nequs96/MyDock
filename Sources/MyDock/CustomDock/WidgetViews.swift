@@ -111,65 +111,226 @@ struct WidgetPopout: View {
     var profileID: UUID
     var showsCustomize = true
     var showsHeader = true
+    /// The freshness line. The settings sheet shows it in its own Data section instead.
+    var showsData = true
     @Environment(\.dismiss) private var dismiss
+    @DockAccessibilityStyle() private var accessibility
     @State private var showsAppearance = false
-    init(store: ProfileStore, item: DockItem, profileID: UUID, showsCustomize: Bool = true, showsHeader: Bool = true) {
+    init(store: ProfileStore, item: DockItem, profileID: UUID, showsCustomize: Bool = true, showsHeader: Bool = true, showsData: Bool = true) {
         self.store = store; self.item = item; self.profileID = profileID
-        self.showsCustomize = showsCustomize; self.showsHeader = showsHeader
+        self.showsCustomize = showsCustomize; self.showsHeader = showsHeader; self.showsData = showsData
         _runtimeCache = ObservedObject(wrappedValue: store.runtimeCache)
     }
     private var currentItem: DockItem {
         store.presentationItem(store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id } ?? item)
     }
+    private var kind: String { item.widgetKind ?? item.title }
+    private var showsFreshness: Bool { showsData && item.widgetKind != "AI Activity" }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if showsHeader {
-                HStack(spacing: 11) {
-                    WidgetEmblem(kind: item.widgetKind ?? item.title)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item.displayName).font(.system(size: 17, weight: .semibold))
-                        Text((WidgetRegistry.all.first { $0.name == item.widgetKind }?.category.rawValue ?? "Dock") + " widget").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 4)
-                    if showsCustomize {
-                        Button { showsAppearance.toggle() } label: { Image(systemName: "slider.horizontal.3") }
-                            .buttonStyle(DockButtonStyle(icon: true))
-                            .help("Customize this widget").accessibilityLabel("Customize this widget")
-                            .accessibilityValue(showsAppearance ? "Expanded" : "Collapsed")
-                    }
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .buttonStyle(DockButtonStyle(icon: true)).accessibilityLabel("Close widget")
-                }
-                Divider()
-            }
-            if showsAppearance {
-                WidgetAppearanceControls(store: store, item: currentItem, profileID: profileID)
-                Divider()
-            }
-            if store.hasUnpersistedChanges || store.persistenceError != nil {
-                HStack(alignment: .top, spacing: 10) {
-                    Label(store.persistenceError ?? "Changes are waiting to be saved.", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 4)
-                    Button("Retry Save") { store.commit() }
-                        .controlSize(.small).disabled(!store.canRetryPersistence || !store.hasUnpersistedChanges)
-                }.padding(10).background(Color.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
-            }
-            WidgetProviderRegistry.provider(for: currentItem.widgetKind)
-                .popoutView(store: store, item: currentItem, profileID: profileID)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if item.widgetKind != "AI Activity" {
-                WidgetFreshnessView(coordinator: store.widgetData, item: currentItem) {
-                    Task { await store.widgetData.refresh(item: currentItem, profileID: profileID) }
-                }
-            }
+        Group {
+            if showsHeader { shell } else { embedded }
         }
         .font(DockDesign.body).tint(DockDesign.accent)
         .buttonStyle(DockButtonStyle()).textFieldStyle(DockTextFieldStyle())
         .toggleStyle(SettingsSwitchStyle())
-        .frame(width: 420, alignment: .leading)
         .onExitCommand { dismiss() }
+    }
+
+    /// In the Dock: a glass module with the family's name and freshness, then its content.
+    private var shell: some View {
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+            header
+            if showsAppearance {
+                WidgetAppearanceControls(store: store, item: currentItem, profileID: profileID, showsSizeRow: true)
+            }
+            persistenceNotice
+            familyContent
+        }
+        .padding(WidgetPopoutMetrics.padding)
+        .frame(width: WidgetPopoutMetrics.contentWidth + 2 * WidgetPopoutMetrics.padding, alignment: .leading)
+        .dockGlass(.regular, in: RoundedRectangle(cornerRadius: WidgetPopoutMetrics.radius, style: .continuous))
+    }
+
+    /// Inside the settings sheet: content only; the sheet draws the header, surface and Data.
+    private var embedded: some View {
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+            persistenceNotice
+            familyContent
+            if showsFreshness { freshness }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 8) {
+            WidgetIcon(kind: kind, size: 14, appearance: .mono)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(kind).font(DockDesign.Module.labelLarge).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+                if showsFreshness { freshness.controlSize(.small) }
+            }
+            Spacer(minLength: 4)
+            if showsCustomize {
+                Button { showsAppearance.toggle() } label: { Image(systemName: "slider.horizontal.3") }
+                    .buttonStyle(WidgetCircleButtonStyle(selected: showsAppearance))
+                    .help("Customize this widget").accessibilityLabel("Customize this widget")
+                    .accessibilityValue(showsAppearance ? "Expanded" : "Collapsed")
+            }
+            Button { dismiss() } label: { Image(systemName: "xmark") }
+                .buttonStyle(WidgetCircleButtonStyle())
+                .help("Close").accessibilityLabel("Close widget")
+        }
+    }
+
+    private var freshness: some View {
+        WidgetFreshnessView(coordinator: store.widgetData, item: currentItem) {
+            Task { await store.widgetData.refresh(item: currentItem, profileID: profileID) }
+        }
+        .buttonStyle(.borderless)
+    }
+
+    @ViewBuilder private var persistenceNotice: some View {
+        if store.hasUnpersistedChanges || store.persistenceError != nil {
+            GroupedSection {
+                GroupedRow(store.persistenceError ?? "Changes are waiting to be saved.", symbol: "exclamationmark.triangle.fill", color: .orange) {
+                    Button("Retry Save") { store.commit() }
+                        .controlSize(.small).disabled(!store.canRetryPersistence || !store.hasUnpersistedChanges)
+                }
+            }
+        }
+    }
+
+    private var familyContent: some View {
+        WidgetProviderRegistry.provider(for: currentItem.widgetKind)
+            .popoutView(store: store, item: currentItem, profileID: profileID)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+#if DEBUG
+extension WidgetPopout {
+    /// Render QA only: the popout with its Customize panel already open.
+    func customizeExpandedForQA() -> WidgetPopout {
+        var copy = self
+        copy._showsAppearance = State(initialValue: true)
+        return copy
+    }
+}
+#endif
+
+/// Popout shell metrics. Grouped sections inside are concentric with the shell:
+/// shell radius = grouped radius + shell padding.
+enum WidgetPopoutMetrics {
+    static let padding: CGFloat = 16
+    static let spacing: CGFloat = 16
+    /// Width families lay out in; unchanged from the previous popout so existing content fits.
+    static let contentWidth: CGFloat = 420
+    static var radius: CGFloat { DockDesign.Grouped.radius + padding }
+}
+
+// MARK: - Popout vocabulary for families
+
+/// The one large value of a popout (a time, a count) with at most one secondary line, centred.
+struct WidgetPopoutHero: View {
+    var value: String
+    var caption: String?
+    var valueColor: Color = .primary
+    var body: some View {
+        VStack(spacing: 3) {
+            Text(value)
+                .font(.system(size: 40, weight: .semibold).monospacedDigit())
+                .foregroundStyle(valueColor)
+                .lineLimit(1).minimumScaleFactor(0.5)
+                .contentTransition(.numericText())
+            if let caption {
+                Text(caption).font(.system(size: 13)).foregroundStyle(.secondary)
+                    .lineLimit(DockDesign.Module.maxTextLines).multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Round timer controls in the iOS Clock style: a tinted primary action and a grey secondary one.
+struct WidgetRoundButtonStyle: ButtonStyle {
+    var tint: Color? = nil
+    var diameter: CGFloat = 62
+    func makeBody(configuration: Configuration) -> some View { RoundBody(configuration: configuration, tint: tint, diameter: diameter) }
+    private struct RoundBody: View {
+        let configuration: ButtonStyle.Configuration
+        var tint: Color?
+        var diameter: CGFloat
+        @Environment(\.isEnabled) private var isEnabled
+        @DockAccessibilityStyle() private var accessibility
+        @State private var hovered = false
+        var body: some View {
+            configuration.label
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint ?? Color.primary)
+                .lineLimit(1).minimumScaleFactor(0.8)
+                .padding(.horizontal, 6)
+                .frame(width: diameter, height: diameter)
+                .background(Circle().fill((tint ?? Color.primary).opacity(tint == nil ? 0.08 : 0.18)))
+                .overlay(Circle().fill(Color.primary.opacity(configuration.isPressed ? 0.10 : hovered ? 0.04 : 0)))
+                .overlay {
+                    if accessibility.contrast == .increased {
+                        Circle().strokeBorder(DockDesign.Outline.color(.increased), lineWidth: DockDesign.Outline.controlWidth(.increased))
+                    }
+                }
+                .contentShape(Circle())
+                .opacity(isEnabled ? 1 : 0.4)
+                .onHover { hovered = $0 }
+        }
+    }
+}
+
+/// A small circular header control (customize, close) that sits quietly on glass.
+struct WidgetCircleButtonStyle: ButtonStyle {
+    var selected = false
+    func makeBody(configuration: Configuration) -> some View { CircleBody(configuration: configuration, selected: selected) }
+    private struct CircleBody: View {
+        let configuration: ButtonStyle.Configuration
+        var selected: Bool
+        @DockAccessibilityStyle() private var accessibility
+        @State private var hovered = false
+        var body: some View {
+            configuration.label
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(selected ? Color.white : Color.secondary)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(selected ? DockDesign.accent : Color.primary.opacity(configuration.isPressed ? 0.16 : hovered ? 0.11 : 0.07)))
+                .overlay {
+                    if accessibility.contrast == .increased {
+                        Circle().strokeBorder(DockDesign.Outline.color(.increased), lineWidth: DockDesign.Outline.controlWidth(.increased))
+                    }
+                }
+                .contentShape(Circle())
+                .onHover { hovered = $0 }
+        }
+    }
+}
+
+/// A grouped row with a value and a stepper, e.g. "Session · 25 min".
+struct WidgetStepperRow: View {
+    var title: String
+    var value: String
+    @Binding var amount: Int
+    var range: ClosedRange<Int>
+    var step: Int
+    var body: some View {
+        GroupedRow(title) {
+            HStack(spacing: 8) {
+                Text(value).font(DockDesign.Grouped.titleFont).foregroundStyle(.secondary).monospacedDigit()
+                Stepper(title, value: $amount, in: range, step: step).labelsHidden()
+                    .accessibilityLabel(title).accessibilityValue(value)
+            }
+        }
     }
 }
 
@@ -188,11 +349,7 @@ private struct ClockWidgetProvider: DockWidgetProvider {
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
         AnyView(TimelineView(.periodic(from: .now, by: 1)) { context in
-            VStack(alignment: .leading, spacing: 4) {
-                Text(LocalClockFormatter.time(for: context.date))
-                    .font(.system(size: 34, weight: .medium, design: .rounded).monospacedDigit())
-                Text(LocalClockFormatter.date(for: context.date)).foregroundStyle(.secondary)
-            }
+            WidgetPopoutHero(value: LocalClockFormatter.time(for: context.date), caption: LocalClockFormatter.date(for: context.date))
         })
     }
 }
@@ -316,42 +473,49 @@ private struct ShortcutsPopoutView: View {
     private var selectedName: String { item.widgetConfiguration?.selectedShortcutName ?? "" }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Shortcut", selection: Binding(get: { selectedName }, set: { name in
-                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.selectedShortcutName = name }
-            })) {
-                Text("Choose a shortcut").tag("")
-                if !selectedName.isEmpty && !shortcutNames.contains(selectedName) {
-                    Text("\(selectedName) (not found)").tag(selectedName)
-                }
-                ForEach(shortcutNames, id: \.self) { name in Text(name).tag(name) }
-            }
-
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             HStack {
+                Spacer()
                 if runner.isRunning(selectedName) {
-                    Button("Cancel Run") { runner.cancel(selectedName) }
-                        .buttonStyle(DockButtonStyle(primary: true))
+                    PillButton("Cancel Run", systemImage: "stop.fill") { runner.cancel(selectedName) }
                         .disabled(runner.statusByShortcut[selectedName] == ShortcutRunMessages.cancelling())
                 } else {
-                    Button("Run Shortcut", action: runShortcut)
-                        .buttonStyle(DockButtonStyle(primary: true)).disabled(selectedName.isEmpty)
+                    PillButton("Run Shortcut", systemImage: "play.fill", action: runShortcut)
+                        .disabled(selectedName.isEmpty)
                 }
-                Button("Refresh", action: refreshCatalog).disabled(isRefreshing)
-                Button("Open Shortcuts") { runner.openShortcutsApp() }
+                Spacer()
             }
-
-            if isRefreshing { ProgressView("Loading shortcuts…") }
-            if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
-            if !selectedName.isEmpty, let status = runner.statusByShortcut[selectedName] {
-                Label(status, systemImage: status == ShortcutRunMessages.completed() ? "checkmark.circle" : "info.circle")
-                    .font(.caption).foregroundStyle(.secondary)
+            .padding(.vertical, 4)
+            GroupedSection(footer: footer, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                GroupedRow("Shortcut") {
+                    Picker("Shortcut", selection: Binding(get: { selectedName }, set: { name in
+                        store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.selectedShortcutName = name }
+                    })) {
+                        Text("Choose…").tag("")
+                        if !selectedName.isEmpty && !shortcutNames.contains(selectedName) {
+                            Text("\(selectedName) (not found)").tag(selectedName)
+                        }
+                        ForEach(shortcutNames, id: \.self) { name in Text(name).tag(name) }
+                    }
+                    .labelsHidden().fixedSize().accessibilityLabel("Shortcut")
+                }
+                if !selectedName.isEmpty, let status = runner.statusByShortcut[selectedName] {
+                    GroupedRow("Status", value: status)
+                }
+                GroupedRow(isRefreshing ? "Loading Shortcuts…" : "Refresh List", role: .button, action: refreshCatalog)
+                    .disabled(isRefreshing)
+                GroupedRow("Open Shortcuts", role: .button) { runner.openShortcutsApp() }
             }
-            Text("Shortcuts that ask for input may open a prompt and wait for you to respond.")
-                .font(.caption).foregroundStyle(.secondary)
+            if let errorMessage {
+                Text(errorMessage).font(DockDesign.Grouped.footerFont).foregroundStyle(Color(nsColor: .systemRed))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+            }
         }
-        .frame(width: 380).frame(minHeight: 190, alignment: .topLeading)
         .task { await loadCatalog() }
     }
+
+    private var footer: String { "Shortcuts that ask for input may open a prompt and wait for you." }
 
     private func refreshCatalog() {
         Task { await loadCatalog() }
@@ -426,83 +590,130 @@ private struct AppFolderPopoutView: View {
     private var applications: [AppFolderApplication] { configuration.appFolderApplications }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            TextField("Folder name", text: Binding(get: { configuration.appFolderName }, set: { name in
-                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderName = name }
-            }))
-            .font(.headline).textFieldStyle(DockTextFieldStyle())
-            TextField("Icon letters (optional)", text: Binding(get: { configuration.appFolderLetter }, set: { value in
-                let letters = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2)).uppercased()
-                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderLetter = letters }
-            }))
-            .textFieldStyle(DockTextFieldStyle())
-            HStack(spacing: 7) {
-                ForEach(DockProfileColor.allCases) { color in
-                    Button { store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderColor = color.rawValue } } label: {
-                        Circle().fill(appFolderTint(color.rawValue)).frame(width: 18, height: 18)
-                            .overlay(Circle().stroke(configuration.appFolderColor == color.rawValue ? Color.primary : Color.clear, lineWidth: 2))
-                    }
-                    .buttonStyle(.plain).help(color.title)
-                }
-                Spacer()
-                Button(reordering ? "Done" : "Reorder") { reordering.toggle() }
-                Button("Add Apps…", action: pickApplications).buttonStyle(DockButtonStyle(primary: true))
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+            if !applications.isEmpty && !reordering {
+                GroupedSection { appGrid }
             }
-
-            if applications.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "square.grid.2x2").font(.title).foregroundStyle(.secondary)
-                    Text("Add applications to this folder.").font(.callout).foregroundStyle(.secondary)
+            GroupedSection("Apps", footer: message, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                if applications.isEmpty {
+                    GroupedRow("No apps yet", subtitle: "Add apps to open them from this folder.", symbol: "square.grid.2x2.fill", color: appFolderTint(configuration.appFolderColor))
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                DockScrollView {
-                    LazyVStack(spacing: 3) {
-                        ForEach(Array(applications.enumerated()), id: \.element.id) { index, application in
-                            HStack(spacing: 8) {
-                                Button { NSWorkspace.shared.open(application.url) } label: {
-                                    HStack(spacing: 8) {
-                                        Image(nsImage: NSWorkspace.shared.icon(forFile: application.url.path))
-                                            .resizable().scaledToFit().frame(width: 26, height: 26)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(application.name).lineLimit(1)
-                                            Text(InstalledApplicationIdentity.normalizedURL(application.url).deletingLastPathComponent().path)
-                                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                                        }
-                                        if !application.hasExistingBundlePath {
-                                            Label("Missing", systemImage: "exclamationmark.triangle.fill")
-                                                .font(.caption2).foregroundStyle(.orange)
-                                        }
-                                        Spacer()
-                                    }
-                                }
-                                .buttonStyle(.plain).disabled(!application.hasExistingBundlePath)
-                                .help(InstalledApplicationIdentity.normalizedURL(application.url).path)
-                                .accessibilityLabel("Open \(application.name), selected copy at \(InstalledApplicationIdentity.normalizedURL(application.url).path)")
-                                if !application.hasExistingBundlePath {
-                                    Button("Replace…") { replaceApplication(application) }
-                                        .font(.caption).help("Choose the application's new location")
-                                }
-                                if reordering {
-                                    Button { moveApplication(at: index, by: -1) } label: { Image(systemName: "arrow.up") }
-                                        .disabled(index == 0).buttonStyle(.plain)
-                                        .help("Move \(application.name) up").accessibilityLabel("Move \(application.name) up")
-                                    Button { moveApplication(at: index, by: 1) } label: { Image(systemName: "arrow.down") }
-                                        .disabled(index == applications.count - 1).buttonStyle(.plain)
-                                        .help("Move \(application.name) down").accessibilityLabel("Move \(application.name) down")
-                                }
-                                Button(role: .destructive) { removeApplication(application) } label: { Image(systemName: "minus.circle") }
-                                    .buttonStyle(.plain).help("Remove from App Folder").accessibilityLabel("Remove \(application.name) from App Folder")
+                if reordering {
+                    ForEach(Array(applications.enumerated()), id: \.element.id) { index, application in
+                        editRow(application, index: index)
+                    }
+                }
+                GroupedRow("Add Apps…", role: .button, action: pickApplications)
+                if !applications.isEmpty {
+                    GroupedRow(reordering ? "Done Editing" : "Edit Apps", role: .button) { reordering.toggle() }
+                }
+            }
+            GroupedSection("Folder", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                GroupedRow("Name") {
+                    TextField("Folder name", text: Binding(get: { configuration.appFolderName }, set: { name in
+                        store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderName = name }
+                    }))
+                    .textFieldStyle(.plain).multilineTextAlignment(.trailing).frame(maxWidth: 200)
+                    .accessibilityLabel("Folder name")
+                }
+                GroupedRow("Icon letters", subtitle: "Up to two, instead of app icons") {
+                    TextField("None", text: Binding(get: { configuration.appFolderLetter }, set: { value in
+                        let letters = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2)).uppercased()
+                        store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderLetter = letters }
+                    }))
+                    .textFieldStyle(.plain).multilineTextAlignment(.trailing).frame(width: 80)
+                    .accessibilityLabel("Icon letters")
+                }
+                GroupedRow("Color") {
+                    HStack(spacing: 4) {
+                        ForEach(DockProfileColor.allCases) { color in
+                            let selected = configuration.appFolderColor == color.rawValue
+                            Button { store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderColor = color.rawValue } } label: {
+                                Circle().fill(appFolderTint(color.rawValue)).frame(width: 18, height: 18)
+                                    .padding(3)
+                                    .overlay(Circle().strokeBorder(selected ? DockDesign.accent : .clear, lineWidth: 2))
+                                    .contentShape(Circle())
                             }
-                            .padding(7).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+                            .buttonStyle(.plain).help(color.title)
+                            .accessibilityLabel(color.title).accessibilityAddTraits(selected ? .isSelected : [])
                         }
                     }
                 }
-                .scrollIndicators(.hidden)
             }
-            if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
         }
-        .frame(width: 390, height: 340)
+    }
+
+    /// The folder's apps as a launch grid, like an open folder on the Dock.
+    private var appGrid: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 76, maximum: 96), spacing: 6)], spacing: 10) {
+            ForEach(applications) { application in
+                let missing = !application.hasExistingBundlePath
+                Button {
+                    if missing { replaceApplication(application) } else { NSWorkspace.shared.open(application.url) }
+                } label: {
+                    VStack(spacing: 5) {
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: application.url.path))
+                            .resizable().scaledToFit().frame(width: 44, height: 44)
+                            .opacity(missing ? 0.4 : 1)
+                            .overlay(alignment: .bottomTrailing) {
+                                if missing {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 12)).foregroundStyle(.orange)
+                                }
+                            }
+                        Text(application.name).font(.system(size: 11)).lineLimit(1).truncationMode(.tail)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(missing ? "Missing · click to choose its new location" : InstalledApplicationIdentity.normalizedURL(application.url).path)
+                .accessibilityLabel(missing ? "Replace missing \(application.name)" : "Open \(application.name), selected copy at \(InstalledApplicationIdentity.normalizedURL(application.url).path)")
+                .contextMenu {
+                    Button("Replace…") { replaceApplication(application) }
+                    Button("Remove from Folder", role: .destructive) { removeApplication(application) }
+                }
+            }
+        }
+        .padding(10)
+    }
+
+    /// One app while editing: move, replace when missing, remove.
+    private func editRow(_ application: AppFolderApplication, index: Int) -> some View {
+        HStack(spacing: DockDesign.Grouped.glyphSpacing) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: application.url.path))
+                .resizable().scaledToFit().frame(width: 24, height: 24)
+                .opacity(application.hasExistingBundlePath ? 1 : 0.4)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(application.name).font(DockDesign.Grouped.titleFont).lineLimit(1)
+                Text(application.hasExistingBundlePath ? InstalledApplicationIdentity.normalizedURL(application.url).deletingLastPathComponent().path : "Missing")
+                    .font(DockDesign.Grouped.subtitleFont)
+                    .foregroundStyle(application.hasExistingBundlePath ? Color.secondary : Color.orange)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 8)
+            if !application.hasExistingBundlePath {
+                Button("Replace…") { replaceApplication(application) }
+                    .buttonStyle(.borderless).help("Choose the application's new location")
+            }
+            Button { moveApplication(at: index, by: -1) } label: { Image(systemName: "arrow.up") }
+                .disabled(index == 0).buttonStyle(.borderless)
+                .help("Move \(application.name) up").accessibilityLabel("Move \(application.name) up")
+            Button { moveApplication(at: index, by: 1) } label: { Image(systemName: "arrow.down") }
+                .disabled(index == applications.count - 1).buttonStyle(.borderless)
+                .help("Move \(application.name) down").accessibilityLabel("Move \(application.name) down")
+            Button(role: .destructive) { removeApplication(application) } label: {
+                Image(systemName: "minus.circle.fill").foregroundStyle(Color(nsColor: .systemRed))
+            }
+            .buttonStyle(.borderless).help("Remove from App Folder").accessibilityLabel("Remove \(application.name) from App Folder")
+        }
+        .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+        .padding(.vertical, DockDesign.Grouped.rowVerticalPadding)
+        .frame(maxWidth: .infinity, minHeight: DockDesign.Grouped.rowMinHeight, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(application.name)
     }
 
     private func pickApplications() {
@@ -587,12 +798,8 @@ private struct PlaceholderWidgetProvider: DockWidgetProvider {
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(VStack(alignment: .leading, spacing: 8) {
-            Text("\(kind) is unavailable in this version of MyDock.")
-                .font(.callout)
-            if let description = definition?.description {
-                Text(description).font(.caption).foregroundStyle(.secondary)
-            }
+        AnyView(GroupedSection(footer: definition?.description) {
+            GroupedRow("\(kind) is unavailable in this version of MyDock.", symbol: "questionmark.square.dashed", color: .gray)
         })
     }
 }
@@ -616,108 +823,104 @@ private struct WorldClockPopoutView: View {
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var timeZone: TimeZone { TimeZone(identifier: configuration.worldClockTimeZoneID) ?? .current }
 
+    private var primaryName: String {
+        WorldClockCityCatalog.all.first(where: { $0.id == configuration.worldClockTimeZoneID })?.name ?? configuration.worldClockTimeZoneID
+    }
+    private var trimmedSearch: String { citySearch.trimmingCharacters(in: .whitespacesAndNewlines) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Primary city · shown in Dock").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Text(WorldClockCityCatalog.all.first(where: { $0.id == configuration.worldClockTimeZoneID })?.name ?? configuration.worldClockTimeZoneID)
-                    .font(.subheadline.weight(.medium))
-            }
-            TextField("Search cities or time zones", text: $citySearch)
-                .textFieldStyle(DockTextFieldStyle())
-            if citySearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("Search by city or time zone, then set it as primary or add it to the list.")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                DockScrollView {
-                    LazyVStack(spacing: 4) {
-                        ForEach(WorldClockCityCatalog.matches(citySearch)) { city in
-                            cityResult(city)
-                        }
-                    }
-                }
-                .frame(maxHeight: 150)
-                if WorldClockCityCatalog.matches(citySearch).isEmpty {
-                    Text("No matching city or time zone.").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            if !configuration.worldClockAdditionalTimeZoneIDs.isEmpty {
-                Text("Additional cities · dates relative to the primary city")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            ForEach(configuration.worldClockAdditionalTimeZoneIDs, id: \.self) { id in
-                timeZoneRow(id)
-            }
-            Divider()
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(formattedTime(context.date, timeZone: timeZone))
-                        .font(.system(size: 34, weight: .medium, design: .rounded).monospacedDigit())
-                    Text(formattedDate(context.date, timeZone: timeZone))
-                        .foregroundStyle(.secondary)
-                    Text(WidgetTimingPresentation.dayRelation(offset: WorldClockCityCatalog.dayOffset(from: .current, to: timeZone, at: context.date), reference: "this Mac"))
-                        .font(.caption).foregroundStyle(.secondary)
+                WidgetPopoutHero(value: formattedTime(context.date, timeZone: timeZone),
+                                 caption: primaryName + " · " + WidgetTimingPresentation.dayRelation(offset: WorldClockCityCatalog.dayOffset(from: .current, to: timeZone, at: context.date), reference: "this Mac"))
+            }
+            GroupedSection("Cities", footer: configuration.worldClockAdditionalTimeZoneIDs.isEmpty ? nil : "Other cities' dates are relative to \(primaryName).") {
+                GroupedRow(primaryName, subtitle: "Shown in the Dock", symbol: "star.fill", color: .orange)
+                ForEach(configuration.worldClockAdditionalTimeZoneIDs, id: \.self) { id in
+                    timeZoneRow(id)
+                }
+            }
+            GroupedSection("Add a City", footer: trimmedSearch.isEmpty ? "Search by city or time zone." : WorldClockCityCatalog.matches(citySearch).isEmpty ? "No matching city or time zone." : nil, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                    TextField("Search cities or time zones", text: $citySearch)
+                        .textFieldStyle(.plain)
+                        .accessibilityLabel("Search cities or time zones")
+                }
+                .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+                .frame(maxWidth: .infinity, minHeight: DockDesign.Grouped.rowMinHeight, alignment: .leading)
+                if !trimmedSearch.isEmpty {
+                    ForEach(WorldClockCityCatalog.matches(citySearch).prefix(8)) { city in
+                        cityResult(city)
+                    }
                 }
             }
         }
     }
 
     @ViewBuilder private func cityResult(_ city: WorldClockCityOption) -> some View {
+        let isPrimary = city.id == configuration.worldClockTimeZoneID
+        let added = isPrimary || configuration.worldClockAdditionalTimeZoneIDs.contains(city.id)
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(city.name).font(.caption.weight(.medium))
-                Text(city.id).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+                Text(city.name).font(DockDesign.Grouped.titleFont)
+                Text(city.id).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 4)
-            if city.id == configuration.worldClockTimeZoneID {
-                Image(systemName: "star.fill").font(.caption2).foregroundStyle(.yellow).help("Primary city")
+            if isPrimary {
+                Image(systemName: "star.fill").font(.system(size: 11)).foregroundStyle(.orange)
+                    .help("Primary city").accessibilityLabel("Primary city")
             } else {
-                Button("Primary") { setPrimaryCity(city.id) }
-                    .buttonStyle(DockButtonStyle()).controlSize(.mini)
+                Button("Make Primary") { setPrimaryCity(city.id) }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Make \(city.name) the primary city")
             }
-            if city.id == configuration.worldClockTimeZoneID || configuration.worldClockAdditionalTimeZoneIDs.contains(city.id) {
-                Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(.secondary)
-                    .help("Already in this clock")
+            if added {
+                Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                    .help("Already in this clock").accessibilityLabel("Already added")
             } else {
-                Button { addCity(city.id) } label: { Image(systemName: "plus") }
-                    .buttonStyle(DockButtonStyle()).controlSize(.mini).help("Add city")
+                Button { addCity(city.id) } label: { Image(systemName: "plus.circle.fill").font(.system(size: 15)) }
+                    .buttonStyle(.borderless).help("Add city").accessibilityLabel("Add \(city.name)")
             }
         }
-        .padding(.vertical, 2)
+        .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+        .padding(.vertical, DockDesign.Grouped.rowVerticalPadding)
+        .frame(maxWidth: .infinity, minHeight: DockDesign.Grouped.rowMinHeight, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(city.name)
     }
 
     @ViewBuilder private func timeZoneRow(_ id: String) -> some View {
         let zone = WorldClockCityOption(id: id, name: id).timeZone
         let cityName = WorldClockCityCatalog.all.first(where: { $0.id == id })?.name ?? id
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(cityName)
-                    .font(.subheadline.weight(.medium))
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    HStack(spacing: 6) {
-                        Text(formattedTime(context.date, timeZone: zone)).monospacedDigit()
-                        Text(formattedDate(context.date, timeZone: zone)).foregroundStyle(.secondary)
-                        let offset = WorldClockCityCatalog.dayOffset(from: timeZone, to: zone, at: context.date)
-                        if offset != 0 {
-                            Text(offset > 0 ? "+\(offset) day" : "\(offset) day")
-                                .foregroundStyle(.secondary)
-                                .help("Local date is \(abs(offset)) day\(abs(offset) == 1 ? "" : "s") \(offset > 0 ? "ahead of" : "behind") the primary city")
-                        }
+        HStack(spacing: DockDesign.Grouped.glyphSpacing) {
+            GroupedRowGlyph(symbol: "globe", color: .gray)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let offset = WorldClockCityCatalog.dayOffset(from: timeZone, to: zone, at: context.date)
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(cityName).font(DockDesign.Grouped.titleFont).lineLimit(1)
+                        Text(offset == 0 ? "Same day" : offset > 0 ? "+\(offset) day" : "\(offset) day")
+                            .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                            .help("Local date is \(abs(offset)) day\(abs(offset) == 1 ? "" : "s") \(offset > 0 ? "ahead of" : "behind") the primary city")
                     }
-                    .font(.caption)
+                    Spacer(minLength: 8)
+                    Text(formattedTime(context.date, timeZone: zone)).font(.system(size: 17, weight: .medium).monospacedDigit())
                 }
             }
-            Spacer(minLength: 8)
             Button { store.updateWidgetConfiguration(itemID: item.id, in: profileID) {
                 $0.worldClockAdditionalTimeZoneIDs.removeAll { $0 == id }
             } } label: {
-                Image(systemName: "minus.circle").foregroundStyle(.secondary)
+                Image(systemName: "minus.circle.fill").foregroundStyle(Color(nsColor: .systemRed))
             }
-            .buttonStyle(.plain).help("Remove city")
+            .buttonStyle(.borderless).help("Remove city").accessibilityLabel("Remove \(cityName)")
         }
-        .padding(.vertical, 2)
+        .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+        .padding(.vertical, DockDesign.Grouped.rowVerticalPadding)
+        .frame(maxWidth: .infinity, minHeight: DockDesign.Grouped.rowMinHeight, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(cityName)
     }
 
     private func setPrimaryCity(_ id: String) {
@@ -760,27 +963,34 @@ private struct StopwatchPopoutView: View {
     var profileID: UUID
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
 
+    private var running: Bool { configuration.stopwatchStartedAt != nil }
+
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: WidgetPopoutMetrics.spacing) {
             Group {
-                if configuration.stopwatchStartedAt != nil {
+                if running {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(stopwatchText(configuration.stopwatchElapsed(at: context.date)))
+                        WidgetPopoutHero(value: stopwatchText(configuration.stopwatchElapsed(at: context.date)), caption: "Running")
                     }
                 } else {
-                    Text(stopwatchText(configuration.stopwatchElapsed()))
+                    WidgetPopoutHero(value: stopwatchText(configuration.stopwatchElapsed()),
+                                     caption: configuration.stopwatchElapsed() > 0 ? "Paused" : "Ready")
                 }
             }
-            .font(.system(size: 36, weight: .medium, design: .rounded).monospacedDigit())
             HStack {
-                Button(configuration.stopwatchStartedAt == nil ? "Start" : "Pause") {
+                Button("Reset") { store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.resetStopwatch() } }
+                    .buttonStyle(WidgetRoundButtonStyle())
+                    .disabled(!running && configuration.stopwatchElapsed() == 0)
+                Spacer()
+                Button(running ? "Pause" : "Start") {
                     store.updateWidgetConfiguration(itemID: item.id, in: profileID) { value in
                         if value.stopwatchStartedAt == nil { value.startStopwatch() }
                         else { value.pauseStopwatch() }
                     }
                 }
-                Button("Reset") { store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.resetStopwatch() } }
+                .buttonStyle(WidgetRoundButtonStyle(tint: running ? .orange : .green))
             }
+            .padding(.horizontal, 24)
         }
     }
 }
@@ -808,31 +1018,26 @@ private struct CountdownPopoutView: View {
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             CountdownValueText(configuration: configuration, compact: false)
-                .font(.system(size: 34, weight: .medium, design: .rounded).monospacedDigit())
-                .lineLimit(1).minimumScaleFactor(0.65)
+                .font(.system(size: 40, weight: .semibold).monospacedDigit())
+                .lineLimit(1).minimumScaleFactor(0.5)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 6)
             Picker("Count down to", selection: modeBinding) {
                 ForEach(CountdownMode.allCases) { mode in
                     Text(mode.title).tag(mode)
                 }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.segmented).labelsHidden().fixedSize()
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel("Count down to")
             if configuration.countdownMode == .duration {
                 durationControls
             } else {
                 targetDateControls
             }
-            Text(configuration.countdownMode == .duration
-                 ? "Start requests a macOS completion alert. The timer still runs if alerts are unavailable. Pause and Reset cancel its alert."
-                 : "Set or Update Target requests a macOS alert at the chosen time. Clear Target cancels it.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            if let notificationMessage {
-                Text(notificationMessage).font(.caption).foregroundStyle(.secondary)
-            }
         }
-        .frame(width: 300, alignment: .leading)
         .onAppear {
             targetDraft = configuration.countdownTargetDate ?? Date().addingTimeInterval(3_600)
         }
@@ -841,9 +1046,24 @@ private struct CountdownPopoutView: View {
         }
     }
 
+    /// The alert note, then the latest scheduling result when there is one.
+    private var footer: String {
+        let note = configuration.countdownMode == .duration
+            ? "Start asks macOS for a completion alert; the timer runs either way. Pause and Reset cancel it."
+            : "Setting a target asks macOS for an alert at that time. After a backup restore, set it again."
+        return [note, notificationMessage].compactMap { $0 }.joined(separator: "\n")
+    }
+
     private var durationControls: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             HStack {
+                Button("Reset") {
+                    CountdownNotificationService.cancel(itemID: item.id)
+                    notificationMessage = nil
+                    store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.resetCountdown() }
+                }
+                .buttonStyle(WidgetRoundButtonStyle())
+                Spacer()
                 Button(configuration.countdownStartedAt == nil ? "Start" : "Pause") {
                     var fireDate: Date?
                     var expectedStart: Date?
@@ -885,44 +1105,36 @@ private struct CountdownPopoutView: View {
                         notificationMessage = nil
                     }
                 }
+                .buttonStyle(WidgetRoundButtonStyle(tint: configuration.countdownStartedAt == nil ? .green : .orange))
                 .disabled(configuration.countdownStartedAt != nil && configuration.countdownRemaining() <= 0)
-                Button("Reset") {
-                    CountdownNotificationService.cancel(itemID: item.id)
-                    notificationMessage = nil
-                    store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.resetCountdown() }
-                }
             }
-            Stepper(value: durationBinding, in: 60...86_400, step: 60) {
-                Text("Duration: \(configuration.countdownDurationSeconds / 60) min").font(.caption)
+            .padding(.horizontal, 24)
+            GroupedSection(footer: footer) {
+                WidgetStepperRow(title: "Duration", value: "\(configuration.countdownDurationSeconds / 60) min",
+                                 amount: durationBinding, range: 60...86_400, step: 60)
+                    .disabled(configuration.countdownStartedAt != nil)
             }
-            .disabled(configuration.countdownStartedAt != nil)
         }
     }
 
     private var targetDateControls: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            DatePicker("Target", selection: $targetDraft, displayedComponents: [.date, .hourAndMinute])
-            HStack {
-                Button(configuration.countdownTargetDate == nil ? "Set Target" : "Update Target") {
-                    setTargetDate()
-                }
-                .disabled(isSchedulingTarget || targetDraft <= .now)
-                if configuration.countdownTargetDate != nil {
-                    Button("Clear Target") {
-                        CountdownNotificationService.cancel(itemID: item.id)
-                        isSchedulingTarget = false
-                        notificationMessage = nil
-                        store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.resetCountdown() }
-                    }
+        GroupedSection(footer: footer, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+            GroupedRow("Target") {
+                DatePicker("Target", selection: $targetDraft, displayedComponents: [.date, .hourAndMinute])
+                    .labelsHidden().accessibilityLabel("Target date and time")
+            }
+            GroupedRow(configuration.countdownTargetDate == nil ? "Set Target" : "Update Target", role: .button) {
+                setTargetDate()
+            }
+            .disabled(isSchedulingTarget || targetDraft <= .now)
+            if configuration.countdownTargetDate != nil {
+                GroupedRow("Clear Target", role: .destructive) {
+                    CountdownNotificationService.cancel(itemID: item.id)
+                    isSchedulingTarget = false
+                    notificationMessage = nil
+                    store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.resetCountdown() }
                 }
             }
-            if let target = configuration.countdownTargetDate {
-                Text("Target: \(target.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Text("Setting a target schedules a local alert when allowed. After a backup restore, set it again to arm the alert.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -1050,15 +1262,24 @@ private struct TimeProgressPopoutView: View {
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Period", selection: periodBinding) {
-                ForEach(TimeProgressPeriod.allCases) { period in Text(period.title).tag(period) }
-            }
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             TimelineView(.periodic(from: .now, by: 60)) { context in
                 let progress = TimeProgressCalculator.fraction(for: configuration.timeProgressPeriod, at: context.date)
-                ProgressView(value: progress)
-                Text("\(Int(progress * 100))% through this \(configuration.timeProgressPeriod.rawValue)")
-                    .font(.system(size: 22, weight: .medium, design: .rounded).monospacedDigit())
+                VStack(spacing: 10) {
+                    WidgetPopoutHero(value: "\(Int(progress * 100))%", caption: "through this \(configuration.timeProgressPeriod.rawValue)")
+                    UsageBar(fraction: progress, color: WidgetPalette.accent("Time Progress"))
+                        .frame(height: 6)
+                        .padding(.horizontal, 24)
+                        .accessibilityHidden(true)
+                }
+            }
+            GroupedSection {
+                GroupedRow("Period") {
+                    Picker("Period", selection: periodBinding) {
+                        ForEach(TimeProgressPeriod.allCases) { period in Text(period.title).tag(period) }
+                    }
+                    .labelsHidden().fixedSize().accessibilityLabel("Period")
+                }
             }
         }
     }
@@ -1118,88 +1339,42 @@ private struct HydrationPopoutView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Today: \(todayEntries.count) drinks").font(.title3.weight(.semibold))
-                Text(configuration.hydrationVolumeSummary(at: currentDay)).font(.callout).foregroundStyle(.secondary)
-            }
-            HStack {
-                Button("I drank water") { drinkAndRestartReminder() }
-                    .buttonStyle(DockButtonStyle(primary: true))
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+            WidgetPopoutHero(value: "\(todayEntries.count)", caption: (todayEntries.count == 1 ? "drink today" : "drinks today")
+                             + (configuration.hydrationTrackAmounts ? " · " + configuration.hydrationVolumeSummary(at: currentDay) : ""))
+            HStack(spacing: 10) {
+                Spacer()
+                PillButton("I Drank Water", systemImage: "drop.fill") { drinkAndRestartReminder() }
                     .help("Log a drink when history is enabled and restart the water reminder.")
-                Button("Log water") { log(amount: configuration.hydrationDefaultAmountML) }
+                Button("Log Water") { log(amount: configuration.hydrationDefaultAmountML) }
+                    .buttonStyle(GalleryGlassButtonStyle())
                     .disabled(!configuration.hydrationSaveHistory)
                     .help("Record the configured amount without changing the reminder timer.")
-            }
-            Toggle("Save drink history", isOn: binding(\.hydrationSaveHistory))
-            Toggle("Track drink amounts", isOn: binding(\.hydrationTrackAmounts))
-            Toggle("Water reminders", isOn: Binding(get: { configuration.hydrationRemindersEnabled }, set: { enabled in
-                setReminders(enabled)
-            }))
-            Stepper(value: binding(\.hydrationReminderIntervalMinutes), in: 30...240, step: 15) {
-                Text("Every \(configuration.hydrationReminderIntervalMinutes) minutes").font(.caption)
-            }
-            .disabled(!configuration.hydrationRemindersEnabled)
-            if let reminderMessage {
-                Text(reminderMessage).font(.caption).foregroundStyle(.secondary)
-            }
-            if reminderPermissionDenied {
-                Button("Open Notification Settings") {
-                    guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
-                    NSWorkspace.shared.open(url)
-                }
-                .font(.caption)
-            }
-            Stepper(value: binding(\.hydrationDefaultAmountML), in: 50...1_000, step: 50) {
-                Text("Drink size: \(configuration.hydrationDefaultAmountML) mL").font(.caption)
-            }
-            .disabled(!configuration.hydrationTrackAmounts)
-            if !configuration.hydrationSaveHistory {
-                Text("Turn on history to log drinks. Existing entries are kept.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            HStack {
-                Text("History").font(.headline)
                 Spacer()
-                if configuration.hydrationLastRemovedEntry != nil {
-                    Button("Undo") { update { $0.undoHydrationRemoval() } }
-                        .keyboardShortcut("z", modifiers: .command)
-                }
             }
-            DockScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(visibleDayGroups) { group in
-                        Section {
-                            ForEach(group.entries) { entry in
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
-                                        Text(entry.amountML.map { "\($0) mL" } ?? "Amount not recorded")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Button {
-                                        update { $0.removeHydrationEntry(id: entry.id) }
-                                    } label: {
-                                        Image(systemName: "trash").foregroundStyle(.secondary)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityLabel("Remove drink")
-                                }
-                            }
-                        } header: {
-                            Text(group.date.formatted(date: .complete, time: .omitted))
-                                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        }
+            GroupedSection("Reminders", footer: reminderMessage, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                GroupedRow("Water reminders", isOn: Binding(get: { configuration.hydrationRemindersEnabled }, set: { enabled in
+                    setReminders(enabled)
+                }))
+                WidgetStepperRow(title: "Every", value: "\(configuration.hydrationReminderIntervalMinutes) min",
+                                 amount: binding(\.hydrationReminderIntervalMinutes), range: 30...240, step: 15)
+                    .disabled(!configuration.hydrationRemindersEnabled)
+                if reminderPermissionDenied {
+                    GroupedRow("Open Notification Settings", role: .button) {
+                        guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
+                        NSWorkspace.shared.open(url)
                     }
                 }
             }
-            .frame(maxHeight: 180)
-            if dayGroups.count > HydrationHistoryPolicy.recentDayCount {
-                Button(showingOlderDrinks ? "Show recent drinks" : "Show older drinks") {
-                    showingOlderDrinks.toggle()
-                }
-                .font(.caption)
+            GroupedSection("Tracking", footer: configuration.hydrationSaveHistory ? nil : "Turn on history to log drinks. Existing entries are kept.", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                GroupedRow("Save drink history", isOn: binding(\.hydrationSaveHistory))
+                GroupedRow("Track drink amounts", isOn: binding(\.hydrationTrackAmounts))
+                WidgetStepperRow(title: "Drink size", value: "\(configuration.hydrationDefaultAmountML) mL",
+                                 amount: binding(\.hydrationDefaultAmountML), range: 50...1_000, step: 50)
+                    .disabled(!configuration.hydrationTrackAmounts)
+            }
+            if !dayGroups.isEmpty || configuration.hydrationLastRemovedEntry != nil {
+                history
             }
         }
         .onChange(of: configuration.hydrationReminderIntervalMinutes) { minutes in
@@ -1208,6 +1383,50 @@ private struct HydrationPopoutView: View {
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in currentDay = .now }
         .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in currentDay = .now }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in currentDay = .now }
+    }
+
+    /// Recent drinks by day in a capped scroll, with Undo for the last removal.
+    private var history: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("History").font(DockDesign.Grouped.headerFont).accessibilityAddTraits(.isHeader)
+                Spacer()
+                if configuration.hydrationLastRemovedEntry != nil {
+                    Button("Undo") { update { $0.undoHydrationRemoval() } }
+                        .buttonStyle(.borderless)
+                        .keyboardShortcut("z", modifiers: .command)
+                        .accessibilityLabel("Undo drink removal")
+                }
+            }
+            .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+            DockScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(visibleDayGroups) { group in
+                        GroupedSection(footer: group.date.formatted(date: .complete, time: .omitted), separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                            ForEach(group.entries) { entry in
+                                GroupedRow(entry.timestamp.formatted(date: .omitted, time: .shortened)) {
+                                    HStack(spacing: 10) {
+                                        Text(entry.amountML.map { "\($0) mL" } ?? "No amount")
+                                            .font(DockDesign.Grouped.titleFont).foregroundStyle(.secondary)
+                                        Button { update { $0.removeHydrationEntry(id: entry.id) } } label: {
+                                            Image(systemName: "minus.circle.fill").foregroundStyle(Color(nsColor: .systemRed))
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .accessibilityLabel("Remove drink")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
+            if dayGroups.count > HydrationHistoryPolicy.recentDayCount {
+                Button(showingOlderDrinks ? "Show Recent Drinks" : "Show Older Drinks") { showingOlderDrinks.toggle() }
+                    .buttonStyle(.borderless)
+                    .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+            }
+        }
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<WidgetConfiguration, Value>) -> Binding<Value> {
@@ -1309,6 +1528,9 @@ final class BatteryMonitor: ObservableObject {
     }
 
     private func refresh() {
+        #if DEBUG
+        if let fixture = BatteryQAFixture.override { readings = fixture; return }
+        #endif
         readings = BatteryReader.read()
     }
 }
@@ -1332,30 +1554,45 @@ private struct BatteryPopoutView: View {
     @State private var subscriptionID = UUID()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        GroupedSection {
             if monitor.readings.isEmpty {
-                Text("No battery information is available on this Mac.").foregroundStyle(.secondary)
+                GroupedRow("No battery information", subtitle: "This Mac reports no batteries.", symbol: "battery.0percent", color: .gray)
             } else {
                 ForEach(monitor.readings) { battery in
-                    HStack(spacing: 10) {
-                        Image(systemName: batterySymbol(battery.percentage, charging: battery.isCharging))
-                            .font(.title2).frame(width: 30)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(battery.displayName).font(.headline)
-                            Text(battery.isCharging ? "Charging" : "Not charging")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Text("\(battery.percentage)%").font(.title3.monospacedDigit())
-                    }
+                    BatteryRow(battery: battery)
                 }
             }
         }
-        .frame(minWidth: 260)
         .onAppear { monitor.subscribe(subscriptionID, popout: true) }
         .onDisappear { monitor.unsubscribe(subscriptionID) }
     }
 }
+
+/// One battery as a grouped row: its glyph, name, charging state and charge.
+private struct BatteryRow: View {
+    var battery: BatteryReading
+    private var color: Color {
+        if battery.isCharging { return .green }
+        return battery.percentage <= 10 ? Color(nsColor: .systemRed) : battery.percentage <= 20 ? .orange : .green
+    }
+    var body: some View {
+        GroupedRow(battery.displayName, subtitle: battery.isCharging ? "Charging" : "Not charging",
+                   symbol: batterySymbol(battery.percentage, charging: battery.isCharging), color: color) {
+            Text("\(battery.percentage)%")
+                .font(.system(size: 17, weight: .semibold).monospacedDigit())
+                .accessibilityHidden(true)
+        }
+        .accessibilityValue("\(battery.percentage) percent, \(battery.isCharging ? "charging" : "not charging")")
+    }
+}
+
+#if DEBUG
+/// Render-QA seam: fixed battery readings instead of IOKit, set only by DEBUG exports.
+@MainActor
+enum BatteryQAFixture {
+    static var override: [BatteryReading]?
+}
+#endif
 
 private func batterySymbol(_ percentage: Int, charging: Bool) -> String {
     if charging { return "battery.100percent.bolt" }
@@ -1400,44 +1637,46 @@ private struct FocusTimerPopoutView: View {
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             timerTextView
-                .font(.system(size: 34, weight: .medium, design: .rounded).monospacedDigit())
-                .frame(maxWidth: .infinity, alignment: .center)
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                if configuration.focusRemaining(at: context.date) <= 0 {
-                    Label("Session complete · Reset to start a new session.", systemImage: "checkmark.circle")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
             HStack {
+                Button("Reset") {
+                    store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.resetFocusTimer() }
+                }
+                .buttonStyle(WidgetRoundButtonStyle())
+                Spacer()
                 Button(configuration.focusStartedAt == nil ? "Start" : "Pause") {
                     store.updateWidgetConfiguration(itemID: item.id, in: profileID) { value in
                         if value.focusStartedAt == nil { value.startFocusTimer() }
                         else { value.pauseFocusTimer() }
                     }
                 }
+                .buttonStyle(WidgetRoundButtonStyle(tint: configuration.focusStartedAt == nil ? .green : .orange))
                 .disabled(configuration.focusStartedAt != nil && configuration.focusRemaining() <= 0)
-                Button("Reset") {
-                    store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.resetFocusTimer() }
-                }
             }
-            Stepper(value: focusDurationBinding, in: 60...7_200, step: 60) {
-                Text("Session: \(configuration.focusDurationSeconds / 60) min").font(.caption)
+            .padding(.horizontal, 24)
+            GroupedSection {
+                WidgetStepperRow(title: "Session", value: "\(configuration.focusDurationSeconds / 60) min",
+                                 amount: focusDurationBinding, range: 60...7_200, step: 60)
+                    .disabled(configuration.focusStartedAt != nil)
             }
-            .disabled(configuration.focusStartedAt != nil)
         }
     }
 
     @ViewBuilder private var timerTextView: some View {
         if configuration.focusStartedAt != nil, configuration.focusRemaining() > 0 {
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(timerText(configuration.focusRemaining(at: context.date)))
+                let remaining = configuration.focusRemaining(at: context.date)
+                WidgetPopoutHero(value: timerText(remaining), caption: remaining <= 0 ? Self.completeCaption : "Focusing")
             }
         } else {
-            Text(timerText(configuration.focusRemaining()))
+            let remaining = configuration.focusRemaining()
+            WidgetPopoutHero(value: timerText(remaining),
+                             caption: remaining <= 0 ? Self.completeCaption : remaining < Double(configuration.focusDurationSeconds) ? "Paused" : "Ready")
         }
     }
+
+    private static let completeCaption = "Session complete · Reset to start again"
 
     private var focusDurationBinding: Binding<Int> {
         Binding(get: { configuration.focusDurationSeconds }, set: { seconds in
@@ -1453,45 +1692,71 @@ private struct StickyNotePopoutView: View {
     @State private var noteDraft = ""
     @State private var noteSaveTask: Task<Void, Never>?
     @State private var noteSaveError: String?
+    @DockAccessibilityStyle() private var accessibility
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextEditor(text: $noteDraft)
-                .frame(minHeight: 120)
-                .scrollContentBackground(.hidden)
-                .foregroundColor(noteForeground(configuration.noteBackground))
-                .tint(noteAccent(configuration.noteBackground))
-                .accessibilityLabel("Note text")
-                .padding(6)
-                .background(noteColor(configuration.noteBackground), in: RoundedRectangle(cornerRadius: 10))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(.primary.opacity(0.12), lineWidth: 1)
-                        .allowsHitTesting(false)
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+            VStack(alignment: .leading, spacing: 6) {
+                TextEditor(text: $noteDraft)
+                    .font(.system(size: 14))
+                    .frame(minHeight: 150)
+                    .scrollContentBackground(.hidden)
+                    .foregroundColor(noteForeground(configuration.noteBackground))
+                    .tint(noteAccent(configuration.noteBackground))
+                    .accessibilityLabel("Note text")
+                    .padding(10)
+                    .background(noteColor(configuration.noteBackground), in: noteShape)
+                    .background(DockDesign.Grouped.fill, in: noteShape)
+                    .overlay {
+                        if accessibility.contrast == .increased {
+                            noteShape.strokeBorder(DockDesign.Outline.color(.increased), lineWidth: DockDesign.Outline.controlWidth(.increased))
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .onChange(of: noteDraft) { value in
+                        WidgetSetupDraftStore.shared.updateNoteDraft(value, for: item.id, in: profileID)
+                        noteSaveTask?.cancel()
+                        noteSaveTask = Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(300))
+                            guard !Task.isCancelled else { return }
+                            saveNote(value)
+                        }
+                    }
+                // The byte limit only matters near it; text above it stays in the recovery draft.
+                if noteDraft.utf8.count > Self.byteLimit * 9 / 10 {
+                    Text("\(noteDraft.utf8.count.formatted()) / 1,048,576 UTF-8 bytes · text above this limit stays in the recovery draft.")
+                        .font(DockDesign.Grouped.footerFont)
+                        .foregroundStyle(noteDraft.utf8.count > Self.byteLimit ? Color(nsColor: .systemRed) : Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
                 }
-                .onChange(of: noteDraft) { value in
-                    WidgetSetupDraftStore.shared.updateNoteDraft(value, for: item.id, in: profileID)
-                    noteSaveTask?.cancel()
-                    noteSaveTask = Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(300))
-                        guard !Task.isCancelled else { return }
-                        saveNote(value)
+                if let noteSaveError {
+                    Text(noteSaveError).font(DockDesign.Grouped.footerFont).foregroundStyle(Color(nsColor: .systemRed))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+                        .accessibilityLabel("Note not saved. " + noteSaveError)
+                }
+            }
+            GroupedSection {
+                GroupedRow("Paper") {
+                    HStack(spacing: 4) {
+                        ForEach(NoteBackground.allCases) { background in
+                            let selected = configuration.noteBackground == background
+                            Button { noteBackgroundBinding.wrappedValue = background } label: {
+                                NotePaperSwatch(background: background)
+                                    .padding(3)
+                                    .overlay(Circle().strokeBorder(selected ? DockDesign.accent : .clear, lineWidth: 2))
+                                    .contentShape(Circle())
+                            }
+                            .buttonStyle(.plain).help(background.title)
+                            .accessibilityLabel(background.title + " paper")
+                            .accessibilityAddTraits(selected ? .isSelected : [])
+                        }
                     }
                 }
-            Text("\(noteDraft.utf8.count.formatted()) / 1,048,576 UTF-8 bytes · text above this limit stays in the recovery draft.")
-                .font(.caption).foregroundStyle(noteDraft.utf8.count > 1_048_576 ? Color.red : Color.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let noteSaveError {
-                Text(noteSaveError).font(.caption).foregroundStyle(.red)
-                    .accessibilityLabel("Note not saved. " + noteSaveError)
             }
-            Picker("Note", selection: noteBackgroundBinding) {
-                ForEach(NoteBackground.allCases) { background in Text(background.title).tag(background) }
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
         }
         .onAppear { noteDraft = WidgetSetupDraftStore.shared.noteDraft(for: item.id, in: profileID) ?? configuration.noteText }
         .onDisappear {
@@ -1499,6 +1764,9 @@ private struct StickyNotePopoutView: View {
             saveNote(noteDraft)
         }
     }
+
+    private static let byteLimit = 1_048_576
+    private var noteShape: RoundedRectangle { RoundedRectangle(cornerRadius: DockDesign.Grouped.radius, style: .continuous) }
 
     private var noteBackgroundBinding: Binding<NoteBackground> {
         Binding(get: { configuration.noteBackground }, set: { background in
@@ -1565,6 +1833,19 @@ func formattedDate(_ date: Date, timeZone: TimeZone) -> String {
 }
 
 
+
+/// A note paper choice as a small circle; Translucent shows as an outlined ring.
+private struct NotePaperSwatch: View {
+    var background: NoteBackground
+    var body: some View {
+        ZStack {
+            Circle().fill(DockDesign.Grouped.fill)
+            Circle().fill(background == .translucent ? Color.clear : noteColor(background))
+            Circle().strokeBorder(Color.primary.opacity(background == .translucent ? 0.35 : 0.12), lineWidth: background == .translucent ? 1.5 : 0.5)
+        }
+        .frame(width: 18, height: 18)
+    }
+}
 
 private func noteColor(_ background: NoteBackground) -> Color {
     switch background {
