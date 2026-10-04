@@ -280,8 +280,12 @@ struct DockItem: Codable, Identifiable, Hashable {
         DockItem(type: .spacer, title: kind.title, spacerKind: kind)
     }
 
+    /// New widgets start monochrome (redesign default). Saved widgets keep their decoded appearance;
+    /// `WidgetConfiguration()` itself keeps the legacy default for items saved without one.
     static func widget(_ kind: String) -> DockItem {
-        DockItem(type: .widget, title: kind, widgetKind: kind, widgetConfiguration: WidgetConfiguration())
+        var configuration = WidgetConfiguration()
+        configuration.iconAppearance = .mono
+        return DockItem(type: .widget, title: kind, widgetKind: kind, widgetConfiguration: configuration)
     }
 }
 

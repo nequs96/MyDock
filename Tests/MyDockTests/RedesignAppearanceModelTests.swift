@@ -254,3 +254,14 @@ import Testing
         for (key, original) in old { #expect(new[key] == original, "Lost or changed old key: \(key)") }
     }
 }
+
+@Suite struct RedesignNewWidgetDefaultTests {
+    @Test func newWidgetsStartMonoWhileSavedAndBareConfigurationsKeepTheirAppearance() throws {
+        #expect(DockItem.widget("Clock").widgetConfiguration?.iconAppearance == .mono)
+        #expect(WidgetConfiguration().iconAppearance == .soft)
+        var saved = DockItem.widget("Clock")
+        saved.widgetConfiguration?.iconAppearance = .accent
+        let decoded = try JSONDecoder().decode(DockItem.self, from: JSONEncoder().encode(saved))
+        #expect(decoded.widgetConfiguration?.iconAppearance == .accent)
+    }
+}
