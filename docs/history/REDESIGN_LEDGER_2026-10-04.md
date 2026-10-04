@@ -392,3 +392,53 @@ Running dots, the badge and the boxless folder are consistent across all three.
 **Workers resumed or launched:**
 - **RD-06** (`widget-gallery` agent): resumed from its uncommitted partial work, which is about 800 lines in `UI/WidgetGallery/`, not yet wired into `AddLibrary` and not compiling at the pause. It was told to rebase onto `cbcb481` and finish.
 - **RD-07** (Codex `gpt-6.1-sol`, medium): launched in `../MyDock-wt/RD-07`, branch `redesign/RD-07` at `cbcb481`.
+
+### RD-06 — merged (branch commit `1fac9c3`, rebased by the worker onto `cbcb481`)
+
+**Implementation:** implemented.
+
+- **Header:**
+  - a centred search pill and a Widgets · Apps · More segmented control (⌘1–⌘3);
+  - the capability filter as a header menu;
+  - native profiles show only Apps and More.
+- **Widgets tab:**
+  - a deterministic Suggested row of 3–4 picks, which skips families already on the Dock and is hidden for native profiles and when adding is not allowed;
+  - category sections in 2–4 columns.
+- **Detail view:** opens in place, with a `SizePager` over the family's layouts, a description, the access note and an Add Widget `PillButton`.
+- **Adding:** double-click or Return adds the default layout. Added items show a spring check badge, instant under Reduce Motion.
+- **Kept:** search, keyboard, app scan and disambiguation, the error message, every More entry, the source-compatible initializer and an untouched `CommandLibrary`.
+- **DEBUG catalog:** the DEBUG `WidgetGalleryView` reuses the new parts.
+
+**Behaviour changes, accepted by the orchestrator:**
+- `allowsAdding` is now enforced in browse mode. `DockManagerView` passes `selectedProfile != nil`, so with no Dock selected the window says "Choose a Dock to add items". That is a fix.
+- The minimum width is now 680 (was 740).
+
+**Orchestrator review:** viewed `gallery-widgets-920-light`, `gallery-detail-weather-920-dark` and `gallery-apps-700-dark`. Minor follow-up for RD-09: the Text Snippets sample reads a bare "2" with no unit.
+
+**Verification:**
+- The worker ran 567 tests and exported 85 renders.
+- Integration:
+  - `./TestMyDock.sh` **567 tests in 72 suites passed** (`.build/redesign-rd06-test.log`).
+  - The canonical app was quit normally and rebuilt (`./BuildMyDock.sh` exit 0, SHA-256 starts `5ddae502d64f4eda`), then relaunched as PID 22866.
+
+### Wave 3 contract (binding for RD-08, RD-09, RD-10)
+
+- **Provider API:** `DockWidgetProvider.popoutView` keeps its signature.
+
+**Families (RD-09, RD-10) own:**
+- their faces;
+- their popout *content*:
+  - settings-like controls become `GroupedSection`/`GroupedRow`;
+  - interactive tools (calculator, checklist, file shelf, player) keep their interaction and restyle inside the module/grouped vocabulary.
+
+  Content draws no outer background, card, header or outer padding. The shell provides those.
+
+**RD-08 owns:**
+- the `WidgetPopout` shell (header, surface, padding, width, scrolling, Data section);
+- `WidgetConfigurationSheet`;
+- the providers that live in `WidgetViews.swift`: Clock, Focus Timer, World Clock, Stopwatch, Countdown, Time Progress, Hydration, Battery, App Folder, Shortcuts and Sticky Note.
+
+**Ownership split:**
+- **RD-09:** `CalendarRemindersWidgetViews`, `AlarmWidgetViews`, `UtilityWidgetViews`, `DockUtilityWidgetViews`, `NowPlayingWidgetViews`, `WeatherWidgetViews`, `AirDropWidgetViews` and `TrashWidgetViews`. RD-09 also owns their samples in `AppleWidgetCard.swift`, so that sample and live faces match.
+- **RD-10:** `StockWidgetViews`, `StripeWidgetViews`, `PaddleWidgetViews`, `ShopifyWidgetViews`, `AIUsageWidgetViews`, `SystemActivityWidgetViews` and `NetworkActivityWidgetViews`.
+- **AppleWidgetCard.swift edits:** RD-10 edits only its families' sample cases. Conflicts there are resolved by the orchestrator.
