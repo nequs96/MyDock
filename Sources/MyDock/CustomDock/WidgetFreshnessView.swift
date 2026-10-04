@@ -56,8 +56,11 @@ struct WidgetFreshnessIndicator: View {
         if let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: c), item.widgetKind == "AI Activity", coordinator.refreshing.contains(query) {
             ProgressView().controlSize(.mini).scaleEffect(0.5).frame(width: 10, height: 10).padding(3)
                 .help("Updating local activity").accessibilityHidden(true)
-        } else if let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: c), coordinator.errors[query] != nil {
-            Image(systemName: "exclamationmark.circle.fill").font(.system(size: 9)).foregroundStyle(.orange).padding(3)
+        } else if item.widgetKind != "AI Limits", // its face shows a per-provider stale badge itself
+                  let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: c), coordinator.errors[query] != nil {
+            // Inset so the badge stays inside the rounded widget corner.
+            Image(systemName: "exclamationmark.circle.fill").font(.system(size: 9)).foregroundStyle(.orange)
+                .padding(.top, 7).padding(.trailing, 9)
                 .help("Saved data · open this widget to review the refresh error")
                 .accessibilityLabel("Refresh failed; saved data shown")
         }
