@@ -111,7 +111,8 @@ final class WidgetDataCoordinator: ObservableObject {
     private let queryMaker: (String?, WidgetConfiguration) -> WidgetDataQuery?
     private let loader: (WidgetDataQuery, WidgetConfiguration) async throws -> WidgetDataValue
 
-    init(store: ProfileStore, queryMaker: @escaping (String?, WidgetConfiguration) -> WidgetDataQuery? = { WidgetDataQuery.make(kind: $0, configuration: $1) }, loader: ((WidgetDataQuery, WidgetConfiguration) async throws -> WidgetDataValue)? = nil) {
+    /// `loader` precedes `queryMaker` so a lone trailing closure is the injected loader; pass `queryMaker:` by label.
+    init(store: ProfileStore, loader: ((WidgetDataQuery, WidgetConfiguration) async throws -> WidgetDataValue)? = nil, queryMaker: @escaping (String?, WidgetConfiguration) -> WidgetDataQuery? = { WidgetDataQuery.make(kind: $0, configuration: $1) }) {
         self.store = store
         self.queryMaker = queryMaker
         self.loader = loader ?? Self.load
