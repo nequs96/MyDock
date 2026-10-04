@@ -109,13 +109,39 @@ private struct NetworkActivityCompactWidgetView: View {
     @StateObject private var monitor = NetworkActivityMonitor.shared
     @State private var subscriptionID = UUID()
 
+    #if DEBUG
+    @Environment(\.facesBNetworkReadings) private var fixture
+    #endif
+    private var aggregateDownloadRate: Double? {
+        #if DEBUG
+        if let fixture { return fixture.aggregateDownloadRate }
+        #endif
+        return monitor.aggregateDownloadRate
+    }
+    private var aggregateUploadRate: Double? {
+        #if DEBUG
+        if let fixture { return fixture.aggregateUploadRate }
+        #endif
+        return monitor.aggregateUploadRate
+    }
+    private var downloadHistory: [Double] {
+        #if DEBUG
+        if let fixture { return fixture.downloadHistory }
+        #endif
+        return monitor.downloadHistory
+    }
     var body: some View {
-        NetworkDockFace(download: monitor.aggregateDownloadRate, upload: monitor.aggregateUploadRate, history: monitor.downloadHistory)
+        NetworkDockFace(download: aggregateDownloadRate, upload: aggregateUploadRate, history: downloadHistory)
             .frame(width: contentWidth, height: 54)
-            .onAppear { monitor.subscribe(subscriptionID) }
+            .onAppear {
+                #if DEBUG
+                if fixture != nil { return }
+                #endif
+                monitor.subscribe(subscriptionID)
+            }
             .onDisappear { monitor.unsubscribe(subscriptionID) }
             .accessibilityElement(children: .ignore).accessibilityLabel("Network Activity")
-            .accessibilityValue("Download \(rateText(monitor.aggregateDownloadRate)), upload \(rateText(monitor.aggregateUploadRate))")
+            .accessibilityValue("Download \(rateText(aggregateDownloadRate)), upload \(rateText(aggregateUploadRate))")
     }
 }
 
@@ -124,30 +150,62 @@ private struct NetworkActivityPopoutWidgetView: View {
     @StateObject private var monitor = NetworkActivityMonitor.shared
     @State private var subscriptionID = UUID()
 
+    #if DEBUG
+    @Environment(\.facesBNetworkReadings) private var fixture
+    #endif
+    private var interfaces: [NetworkInterfaceRate] {
+        #if DEBUG
+        if let fixture { return fixture.interfaces }
+        #endif
+        return monitor.interfaces
+    }
+    private var updatedAt: Date? {
+        #if DEBUG
+        if let fixture { return fixture.updatedAt }
+        #endif
+        return monitor.updatedAt
+    }
+    private var downloadHistory: [Double] {
+        #if DEBUG
+        if let fixture { return fixture.downloadHistory }
+        #endif
+        return monitor.downloadHistory
+    }
+    private var uploadHistory: [Double] {
+        #if DEBUG
+        if let fixture { return fixture.uploadHistory }
+        #endif
+        return monitor.uploadHistory
+    }
+    private var hasCompletedRateSample: Bool {
+        #if DEBUG
+        if let fixture { return fixture.hasCompletedRateSample }
+        #endif
+        return monitor.hasCompletedRateSample
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Network Activity").font(.headline)
                 Spacer()
                 Button("Refresh") { monitor.refreshNow() }
             }
             HStack(spacing: 10) {
-                rateCard(title: "Download", value: aggregate(\.receivedBytesPerSecond), history: monitor.downloadHistory, color: .blue, symbol: "arrow.down")
-                rateCard(title: "Upload", value: aggregate(\.sentBytesPerSecond), history: monitor.uploadHistory, color: .purple, symbol: "arrow.up")
+                rateCard(title: "Download", value: aggregate(\.receivedBytesPerSecond), history: downloadHistory, color: .secondary, symbol: "arrow.down")
+                rateCard(title: "Upload", value: aggregate(\.sentBytesPerSecond), history: uploadHistory, color: .secondary, symbol: "arrow.up")
             }
-            if let updatedAt = monitor.updatedAt {
+            if let updatedAt = updatedAt {
                 Text("Sampled \(updatedAt.formatted(date: .omitted, time: .shortened)) · 4-second interval while visible")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Divider()
             Text("Interfaces").font(.headline)
-            if monitor.interfaces.isEmpty {
+            if interfaces.isEmpty {
                 Label("No active network interfaces", systemImage: "network.slash")
                     .foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 70)
             } else {
                 DockScrollView {
                     LazyVStack(spacing: 6) {
-                        ForEach(monitor.interfaces) { interface in
+                        ForEach(interfaces) { interface in
                             interfaceRow(interface)
                         }
                     }
@@ -155,20 +213,23 @@ private struct NetworkActivityPopoutWidgetView: View {
                 .frame(maxHeight: 250)
             }
         }
-        .frame(width: 420).frame(minHeight: 230, alignment: .topLeading)
-        .onAppear { monitor.subscribe(subscriptionID, popout: true) }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .onAppear {
+            #if DEBUG
+            if fixture != nil { return }
+            #endif
+            monitor.subscribe(subscriptionID, popout: true)
+        }
         .onDisappear { monitor.unsubscribe(subscriptionID) }
     }
 
     private func rateCard(title: String, value: String, history: [Double], color: Color, symbol: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Label(title, systemImage: symbol).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.system(.callout, design: .rounded).weight(.semibold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.7)
+            ModuleValue(value: value, size: .medium)
             NetworkRateSparkline(values: history, color: color).frame(height: 26)
         }
-        .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 9))
     }
 
     private func interfaceRow(_ interface: NetworkInterfaceRate) -> some View {
@@ -185,14 +246,13 @@ private struct NetworkActivityPopoutWidgetView: View {
                     .font(.caption2.monospaced()).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
             }
         }
-        .padding(8)
-        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.vertical, 6)
     }
 
     private func aggregate(_ keyPath: KeyPath<NetworkInterfaceRate, Double?>) -> String {
-        guard !monitor.interfaces.isEmpty else { return "No interfaces" }
-        let values = monitor.interfaces.compactMap { $0[keyPath: keyPath] }
-        guard values.count == monitor.interfaces.count else { return monitor.hasCompletedRateSample ? "Unavailable" : "Warming up" }
+        guard !interfaces.isEmpty else { return "No interfaces" }
+        let values = interfaces.compactMap { $0[keyPath: keyPath] }
+        guard values.count == interfaces.count else { return hasCompletedRateSample ? "Unavailable" : "Warming up" }
         return rateText(values.reduce(0, +))
     }
 }
@@ -214,7 +274,7 @@ private struct NetworkRateSparkline: View {
                     else { path.addLine(to: point) }
                 }
             }
-            .stroke(color, style: StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round))
+            .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
         }
     }
 }
@@ -224,3 +284,22 @@ private func rateText(_ bytesPerSecond: Double?) -> String {
     let bytes = Int64(min(bytesPerSecond, Double(Int64.max)))
     return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) + "/s"
 }
+
+#if DEBUG
+struct FacesBNetworkReadings {
+    var interfaces: [NetworkInterfaceRate] = []
+    var updatedAt: Date? = nil
+    var downloadHistory: [Double] = []
+    var uploadHistory: [Double] = []
+    var hasCompletedRateSample = false
+    var aggregateDownloadRate: Double? = nil
+    var aggregateUploadRate: Double? = nil
+}
+private struct FacesBNetworkReadingsKey: EnvironmentKey { static let defaultValue: FacesBNetworkReadings? = nil }
+extension EnvironmentValues {
+    var facesBNetworkReadings: FacesBNetworkReadings? {
+        get { self[FacesBNetworkReadingsKey.self] }
+        set { self[FacesBNetworkReadingsKey.self] = newValue }
+    }
+}
+#endif

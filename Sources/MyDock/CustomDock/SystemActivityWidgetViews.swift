@@ -216,15 +216,47 @@ private struct SystemActivityCompactWidgetView: View {
     @Environment(\.dockWidgetContentWidth) private var contentWidth
     @StateObject private var monitor = SystemActivityMonitor.shared
     @State private var subscriptionID = UUID()
+    #if DEBUG
+    @Environment(\.facesBSystemReadings) private var fixture
+    #endif
+    private var cpuPercentage: Double? {
+        #if DEBUG
+        if let fixture { return fixture.cpuPercentage }
+        #endif
+        return monitor.cpuPercentage
+    }
+    private var cpuHistory: [Double] {
+        #if DEBUG
+        if let fixture { return fixture.cpuHistory }
+        #endif
+        return monitor.cpuHistory
+    }
+    private var memory: HostMemoryReading? {
+        #if DEBUG
+        if let fixture { return fixture.memory }
+        #endif
+        return monitor.memory
+    }
+    private var loadAverage: SystemLoadAverage? {
+        #if DEBUG
+        if let fixture { return fixture.loadAverage }
+        #endif
+        return monitor.loadAverage
+    }
     var body: some View {
-        SystemTelemetryDockFace(cpu: monitor.cpuPercentage, history: monitor.cpuHistory, memory: monitor.memory, load: monitor.loadAverage,
+        SystemTelemetryDockFace(cpu: cpuPercentage, history: cpuHistory, memory: memory, load: loadAverage,
                                 secondary: item.widgetConfiguration?.systemSecondaryMetric ?? .memory)
             .frame(width: contentWidth, height: 54)
-            .onAppear { monitor.subscribe(subscriptionID) }
+            .onAppear {
+                #if DEBUG
+                if fixture != nil { return }
+                #endif
+                monitor.subscribe(subscriptionID)
+            }
             .onDisappear { monitor.unsubscribe(subscriptionID) }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("CPU system activity")
-            .accessibilityValue(monitor.cpuPercentage.map { "\(Int($0.rounded())) percent" } ?? "Sampling")
+            .accessibilityValue(cpuPercentage.map { "\(Int($0.rounded())) percent" } ?? "Sampling")
     }
 }
 
@@ -233,21 +265,77 @@ private struct SystemActivityPopoutWidgetView: View {
     @StateObject private var scanner = StorageScanMonitor.shared
     @State private var subscriptionID = UUID()
 
+    #if DEBUG
+    @Environment(\.facesBSystemReadings) private var fixture
+    #endif
+    private var cpuPercentage: Double? {
+        #if DEBUG
+        if let fixture { return fixture.cpuPercentage }
+        #endif
+        return monitor.cpuPercentage
+    }
+    private var perCorePercentages: [Double]? {
+        #if DEBUG
+        if let fixture { return fixture.perCorePercentages }
+        #endif
+        return monitor.perCorePercentages
+    }
+    private var memory: HostMemoryReading? {
+        #if DEBUG
+        if let fixture { return fixture.memory }
+        #endif
+        return monitor.memory
+    }
+    private var loadAverage: SystemLoadAverage? {
+        #if DEBUG
+        if let fixture { return fixture.loadAverage }
+        #endif
+        return monitor.loadAverage
+    }
+    private var thermalState: SystemThermalState {
+        #if DEBUG
+        if let fixture { return fixture.thermalState }
+        #endif
+        return monitor.thermalState
+    }
+    private var systemUptime: TimeInterval? {
+        #if DEBUG
+        if let fixture { return fixture.systemUptime }
+        #endif
+        return monitor.systemUptime
+    }
+    private var startupVolume: SystemVolumeReading? {
+        #if DEBUG
+        if let fixture { return fixture.startupVolume }
+        #endif
+        return monitor.startupVolume
+    }
+    private var memoryPressure: MemoryPressureCondition {
+        #if DEBUG
+        if let fixture { return fixture.memoryPressure }
+        #endif
+        return monitor.memoryPressure
+    }
+    private var lastUpdated: Date? {
+        #if DEBUG
+        if let fixture { return fixture.lastUpdated }
+        #endif
+        return monitor.lastUpdated
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("Live system readings", systemImage: "circle.fill")
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(.teal)
+                Text("Live system readings").font(DockDesign.Module.label).foregroundStyle(.secondary)
                 Spacer()
                 Button { monitor.refreshNow() } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(DockButtonStyle(icon: true)).accessibilityLabel("Refresh system readings")
             }
             HStack(spacing: 10) {
-                metricCard(title: "CPU", value: monitor.cpuPercentage.map { "\(Int($0.rounded()))%" } ?? "Warming up", symbol: "cpu")
+                metricCard(title: "CPU", value: cpuPercentage.map { "\(Int($0.rounded()))%" } ?? "Warming up", symbol: "cpu")
                 metricCard(title: "Memory", value: memorySummary, symbol: "memorychip")
             }
-            if let perCorePercentages = monitor.perCorePercentages {
-                WidgetSection(title: "Logical processors") {
+            if let perCorePercentages = perCorePercentages {
+                FacesBDataSection(title: "Logical processors") {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
                         ForEach(Array(perCorePercentages.enumerated()), id: \.offset) { index, percentage in
                             VStack(alignment: .leading, spacing: 6) {
@@ -256,23 +344,21 @@ private struct SystemActivityPopoutWidgetView: View {
                                     Spacer(minLength: 2)
                                     Text("\(Int(percentage.rounded()))%").monospacedDigit()
                                 }.font(.system(size: 10, weight: .medium))
-                                ProgressView(value: percentage, total: 100).tint(.teal).controlSize(.mini)
+                                ProgressView(value: percentage, total: 100).tint(.secondary).controlSize(.mini)
                             }.accessibilityElement(children: .ignore)
                                 .accessibilityLabel("Core \(index + 1), \(Int(percentage.rounded())) percent")
                         }
                     }
                 }
             }
-            WidgetSection(title: "System health") {
-                healthRow("Thermal state", value: monitor.thermalState.title, symbol: "thermometer.medium")
+            GroupedSection("System health", footer: "CPU is busy time across all logical processors (0–100%). Load is the average number of runnable tasks over 1, 5 and 15 minutes, not a percentage. Memory and swap are byte counts.") {
+                healthRow("Thermal state", value: thermalState.title, symbol: "thermometer.medium")
                 healthRow("Uptime", value: uptimeSummary, symbol: "clock")
                 healthRow("Load · 1 / 5 / 15 min", value: loadAverageSummary, symbol: "chart.bar.xaxis")
                 healthRow("Swap used", value: swapSummary, symbol: "externaldrive")
-                Text("CPU is busy time across all logical processors (0–100%). Load is the average number of runnable tasks over 1, 5 and 15 minutes, not a percentage. Memory and swap are byte counts.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            if let memory = monitor.memory {
-                WidgetSection(title: "Memory breakdown") {
+            if let memory = memory {
+                FacesBDataSection(title: "Memory breakdown") {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), alignment: .leading, spacing: 12) {
                         memoryDetail("Active", memory.activeBytes)
                         memoryDetail("Wired", memory.wiredBytes)
@@ -281,34 +367,32 @@ private struct SystemActivityPopoutWidgetView: View {
                         memoryDetail("Free", memory.freeBytes)
                         memoryDetail("Purgeable", memory.purgeableBytes)
                     }
-                    Text("Pressure: \(monitor.memoryPressure.title). Categories overlap; pressure updates when macOS reports a change.")
+                    Text("Pressure: \(memoryPressure.title). Categories overlap; pressure updates when macOS reports a change.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if let volume = monitor.startupVolume {
-                WidgetSection(title: volume.name) {
+            if let volume = startupVolume {
+                FacesBDataSection(title: volume.name) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text(volume.availableBytes.formattedByteCount).font(.system(size: 24, weight: .semibold)).monospacedDigit()
+                        ModuleValue(value: volume.availableBytes.formattedByteCount)
                         Text("available").font(.caption).foregroundStyle(.secondary)
                         Spacer()
                     }
-                    ProgressView(value: Double(volume.totalBytes - min(volume.availableBytes, volume.totalBytes)), total: Double(max(1, volume.totalBytes))).tint(.teal)
+                    ProgressView(value: Double(volume.totalBytes - min(volume.availableBytes, volume.totalBytes)), total: Double(max(1, volume.totalBytes))).tint(.secondary)
                     Text("\(volume.totalBytes.formattedByteCount) total capacity").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            WidgetSection(title: "Explore storage") {
+            FacesBDataSection(title: "Explore storage") {
                 Text("Find large files in Home, Applications and Library, or choose a folder. Nothing is deleted or uploaded.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
+                GroupedSection {
                     if scanner.isScanning {
-                        ProgressView().controlSize(.small)
-                        Text("Scanning…").font(.caption)
-                        Spacer()
-                        Button("Cancel") { scanner.cancel() }
+                        GroupedRow("Scanning…") { ProgressView().controlSize(.small) }
+                        GroupedRow("Cancel", role: .button) { scanner.cancel() }
                     } else {
-                        Button("Scan Folders") { scanner.scanDefaultLocations() }.buttonStyle(DockButtonStyle(primary: true))
-                        Button("Choose Folder…", action: chooseFolder)
-                        if !scanner.results.isEmpty { Button("Again") { scanner.scanAgain() } }
+                        GroupedRow("Scan Folders", role: .button) { scanner.scanDefaultLocations() }
+                        GroupedRow("Choose Folder…", role: .button, action: chooseFolder)
+                        if !scanner.results.isEmpty { GroupedRow("Again", role: .button) { scanner.scanAgain() } }
                     }
                 }
                 if scanner.isScanning {
@@ -339,41 +423,42 @@ private struct SystemActivityPopoutWidgetView: View {
                     }
                 }
             }
-            if let lastUpdated = monitor.lastUpdated {
+            if let lastUpdated = lastUpdated {
                 Text("Updated \(lastUpdated.formatted(date: .omitted, time: .shortened)) · every 4 seconds while visible")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .frame(width: 420, alignment: .leading)
-        .onAppear { monitor.subscribe(subscriptionID, popout: true) }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear {
+            #if DEBUG
+            if fixture != nil { return }
+            #endif
+            monitor.subscribe(subscriptionID, popout: true)
+        }
         .onDisappear { monitor.unsubscribe(subscriptionID) }
     }
 
     private func healthRow(_ title: String, value: String, symbol: String) -> some View {
-        HStack {
-            Label(title, systemImage: symbol).foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            Text(value).monospacedDigit()
-        }.font(.caption).accessibilityElement(children: .combine)
+        GroupedRow(title, symbol: symbol, value: value)
     }
 
     private var memorySummary: String {
-        guard let memory = monitor.memory else { return "Unavailable" }
+        guard let memory = memory else { return "Unavailable" }
         return "\(memory.usedBytes.formattedByteCount) / \(memory.totalBytes.formattedByteCount)"
     }
 
     private var swapSummary: String {
-        guard let swap = monitor.memory?.swapUsedBytes else { return "Unavailable" }
+        guard let swap = memory?.swapUsedBytes else { return "Unavailable" }
         return swap.formattedByteCount
     }
 
     private var loadAverageSummary: String {
-        guard let load = monitor.loadAverage else { return "Unavailable" }
+        guard let load = loadAverage else { return "Unavailable" }
         return String(format: "%.2f · %.2f · %.2f", load.oneMinute, load.fiveMinutes, load.fifteenMinutes)
     }
 
     private var uptimeSummary: String {
-        guard let uptime = monitor.systemUptime else { return "Unavailable" }
+        guard let uptime = systemUptime else { return "Unavailable" }
         let seconds = max(0, Int(uptime))
         let days = seconds / 86_400
         let hours = (seconds % 86_400) / 3_600
@@ -392,11 +477,9 @@ private struct SystemActivityPopoutWidgetView: View {
     private func metricCard(title: String, value: String, symbol: String) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Label(title, systemImage: symbol).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.system(size: 22, weight: .semibold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.7)
+            ModuleValue(value: value)
         }
-        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(WidgetDesign.inset, in: RoundedRectangle(cornerRadius: 14))
     }
 
     private func chooseFolder() {
@@ -426,4 +509,38 @@ private struct SystemActivityPopoutWidgetView: View {
 
 private extension UInt64 {
     var formattedByteCount: String { ByteCountFormatter.string(fromByteCount: Int64(clamping: self), countStyle: .file) }
+}
+
+#if DEBUG
+struct FacesBSystemReadings {
+    var cpuPercentage: Double? = nil
+    var cpuHistory: [Double] = []
+    var perCorePercentages: [Double]? = nil
+    var memory: HostMemoryReading? = nil
+    var loadAverage: SystemLoadAverage? = nil
+    var thermalState: SystemThermalState = .unknown
+    var systemUptime: TimeInterval? = nil
+    var startupVolume: SystemVolumeReading? = nil
+    var memoryPressure: MemoryPressureCondition = .awaitingEvent
+    var lastUpdated: Date? = nil
+}
+private struct FacesBSystemReadingsKey: EnvironmentKey { static let defaultValue: FacesBSystemReadings? = nil }
+extension EnvironmentValues {
+    var facesBSystemReadings: FacesBSystemReadings? {
+        get { self[FacesBSystemReadingsKey.self] }
+        set { self[FacesBSystemReadingsKey.self] = newValue }
+    }
+}
+#endif
+
+/// Calm data section shared by the RD-10 content views; the popout shell supplies its surface.
+struct FacesBDataSection<Content: View>: View {
+    var title: String
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(DockDesign.Module.labelLarge).foregroundStyle(.secondary).accessibilityAddTraits(.isHeader)
+            content
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
 }

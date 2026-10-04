@@ -49,6 +49,8 @@ struct WidgetCardPreview: View {
     }
     @ViewBuilder private var sample: some View {
         switch kind {
+        case "Stock": StockCompactView(item: StockFaceSample.item(kind: kind))
+        case "Watchlist": WatchlistCompactView(item: StockFaceSample.item(kind: kind))
         case "AI Activity": AIActivityCompactView(item: AIActivityPreviewData.item())
         case "System Activity": SystemTelemetryDockFace(cpu: 37, history: [15, 21, 30, 18, 28, 37, 29, 37], memory: nil, load: .init(oneMinute: 2.4, fiveMinutes: 1.9, fifteenMinutes: 1.4), secondary: .load)
         case "Network Activity": NetworkDockFace(download: 2_400_000, upload: 148_000, history: [1, 4, 3, 8, 5, 4, 7, 6])
@@ -58,19 +60,13 @@ struct WidgetCardPreview: View {
         case "Now Playing": MediaDockFace(title: "Dreams", artist: "Fleetwood Mac", artwork: nil, isPlaying: true)
         case "World Clock": WorldClockDockFace(configuration: WidgetConfiguration())
         case "Reminders": RemindersDockFace(count: 3, context: "Weekend errands")
-        case "Stripe", "Paddle", "Shopify": BusinessDockFace(kind: kind, title: kind, metric: "Revenue", value: "$2.4K", context: "Today")
+        case "Stripe", "Paddle", "Shopify": FacesBBusinessDockFace(kind: kind, title: kind, metric: kind == "Shopify" ? "Order value" : "Revenue", amount: 2_400, currency: "USD", fullValue: "$2,400.00", context: "Today")
         case "Alarm":
             // Mirrors the live Alarm face: label and the next alarm time; its name on wider layouts.
             ModuleStack(kind: kind, label: "Alarm", value: "7:30", trailing: width >= 100 ? "Morning" : nil).moduleInsets()
         case "Calendar":
             CalendarSampleFace(kind: kind, wide: selected == .wide)
-        case "AI Limits":
-            // Mirrors the live AI Limits face: provider label, remaining percentage and its meter.
-            VStack(alignment: .leading, spacing: 3) {
-                WidgetHeader(kind: kind, title: "Claude")
-                MetricText(value: "72%", unit: "left", size: 19)
-                UsageBar(fraction: 0.72, color: WidgetPalette.accent(kind))
-            }.moduleInsets()
+        case "AI Limits": AILimitsCompactView(item: AILimitsFaceSample.item())
         default: LocalWidgetDockFace(item: sampleItem)
         }
     }

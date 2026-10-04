@@ -21,57 +21,34 @@ struct WatchlistWidgetProvider: DockWidgetProvider {
     }
 }
 
-private struct StockCompactView: View {
+struct StockCompactView: View {
     var item: DockItem
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
+    var body: some View { LocalWidgetDockFace(item: item) }
+}
 
-    var body: some View {
-        VStack(spacing: 2) {
-            Image(systemName: "chart.line.uptrend.xyaxis").font(.system(size: 17)).foregroundStyle(tint)
-            if let snapshot = configuration.stockSnapshot, let latest = snapshot.latest {
-                Text(latest.close.formatted(.currency(code: snapshot.currency)))
-                    .font(.system(size: 9, weight: .semibold, design: .rounded).monospacedDigit())
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                Text(configuration.stockSymbol).font(.system(size: 7, weight: .medium)).lineLimit(1)
-            } else {
-                Text(configuration.stockSymbol.isEmpty ? "Set ticker" : configuration.stockSymbol)
-                    .font(.system(size: 8, weight: .medium)).lineLimit(1)
-            }
-        }
-        .frame(width: 54, height: 54)
-        .help(tooltip)
-    }
+struct WatchlistCompactView: View {
+    var item: DockItem
+    var body: some View { LocalWidgetDockFace(item: item) }
+}
 
-    private var tint: Color { (configuration.stockSnapshot?.change ?? 0) >= 0 ? .green : .red }
-    private var tooltip: String {
-        guard let snapshot = configuration.stockSnapshot, let latest = snapshot.latest else { return "Configure a stock ticker" }
-        let change = snapshot.changePercent.map { String(format: "%+.2f%%", $0) } ?? ""
-        return "\(configuration.stockName.isEmpty ? configuration.stockSymbol : configuration.stockName) · \(latest.close.formatted(.currency(code: snapshot.currency))) \(change) · End of day, updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))"
+enum StockFaceFormatting {
+    static func changeColor(_ change: Double?) -> Color {
+        guard let change, change.isFinite, change < 0 else { return .secondary }
+        return WidgetPalette.critical
     }
 }
 
-private struct WatchlistCompactView: View {
-    var item: DockItem
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-
-    var body: some View {
-        let selected = configuration.watchlistStocks.first { $0.symbol == configuration.watchlistSelectedSymbol }
-        VStack(spacing: 2) {
-            Image(systemName: "chart.xyaxis.line").font(.system(size: 17)).foregroundStyle(.tint)
-            if let selected, let latest = selected.snapshot?.latest {
-                Text(latest.close.formatted(.currency(code: selected.snapshot?.currency ?? "USD")))
-                    .font(.system(size: 9, weight: .semibold, design: .rounded).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.7)
-                Text(selected.symbol).font(.system(size: 7, weight: .medium)).lineLimit(1)
-            } else {
-                Text(configuration.watchlistStocks.isEmpty ? "Add tickers" : configuration.watchlistSelectedSymbol)
-                    .font(.system(size: 8, weight: .medium)).lineLimit(1)
-            }
-            if configuration.watchlistStocks.count > 1 {
-                Text("+\(configuration.watchlistStocks.count - 1)").font(.system(size: 7)).foregroundStyle(.secondary)
-            }
-        }
-        .frame(width: 54, height: 54)
-        .help("Watchlist · \(configuration.watchlistStocks.count) symbols")
+enum StockFaceSample {
+    static func item(kind: String) -> DockItem {
+        var item = DockItem.widget(kind)
+        let snapshot = StockMarketSnapshot(symbol: "AAPL", points: [181.2, 182.5, 181.8, 185.1, 184.3, 186.2, 185.9].enumerated().map { index, value in
+            StockMarketPoint(date: .now.addingTimeInterval(Double(index - 6) * 86400), close: value, volume: 0)
+        }, currency: "USD", fetchedAt: .now)
+        item.widgetConfiguration?.stockSymbol = "AAPL"
+        item.widgetConfiguration?.stockSnapshot = snapshot
+        item.widgetConfiguration?.watchlistStocks = [WatchlistStock(symbol: "AAPL", name: "Apple", currency: "USD", snapshot: snapshot)]
+        item.widgetConfiguration?.watchlistSelectedSymbol = "AAPL"
+        return item
     }
 }
 
@@ -98,37 +75,39 @@ private struct StockPopoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Stock").font(.headline)
-                Spacer()
-                Button("Refresh") { Task { await refresh() } }
-                    .disabled(configuration.stockSymbol.isEmpty || isRefreshing)
-            }
-            HStack {
-                TextField("Search ticker or company", text: $searchText)
-                    .textFieldStyle(DockTextFieldStyle())
-                    .onSubmit { Task { await search() } }
-                Button { Task { await search() } } label: {
-                    if isSearching { ProgressView().controlSize(.small) }
-                    else { Image(systemName: "magnifyingglass") }
+            GroupedSection {
+                GroupedRow("Search") {
+                    HStack {
+                        TextField("Search ticker or company", text: $searchText)
+                            .textFieldStyle(DockTextFieldStyle())
+                            .onSubmit { Task { await search() } }
+                        Button { Task { await search() } } label: {
+                            if isSearching { ProgressView().controlSize(.small) }
+                            else { Image(systemName: "magnifyingglass") }
+                        }
+                        .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+                        .help("Search market symbols")
+                    }
                 }
-                .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
-                .help("Search market symbols")
+                GroupedRow("Refresh", role: .button) { Task { await refresh() } }
+                    .disabled(configuration.stockSymbol.isEmpty || isRefreshing)
             }
             if !searchResults.isEmpty { resultsList }
             if !configuration.stockSymbol.isEmpty {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        TextField("Display name", text: stockNameBinding)
-                            .font(.subheadline.weight(.semibold)).textFieldStyle(.plain).lineLimit(1)
-                        Text(configuration.stockSymbol).font(.caption).foregroundStyle(.secondary)
+                GroupedSection {
+                    GroupedRow("Display name") {
+                        VStack(alignment: .leading, spacing: 2) {
+                            TextField("Display name", text: stockNameBinding)
+                                .font(.subheadline.weight(.semibold)).textFieldStyle(.plain).lineLimit(1)
+                            Text(configuration.stockSymbol).font(.caption).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Spacer()
+                        Button("Yahoo Finance", systemImage: "arrow.up.right.square") { openFinance(configuration.stockSymbol) }
+                            .labelStyle(.iconOnly)
+                            .help("Open \(configuration.stockSymbol) on Yahoo Finance")
+                        if isRefreshing { ProgressView().controlSize(.small) }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    Spacer()
-                    Button("Yahoo Finance", systemImage: "arrow.up.right.square") { openFinance(configuration.stockSymbol) }
-                        .labelStyle(.iconOnly)
-                        .help("Open \(configuration.stockSymbol) on Yahoo Finance")
-                    if isRefreshing { ProgressView().controlSize(.small) }
                 }
                 chartContent
                 controls
@@ -150,7 +129,7 @@ private struct StockPopoutView: View {
             Text("Market data by Alpha Vantage. Quotes are end of day on the standard plan; request limits depend on your plan.")
                 .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 390).frame(minHeight: 230, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .task(id: "\(configuration.stockSymbol)|\(configuration.stockCurrency)|\(configuration.stockRefreshIntervalMinutes)") {
             guard !configuration.stockSymbol.isEmpty else { return }
             await refresh()
@@ -207,7 +186,7 @@ private struct StockPopoutView: View {
         }
         .frame(maxHeight: 130)
         .padding(.horizontal, 8)
-        .background(.quaternary.opacity(0.24), in: RoundedRectangle(cornerRadius: 8))
+
     }
 
     @ViewBuilder private var chartContent: some View {
@@ -215,15 +194,15 @@ private struct StockPopoutView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(latest.close.formatted(.currency(code: snapshot.currency)))
-                        .font(.system(size: 25, weight: .medium, design: .rounded).monospacedDigit())
+                        .font(DockDesign.Module.valueLarge)
                     if let change = snapshot.change, let percent = snapshot.changePercent {
                         Text("\(change >= 0 ? "+" : "")\(change.formatted(.number.precision(.fractionLength(2)))) (\(String(format: "%+.2f%%", percent)))")
-                            .font(.caption.weight(.medium)).foregroundStyle(change >= 0 ? .green : .red)
+                            .font(.caption.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
                     }
                 }
                 let visiblePoints = Array(snapshot.points.suffix(configuration.stockRange.pointCount))
                 MarketSparkline(points: visiblePoints,
-                                color: (snapshot.change ?? 0) >= 0 ? .green : .red,
+                                color: StockFaceFormatting.changeColor(snapshot.change),
                                 currency: snapshot.currency)
                     .frame(height: 100)
                 HStack {
@@ -245,23 +224,19 @@ private struct StockPopoutView: View {
     }
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Range", selection: rangeBinding) {
-                ForEach(StockChartRange.allCases) { Text($0.title).tag($0) }
+        GroupedSection("Chart", footer: "D = trading sessions. Up to 100 daily closes; percentage change compares the latest two sessions.") {
+            GroupedRow("Range", symbol: "chart.xyaxis.line") {
+                Picker("Range", selection: rangeBinding) {
+                    ForEach(StockChartRange.allCases) { Text($0.title).tag($0) }
+                }.labelsHidden()
             }
-            .pickerStyle(.segmented)
-            Text("D = trading sessions. Up to 100 daily closes; percentage change compares the latest two sessions.").font(.caption2).foregroundStyle(.secondary)
-            HStack {
+            GroupedRow("Refresh", symbol: "arrow.clockwise") {
                 Picker("Refresh", selection: refreshIntervalBinding) {
-                    Text("1 hour").tag(60)
-                    Text("3 hours").tag(180)
-                    Text("6 hours").tag(360)
-                    Text("12 hours").tag(720)
-                    Text("24 hours").tag(1_440)
-                }
-                Toggle("Volume", isOn: volumeBinding).toggleStyle(.checkbox)
+                    Text("1 hour").tag(60); Text("3 hours").tag(180); Text("6 hours").tag(360)
+                    Text("12 hours").tag(720); Text("24 hours").tag(1_440)
+                }.labelsHidden()
             }
-            .font(.caption)
+            GroupedRow("Volume", symbol: "chart.bar", isOn: volumeBinding)
         }
     }
 
@@ -355,20 +330,20 @@ private struct WatchlistPopoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Watchlist").font(.headline)
-                Spacer()
-                Button("Refresh") { Task { await refreshSelected() } }
-                    .disabled(selected == nil || isRefreshing)
-            }
-            HStack {
-                TextField("Search ticker or company", text: $searchText).textFieldStyle(DockTextFieldStyle())
-                    .onSubmit { Task { await search() } }
-                Button { Task { await search() } } label: {
-                    if isSearching { ProgressView().controlSize(.small) }
-                    else { Image(systemName: "magnifyingglass") }
+            GroupedSection {
+                GroupedRow("Search") {
+                    HStack {
+                        TextField("Search ticker or company", text: $searchText).textFieldStyle(DockTextFieldStyle())
+                            .onSubmit { Task { await search() } }
+                        Button { Task { await search() } } label: {
+                            if isSearching { ProgressView().controlSize(.small) }
+                            else { Image(systemName: "magnifyingglass") }
+                        }
+                        .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+                    }
                 }
-                .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+                GroupedRow("Refresh", role: .button) { Task { await refreshSelected() } }
+                    .disabled(selected == nil || isRefreshing)
             }
             if !searchResults.isEmpty { searchResultsList }
             if configuration.watchlistStocks.isEmpty {
@@ -389,7 +364,7 @@ private struct WatchlistPopoutView: View {
             Text("End-of-day quotes by Alpha Vantage. Request limits depend on your plan.")
                 .font(.caption2).foregroundStyle(.tertiary)
         }
-        .frame(width: 410).frame(minHeight: 240, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .task(id: "\(configuration.watchlistSelectedSymbol)|\(selected?.currency ?? "")|\(interval)") {
             guard !configuration.watchlistSelectedSymbol.isEmpty else { return }
             await refreshSelected()
@@ -434,7 +409,7 @@ private struct WatchlistPopoutView: View {
             }
         }
         .frame(maxHeight: 120).padding(.horizontal, 8)
-        .background(.quaternary.opacity(0.24), in: RoundedRectangle(cornerRadius: 8))
+
     }
 
     private var watchlistTabs: some View {
@@ -458,10 +433,11 @@ private struct WatchlistPopoutView: View {
                         }
                         .frame(width: 112, alignment: .leading)
                         .padding(.horizontal, 9).padding(.vertical, 7)
-                        .background(configuration.watchlistSelectedSymbol == stock.symbol ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.035),
-                                    in: RoundedRectangle(cornerRadius: 9))
-                        .overlay(RoundedRectangle(cornerRadius: 9)
-                            .strokeBorder(configuration.watchlistSelectedSymbol == stock.symbol ? Color.accentColor.opacity(0.48) : Color.primary.opacity(0.08), lineWidth: 1))
+                        .overlay(alignment: .bottom) {
+                            if configuration.watchlistSelectedSymbol == stock.symbol {
+                                Capsule().fill(Color.primary).frame(height: 2)
+                            }
+                        }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -480,7 +456,7 @@ private struct WatchlistPopoutView: View {
             .padding(.vertical, 2)
         }
         .scrollIndicators(.hidden)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity).frame(height: 96)
         .help("Choose a ticker. Open a ticker's context menu to change its order or remove it.")
     }
 
@@ -504,15 +480,15 @@ private struct WatchlistPopoutView: View {
             if let snapshot = stock.snapshot, let latest = snapshot.latest {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text(latest.close.formatted(.currency(code: snapshot.currency))).font(.system(size: 22, weight: .medium, design: .rounded).monospacedDigit())
+                        Text(latest.close.formatted(.currency(code: snapshot.currency))).font(DockDesign.Module.valueLarge)
                         if let change = snapshot.changePercent {
-                            Text(String(format: "%+.2f%%", change)).font(.caption.weight(.medium)).foregroundStyle(change >= 0 ? .green : .red)
+                            Text(String(format: "%+.2f%%", change)).font(.caption.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
                         }
                         Spacer()
                     }
                     let visiblePoints = Array(snapshot.points.suffix(configuration.stockRange.pointCount))
                     MarketSparkline(points: visiblePoints,
-                                    color: (snapshot.change ?? 0) >= 0 ? .green : .red,
+                                    color: StockFaceFormatting.changeColor(snapshot.change),
                                     currency: snapshot.currency)
                         .frame(height: 72)
                     Text("\(visiblePoints.count) trading sessions · \(visiblePoints.first?.date.formatted(date: .abbreviated, time: .omitted) ?? "")–\(latest.date.formatted(date: .abbreviated, time: .omitted))")
@@ -531,20 +507,19 @@ private struct WatchlistPopoutView: View {
     }
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Picker("Range", selection: Binding(get: { configuration.stockRange }, set: { value in update { $0.stockRange = value } })) {
-                ForEach(StockChartRange.allCases) { Text($0.title).tag($0) }
+        GroupedSection("Chart", footer: "D = trading sessions. Up to 100 daily closes; percentage change compares the latest two sessions.") {
+            GroupedRow("Range", symbol: "chart.xyaxis.line") {
+                Picker("Range", selection: Binding(get: { configuration.stockRange }, set: { value in update { $0.stockRange = value } })) {
+                    ForEach(StockChartRange.allCases) { Text($0.title).tag($0) }
+                }.labelsHidden()
             }
-            .pickerStyle(.segmented)
-            HStack {
+            GroupedRow("Refresh", symbol: "arrow.clockwise") {
                 Picker("Refresh", selection: Binding(get: { interval }, set: { value in update { $0.stockRefreshIntervalMinutes = value } })) {
                     Text("1 hour").tag(60); Text("3 hours").tag(180); Text("6 hours").tag(360)
                     Text("12 hours").tag(720); Text("24 hours").tag(1_440)
-                }
-                Toggle("Volume", isOn: Binding(get: { configuration.stockShowsVolume }, set: { value in update { $0.stockShowsVolume = value } }))
-                    .toggleStyle(.checkbox)
+                }.labelsHidden()
             }
-            .font(.caption)
+            GroupedRow("Volume", symbol: "chart.bar", isOn: Binding(get: { configuration.stockShowsVolume }, set: { value in update { $0.stockShowsVolume = value } }))
         }
     }
 
@@ -663,9 +638,7 @@ private struct MarketSparkline: View {
                         else { path.addLine(to: CGPoint(x: x, y: y)) }
                     }
                 }
-                .stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                Rectangle().fill(.primary.opacity(0.08)).frame(height: 1)
-                    .position(x: geometry.size.width / 2, y: geometry.size.height - 0.5)
+                .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
 
                 if let selectedIndex, points.indices.contains(selectedIndex) {
                     let point = points[selectedIndex]
@@ -681,9 +654,9 @@ private struct MarketSparkline: View {
                             .fontWeight(.semibold)
                         Text("Volume \(point.volume.formatted())")
                     }
-                    .font(.system(size: 9, design: .rounded))
+                    .font(DockDesign.Module.label)
                     .padding(.horizontal, 5).padding(.vertical, 3)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 5))
+                    .dockGlass(.regular, in: RoundedRectangle(cornerRadius: 5))
                     .position(x: min(max(x, 60), max(60, geometry.size.width - 60)), y: 24)
                 }
             }
