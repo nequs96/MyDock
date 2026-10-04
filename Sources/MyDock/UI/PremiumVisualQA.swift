@@ -58,6 +58,10 @@ enum PremiumVisualQA {
 
     static func export(to directory: URL, store: ProfileStore) async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if ProcessInfo.processInfo.environment["MYDOCK_SURFACES_QA"] == "1" {
+            try await exportChangedSurfacesUI(to: directory, store: store)
+            return
+        }
         if ProcessInfo.processInfo.environment["MYDOCK_INTERACTION_QA"] == "1" {
             try await exportInteractionUI(to: directory, store: store)
             return
@@ -404,6 +408,95 @@ enum PremiumVisualQA {
         }
     }
 
+    private static func exportChangedSurfacesUI(to directory: URL, store: ProfileStore) async throws {
+        precondition(AppRuntimeEnvironment.isIsolated, "Surface fixtures require an isolated validation root")
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Example Dock")
+        store.activate(id)
+        store.updateSettings { $0.onboardingComplete = true; $0.showRunningApps = false; $0.showTrash = false; $0.customDockWidgetStyle = .cards }
+        var alarm = DockItem.widget("Alarm")
+        alarm.widgetConfiguration?.alarms = [DockAlarm(title: "Example morning alarm", hour: 7, minute: 30, repeatWeekdays: [2, 4, 6], isEnabled: false)]
+        store.add(alarm, to: id)
+        let now = Date.now
+        let reading = AIProviderLimitReading(provider: .copilot, availability: .available, plan: "Pro", windows: [
+            AILimitWindow(name: "Monthly credits", usedPercent: 28, resetsAt: now.addingTimeInterval(86_400), durationMinutes: 43_200)
+        ], updatedAt: now.addingTimeInterval(-7_200), verifiedAccountIdentity: "example-account", lastRefreshError: "Example temporary connection failure")
+        var limits = DockItem.widget("AI Limits")
+        limits.widgetConfiguration?.aiLimitsVisibleProviders = [.copilot]
+        limits.widgetConfiguration?.aiLimitsCompactProvider = .copilot
+        let snapshot = AILimitsSnapshot(fetchedAt: now, readings: [reading], sourceScope: AIUsageSourceScope.limits(providers: [.copilot]))
+        limits.widgetConfiguration?.aiLimitsSnapshot = snapshot
+        store.add(limits, to: id)
+        store.widgetData = WidgetDataCoordinator(store: store, loader: { _, _ in .limits(snapshot) })
+        let payload = DiagnosticsPreviewPayload(data: try DiagnosticReport.makeData(state: store.state,
+            hasUnpersistedChanges: false, persistenceWarningPresent: false, storageWritable: true,
+            events: [DiagnosticEvent(at: now, category: .lifecycle, code: .appLaunched)], now: now,
+            buildNumber: "synthetic-qa", hasIntentMetadata: false,
+            osVersion: OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 1)))
+        for scheme in [ColorScheme.dark, .light] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            store.updateSettings { $0.customDockTheme = scheme == .dark ? .dark : .light; $0.customDockPosition = .bottom }
+            for scope in ["dock", "defaults"] {
+                // An inactive custom selection initializes the real Settings scope to app defaults,
+                // while retaining the synthetic Dock in its picker.
+                store.updateSettings { $0.activeCustomProfileID = scope == "dock" ? id : nil }
+                for (width, label) in [(820.0, "full"), (520.0, "narrow")] {
+                    try await render(SettingsView(store: store, initialPage: .appearance, embeddedInWorkspace: true, sidebarVisible: false),
+                        name: "surface-appearance-\(scope)-\(label)-\(suffix)", size: NSSize(width: width, height: 1200), scheme: scheme, directory: directory)
+                }
+            }
+            store.updateSettings { $0.activeCustomProfileID = id }
+            try await render(DiagnosticsPreviewSheet(payload: payload, cancel: {}, saved: {}).background(WidgetDesign.surface),
+                name: "surface-diagnostics-\(suffix)", size: NSSize(width: 620, height: 540), scheme: scheme, directory: directory)
+            try await render(WidgetPopout(store: store, item: limits, profileID: id).padding(20).background(WidgetDesign.surface),
+                name: "surface-ai-limits-stale-\(suffix)", size: NSSize(width: 460, height: 800), scheme: scheme, directory: directory)
+            try await render(HStack(spacing: 16) {
+                ForEach(WidgetPresentationCatalog.options(for: "AI Limits")) { option in
+                    WidgetCompactView(store: store, item: limits, profileID: id, layoutOverride: option.layout)
+                }
+            }.padding(20).background(WidgetDesign.surface), name: "surface-ai-limits-stale-faces-\(suffix)",
+                size: NSSize(width: 510, height: 110), scheme: scheme, directory: directory)
+            try await render(WidgetPopout(store: store, item: alarm, profileID: id).padding(20).background(WidgetDesign.surface),
+                name: "surface-alarm-edit-\(suffix)", size: NSSize(width: 460, height: 520), scheme: scheme, directory: directory,
+                fixtureClick: NSPoint(x: 373, y: 322))
+            for state in ["empty", "ongoing"] {
+                // Calendar's private production views have no injected service/state hook. These
+                // are explicitly labeled presentation fixtures, not EventKit/popout acceptance.
+                let event = CalendarEventSnapshot(id: "example", title: "Example design review", startDate: now.addingTimeInterval(-600),
+                    endDate: now.addingTimeInterval(1_800), isAllDay: false, calendarID: "example", calendarTitle: "Example calendar", meetingURL: nil)
+                try await render(VStack(alignment: .leading, spacing: 12) {
+                    Text("Example · Calendar presentation fixture").font(.caption).foregroundStyle(.secondary)
+                    Text("Showing: Example calendar · next seven days").font(.caption).foregroundStyle(.secondary)
+                    if state == "empty" {
+                        VStack(spacing: 7) {
+                            Image(systemName: "calendar").font(.title2).foregroundStyle(.secondary)
+                            Text("No upcoming events").font(.callout.weight(.medium))
+                            Text("There are no events in the next seven days for these calendars.").font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        }.frame(maxWidth: .infinity, minHeight: 100)
+                    } else {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(event.title).font(.callout.weight(.medium)).lineLimit(2)
+                            Text(event.startDate.formatted(date: .abbreviated, time: .shortened) + " · " + event.calendarTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text(WidgetTimingPresentation.eventStatus(event, now: now)).font(.caption).foregroundStyle(.secondary)
+                        }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 9))
+                    }
+                }.padding(20).background(WidgetDesign.surface), name: "surface-calendar-\(state)-fixture-\(suffix)",
+                    size: NSSize(width: 410, height: 250), scheme: scheme, directory: directory)
+            }
+            for position in [DockPosition.left, .right] {
+                store.updateSettings { $0.customDockPosition = position }
+                for (page, kinds) in semanticLayoutPages().enumerated() {
+                    let profile = DockProfile(name: "Example side Dock", kind: .custom, items: kinds.map(DockItem.widget))
+                    try await render(VStack(spacing: 12) {
+                        Text("Example · \(position.rawValue) · families \(page * semanticLayoutPageSize + 1)–\(page * semanticLayoutPageSize + kinds.count)").font(.caption).foregroundStyle(.secondary)
+                        DockLayoutPreview(store: store, profile: profile, maximumSideLength: 780)
+                    }.padding(20).background(WidgetDesign.surface), name: "surface-side-\(position.rawValue)-\(page + 1)-\(suffix)",
+                        size: NSSize(width: 300, height: 900), scheme: scheme, directory: directory)
+                }
+            }
+        }
+    }
+
     private static func exportWidgetUI(to directory: URL, store: ProfileStore) async throws {
         let id = try store.createProfileAndPersist(kind: .custom, name: "Widget studio")
         store.updateSettings { $0.onboardingComplete = true; $0.showRunningApps = false; $0.showTrash = false }
@@ -531,7 +624,7 @@ enum PremiumVisualQA {
 
     private static func render<Content: View>(_ view: Content, name: String, size: NSSize,
                                               scheme: ColorScheme, directory: URL, contrast: ColorSchemeContrast = .standard,
-                                              reduceTransparency: Bool = false) async throws {
+                                              reduceTransparency: Bool = false, fixtureClick: NSPoint? = nil) async throws {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "MyDock"
@@ -547,10 +640,27 @@ enum PremiumVisualQA {
             .environment(\.dockAccessibilityPreview, DockAccessibilityPreview(contrast: contrast, reduceTransparency: reduceTransparency)))
         host.frame = NSRect(origin: .zero, size: size)
         window.contentView = host
+        if fixtureClick != nil { window.orderFrontRegardless() }
         host.layoutSubtreeIfNeeded()
         // Settle SwiftUI's appearance/state tasks before caching the native view.
         try await Task.sleep(for: .milliseconds(ProcessInfo.processInfo.environment["MYDOCK_FOCUSED_QA"] == "1" ? 800 : 350))
         host.layoutSubtreeIfNeeded()
+        if let fixtureClick {
+            // Only the fixed 460×520 synthetic Alarm fixture uses this point: its
+            // pencil was located in the pre-edit bitmap. Events stay in this window;
+            // the fixture never clicks Save, toggles an alarm or requests scheduling.
+            let point = NSPoint(x: fixtureClick.x, y: host.isFlipped ? fixtureClick.y : host.bounds.height - fixtureClick.y)
+            let location = host.convert(point, to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else {
+                    throw CocoaError(.coderInvalidValue)
+                }
+                window.sendEvent(event)
+            }
+            try await Task.sleep(for: .milliseconds(350))
+            host.layoutSubtreeIfNeeded()
+        }
         guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { throw CocoaError(.fileWriteUnknown) }
         host.cacheDisplay(in: host.bounds, to: bitmap)
         guard let png = bitmap.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
