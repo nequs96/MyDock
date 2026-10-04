@@ -272,4 +272,24 @@ struct NativeAlarmCalendarTests {
         #expect(CalendarEventOrdering.compactEvent(from: [ended, upcoming, ongoing, allDay], now: now)?.id == "ongoing")
         #expect(CalendarEventOrdering.compactEvent(from: [expiredAllDay, allDay], now: now)?.id == "all-day")
     }
+
+    @Test func ongoingStartBoundaryOutranksEarlierAllDayAndUpcomingSortsByStart() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func event(_ id: String, start: TimeInterval, end: TimeInterval, allDay: Bool = false) -> CalendarEventSnapshot {
+            CalendarEventSnapshot(id: id, title: id, startDate: now.addingTimeInterval(start),
+                endDate: now.addingTimeInterval(end), isAllDay: allDay, calendarID: "fixture",
+                calendarTitle: "Fixture", meetingURL: nil)
+        }
+        let startingNow = event("starting-now", start: 0, end: 60)
+        let later = event("later", start: 30, end: 90)
+        let sooner = event("sooner", start: 10, end: 20)
+        let allDay = event("all-day", start: -3_600, end: 86_400, allDay: true)
+        let ordered = CalendarEventOrdering.select([allDay, later, sooner, startingNow], calendarIDs: [],
+                                                   includeAllDay: true, now: now)
+        #expect(ordered.map(\.id) == ["starting-now", "sooner", "later", "all-day"])
+        // One second before the end the event is still current; at the end it is not.
+        let almostOver = event("almost-over", start: -60, end: 1)
+        #expect(CalendarEventOrdering.compactEvent(from: [almostOver], now: now)?.id == "almost-over")
+        #expect(CalendarEventOrdering.compactEvent(from: [almostOver], now: now.addingTimeInterval(1)) == nil)
+    }
 }

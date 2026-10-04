@@ -93,6 +93,18 @@ class ReleaseManifestTests(unittest.TestCase):
                 self.run_manifest()
         self.assertFalse(self.output.exists())
 
+    def test_zip_stream_shorter_than_declared_size_is_rejected(self):
+        self.package()
+        original_open = zipfile.ZipFile.open
+        def short_open(zipped, name, *args, **kwargs):
+            if str(name).endswith("Contents/MacOS/MyDock"):
+                return io.BytesIO(b"fixture")
+            return original_open(zipped, name, *args, **kwargs)
+        with patch.object(zipfile.ZipFile, "open", short_open):
+            with self.assertRaisesRegex(RuntimeError, "member size"):
+                self.run_manifest()
+        self.assertFalse(self.output.exists())
+
     def test_zip_rejects_symlink_disguised_as_regular_file(self):
         self.package()
         rewritten = self.root / "rewritten.zip"
