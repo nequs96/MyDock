@@ -99,6 +99,7 @@
 		7657C2085A26DFCA47793414 /* ReliabilityDurableWriteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FEA0ABC418EA317609FEBE /* ReliabilityDurableWriteTests.swift */; };
 		77470E173C9080BA3A993DB6 /* FinancialCurrencyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83830AAC384D2604F8A38F0E /* FinancialCurrencyFormatter.swift */; };
 		78F8529B841B51BEC27829EF /* PaddleWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E91584E6116F0E9B70944C /* PaddleWidgetViews.swift */; };
+		7944B0C6A4B15260802625F5 /* DockPresentationEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9515C883F976F386A463477C /* DockPresentationEnvironment.swift */; };
 		7A70C2FFCC5F1D7934DDB5E1 /* ProductCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B817FD02D713E0939CD51AE /* ProductCompletionTests.swift */; };
 		7E0D4186A9CAAE3B7C32432D /* CurrentLocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2683184ECD83EC69D51DC097 /* CurrentLocationService.swift */; };
 		7E2F16EE76488D46F7922184 /* WidgetQACoverageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF09BF464E215CCF3F317166 /* WidgetQACoverageTests.swift */; };
@@ -366,6 +367,7 @@
 		93B08C831E20D5FAF49E98C6 /* AppearanceSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsPage.swift; sourceTree = "<group>"; };
 		944B715C1680BE3116BEB704 /* AIAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAccountService.swift; sourceTree = "<group>"; };
 		9477E75B67A51DC03E1F9722 /* BackupManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupManager.swift; sourceTree = "<group>"; };
+		9515C883F976F386A463477C /* DockPresentationEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPresentationEnvironment.swift; sourceTree = "<group>"; };
 		962C87CCB07F89FC6A333304 /* GeneralSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsPage.swift; sourceTree = "<group>"; };
 		96BD2A424B06C0839F15D21D /* InstalledAppCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstalledAppCatalogTests.swift; sourceTree = "<group>"; };
 		970F8998158070A27A35A717 /* ProfileAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileAppearance.swift; sourceTree = "<group>"; };
@@ -604,6 +606,7 @@
 				8697E3ECDAFBB8E536BC8AB5 /* DesignSystemGallery.swift */,
 				F6E8CD146EDE2C8220CEAA61 /* DockGlass.swift */,
 				F47321576B3FFE6B64B02743 /* DockHoverEffect.swift */,
+				9515C883F976F386A463477C /* DockPresentationEnvironment.swift */,
 				9306B4194DF2E1853E38B3D7 /* GlassModule.swift */,
 				902E58C49824FBB1B6EA777A /* GroupedForm.swift */,
 				41E107A1123B0845913FA517 /* PillButton.swift */,
@@ -1019,6 +1022,7 @@
 				3AB00530BF01A4D749332A4B /* DockManagerView.swift in Sources */,
 				A2CBBC0E5FC42B906F01123E /* DockMaterialSurface.swift in Sources */,
 				3DAC46296B3371EBC32E7009 /* DockModels.swift in Sources */,
+				7944B0C6A4B15260802625F5 /* DockPresentationEnvironment.swift in Sources */,
 				3106C55831C037C688363F9D /* DockPresentationPolicies.swift in Sources */,
 				F581CFE231439478F23A4C5E /* DockProfileStatus.swift in Sources */,
 				FA082EDF00317E8C0583780C /* DockRenderModel.swift in Sources */,

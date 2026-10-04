@@ -199,3 +199,85 @@ Only the orchestrator edits this file, `docs/IMPLEMENTATION_STATUS.md` and `docs
   - **Leading hypothesis (unconfirmed):** CI runners use full Xcode, but `TestMyDock.sh` hard-coded the Command Line Tools location of `Testing.framework` (`$DEVELOPER_DIR/Library/Developer/Frameworks`) for `-F` and the rpaths. In Xcode it lives in `Platforms/MacOSX.platform/Developer/Library/Frameworks`. A test bundle that cannot load Swift Testing is reported by SwiftPM as `error: fatalError` after compiling.
   - **Fix:** `TestMyDock.sh` uses whichever layout contains `Testing.framework`, and fails with a clear message if neither does. The workflow's SDK step prints `sw_vers`, `xcode-select -p`, `swift --version` and the SDK version for the next run.
   - **Verification:** local `./TestMyDock.sh` on the main checkout: 516 tests in 66 suites passed (`.build/redesign-rd00-test.log`). **CI not run:** pushing needs the user's permission. Status: implemented; CI verification open.
+
+### Wave 1 launch — 4 October 2026
+
+- **RD-02** (Codex `gpt-6.1-sol`, effort high):
+  - Worktree `../MyDock-wt/RD-02`, branch `redesign/RD-02` at `be690ce`.
+  - Sandbox `workspace-write` plus `--add-dir` for the main `.git`, because commits from an external worktree write there.
+  - Brief: `../MyDock-wt/RD-02.brief.md`.
+- **RD-01** (Claude Opus, high): Claude Code loads agent definitions only at session start, so the new `.claude/agents/design-system.md` was not yet available as a subagent type. RD-01 runs as `general-purpose` with `model: opus`, the definition's role text and the full package brief, in an isolated worktree that is told to reset to `be690ce`. Later sessions can use the named agents directly.
+- **RD-03** (Codex, effort medium): queued behind the two-concurrent-builds limit. Brief: `../MyDock-wt/RD-03.brief.md`.
+
+### RD-02 — merged `f5500c2` (branch commit `18c971f`)
+
+- **Implementation:** implemented as specified.
+  - New types: `DockEdgeStyle`, `DockWidgetSurface`, `DockTintMode`, `WidgetAccent` (string-encoded `auto` / `mono` / `profile.<raw>`) and `WidgetGlassTint`.
+  - New `AppSettings` fields: `customDockEdgeStyle` (`.hairline`), `customDockWidgetSurface` (`.tile`), `customDockFloatingInset` (0, bounds 0…24) and `customDockTintMode` (`.custom`).
+  - `ProfileAppearance` gets the optional fields `edgeStyle`, `widgetSurface`, `floatingInset` and `tintMode`. nil maps to today's look, and `validate()` bounds the inset.
+  - `WidgetConfiguration` gets the optional fields `widgetAccent`, `showsLabel` and `glassTint`.
+  - New enums decode an unknown raw value to the default (`try?`). Decoding of existing enums is unchanged.
+- **Orchestrator review:**
+  - `WidgetConfiguration` encoding is synthesized from its CodingKeys, so the new keys are written.
+  - Draft merge is JSON field-level (`JSONDraftMerge`), so the new widget fields merge independently with no code change. A test covers independent merges and real conflicts.
+  - The sanitizer and backup do not enumerate fields.
+- **Worker verification:**
+  - The new `RedesignAppearanceModelTests` pass: 9 tests covering old-JSON fixtures from the pre-change encoder, round-trips, clamping and rejection, unknown-enum fallback, backup, personal presets and merge.
+  - The disposable build passed.
+  - The full suite stalled in the Codex sandbox: LaunchServices waits in `AIActivityDedupeTests` and a subprocess wait in `BoundedSubprocessCaptureTests`. Environment only; no test was changed.
+- **Unsandboxed full suite on integration:** queued (build-slot limit). See the next journal entry.
+
+### RD-01 — merged `a3f96c0` (branch commit `66ee21b`)
+
+- **Implementation:** implemented. Added:
+  - `DockDesign.Motion` (`hover`, `appear`, `morph`, `animation(_:reduceMotion:)`, `perform`), `DockDesign.Module`, `DockDesign.Glass` and `DockDesign.Grouped`;
+  - `DockAccessibilityStyle.reduceMotion` and a DEBUG preview override;
+  - `dockGlass(_:in:tint:interactive:)`, `DockGlassGroup` (a `GlassEffectContainer`) and `dockHover`;
+  - the components `GlassModule`, `ModuleValueLabel`, `GroupedSection`/`GroupedRow` (value, toggle, button, destructive, custom), `PillButton`, `SizePager` and `StyleSwatch`/`DockSwatchLook`;
+  - the DEBUG `MYDOCK_REDESIGN_QA` export.
+- **Orchestrator review:**
+  - All changes are additive, and every glass call is behind `#available(macOS 26.0, *)`.
+  - Reduce Transparency is opaque. Increase Contrast adds an edge on every path. Reduce Motion returns a nil animation or an instant transaction.
+  - Exports draw the fallback, because native glass blanks `cacheDisplay` bitmaps; the worker found this and documented it.
+  - **Noted risk:** on macOS 13–14, `GroupedSection` falls back to `_VariadicView` (underscored SwiftUI API). macOS 15+ uses `Group(subviews:)`. That fallback is not rendered here.
+- **Renders:** 42 PNGs (7 specimens × light/dark × standard/RT/IC) in the worker's `.build/visual-qa/RD-01/` and on integration in `.build/visual-qa/redesign-20261004/wave1/`. The orchestrator viewed the sheet specimen (light), the swatches (dark) and the grouped form (dark, Increase Contrast). The "on" switches render grey in offscreen captures, which is an `NSSwitch` capture artifact.
+
+### RD-03 — merged `a58261c` (branch commit `e0c685b`)
+
+- **Implementation:** `SettingsView.swift` keeps the shell, and seven `UI/Settings/<Page>SettingsPage.swift` extensions plus `SettingsShared.swift` hold the pages.
+- **Orchestrator review:** a normalized line comparison (access modifiers stripped) shows that apart from `private` removal the only differences are the seven new page accessors and their call sites. No other line was removed or added.
+- **Worker verification:**
+  - 516 tests pass before and after.
+  - Nine Settings PNG pairs are byte-identical.
+  - Six differ only in live clock content and diagnostics timestamps (0.04–1.3 % of pixels). See `../MyDock-wt/RD-03/.build/visual-qa/RD-03/settings-comparison.txt`.
+- The `project.pbxproj` merge conflict with RD-01 was resolved by regenerating with `./GenerateXcodeProject.sh`.
+
+### Wave 1 integrated verification — 4 October 2026
+
+- `./TestMyDock.sh` on `redesign/integration` (`a58261c`): **531 tests in 68 suites passed, 0 failed** (516 + 9 RD-02 + 6 RD-01). Log: `.build/redesign-w1b-test.log`.
+- `MYDOCK_REDESIGN_QA=1` export on integration: 42 PNGs, exit 0.
+- Canonical app:
+  - The previous instance (PID 87859) was quit with a normal quit Apple Event and its absence verified.
+  - `./BuildMyDock.sh` exited 0. Executable SHA-256 `2c1fc310ffdd412cbc8a4b7b4fcf3899c8a9294cac85baa8af2ca19c59026ec3`.
+  - `build/MyDock.app` relaunched (PID 2773).
+- There is no visual change to the shipping UI in wave 1, by design.
+
+### Integration fix before wave 2 — shared presentation environment
+
+`UI/DesignSystem/DockPresentationEnvironment.swift` (orchestrator) defines the contract between the Dock and widget packages:
+- `dockWidgetSurface` (default `.tile`);
+- `dockModuleRadius` (default `Module.defaultRadius` 16);
+- `widgetAccent` (`.auto`);
+- `widgetShowsLabel` (true);
+- `widgetGlassTint` (`.none`).
+
+### Wave 2 ownership refinements (binding)
+
+- **RD-04** also owns `DockManagement/DockPresentationPolicies.swift`. `DockPresentationSettings` must include the new appearance fields so the panel updates when they change; the floating inset changes geometry. RD-04 injects `dockModuleRadius` (concentric with its own Dock padding) in `CustomDockView` and `DockLayoutPreview`. It wraps Dock contents in `DockGlassGroup` when the material is glass.
+- **RD-05** may edit only the body of `WidgetCompactView` in `CustomDock/WidgetViews.swift`, to inject the per-widget values:
+  - `dockWidgetSurface` from the effective settings;
+  - `widgetAccent` from `configuration.widgetAccent ?? .auto`;
+  - `widgetShowsLabel` from `configuration.showsLabel ?? settings.showWidgetLabels`;
+  - `widgetGlassTint` from `configuration.glassTint ?? .none`.
+
+  The rest of that file stays untouched until RD-08.
