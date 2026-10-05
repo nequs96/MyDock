@@ -90,7 +90,8 @@ extension PremiumVisualQA {
         var settings = store.state.settings
         settings.customDockPosition = .bottom
         settings.customDockWidgetStyle = .cards
-        try await render(WidgetSurfaceQAPage(title: "Sample (left) and live (right) · same face views · \(schemeName)") {
+        // FX-09: samples pass no appearance, so they show the creation appearance (Mono) a new widget gets.
+        try await render(WidgetSurfaceQAPage(title: "Sample (left, creation appearance) and live new widget (right) · same face views · \(schemeName)") {
             ForEach(DockWidgetSurface.allCases, id: \.self) { surface in
                 let surfaceSettings = settings.with(surface: surface)
                 VStack(alignment: .leading, spacing: 6) {

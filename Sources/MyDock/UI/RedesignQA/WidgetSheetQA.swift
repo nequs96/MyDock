@@ -72,6 +72,9 @@ extension PremiumVisualQA {
             }
             try await render(WidgetSheetQAPopoverHost { WidgetPopout(store: store, item: item("Clock"), profileID: id).customizeExpandedForQA() },
                              name: "widgetpopout-clock-customize-\(suffix)", size: NSSize(width: 492, height: 960), scheme: scheme, directory: directory)
+            // FX-09: with Customize open, the family's hero steps aside; its settings stay folded.
+            try await render(WidgetSheetQAPopoverHost { WidgetPopout(store: store, item: item("Countdown"), profileID: id).customizeExpandedForQA() },
+                             name: "widgetpopout-countdown-customize-\(suffix)", size: NSSize(width: 492, height: 1100), scheme: scheme, directory: directory)
             // FX-03: the Trash sheet (no repeated hero), and Start contrast under Increase Contrast.
             TrashQAFixture.override = (count: 12, errorMessage: nil)
             let trash = DockItem.widget("Trash")
@@ -109,14 +112,16 @@ extension PremiumVisualQA {
 enum WidgetSheetQA {
     /// One family per category, plus Battery and Sticky Note.
     static let families = ["Quick Checklist", "Calendar", "System Activity", "Clock", "Weather", "Stock", "AI Limits", "Battery", "Sticky Note"]
-    static let popoutFamilies = ["Clock", "Countdown", "Battery", "Sticky Note", "App Folder"]
+    static let popoutFamilies = ["Clock", "Countdown", "Battery", "Sticky Note", "App Folder", "Hydration", "Time Progress"]
     static let fullHeight: CGFloat = 1180
 
     static func popoutHeight(_ kind: String) -> CGFloat {
         switch kind {
         case "Countdown": 470
         case "Sticky Note": 400
-        case "App Folder": 620
+        case "App Folder": 520
+        case "Hydration": 560
+        case "Time Progress": 300
         case "Battery": 300
         default: 300
         }
@@ -134,6 +139,13 @@ enum WidgetSheetQA {
         var countdown = DockItem.widget("Countdown")
         countdown.widgetConfiguration?.countdownDurationSeconds = 25 * 60
         result["Countdown"] = countdown
+        var hydration = DockItem.widget("Hydration")
+        let morning = Calendar.current.startOfDay(for: .now)
+        hydration.widgetConfiguration?.hydrationEntries = [9, 11, 14].map {
+            HydrationEntry(timestamp: morning.addingTimeInterval(Double($0) * 3600), amountML: 250)
+        }
+        result["Hydration"] = hydration
+        result["Time Progress"] = .widget("Time Progress")
         var folder = DockItem.widget("App Folder")
         folder.title = "Studio"
         folder.widgetConfiguration?.appFolderName = "Studio"

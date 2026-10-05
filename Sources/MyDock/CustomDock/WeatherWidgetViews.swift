@@ -140,6 +140,10 @@ private struct WeatherPopoutWidgetView: View {
             // Attribution stays visible whether or not the settings are open.
             WidgetPopoutCaption(WeatherCopy.attribution)
         }
+        // The forecast's age and the one refresh control live in the shell's header.
+        .widgetPopoutRefresh(location == nil ? nil
+            : WidgetPopoutRefresh(updatedAt: forecast?.fetchedAt, isRefreshing: isLoading, failed: errorMessage != nil,
+                                  maximumAge: 30 * 60, action: { refresh(force: true) }))
         .onAppear {
             unitSelection = configuration.weatherUnit.rawValue
             layoutSelection = configuration.weatherLayout.rawValue
@@ -185,14 +189,7 @@ private struct WeatherPopoutWidgetView: View {
     /// The city: its name with Change, or the search while choosing one.
     private var locationSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            WidgetPopoutSectionHeader("Location") {
-                if location != nil {
-                    HStack(spacing: 6) {
-                        if isLoading { ProgressView().controlSize(.mini).accessibilityLabel("Loading forecast") }
-                        Button("Refresh") { refresh(force: true) }.disabled(isLoading)
-                    }
-                }
-            }
+            WidgetPopoutSectionHeader("Location")
             GroupedSection(footer: forecast.flatMap { WeatherCopy.timeZoneFooter(forecastTimeZone: $0.timeZoneIdentifier) },
                            separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
                 if let location, !setupDraft.isChangingLocation {
@@ -289,8 +286,10 @@ private struct WeatherPopoutWidgetView: View {
                 }
                 .labelsHidden().fixedSize().accessibilityLabel("Background")
             }
-            WidgetStepperRow(title: "Forecast", value: "\(forecastHours) hours", amount: $forecastHours, range: 1...6, step: 1)
-                .disabled(configuration.weatherLayout != .hourlyForecast)
+            // Only the hourly forecast has a length; other layouts show no disabled control for it.
+            if WeatherCopy.showsForecastLength(configuration.weatherLayout) {
+                WidgetStepperRow(title: "Forecast", value: "\(forecastHours) hours", amount: $forecastHours, range: 1...6, step: 1)
+            }
         }
     }
 
@@ -564,6 +563,9 @@ enum WeatherCopy {
               zone.secondsFromGMT(for: now) != current.secondsFromGMT(for: now) else { return nil }
         return "Hours are in \(forecastTimeZone) time."
     }
+
+    /// The Forecast length row exists only for the hourly forecast; elsewhere it would be a dead control.
+    static func showsForecastLength(_ layout: WeatherWidgetLayout) -> Bool { layout == .hourlyForecast }
 }
 
 /// An hour of the forecast labelled in the user's own hour format: "3 AM" with a 12-hour clock,

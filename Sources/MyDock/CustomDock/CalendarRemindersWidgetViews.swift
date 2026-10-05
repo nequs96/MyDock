@@ -50,6 +50,40 @@ enum CalendarFacePresentation {
     }
 }
 
+/// One Calendar row's secondary line: status and time merged, then the calendar.
+/// Today: "Now · ends 19:30 · Work" or "18:57 · Work · in 45 min". Other days: "Tue 09:00 · Work".
+/// All-day: "All day · Work" today, "Tue · All day · Work" otherwise. Never a full date.
+enum CalendarEventRowPresentation {
+    static func detail(_ event: CalendarEventSnapshot, now: Date, calendar: Calendar = .current) -> String {
+        let source = event.calendarTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        func joined(_ parts: [String]) -> String { (parts + (source.isEmpty ? [] : [source])).joined(separator: " · ") }
+        let today = calendar.isDate(event.startDate, inSameDayAs: now)
+        let weekday = event.startDate.formatted(Date.FormatStyle(date: .omitted, time: .omitted).weekday(.abbreviated))
+        if event.isAllDay {
+            let ongoing = event.startDate <= now && event.endDate > now
+            return joined(today || ongoing ? ["All day"] : [weekday, "All day"])
+        }
+        let start = time(event.startDate)
+        if event.endDate <= now { return joined(["Ended"]) }
+        if event.startDate <= now { return joined(["Now", "ends " + time(event.endDate)]) }
+        if today {
+            return [start, source.isEmpty ? nil : source, "in " + relative(event.startDate.timeIntervalSince(now))]
+                .compactMap { $0 }.joined(separator: " · ")
+        }
+        return joined([weekday + " " + start])
+    }
+
+    static func time(_ date: Date) -> String { date.formatted(date: .omitted, time: .shortened) }
+
+    /// "45 min", "2 hr", "2 hr 15 min".
+    static func relative(_ seconds: TimeInterval) -> String {
+        guard seconds.isFinite else { return "a while" }
+        let minutes = Int(max(1, ceil(seconds / 60)))
+        if minutes < 60 { return "\(minutes) min" }
+        return "\(minutes / 60) hr" + (minutes % 60 == 0 ? "" : " \(minutes % 60) min")
+    }
+}
+
 enum RemindersFacePresentation {
     static func overdueCount(_ reminders: [ReminderSnapshot], now: Date) -> Int {
         reminders.filter { $0.dueDate.map { $0 < now } ?? false }.count
@@ -244,6 +278,7 @@ private struct CalendarPopoutWidgetView: View {
     @State private var showsCalendarList = false
     /// What the popout shows and which calendars it reads sit behind a final, collapsed disclosure.
     @State private var settingsExpanded = false
+    @State private var loadedAt: Date?
 
     private var configuration: WidgetConfiguration {
         currentConfiguration() ?? item.widgetConfiguration ?? WidgetConfiguration()
@@ -260,6 +295,9 @@ private struct CalendarPopoutWidgetView: View {
                 settingsSection
             }
         }
+        // The shell's header shows when the events were read and the one refresh control.
+        .widgetPopoutRefresh(configuration.calendarLayout == .date ? nil
+            : WidgetPopoutRefresh(updatedAt: loadedAt, isRefreshing: isLoading, failed: errorMessage != nil, action: reload))
         .onAppear { layoutSelection = configuration.calendarLayout }
         .onChange(of: layoutSelection) { updateLayout($0) }
         .onChange(of: item.widgetConfiguration?.calendarLayout) { layoutSelection = $0 ?? .dateAndNextEvent }
@@ -283,9 +321,7 @@ private struct CalendarPopoutWidgetView: View {
 
     private var eventsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            WidgetPopoutSectionHeader(configuration.calendarLayout == .nextEvent ? "Next Event" : "Upcoming") {
-                Button("Refresh", action: reload).disabled(isLoading)
-            }
+            WidgetPopoutSectionHeader(configuration.calendarLayout == .nextEvent ? "Next Event" : "Upcoming")
             if isLoading {
                 GroupedSection {
                     WidgetPopoutRow {
@@ -312,7 +348,7 @@ private struct CalendarPopoutWidgetView: View {
                         : events.filter { $0.endDate > context.date }.sorted { CalendarEventOrdering.precedes($0, $1, now: context.date) }
                     if visibleEvents.isEmpty {
                         GroupedSection {
-                            GroupedRow("No upcoming events in this reading", subtitle: "Refresh to check again.")
+                            GroupedRow("No upcoming events in this reading", subtitle: "They refresh every few minutes.")
                         }
                     } else if visibleEvents.count > 5 {
                         DockScrollView { eventList(visibleEvents, now: context.date) }.frame(height: 300)
@@ -330,17 +366,17 @@ private struct CalendarPopoutWidgetView: View {
         }
     }
 
+    /// One event: a calendar bar, the title, and one line that merges status, time and calendar.
     private func eventRow(_ event: CalendarEventSnapshot, now: Date) -> some View {
         let ongoing = !event.isAllDay && event.startDate <= now && event.endDate > now
         return WidgetPopoutRow {
             HStack(spacing: 10) {
+                // EventKit's calendar colour is not in the snapshot yet; the bar marks the ongoing event.
                 Capsule().fill(ongoing ? DockDesign.accent : Color.primary.opacity(0.18)).frame(width: 3, height: 30)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(event.title).font(DockDesign.Grouped.titleFont.weight(.medium)).lineLimit(2)
-                    Text(event.startDate.formatted(date: .abbreviated, time: event.isAllDay ? .omitted : .shortened) + " · " + event.calendarTitle)
-                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
-                    Text(WidgetTimingPresentation.eventStatus(event, now: now))
+                    Text(CalendarEventRowPresentation.detail(event, now: now))
                         .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 4)
@@ -454,6 +490,7 @@ private struct CalendarPopoutWidgetView: View {
             calendars = []
             events = []
             errorMessage = nil
+            loadedAt = nil
             return
         }
         #if DEBUG
@@ -462,6 +499,7 @@ private struct CalendarPopoutWidgetView: View {
             events = []
             errorMessage = CalendarRemindersServiceError.accessDenied.localizedDescription
             isLoading = false
+            loadedAt = nil
             return
         }
         if let fixture = CalendarQAFixture.current {
@@ -469,6 +507,7 @@ private struct CalendarPopoutWidgetView: View {
             events = fixture.events()
             errorMessage = nil
             isLoading = false
+            loadedAt = .now
             return
         }
         #endif
@@ -486,12 +525,14 @@ private struct CalendarPopoutWidgetView: View {
             calendars = fetchedCalendars
             events = fetchedEvents
             errorMessage = nil
+            loadedAt = .now
         } catch {
             guard requestIsCurrent(requestID, selectedIDs: selectedIDs,
                                    includeAllDay: includeAllDay, layout: layout) else { return }
             errorMessage = error.localizedDescription
             calendars = []
             events = []
+            loadedAt = nil
         }
     }
 
@@ -674,6 +715,9 @@ private struct RemindersPopoutWidgetView: View {
     @State private var selectedList = ""
     @State private var isAddingReminder = false
     @State private var isChangingCompletion = false
+    @State private var loadedAt: Date?
+    /// The list and layout sit behind a final, collapsed disclosure.
+    @State private var settingsExpanded = false
 
     /// Separators start at the reminder text, past the completion circle.
     private static let rowSeparatorInset = DockDesign.Grouped.rowHorizontalPadding + 20 + 10
@@ -752,9 +796,8 @@ private struct RemindersPopoutWidgetView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                WidgetPopoutSectionHeader("Reminders") { Button("Refresh", action: reload).disabled(isLoading) }
-                GroupedSection(footer: "Changes update your Reminders lists. Quick Checklist keeps separate tasks in MyDock.",
+            WidgetPopoutSettingsDisclosure(summary: lists.first { $0.id == selectedList }?.title ?? "All lists", isExpanded: $settingsExpanded) {
+                GroupedSection("Reminders", footer: "Changes here update your Reminders lists.",
                                separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
                     GroupedRow("List") {
                         Picker("List", selection: $selectedList) {
@@ -772,6 +815,7 @@ private struct RemindersPopoutWidgetView: View {
                 }
             }
         }
+        .widgetPopoutRefresh(WidgetPopoutRefresh(updatedAt: loadedAt, isRefreshing: isLoading, failed: errorMessage != nil, action: reload))
         .onAppear { layoutSelection = configuration.remindersLayout }
         .onChange(of: layoutSelection) { updateLayout($0) }
         .onChange(of: configuration.remindersLayout) { layoutSelection = $0 }
@@ -840,6 +884,7 @@ private struct RemindersPopoutWidgetView: View {
             reminders = fixture.reminders()
             errorMessage = fixture == .denied ? CalendarRemindersServiceError.accessDenied.localizedDescription : nil
             isLoading = false
+            loadedAt = fixture == .denied ? nil : .now
             return
         }
         #endif
@@ -855,11 +900,13 @@ private struct RemindersPopoutWidgetView: View {
             lists = fetchedLists
             reminders = fetchedReminders
             errorMessage = nil
+            loadedAt = .now
         } catch {
             guard requestIsCurrent(requestID, selectedListID: selectedListID) else { return }
             errorMessage = error.localizedDescription
             lists = []
             reminders = []
+            loadedAt = nil
         }
     }
 

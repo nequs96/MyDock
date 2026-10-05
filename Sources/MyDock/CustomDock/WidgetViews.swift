@@ -116,6 +116,8 @@ struct WidgetPopout: View {
     @Environment(\.dismiss) private var dismiss
     @DockAccessibilityStyle() private var accessibility
     @State private var showsAppearance = false
+    /// The reading state a self-loading family publishes (`widgetPopoutRefresh`) for the header's control.
+    @State private var familyRefresh: WidgetPopoutRefresh?
     init(store: ProfileStore, item: DockItem, profileID: UUID, showsCustomize: Bool = true, showsHeader: Bool = true, showsData: Bool = true) {
         self.store = store; self.item = item; self.profileID = profileID
         self.showsCustomize = showsCustomize; self.showsHeader = showsHeader; self.showsData = showsData
@@ -147,7 +149,11 @@ struct WidgetPopout: View {
                 WidgetCustomizePanel(store: store, item: currentItem, profileID: profileID)
             }
             persistenceNotice
+            // With Customize open, the panel's live preview already shows the reading: the family's hero
+            // (and its decoration) steps aside, while its settings stay a Dock popout's disclosure.
             familyContent
+                .environment(\.widgetPopoutShowsHero, WidgetPopoutHeroPolicy.showsHero(customizing: showsAppearance))
+                .environment(\.widgetPopoutContext, .dock)
         }
         .padding(WidgetPopoutMetrics.padding)
         .frame(width: WidgetPopoutMetrics.contentWidth + 2 * WidgetPopoutMetrics.padding, alignment: .leading)
@@ -166,6 +172,7 @@ struct WidgetPopout: View {
             persistenceNotice
             familyContent
             if showsFreshness { freshness }
+            if showsData, let familyRefresh { WidgetFamilyFreshnessView(refresh: familyRefresh) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -179,9 +186,25 @@ struct WidgetPopout: View {
                 Text(kind).font(DockDesign.Module.labelLarge).foregroundStyle(.secondary)
                     .lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
-                if showsFreshness { freshness.controlSize(.small) }
+                if showsFreshness {
+                    if WidgetDataQuery.make(kind: currentItem.widgetKind, configuration: currentItem.widgetConfiguration ?? WidgetConfiguration()) != nil {
+                        WidgetFreshnessView(coordinator: store.widgetData, item: currentItem, showsRefreshControl: false, refresh: refreshCoordinator)
+                    } else if let familyRefresh {
+                        WidgetFamilyFreshnessView(refresh: familyRefresh, showsRefreshControl: false)
+                    }
+                }
             }
             Spacer(minLength: 4)
+            // One refresh pattern: the freshness line above and this one circle, beside Customize and Close.
+            if showsFreshness {
+                if WidgetDataQuery.make(kind: currentItem.widgetKind, configuration: currentItem.widgetConfiguration ?? WidgetConfiguration()) != nil {
+                    WidgetCoordinatorRefreshButton(coordinator: store.widgetData, item: currentItem, refresh: refreshCoordinator)
+                } else if let familyRefresh {
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        WidgetRefreshButton(state: familyRefresh.state(at: context.date)) { familyRefresh.action() }
+                    }
+                }
+            }
             if showsCustomize {
                 Button { showsAppearance.toggle() } label: { Image(systemName: "slider.horizontal.3") }
                     .buttonStyle(WidgetCircleButtonStyle(selected: showsAppearance))
@@ -195,10 +218,11 @@ struct WidgetPopout: View {
     }
 
     private var freshness: some View {
-        WidgetFreshnessView(coordinator: store.widgetData, item: currentItem) {
-            Task { await store.widgetData.refresh(item: currentItem, profileID: profileID) }
-        }
-        .buttonStyle(.borderless)
+        WidgetFreshnessView(coordinator: store.widgetData, item: currentItem, refresh: refreshCoordinator)
+    }
+
+    private func refreshCoordinator() {
+        Task { await store.widgetData.refresh(item: currentItem, profileID: profileID) }
     }
 
     @ViewBuilder private var persistenceNotice: some View {
@@ -216,6 +240,7 @@ struct WidgetPopout: View {
         WidgetProviderRegistry.provider(for: currentItem.widgetKind)
             .popoutView(store: store, item: currentItem, profileID: profileID)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .onPreferenceChange(WidgetPopoutRefreshKey.self) { familyRefresh = $0 }
     }
 }
 
@@ -262,6 +287,32 @@ extension EnvironmentValues {
         get { self[WidgetPopoutShowsHeroKey.self] }
         set { self[WidgetPopoutShowsHeroKey.self] = newValue }
     }
+}
+
+/// Where a family's popout content is shown. Settings fold into a disclosure in the Dock popout and are
+/// the sheet's Content in the settings sheet.
+enum WidgetPopoutContext: Equatable {
+    case dock, sheet
+
+    /// The explicit context, or (for hosts that set none) the sheet when the hero is hidden, as before.
+    static func resolve(explicit: WidgetPopoutContext?, showsHero: Bool) -> WidgetPopoutContext {
+        explicit ?? (showsHero ? .dock : .sheet)
+    }
+}
+
+private struct WidgetPopoutContextKey: EnvironmentKey { static let defaultValue: WidgetPopoutContext? = nil }
+extension EnvironmentValues {
+    /// Set by the popout shell (`.dock`) and the settings sheet (`.sheet`).
+    var widgetPopoutContext: WidgetPopoutContext? {
+        get { self[WidgetPopoutContextKey.self] }
+        set { self[WidgetPopoutContextKey.self] = newValue }
+    }
+}
+
+/// Whether the Dock popout shows a family's hero.
+enum WidgetPopoutHeroPolicy {
+    /// The Customize panel's live preview shows the reading, so the hero would repeat it.
+    static func showsHero(customizing: Bool) -> Bool { !customizing }
 }
 
 /// Whether the settings sheet repeats a family's popout hero under its live preview.
@@ -425,6 +476,7 @@ struct WidgetCircleButtonStyle: ButtonStyle {
     private struct CircleBody: View {
         let configuration: ButtonStyle.Configuration
         var selected: Bool
+        @Environment(\.isEnabled) private var isEnabled
         @DockAccessibilityStyle() private var accessibility
         @State private var hovered = false
         var body: some View {
@@ -439,6 +491,7 @@ struct WidgetCircleButtonStyle: ButtonStyle {
                     }
                 }
                 .contentShape(Circle())
+                .opacity(isEnabled ? 1 : 0.45)
                 .onHover { hovered = $0 }
         }
     }
@@ -653,6 +706,7 @@ private struct AppFolderPopoutView: View {
     var profileID: UUID
     @State private var reordering = false
     @State private var message: String?
+    @State private var settingsExpanded = false
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var applications: [AppFolderApplication] { configuration.appFolderApplications }
@@ -676,34 +730,36 @@ private struct AppFolderPopoutView: View {
                     GroupedRow(reordering ? "Done Editing" : "Edit Apps", role: .button) { reordering.toggle() }
                 }
             }
-            GroupedSection("Folder", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
-                GroupedRow("Name") {
-                    TextField("Folder name", text: Binding(get: { configuration.appFolderName }, set: { name in
-                        store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderName = name }
-                    }))
-                    .textFieldStyle(.plain).multilineTextAlignment(.trailing).frame(maxWidth: 200)
-                    .accessibilityLabel("Folder name")
-                }
-                GroupedRow("Icon letters", subtitle: "Up to two, instead of app icons") {
-                    TextField("None", text: Binding(get: { configuration.appFolderLetter }, set: { value in
-                        let letters = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2)).uppercased()
-                        store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderLetter = letters }
-                    }))
-                    .textFieldStyle(.plain).multilineTextAlignment(.trailing).frame(width: 80)
-                    .accessibilityLabel("Icon letters")
-                }
-                GroupedRow("Color") {
-                    HStack(spacing: 4) {
-                        ForEach(DockProfileColor.allCases) { color in
-                            let selected = configuration.appFolderColor == color.rawValue
-                            Button { store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderColor = color.rawValue } } label: {
-                                Circle().fill(appFolderTint(color.rawValue)).frame(width: 18, height: 18)
-                                    .padding(3)
-                                    .overlay(Circle().strokeBorder(selected ? DockDesign.accent : .clear, lineWidth: 2))
-                                    .contentShape(Circle())
+            WidgetPopoutSettingsDisclosure(summary: configuration.appFolderName, isExpanded: $settingsExpanded) {
+                GroupedSection("Folder", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                    GroupedRow("Name") {
+                        TextField("Folder name", text: Binding(get: { configuration.appFolderName }, set: { name in
+                            store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderName = name }
+                        }))
+                        .textFieldStyle(.plain).multilineTextAlignment(.trailing).frame(maxWidth: 200)
+                        .accessibilityLabel("Folder name")
+                    }
+                    GroupedRow("Icon letters", subtitle: "Up to two, instead of app icons") {
+                        TextField("None", text: Binding(get: { configuration.appFolderLetter }, set: { value in
+                            let letters = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2)).uppercased()
+                            store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderLetter = letters }
+                        }))
+                        .textFieldStyle(.plain).multilineTextAlignment(.trailing).frame(width: 80)
+                        .accessibilityLabel("Icon letters")
+                    }
+                    GroupedRow("Color") {
+                        HStack(spacing: 4) {
+                            ForEach(DockProfileColor.allCases) { color in
+                                let selected = configuration.appFolderColor == color.rawValue
+                                Button { store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.appFolderColor = color.rawValue } } label: {
+                                    Circle().fill(appFolderTint(color.rawValue)).frame(width: 18, height: 18)
+                                        .padding(3)
+                                        .overlay(Circle().strokeBorder(selected ? DockDesign.accent : .clear, lineWidth: 2))
+                                        .contentShape(Circle())
+                                }
+                                .buttonStyle(.plain).help(color.title)
+                                .accessibilityLabel(color.title).accessibilityAddTraits(selected ? .isSelected : [])
                             }
-                            .buttonStyle(.plain).help(color.title)
-                            .accessibilityLabel(color.title).accessibilityAddTraits(selected ? .isSelected : [])
                         }
                     }
                 }
@@ -1077,13 +1133,8 @@ private struct CountdownPopoutView: View {
         }
     }
 
-    /// The alert note, then the latest scheduling result when there is one.
-    private var footer: String {
-        let note = configuration.countdownMode == .duration
-            ? "Start asks macOS for a completion alert; the timer runs either way. Pause and Reset cancel it."
-            : "Setting a target asks macOS for an alert at that time. After a backup restore, set it again."
-        return [note, notificationMessage].compactMap { $0 }.joined(separator: "\n")
-    }
+    /// One sentence: the latest scheduling result, or the alert note. The detail is in the tooltip.
+    private var footer: String { CountdownCopy.footer(mode: configuration.countdownMode, message: notificationMessage) }
 
     private var durationControls: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
@@ -1124,7 +1175,7 @@ private struct CountdownPopoutView: View {
                                     CountdownNotificationService.cancel(itemID: item.id)
                                     return
                                 }
-                                notificationMessage = "Completion alert scheduled with macOS. Delivery depends on your notification settings."
+                                notificationMessage = CountdownCopy.scheduled(mode: .duration)
                             } catch {
                                 guard CountdownNotificationService.isCurrent(itemID: item.id,
                                                                              operationID: operationID) else { return }
@@ -1145,6 +1196,7 @@ private struct CountdownPopoutView: View {
                                  amount: durationBinding, range: 60...86_400, step: 60)
                     .disabled(configuration.countdownStartedAt != nil)
             }
+            .help(CountdownCopy.help(mode: .duration))
         }
     }
 
@@ -1167,6 +1219,7 @@ private struct CountdownPopoutView: View {
                 }
             }
         }
+        .help(CountdownCopy.help(mode: .targetDate))
     }
 
     private var modeBinding: Binding<CountdownMode> {
@@ -1210,7 +1263,7 @@ private struct CountdownPopoutView: View {
                     CountdownNotificationService.cancel(itemID: item.id)
                     return
                 }
-                notificationMessage = "Target alert scheduled with macOS. Delivery depends on your notification settings."
+                notificationMessage = CountdownCopy.scheduled(mode: .targetDate)
             } catch {
                 guard CountdownNotificationService.isCurrent(itemID: item.id,
                                                              operationID: operationID) else { return }
@@ -1223,6 +1276,27 @@ private struct CountdownPopoutView: View {
         Binding(get: { configuration.countdownDurationSeconds }, set: { seconds in
             store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.countdownDurationSeconds = seconds }
         })
+    }
+}
+
+/// Countdown footer copy: one short sentence; the detail is in the section's tooltip.
+enum CountdownCopy {
+    static func note(mode: CountdownMode) -> String {
+        mode == .duration ? "Start schedules a completion alert." : "Setting a target schedules an alert."
+    }
+    static func scheduled(mode: CountdownMode) -> String {
+        mode == .duration ? "Completion alert scheduled." : "Target alert scheduled."
+    }
+    static func help(mode: CountdownMode) -> String {
+        (mode == .duration
+            ? "The timer runs even without the alert. Pause and Reset cancel it."
+            : "After a backup restore, set the target again.")
+            + " Delivery depends on your notification settings."
+    }
+    /// The latest scheduling result replaces the note, so the footer stays one sentence.
+    static func footer(mode: CountdownMode, message: String?) -> String {
+        guard let message, !message.isEmpty else { return note(mode: mode) }
+        return message
     }
 }
 
@@ -1274,6 +1348,7 @@ private struct TimeProgressPopoutView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    @State private var settingsExpanded = false
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
 
     var body: some View {
@@ -1290,12 +1365,14 @@ private struct TimeProgressPopoutView: View {
                     }
                 }
             }
-            GroupedSection {
-                GroupedRow("Period") {
-                    Picker("Period", selection: periodBinding) {
-                        ForEach(TimeProgressPeriod.allCases) { period in Text(period.title).tag(period) }
+            WidgetPopoutSettingsDisclosure(summary: configuration.timeProgressPeriod.title, isExpanded: $settingsExpanded) {
+                GroupedSection {
+                    GroupedRow("Period") {
+                        Picker("Period", selection: periodBinding) {
+                            ForEach(TimeProgressPeriod.allCases) { period in Text(period.title).tag(period) }
+                        }
+                        .labelsHidden().fixedSize().accessibilityLabel("Period")
                     }
-                    .labelsHidden().fixedSize().accessibilityLabel("Period")
                 }
             }
         }
@@ -1312,6 +1389,13 @@ private struct HydrationDayGroup: Identifiable {
     var date: Date
     var entries: [HydrationEntry]
     var id: Date { date }
+}
+
+/// The collapsed Hydration Settings row's summary: the reminder cadence, or "Off".
+enum HydrationSettingsSummary {
+    static func text(remindersOn: Bool, interval: Int) -> String {
+        remindersOn ? "Every \(min(max(interval, 30), 240)) min" : "Reminders off"
+    }
 }
 
 enum HydrationHistoryPolicy {
@@ -1331,6 +1415,8 @@ private struct HydrationPopoutView: View {
     @State private var reminderOperationID = UUID()
     @State private var showingOlderDrinks = false
     @State private var currentDay = Date.now
+    /// Reminders and tracking sit behind a final, collapsed disclosure; it opens when a reminder needs attention.
+    @State private var settingsExpanded = false
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var todayEntries: [HydrationEntry] { configuration.hydrationEntriesToday(at: currentDay) }
@@ -1356,31 +1442,38 @@ private struct HydrationPopoutView: View {
                     .help("Record the configured amount without changing the reminder timer.")
                 Spacer()
             }
-            GroupedSection("Reminders", footer: reminderMessage, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
-                GroupedRow("Water reminders", isOn: Binding(get: { configuration.hydrationRemindersEnabled }, set: { enabled in
-                    setReminders(enabled)
-                }))
-                WidgetStepperRow(title: "Every", value: "\(configuration.hydrationReminderIntervalMinutes) min",
-                                 amount: binding(\.hydrationReminderIntervalMinutes), range: 30...240, step: 15)
-                    .disabled(!configuration.hydrationRemindersEnabled)
-                if reminderPermissionDenied {
-                    GroupedRow("Open Notification Settings", role: .button) {
-                        guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-            }
-            GroupedSection("Tracking", footer: configuration.hydrationSaveHistory ? nil : "Turn on history to log drinks. Existing entries are kept.", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
-                GroupedRow("Save drink history", isOn: binding(\.hydrationSaveHistory))
-                GroupedRow("Track drink amounts", isOn: binding(\.hydrationTrackAmounts))
-                WidgetStepperRow(title: "Drink size", value: "\(configuration.hydrationDefaultAmountML) mL",
-                                 amount: binding(\.hydrationDefaultAmountML), range: 50...1_000, step: 50)
-                    .disabled(!configuration.hydrationTrackAmounts)
-            }
             if !dayGroups.isEmpty || configuration.hydrationLastRemovedEntry != nil {
                 history
             }
+            WidgetPopoutSettingsDisclosure(summary: HydrationSettingsSummary.text(remindersOn: configuration.hydrationRemindersEnabled,
+                                                                                  interval: configuration.hydrationReminderIntervalMinutes),
+                                           isExpanded: $settingsExpanded) {
+                GroupedSection("Reminders", footer: reminderMessage, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                    GroupedRow("Water reminders", isOn: Binding(get: { configuration.hydrationRemindersEnabled }, set: { enabled in
+                        setReminders(enabled)
+                    }))
+                    if configuration.hydrationRemindersEnabled {
+                        WidgetStepperRow(title: "Every", value: "\(configuration.hydrationReminderIntervalMinutes) min",
+                                         amount: binding(\.hydrationReminderIntervalMinutes), range: 30...240, step: 15)
+                    }
+                    if reminderPermissionDenied {
+                        GroupedRow("Open Notification Settings", role: .button) {
+                            guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+                GroupedSection("Tracking", footer: configuration.hydrationSaveHistory ? nil : "Turn on history to log drinks.", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                    GroupedRow("Save drink history", isOn: binding(\.hydrationSaveHistory))
+                    GroupedRow("Track drink amounts", isOn: binding(\.hydrationTrackAmounts))
+                    if configuration.hydrationTrackAmounts {
+                        WidgetStepperRow(title: "Drink size", value: "\(configuration.hydrationDefaultAmountML) mL",
+                                         amount: binding(\.hydrationDefaultAmountML), range: 50...1_000, step: 50)
+                    }
+                }
+            }
         }
+        .onChange(of: reminderPermissionDenied) { denied in if denied { settingsExpanded = true } }
         .onChange(of: configuration.hydrationReminderIntervalMinutes) { minutes in
             if configuration.hydrationRemindersEnabled { setReminders(true, interval: minutes) }
         }
@@ -1672,6 +1765,7 @@ private struct StickyNotePopoutView: View {
     @State private var noteDraft = ""
     @State private var noteSaveTask: Task<Void, Never>?
     @State private var noteSaveError: String?
+    @State private var settingsExpanded = false
     @DockAccessibilityStyle() private var accessibility
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
@@ -1719,20 +1813,22 @@ private struct StickyNotePopoutView: View {
                         .accessibilityLabel("Note not saved. " + noteSaveError)
                 }
             }
-            GroupedSection {
-                GroupedRow("Paper") {
-                    HStack(spacing: 4) {
-                        ForEach(NoteBackground.allCases) { background in
-                            let selected = configuration.noteBackground == background
-                            Button { noteBackgroundBinding.wrappedValue = background } label: {
-                                NotePaperSwatch(background: background)
-                                    .padding(3)
-                                    .overlay(Circle().strokeBorder(selected ? DockDesign.accent : .clear, lineWidth: 2))
-                                    .contentShape(Circle())
+            WidgetPopoutSettingsDisclosure(summary: configuration.noteBackground.title, isExpanded: $settingsExpanded) {
+                GroupedSection {
+                    GroupedRow("Paper") {
+                        HStack(spacing: 4) {
+                            ForEach(NoteBackground.allCases) { background in
+                                let selected = configuration.noteBackground == background
+                                Button { noteBackgroundBinding.wrappedValue = background } label: {
+                                    NotePaperSwatch(background: background)
+                                        .padding(3)
+                                        .overlay(Circle().strokeBorder(selected ? DockDesign.accent : .clear, lineWidth: 2))
+                                        .contentShape(Circle())
+                                }
+                                .buttonStyle(.plain).help(background.title)
+                                .accessibilityLabel(background.title + " paper")
+                                .accessibilityAddTraits(selected ? .isSelected : [])
                             }
-                            .buttonStyle(.plain).help(background.title)
-                            .accessibilityLabel(background.title + " paper")
-                            .accessibilityAddTraits(selected ? .isSelected : [])
                         }
                     }
                 }
