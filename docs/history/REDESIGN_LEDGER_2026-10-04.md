@@ -1199,3 +1199,48 @@ During the FX-09 integration run, `hiddenTimerCompletesAndDurationEditsReschedul
 #### Integration fix `HEAD`
 
 System and Network sample live every 4 s, so their in-content "Refresh" buttons were dropped, along with the now-unused `refreshNow()`. The "Live samples every 4 seconds" line stays. `./TestMyDock.sh`: **685 tests in 84 suites** (`.build/redesign-refresh-test.log`).
+
+### FX-10 done on `claude/task-r1r0jo` (not yet merged into `redesign/integration`); orchestrator moved to a cloud session
+
+**Session limit and recovery.**
+- The FX-10 worker (`general-purpose`, model opus) launched at the end of the previous session stopped on an HTTP 429 session limit (resets 22:50 Europe/Warsaw). None of its work reached the repository.
+- FX-10 was redone in a Claude Code cloud session (Linux container, 2026-10-05) on branch `claude/task-r1r0jo`.
+- The conversation was restored from `history.md`, pushed to `redesign/integration` as `2e7883c` and fast-forwarded into the branch.
+- The original FX-10 brief was not in the repository. The work followed final-review items 10, 14 and 15 and the Permissions taste note, as recorded in that history.
+
+**Model routing to save usage:**
+- The orchestrator edited Integrations, Dock Setup and both inspectors.
+- A Sonnet `product-experience` worker did the Permissions rows.
+- A Sonnet `general-purpose` worker did a static compile-safety review: verdict SAFE, with two fixes.
+- A Haiku draft of this entry was audited and rewritten by the orchestrator, at the user's request. Haiku is no longer used.
+
+**Commit `fcf54d2` changes:**
+- **Integrations (item 10):**
+  - The AI account cards drop the repeated provider title and sit under one "AI accounts" heading.
+  - "Sign in with the provider to add an account." is shown once.
+  - The inert Limits row is now an "Enable Limits" button row, or a "Limits sync" row with the value "On".
+- **Dock Setup (item 10):**
+  - The duplicate "Dock setup" heading is gone. The `.id("Dock setup")` search anchor is kept.
+  - Captions moved into row subtitles.
+  - Focus filters: the "Dock for each Focus" row shows Available or Unavailable, with user-facing copy in place of the App Intents/Xcode text. The `N2UtilityRepairTests` expectation was updated.
+- **Item inspector (item 14):** plain fields aligned to the trailing edge, with "None"/"Original name" placeholders and accessibility labels.
+- **Dock inspector (item 15):** the labels match Appearance: Tile size, Item spacing, Finish, Color theme and Reset to app defaults.
+- **Permissions (taste):** one row per permission with a trailing status and a single chevron that opens System Settings.
+
+**Commit `b57fdca` (review fixes):**
+- **Reviewer:**
+  - The VoiceOver hint keeps each permission's explanation.
+  - The Freeze toggle subtitle reads "Requires macOS 14 or later." when unsupported.
+- **Orchestrator, from the reviewer's notes:**
+  - The privacy help copy and its `DataSourceProvenanceTests` phrase no longer say "Xcode-built".
+  - "Enable Limits" has no ellipsis, because it acts immediately.
+
+**Not verified:** the cloud container has no Swift toolchain, so nothing was compiled, tested or rendered.
+- Still required on the Mac:
+  - an unsandboxed `./TestMyDock.sh`;
+  - `./BuildMyDock.sh`, then relaunch `build/MyDock.app`;
+  - SETTINGS renders.
+- Then:
+  - merge into `redesign/integration`;
+  - the final verification pass;
+  - updates to RELEASE_AUDIT.md, IMPLEMENTATION_STATUS.md, BUILD_BASELINE.json and ARCHITECTURE.md.
