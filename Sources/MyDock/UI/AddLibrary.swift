@@ -329,7 +329,8 @@ struct AddLibrary: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(tileWidth(columns: columns)), spacing: WidgetGalleryMetrics.gridSpacing, alignment: .top), count: columns),
                           alignment: .leading, spacing: 20) {
                     ForEach(section.widgets) { widget in
-                        widgetTile(widget, id: "widget:" + widget.name, style: .grid, width: tileWidth(columns: columns))
+                        widgetTile(widget, id: "widget:" + widget.name, style: .grid, width: tileWidth(columns: columns),
+                                   showsDescription: WidgetGalleryModel.showsDescription(in: section.category))
                     }
                 }
             }
@@ -354,12 +355,13 @@ struct AddLibrary: View {
         }
     }
 
-    private func widgetTile(_ widget: WidgetDefinition, id: String, style: WidgetGalleryTile.Style, width: CGFloat) -> some View {
+    private func widgetTile(_ widget: WidgetDefinition, id: String, style: WidgetGalleryTile.Style, width: CGFloat,
+                            showsDescription: Bool? = nil) -> some View {
         let item = DockItem.widget(widget.name)
         let isAdded = added(item)
         return WidgetGalleryTile(widget: widget, layout: WidgetGalleryModel.defaultLayout(for: widget.name), width: width, style: style,
                                  added: isAdded, selected: isSelected(id), focused: isFocused(id), addGeneration: generation(item),
-                                 open: { openDetail(widget) },
+                                 showsDescription: showsDescription, open: { openDetail(widget) },
                                  addDefault: allowsAdding ? { addWidget(widget, layout: nil) } : nil)
             // Keyboard route: Tab or the arrows reach the tile, Return/Space show sizes,
             // Command-Return adds (GalleryTileKeys and WidgetGalleryKeymap).

@@ -19,6 +19,8 @@ struct WidgetGalleryTile: View {
     var addGeneration = 0
     /// Overrides the family name, e.g. a layout title in the DEBUG variant catalog.
     var title: String? = nil
+    /// nil: the hero style shows the description line, the grid style does not.
+    var showsDescription: Bool? = nil
     var open: (() -> Void)? = nil
     var addDefault: (() -> Void)? = nil
 
@@ -31,10 +33,13 @@ struct WidgetGalleryTile: View {
     private var backdropHeight: CGFloat { style == .hero ? 164 : 122 }
     private var maximumScale: CGFloat { style == .hero ? 2.0 : 1.6 }
     private var previewScale: CGFloat {
-        let horizontal = (width - 36) / CGFloat(option.width)
+        let horizontal = (width - 2 * WidgetGalleryMetrics.tileInset) / CGFloat(option.width)
         let vertical = (backdropHeight - 34) / 54
         return max(0.6, min(maximumScale, horizontal, vertical))
     }
+    /// The backdrop hugs the module and sits on the leading edge, so a narrow preview lines up with its caption.
+    private var backdropWidth: CGFloat { min(width, CGFloat(option.width) * previewScale + 2 * WidgetGalleryMetrics.tileInset) }
+    private var describes: Bool { showsDescription ?? (style == .hero) }
     private var radius: CGFloat { style == .hero ? WidgetGalleryMetrics.heroRadius : WidgetGalleryMetrics.tileRadius }
     private var name: String { title ?? widget.name }
     private var badgeSize: CGFloat { style == .hero ? 24 : 22 }
@@ -52,20 +57,20 @@ struct WidgetGalleryTile: View {
                     }
                 }
                 .dockHover(hovered)
-                .frame(width: width, height: backdropHeight)
+                .frame(width: backdropWidth, height: backdropHeight)
             .galleryTileBackdrop(radius: radius, hovered: hovered && open != nil, selected: selected, focused: focused)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
                     .font(style == .hero ? .system(size: 14, weight: .semibold) : WidgetGalleryMetrics.tileTitle)
                     .lineLimit(1)
-                if style == .hero {
+                if describes {
                     Text(widget.description)
                         .font(WidgetGalleryMetrics.tileDetail)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
-            .padding(.horizontal, 4)
+            .padding(.leading, WidgetGalleryMetrics.tileInset).padding(.trailing, 4)
         }
         .frame(width: width, alignment: .leading)
         .contentShape(Rectangle())
@@ -121,7 +126,7 @@ private struct TileActivation: ViewModifier {
     }
 }
 
-/// A tile of the More segment: a glyph or spacer illustration on the same backdrop.
+/// A tile of the More segment: a glyph or spacer illustration floating like a widget preview.
 struct WidgetGalleryMoreTile: View {
     var entry: WidgetGalleryMoreEntry
     var width: CGFloat
@@ -133,15 +138,17 @@ struct WidgetGalleryMoreTile: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 9) {
+                // Bare like a widget preview: no card, the same hover, selection and Increase Contrast states.
                 illustration
-                    .frame(width: width, height: 104)
-                    .galleryBackdrop(highlighted: selected)
+                    .padding(.horizontal, WidgetGalleryMetrics.tileInset)
                     .dockHover(hovered && enabled)
+                    .frame(minWidth: 104, maxWidth: width, minHeight: 104, maxHeight: 104)
+                    .galleryTileBackdrop(radius: WidgetGalleryMetrics.tileRadius, hovered: hovered && enabled, selected: selected, focused: false)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.title).font(WidgetGalleryMetrics.tileTitle).lineLimit(1)
                     Text(entry.detail).font(WidgetGalleryMetrics.tileDetail).foregroundStyle(.secondary).lineLimit(1)
                 }
-                .padding(.horizontal, 4)
+                .padding(.leading, WidgetGalleryMetrics.tileInset).padding(.trailing, 4)
             }
             .frame(width: width, alignment: .leading)
             .contentShape(Rectangle())
@@ -173,6 +180,6 @@ struct WidgetGalleryMoreTile: View {
     }
 
     private var block: some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.13)).frame(width: 30, height: 30)
+        RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.16)).frame(width: 30, height: 30)
     }
 }
