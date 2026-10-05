@@ -773,7 +773,7 @@ struct WeatherDockFace: View {
                                 Text(hour.timestamp.formattedTime(in: forecast.timeZoneIdentifier))
                                     .font(.system(size: DockDesign.Module.minimumTextSize, weight: .medium)).foregroundStyle(.secondary)
                                     .lineLimit(1).fixedSize()
-                                WidgetIcon(kind: kind, symbol: WeatherCode.symbol(hour.weatherCode, isDay: forecast.isDay), size: 15, enclosed: false)
+                                WidgetIcon(kind: kind, symbol: WeatherCode.symbol(hour.weatherCode, isDay: WeatherDaylight.isDay(hour, forecast: forecast, location: configuration.weatherLocation)), size: 15, enclosed: false)
                                 Text(WeatherDockTemperatureFormatter.text(hour.temperature, unit: configuration.weatherUnit))
                                     .font(.system(size: 12, weight: .semibold)).monospacedDigit().lineLimit(1)
                             }.frame(maxWidth: .infinity)
