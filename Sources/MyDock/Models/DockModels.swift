@@ -1202,6 +1202,7 @@ struct AppSettings: Codable, Equatable {
     var lastSettingsPage: MyDockSettingsPage = .dock
     /// Marketing version whose What's New sheet was last shown or skipped by setup. Nil on old state.
     var lastSeenWhatsNewVersion: String?
+    var automaticSwitching = AutomaticSwitchingSettings()
 
     private enum CodingKeys: String, CodingKey {
         case customDockEdgeStyle, customDockWidgetSurface, customDockFloatingInset, customDockTintMode
@@ -1214,6 +1215,7 @@ struct AppSettings: Codable, Equatable {
         case showMinimizedWindows, showWindowPreviews, showTrash, showAppBadges, clickFocusedAppToMinimize, magnificationEnabled
         case automaticallySaveNativeDockChanges, showActiveProfileNameInMenuBar, onboardingComplete, lastSettingsPage
         case lastSeenWhatsNewVersion
+        case automaticSwitching
     }
 
     init() {}
@@ -1258,6 +1260,7 @@ struct AppSettings: Codable, Equatable {
         onboardingComplete = try values.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? false
         lastSettingsPage = try values.decodeIfPresent(MyDockSettingsPage.self, forKey: .lastSettingsPage) ?? .dock
         lastSeenWhatsNewVersion = try? values.decodeIfPresent(String.self, forKey: .lastSeenWhatsNewVersion)
+        automaticSwitching = (try? values.decodeIfPresent(AutomaticSwitchingSettings.self, forKey: .automaticSwitching)) ?? AutomaticSwitchingSettings()
     }
 
     private static func bounded(_ value: Double?, default fallback: Double, range: ClosedRange<Double>) -> Double {

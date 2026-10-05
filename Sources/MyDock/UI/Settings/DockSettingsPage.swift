@@ -118,6 +118,7 @@ extension SettingsView {
             GroupedRow("Dock for each Focus", symbol: "moon.fill", color: .indigo,
                        value: FocusFilterAvailability.hasIntentMetadata() ? "Available" : "Unavailable")
         }.id("Focus filters")
+        AutomaticSwitchingSettingsSection(store: store).id("Automatic switching")
         GroupedSection("Native Dock switching") {
             GroupedRow("Automatically save Dock changes", subtitle: "Saves Apple Dock edits to the selected profile, checking every five seconds.", isOn: Binding(
                 get: { store.state.settings.automaticallySaveNativeDockChanges },

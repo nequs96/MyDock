@@ -21,6 +21,7 @@ enum SettingsSearchCatalog {
     static let entries: [SettingsSearchEntry] = [
         .init(title: "Mode", section: "Dock setup", page: .dock, keywords: "native custom main apple"),
         .init(title: "Display and edge", section: "Dock setup", page: .dock, keywords: "monitor screen bottom left right position"),
+        .init(title: "Automatic switching", section: "Automatic switching", page: .dock, keywords: "rules automatic frontmost app time window schedule priority dock switch custom"),
         .init(title: "Native profile and auto-save", section: "Dock setup", page: .dock, keywords: "apply switch macos save"),
         .init(title: "Appearance scope", section: "Scope", page: .appearance, keywords: "profile inherit global override undo"),
         .init(title: "Color theme and material", section: "Glass", page: .appearance, keywords: "light dark system glass frost frosted solid clear transparency clarity liquid opacity"),
