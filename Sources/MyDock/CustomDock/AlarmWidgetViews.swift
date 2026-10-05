@@ -114,6 +114,13 @@ enum AlarmCopy {
     static let editorFooterHelp = "A one-time alarm rings at the next occurrence. Delivery depends on macOS notification settings."
 }
 
+#if DEBUG
+/// QA seam: the render export opens the first alarm's editor without a pointer click.
+enum AlarmQAFixture {
+    @MainActor static var editsFirstAlarm = false
+}
+#endif
+
 private struct AlarmPopoutWidgetView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
@@ -161,7 +168,12 @@ private struct AlarmPopoutWidgetView: View {
             }
             if let operationMessage { WidgetPopoutCaption(operationMessage) }
         }
-        .onAppear { if alarms.isEmpty { editorExpanded = true } }
+        .onAppear {
+            if alarms.isEmpty { editorExpanded = true }
+            #if DEBUG
+            if AlarmQAFixture.editsFirstAlarm, let first = alarms.first { editAlarm(first) }
+            #endif
+        }
     }
 
     private var editor: some View {

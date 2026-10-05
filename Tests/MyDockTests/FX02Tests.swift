@@ -265,3 +265,19 @@ struct FX02Tests {
         #expect(DockPreviewFit.scale(contentLength: .infinity, available: 540, fitsByScale: true) == 1)
     }
 }
+
+@Suite struct DockMissingTargetsTests {
+    @Test func checksEachFileBackedItemOnceAndSkipsWidgetsAndSpacers() {
+        let app = DockItem.application(at: URL(fileURLWithPath: "/Applications/Missing.app"))
+        let present = DockItem.application(at: URL(fileURLWithPath: "/Applications/Safari.app"))
+        let folder = DockItem(type: .folder, title: "Gone", url: URL(fileURLWithPath: "/Volumes/Old/Gone"))
+        let items = [app, present, .widget("Clock"), .spacer(.small), folder]
+        var checked: [UUID] = []
+        let missing = DockMissingTargets.ids(in: items) { item in
+            checked.append(item.id)
+            return item.id != present.id
+        }
+        #expect(missing == [app.id, folder.id])
+        #expect(checked == [app.id, present.id, folder.id])
+    }
+}

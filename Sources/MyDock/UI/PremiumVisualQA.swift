@@ -463,9 +463,11 @@ enum PremiumVisualQA {
                 }
             }.padding(20).background(WidgetDesign.surface), name: "surface-ai-limits-stale-faces-\(suffix)",
                 size: NSSize(width: 510, height: 110), scheme: scheme, directory: directory)
+            // Opens the editor through a DEBUG seam; a fixed click point broke whenever the layout moved.
+            AlarmQAFixture.editsFirstAlarm = true
             try await render(WidgetPopout(store: store, item: alarm, profileID: id).padding(20).background(WidgetDesign.surface),
-                name: "surface-alarm-edit-\(suffix)", size: NSSize(width: 460, height: 520), scheme: scheme, directory: directory,
-                fixtureClick: NSPoint(x: 373, y: 357))
+                name: "surface-alarm-edit-\(suffix)", size: NSSize(width: 460, height: 620), scheme: scheme, directory: directory)
+            AlarmQAFixture.editsFirstAlarm = false
             for fixture in CalendarQAFixture.allCases {
                 // Production Calendar views fed by the DEBUG-only fixture seam (no EventKit access).
                 CalendarQAFixture.override = fixture

@@ -83,6 +83,9 @@ struct CustomDockView: View {
     @State private var runtimeApplications: [DockItem] = []
     /// Running-app matches, recomputed only when the running apps or the pinned apps change.
     @State private var runningAppCache = DockRunningAppCache(resolve: { AppLauncher.resolvedURL(for: $0) })
+    /// Items whose saved target is missing. Checking touches the file system, so it is refreshed on
+    /// item, app-launch and volume changes rather than on every hover/magnification re-render.
+    @State private var missingTargetIDs: Set<UUID> = []
     @State private var hoveredItemID: UUID?
     @State private var longPressTriggeredItemID: UUID?
     @State private var resizeStartSize: CGFloat?
@@ -377,14 +380,21 @@ struct CustomDockView: View {
                 .hidden()
                 .accessibilityHidden(true) }
         }
-        .onAppear { if !isPreview || usesLivePreviewData { runtimeApplications = RuntimeDockApplications.items() } }
+        .onAppear {
+            if !isPreview || usesLivePreviewData { runtimeApplications = RuntimeDockApplications.items() }
+            refreshMissingTargets()
+        }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)) { _ in
             if !isPreview || usesLivePreviewData { runtimeApplications = RuntimeDockApplications.items() }
+            refreshMissingTargets()
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didTerminateApplicationNotification)) { _ in
             if !isPreview || usesLivePreviewData { runtimeApplications = RuntimeDockApplications.items() }
+            refreshMissingTargets()
         }
-        .onChange(of: profile.items) { _ in reconcilePopouts() }
+        .onChange(of: profile.items) { _ in reconcilePopouts(); refreshMissingTargets() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in refreshMissingTargets() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didUnmountNotification)) { _ in refreshMissingTargets() }
         .onChange(of: settings.showTrash) { _ in reconcilePopouts() }
         .onChange(of: nowPlayingMonitor.runningSources) { _ in reconcilePopouts() }
         .onExitCommand { popouts.dismiss() }
@@ -543,6 +553,10 @@ struct CustomDockView: View {
         return runningAppCache.matches(runtime: runtimeApplications, profileItems: profile.items)
     }
 
+    private func refreshMissingTargets() {
+        missingTargetIDs = DockMissingTargets.ids(in: profile.items, isMissing: AppLauncher.isMissingTarget)
+    }
+
     private func badge(for item: DockItem) -> String? {
         guard item.type == .application, let bundleIdentifier = item.bundleIdentifier else { return nil }
         #if DEBUG
@@ -684,7 +698,7 @@ struct CustomDockView: View {
             // Pressed/active while its popout is open; render-only, so hit areas are unchanged.
             .modifier(DockPopoutAnchorState(isActive: isActivePopoutAnchor(item)))
             .overlay(alignment: .bottomTrailing) {
-                if AppLauncher.isMissingTarget(item) {
+                if missingTargetIDs.contains(item.id) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 11 * size, weight: .semibold))
                         .foregroundStyle(.orange)
@@ -700,10 +714,10 @@ struct CustomDockView: View {
                         .offset(x: offset.width, y: offset.height)
                 }
             }
-            .help(AppLauncher.isMissingTarget(item) ? "\(item.displayName) · Saved location unavailable" : item.displayName)
+            .help(missingTargetIDs.contains(item.id) ? "\(item.displayName) · Saved location unavailable" : item.displayName)
         }
         .buttonStyle(.plain)
-        .accessibilityHint(AppLauncher.isMissingTarget(item)
+        .accessibilityHint(missingTargetIDs.contains(item.id)
             ? "Saved location unavailable. Re-add the item from its current location."
             : "")
         .scaleEffect(magnification(center: center, isWidget: item.type == .widget), anchor: magnificationAnchor)

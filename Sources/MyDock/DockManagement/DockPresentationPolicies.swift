@@ -625,3 +625,11 @@ enum DockMotionPolicy {
         DockDesign.Motion.animation(DockDesign.Motion.morph, reduceMotion: reduceMotion)
     }
 }
+
+/// Which file-backed items point at a missing target. The check stats the file system (and may ask
+/// LaunchServices), so the Dock computes it on item, launch and volume changes, never per render.
+enum DockMissingTargets {
+    static func ids(in items: [DockItem], isMissing: (DockItem) -> Bool) -> Set<UUID> {
+        Set(items.filter { [.application, .file, .folder].contains($0.type) && isMissing($0) }.map(\.id))
+    }
+}
