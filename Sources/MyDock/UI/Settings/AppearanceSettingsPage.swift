@@ -96,6 +96,8 @@ extension SettingsView {
                     Text("Custom").font(.caption).foregroundStyle(.secondary)
                 }
             }.padding(12)
+            // Swatches show the Dock's own theme, the same source the hero preview uses.
+            .environment(\.dockSwatchTheme, appearanceSettings.customDockTheme)
         }.id("Style").help("Previews use sample data.")
     }
 
@@ -209,8 +211,11 @@ extension SettingsView {
                     updateAppearance { SettingsAppearanceDefaults.restore(to: &$0) }
                 }
             }
-            GroupedRow("Restore appearance defaults", role: .button) {
-                updateAppearance { SettingsAppearanceDefaults.restore(to: &$0) }
+            if appearanceProfileID != nil {
+                // App defaults already offer "Reset app appearance defaults", which does the same.
+                GroupedRow("Restore appearance defaults", role: .button) {
+                    updateAppearance { SettingsAppearanceDefaults.restore(to: &$0) }
+                }
             }
             if previousAppearance?.isAvailable(for: appearanceProfileID) == true {
                 GroupedRow("Undo last appearance change", role: .button) { undoAppearance() }
