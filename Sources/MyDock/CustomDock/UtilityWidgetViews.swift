@@ -209,7 +209,13 @@ enum WidgetPrivacySettings {
 
 struct DiskSpaceWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView { AnyView(DiskSpaceView(compact: true)) }
-    func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView { AnyView(DiskSpaceView()) }
+    func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
+        // PX-7: one row to the System detail surface, only when this Dock has System Activity.
+        AnyView(VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+            DiskSpaceView()
+            SystemActivityLinkRow(store: store, profileID: profileID)
+        })
+    }
 }
 
 private struct DiskSpaceView: View {
@@ -283,7 +289,8 @@ struct DiskSpacePopoutContent: View {
 }
 
 /// A single-weight usage line, thicker than the Dock meter so it reads at popout scale.
-private struct DiskUsageLine: View {
+/// Also the Storage bar in System Activity's related sections.
+struct DiskUsageLine: View {
     var fraction: Double
     var color: Color
     var body: some View {

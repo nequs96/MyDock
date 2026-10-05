@@ -7,7 +7,7 @@ struct NetworkActivityWidgetProvider: DockWidgetProvider {
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(NetworkActivityPopoutWidgetView())
+        AnyView(NetworkActivityPopoutWidgetView(store: store, profileID: profileID))
     }
 }
 
@@ -145,6 +145,8 @@ private struct NetworkActivityCompactWidgetView: View {
 }
 
 private struct NetworkActivityPopoutWidgetView: View {
+    var store: ProfileStore
+    var profileID: UUID
     @Environment(\.widgetPopoutShowsHero) private var showsHero
     @State private var showsSettings = false
     @State private var showsOtherInterfaces = false
@@ -198,6 +200,8 @@ private struct NetworkActivityPopoutWidgetView: View {
                         }.padding(DockDesign.Grouped.rowHorizontalPadding)
                     }
                 }
+                // PX-7: one row to the System detail surface, only when this Dock has System Activity.
+                SystemActivityLinkRow(store: store, profileID: profileID)
             }
             WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) {
                 GroupedSection(footer: "Local traffic samples while the Dock or popout is visible.") {
@@ -242,7 +246,8 @@ private struct NetworkActivityPopoutWidgetView: View {
     }
 }
 
-private struct NetworkRateSparkline: View {
+/// A single-weight rate history line; also the tiny trend in System Activity's Network section.
+struct NetworkRateSparkline: View {
     var values: [Double]
     var color: Color
 

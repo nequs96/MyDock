@@ -363,7 +363,14 @@ private struct SystemActivityPopoutWidgetView: View {
                         }.padding(DockDesign.Grouped.rowHorizontalPadding)
                     }
                 }
-                if let volume = startupVolume {
+                // PX-7: related sections, below CPU and memory. Each reads only while it is shown.
+                if SystemDetailSections.showsNetwork(configuration) {
+                    SystemDetailNetworkSection()
+                }
+                if SystemDetailSections.showsStorage(configuration) {
+                    // Storage replaces the startup-volume summary, so the popout shows one storage reading.
+                    SystemDetailStorageSection()
+                } else if let volume = startupVolume {
                     GroupedSection(volume.name) {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(alignment: .firstTextBaseline) {
@@ -439,11 +446,13 @@ private struct SystemActivityPopoutWidgetView: View {
                             ) { ForEach(SystemSecondaryMetric.allCases) { Text($0.title).tag($0) } }.labelsHidden()
                         }
                     }
+                    relatedSectionToggles
                 }
             } else {
                 // The sheet's Appearance group already edits systemSecondaryMetric.
                 Text("Local readings sample every 4 seconds while visible.")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                relatedSectionToggles
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -455,6 +464,18 @@ private struct SystemActivityPopoutWidgetView: View {
             monitor.subscribe(subscriptionID, popout: true)
         }
         .onDisappear { monitor.unsubscribe(subscriptionID) }
+    }
+
+    /// PX-7: which related sections the popout shows below CPU and memory.
+    private var relatedSectionToggles: some View {
+        GroupedSection("Sections", footer: "Read only while this popout is open.") {
+            GroupedRow("Network", symbol: "network", isOn: Binding(
+                get: { SystemDetailSections.showsNetwork(configuration) },
+                set: { value in store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.systemShowsNetwork = value } }))
+            GroupedRow("Storage", symbol: "internaldrive", isOn: Binding(
+                get: { SystemDetailSections.showsStorage(configuration) },
+                set: { value in store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.systemShowsStorage = value } }))
+        }
     }
 
     private func healthRow(_ title: String, value: String, symbol: String) -> some View {
