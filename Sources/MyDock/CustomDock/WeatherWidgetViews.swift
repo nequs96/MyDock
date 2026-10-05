@@ -109,56 +109,55 @@ private struct WeatherPopoutWidgetView: View {
     private var setupDraft: WeatherLocationDraft { setupDrafts.weatherDraft(for: item.id) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Weather").font(.headline)
-                Spacer()
-                if location != nil {
-                    Button("Refresh") { refresh(force: true) }.disabled(isLoading)
-                }
-            }
-
-            if let location {
-                HStack(spacing: 6) {
-                    Image(systemName: "location.fill").foregroundStyle(.tint)
-                    Text(location.displayName).font(.callout.weight(.medium)).lineLimit(1)
-                    Spacer()
-                    Button("Change") {
-                        setupDrafts.updateWeatherDraft(for: item.id) {
-                            $0.isChangingLocation = true
-                            $0.searchText = ""
-                            $0.searchResults = []
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+            if let forecast { forecastContent(forecast) }
+            if isLoading && forecast == nil {
+                GroupedSection {
+                    WidgetPopoutRow {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Loading forecast…").font(DockDesign.Grouped.titleFont).foregroundStyle(.secondary)
                         }
                     }
                 }
             }
+            if let errorMessage {
+                WidgetPopoutCaption(forecast == nil ? errorMessage : "Showing saved forecast. \(errorMessage)", color: .orange)
+            }
 
-            if location == nil || setupDraft.isChangingLocation {
-                locationSearchSection
+            VStack(alignment: .leading, spacing: 6) {
+                WidgetPopoutSectionHeader("Location") {
+                    if location != nil {
+                        HStack(spacing: 6) {
+                            if isLoading { ProgressView().controlSize(.mini).accessibilityLabel("Loading forecast") }
+                            Button("Refresh") { refresh(force: true) }.disabled(isLoading)
+                        }
+                    }
+                }
+                GroupedSection(footer: forecast.map { "Updated \($0.fetchedAt.formatted(date: .omitted, time: .shortened)) · forecast times: \($0.timeZoneIdentifier)" },
+                               separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                    if let location, !setupDraft.isChangingLocation {
+                        GroupedRow(location.displayName) {
+                            Button("Change") {
+                                setupDrafts.updateWeatherDraft(for: item.id) {
+                                    $0.isChangingLocation = true
+                                    $0.searchText = ""
+                                    $0.searchResults = []
+                                }
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                    if location == nil || setupDraft.isChangingLocation {
+                        locationSearchSection
+                    }
+                }
             }
 
             settingsSection
 
-            if isLoading {
-                ProgressView("Loading forecast…").frame(maxWidth: .infinity, minHeight: 90)
-            }
-            if let forecast { forecastContent(forecast) }
-            if let forecast {
-                Text("Updated \(forecast.fetchedAt.formatted(date: .omitted, time: .shortened)) · forecast times: \(forecast.timeZoneIdentifier)")
-                    .font(.caption2).foregroundStyle(.tertiary)
-            }
-            if let errorMessage {
-                Label(forecast == nil ? errorMessage : "Showing saved forecast. \(errorMessage)", systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack {
-                Spacer()
-                Text("Weather and places: Open-Meteo · Geocoding data: GeoNames")
-                    .font(.caption2).foregroundStyle(.tertiary)
-            }
+            WidgetPopoutCaption("Weather and places: Open-Meteo · Geocoding data: GeoNames", color: Color.secondary.opacity(0.8))
         }
-        .frame(width: 390).frame(minHeight: 220, alignment: .topLeading)
         .onAppear {
             unitSelection = configuration.weatherUnit.rawValue
             layoutSelection = configuration.weatherLayout.rawValue
@@ -201,49 +200,44 @@ private struct WeatherPopoutWidgetView: View {
         }
     }
 
+    /// Rows of the Location section while choosing a city: search, results, current location.
     @ViewBuilder private var locationSearchSection: some View {
-        HStack(spacing: 7) {
-            TextField("Search for a city", text: searchTextBinding)
-                .textFieldStyle(DockTextFieldStyle())
-                .onSubmit(search)
-            Button("Search", action: search).disabled(isSearching)
-            Button("Clear") { clearSearchDraft(keepChanging: location != nil && setupDraft.isChangingLocation) }
-                .disabled(setupDraft.searchText.isEmpty && setupDraft.searchResults.isEmpty)
-            if location != nil && setupDraft.isChangingLocation {
-                Button("Cancel", action: cancelLocationChange)
+        WidgetPopoutRow {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(.secondary).accessibilityHidden(true)
+                TextField("Search for a city", text: searchTextBinding)
+                    .textFieldStyle(.plain)
+                    .onSubmit(search)
+                if isSearching { ProgressView().controlSize(.small).accessibilityLabel("Searching cities") }
+                Button("Search", action: search).buttonStyle(.borderless).disabled(isSearching)
+                Button("Clear") { clearSearchDraft(keepChanging: location != nil && setupDraft.isChangingLocation) }
+                    .buttonStyle(.borderless)
+                    .disabled(setupDraft.searchText.isEmpty && setupDraft.searchResults.isEmpty)
             }
         }
-        HStack {
-            Button("Use Current Location", action: useCurrentLocation)
-                .buttonStyle(DockButtonStyle())
-                .disabled(isLocating)
-            Text("Location permission is only requested if you choose this.")
-                .font(.caption2).foregroundStyle(.secondary)
-        }
-        if isSearching { ProgressView("Searching cities…") }
-        if isLocating { ProgressView("Finding current location…") }
-        if !setupDraft.searchResults.isEmpty {
-            DockScrollView {
-                LazyVStack(spacing: 4) {
-                    ForEach(setupDraft.searchResults) { result in
-                        Button { select(result) } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(result.name).font(.callout.weight(.medium))
-                                    Text([result.administrativeArea, result.country].compactMap { $0 }.joined(separator: ", "))
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: "plus.circle").foregroundStyle(.tint)
-                            }
-                            .padding(7)
-                            .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+        ForEach(setupDraft.searchResults) { result in
+            Button { select(result) } label: {
+                WidgetPopoutRow {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(result.name).font(DockDesign.Grouped.titleFont)
+                            Text([result.administrativeArea, result.country].compactMap { $0 }.joined(separator: ", "))
+                                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
+                        Spacer()
+                        Image(systemName: "plus.circle.fill").foregroundStyle(DockDesign.accent).accessibilityHidden(true)
                     }
+                    .contentShape(Rectangle())
                 }
             }
-            .frame(maxHeight: 125)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Choose \(result.displayName)")
+        }
+        GroupedRow(isLocating ? "Finding current location…" : "Use Current Location", role: .button, symbol: "location.fill", action: useCurrentLocation)
+            .disabled(isLocating)
+            .help("Location permission is only requested if you choose this.")
+        if location != nil && setupDraft.isChangingLocation {
+            GroupedRow("Cancel", role: .button, action: cancelLocationChange)
         }
     }
 
@@ -261,110 +255,101 @@ private struct WeatherPopoutWidgetView: View {
     }
 
     private var settingsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Popover content", selection: $layoutSelection) {
-                ForEach(WeatherWidgetLayout.allCases) { option in Text(option.title).tag(option.rawValue) }
+        GroupedSection("Options", footer: configuration.weatherLayout == .conditions ? "Units change °C / °F. Wind stays in km/h and precipitation in mm." : nil,
+                       separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+            GroupedRow("Show") {
+                Picker("Popover content", selection: $layoutSelection) {
+                    ForEach(WeatherWidgetLayout.allCases) { option in Text(option.title).tag(option.rawValue) }
+                }
+                .labelsHidden().fixedSize().accessibilityLabel("Popover content")
             }
-            Picker("Units", selection: $unitSelection) {
-                ForEach(WeatherTemperatureUnit.allCases) { option in Text(option.title).tag(option.rawValue) }
+            GroupedRow("Units") {
+                Picker("Units", selection: $unitSelection) {
+                    ForEach(WeatherTemperatureUnit.allCases) { option in Text(option.title).tag(option.rawValue) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize().accessibilityLabel("Units")
             }
-            Picker("Background", selection: $backgroundSelection) {
-                ForEach(WeatherBackground.allCases) { option in Text(option.title).tag(option.rawValue) }
+            GroupedRow("Background") {
+                Picker("Background", selection: $backgroundSelection) {
+                    ForEach(WeatherBackground.allCases) { option in Text(option.title).tag(option.rawValue) }
+                }
+                .labelsHidden().fixedSize().accessibilityLabel("Background")
             }
-            Stepper(value: $forecastHours, in: 1...6) {
-                Text("Forecast: \(forecastHours) hours").font(.caption)
-            }
-            .disabled(configuration.weatherLayout != .hourlyForecast)
+            WidgetStepperRow(title: "Forecast", value: "\(forecastHours) hours", amount: $forecastHours, range: 1...6, step: 1)
+                .disabled(configuration.weatherLayout != .hourlyForecast)
         }
-        .padding(9)
-        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 9))
     }
 
     @ViewBuilder private func forecastContent(_ forecast: WeatherForecast) -> some View {
-        Group {
-            switch configuration.weatherLayout {
-            case .current:
-                currentSummary(forecast)
-            case .conditions:
-                currentSummary(forecast)
-                conditionDetails(forecast)
-            case .hourlyForecast:
-                currentSummary(forecast)
-                hourlyList(forecast)
-            }
+        currentSummary(forecast)
+        switch configuration.weatherLayout {
+        case .current: EmptyView()
+        case .conditions: conditionDetails(forecast)
+        case .hourlyForecast: hourlyList(forecast)
         }
     }
 
+    /// The temperature as the one large value, the condition glyph above it and one caption line.
     private func currentSummary(_ forecast: WeatherForecast) -> some View {
-        HStack(spacing: 14) {
+        VStack(spacing: 2) {
             Image(systemName: WeatherCode.symbol(forecast.weatherCode, isDay: forecast.isDay))
-                .font(.system(size: 42)).symbolRenderingMode(.multicolor).frame(width: 54)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(Int(forecast.temperature.rounded()))\(configuration.weatherUnit.title)")
-                    .font(.system(size: 34, weight: .medium, design: .rounded).monospacedDigit())
-                Text(WeatherCode.description(forecast.weatherCode)).font(.callout.weight(.medium))
-                Text("Feels like \(Int(forecast.apparentTemperature.rounded()))\(configuration.weatherUnit.title)")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
+                .font(.system(size: 30)).symbolRenderingMode(.hierarchical).foregroundStyle(.primary)
+                .accessibilityHidden(true)
+            WidgetPopoutHero(value: WeatherDockTemperatureFormatter.text(forecast.temperature, unit: configuration.weatherUnit),
+                             caption: WeatherCode.description(forecast.weatherCode)
+                                + " · Feels like " + WeatherDockTemperatureFormatter.text(forecast.apparentTemperature, unit: configuration.weatherUnit))
+            if let location { Text(location.name).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary) }
         }
-        .padding(11)
-        .background(weatherBackground(for: forecast.weatherCode), in: RoundedRectangle(cornerRadius: 12))
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(weatherBackground(for: forecast.weatherCode), in: RoundedRectangle(cornerRadius: DockDesign.Grouped.radius, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 
     private func conditionDetails(_ forecast: WeatherForecast) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-        HStack(spacing: 0) {
-            detailCell("Humidity", value: "\(forecast.relativeHumidity)%", symbol: "humidity")
-            detailCell("Wind", value: "\(Int(forecast.windSpeed.rounded())) km/h", symbol: "wind")
-            detailCell("Precipitation", value: "\(forecast.precipitation.formatted(.number.precision(.fractionLength(0...1)))) mm", symbol: "drop")
-        }
-        Text("The temperature setting changes °C / °F. Wind stays in km/h and precipitation in mm.")
-            .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        GroupedSection("Conditions", separatorInset: DockDesign.Grouped.separatorInset) {
+            GroupedRow("Humidity", symbol: "humidity", color: .gray, value: "\(forecast.relativeHumidity)%")
+            GroupedRow("Wind", symbol: "wind", color: .gray, value: "\(Int(forecast.windSpeed.rounded())) km/h")
+            GroupedRow("Precipitation", symbol: "drop.fill", color: .gray,
+                       value: "\(forecast.precipitation.formatted(.number.precision(.fractionLength(0...1)))) mm")
         }
     }
 
-    private func detailCell(_ title: String, value: String, symbol: String) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: symbol).foregroundStyle(.tint)
-            Text(value).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
-            Text(title).font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 7)
-    }
-
+    /// Upcoming hours in one grouped surface: no boxes per hour.
     private func hourlyList(_ forecast: WeatherForecast) -> some View {
         let hours = forecast.hourly.filter { $0.timestamp > .now }.prefix(configuration.weatherForecastHours)
-        return DockScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                ForEach(Array(hours)) { hour in
-                    VStack(spacing: 5) {
-                        Text(hour.timestamp.formattedTime(in: forecast.timeZoneIdentifier))
-                            .font(.caption2).foregroundStyle(.secondary)
-                        Image(systemName: WeatherCode.symbol(hour.weatherCode, isDay: true))
-                            .font(.system(size: 16)).symbolRenderingMode(.multicolor)
-                        Text("\(Int(hour.temperature.rounded()))\(configuration.weatherUnit.title)")
-                            .font(.callout.weight(.semibold).monospacedDigit())
-                        if let chance = hour.precipitationProbability {
-                            Label("\(chance)%", systemImage: "drop.fill").font(.caption2).foregroundStyle(.blue)
+        return GroupedSection("Next Hours") {
+            DockScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    ForEach(Array(hours)) { hour in
+                        VStack(spacing: 5) {
+                            Text(hour.timestamp.formattedTime(in: forecast.timeZoneIdentifier))
+                                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                            Image(systemName: WeatherCode.symbol(hour.weatherCode, isDay: true))
+                                .font(.system(size: 17)).symbolRenderingMode(.hierarchical).frame(height: 20)
+                                .accessibilityHidden(true)
+                            Text(WeatherDockTemperatureFormatter.text(hour.temperature, unit: configuration.weatherUnit))
+                                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                            if let chance = hour.precipitationProbability {
+                                Label("\(chance)%", systemImage: "drop.fill").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                            }
                         }
+                        .frame(minWidth: 64)
+                        .padding(.vertical, 10)
+                        .accessibilityElement(children: .combine)
                     }
-                    .padding(8)
-                    .frame(minWidth: 58)
-                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
                 }
+                .padding(.horizontal, 6)
             }
-            .padding(.vertical, 2)
+            .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
     }
 
     private func weatherBackground(for code: Int) -> some ShapeStyle {
-        if accessibility.reduceTransparency { return AnyShapeStyle(Color(nsColor: .windowBackgroundColor)) }
-        if configuration.weatherBackground == .translucent { return AnyShapeStyle(.ultraThinMaterial) }
+        if accessibility.reduceTransparency { return AnyShapeStyle(DockDesign.Grouped.fill) }
+        if configuration.weatherBackground == .translucent { return AnyShapeStyle(DockDesign.Grouped.fill) }
         let color: Color = code >= 95 ? .purple : code >= 51 ? .blue : code >= 3 ? .gray : .orange
-        return AnyShapeStyle(LinearGradient(colors: [color.opacity(0.22), .clear], startPoint: .topLeading, endPoint: .bottomTrailing))
+        return AnyShapeStyle(LinearGradient(colors: [color.opacity(0.20), color.opacity(0.06)], startPoint: .top, endPoint: .bottom))
     }
 
     private func search() {

@@ -10,30 +10,79 @@ struct AlarmWidgetProvider: DockWidgetProvider {
     }
 }
 
+enum AlarmFacePresentation {
+    /// The next enabled alarm and when it fires.
+    static func next(_ alarms: [DockAlarm], now: Date) -> (alarm: DockAlarm, date: Date)? {
+        alarms.filter(\.isEnabled).compactMap { alarm in
+            AlarmSchedule.nextFireDate(hour: alarm.hour, minute: alarm.minute, repeatWeekdays: alarm.repeatWeekdays, now: now)
+                .map { (alarm, $0) }
+        }.min { $0.date < $1.date }
+    }
+
+    /// "Today", "Tomorrow" or the weekday of the next firing.
+    static func day(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(date, inSameDayAs: tomorrow) { return "Tomorrow" }
+        return date.formatted(.dateTime.weekday(.wide))
+    }
+
+    static func repeatSummary(_ weekdays: [Int], symbols: [String] = Calendar.current.shortWeekdaySymbols) -> String {
+        guard !weekdays.isEmpty else { return "Once" }
+        if Set(weekdays) == Set(1...7) { return "Every day" }
+        return weekdays.sorted().compactMap { symbols.indices.contains($0 - 1) ? symbols[$0 - 1] : nil }.joined(separator: " ")
+    }
+}
+
+/// The Alarm module: the next alarm time as the value, its name (or "Alarm") as the label.
+/// An armed alarm shows the filled glyph; with none armed the value reads "Off" in secondary.
+struct AlarmDockFace: View {
+    /// The next firing time already formatted for this Mac, or nil when no alarm is on.
+    var time: String?
+    var title: String?
+    @Environment(\.widgetLayout) private var layout
+    @Environment(\.dockWidgetContentWidth) private var width
+    @Environment(\.widgetShowsLabel) private var showsLabel
+    private let kind = "Alarm"
+    private var armed: Bool { time != nil }
+    var body: some View {
+        Group {
+            if WidgetModuleMetrics.isNarrow(width) {
+                VStack(spacing: 2) {
+                    WidgetIcon(kind: kind, symbol: armed ? "alarm.fill" : "alarm", size: 15, appearance: armed ? nil : .mono, enclosed: false)
+                    ModuleValue(value: time.map { ClockDockTextFormatter.text($0, narrow: true) } ?? "Off", size: .small,
+                                color: armed ? .primary : .secondary, lineLimit: 2)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                ModuleStack(kind: kind, label: label, value: time ?? "Off", size: armed ? .large : .medium,
+                            valueColor: armed ? .primary : .secondary, symbol: armed ? "alarm.fill" : "alarm")
+            }
+        }
+        .moduleInsets()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Alarm")
+        .accessibilityValue(time.map { "Next alarm " + $0 + (title.map { ", " + $0 } ?? "") } ?? "No alarm on")
+    }
+    private var label: String {
+        guard armed, layout != .compact, let title, !title.isEmpty else { return "Alarm" }
+        return title
+    }
+}
+
 private struct AlarmCompactWidgetView: View {
     var item: DockItem
     @Environment(\.dockWidgetContentWidth) private var width
 
-    private var alarms: [DockAlarm] { (item.widgetConfiguration ?? WidgetConfiguration()).alarms.filter(\.isEnabled) }
+    private var alarms: [DockAlarm] { (item.widgetConfiguration ?? WidgetConfiguration()).alarms }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            VStack(alignment: .leading, spacing: 3) {
-                WidgetHeader(kind: "Alarm", title: "Alarm")
-                if let next = nextAlarm(from: alarms, now: context.date) {
-                    MetricText(value: next.date.formatted(date: .omitted, time: .shortened), size: 18)
-                    if width >= 100 { Text(next.alarm.title).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1) }
-                } else { Text("No alarm").font(.system(size: 12)) }
-            }.padding(.horizontal, 9).frame(width: width, height: 54)
+            let next = AlarmFacePresentation.next(alarms, now: context.date)
+            AlarmDockFace(time: next?.date.formatted(date: .omitted, time: .shortened), title: next?.alarm.title)
+                .frame(width: width, height: 54)
         }
         .help("Alarm")
-    }
-
-    private func nextAlarm(from alarms: [DockAlarm], now: Date) -> (alarm: DockAlarm, date: Date)? {
-        alarms.compactMap { alarm in
-            AlarmSchedule.nextFireDate(hour: alarm.hour, minute: alarm.minute, repeatWeekdays: alarm.repeatWeekdays, now: now)
-                .map { (alarm, $0) }
-        }.min { $0.date < $1.date }
     }
 }
 
@@ -52,87 +101,106 @@ private struct AlarmPopoutWidgetView: View {
     private var alarms: [DockAlarm] { store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id }?.widgetConfiguration?.alarms ?? [] }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(editingAlarmID == nil ? "Local alarms" : "Edit alarm").font(.headline)
-            Text("Times follow this Mac’s current time zone. Once means the next occurrence of this time. Next time is calculated; notification delivery depends on macOS settings.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            HStack {
-                DatePicker("Time", selection: $alarmTime, displayedComponents: .hourAndMinute)
-                    .labelsHidden().disabled(isScheduling)
-                TextField("Alarm name", text: $alarmTitle).disabled(isScheduling).textFieldStyle(DockTextFieldStyle())
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                if let next = AlarmFacePresentation.next(alarms, now: context.date) {
+                    WidgetPopoutHero(value: next.date.formatted(date: .omitted, time: .shortened),
+                                     caption: next.alarm.title + " · " + AlarmFacePresentation.day(next.date, now: context.date))
+                } else {
+                    WidgetPopoutHero(value: "Off", caption: alarms.isEmpty ? "No alarms yet" : "No alarm is on", valueColor: .secondary)
+                }
             }
-            HStack(spacing: 5) {
-                Text("Repeat").font(.caption).foregroundStyle(.secondary)
-                ForEach(Array(Calendar.current.shortWeekdaySymbols.enumerated()), id: \.offset) { index, symbol in
-                    let weekday = index + 1
-                    Button(symbol.prefix(1)) {
-                        if repeatWeekdays.contains(weekday) { repeatWeekdays.remove(weekday) }
-                        else { repeatWeekdays.insert(weekday) }
+            if !alarms.isEmpty {
+                GroupedSection("Alarms", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                    ForEach(alarms) { alarm in alarmRow(alarm) }
+                }
+            }
+            editor
+        }
+    }
+
+    private var editor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            GroupedSection(editingAlarmID == nil ? "New Alarm" : "Edit Alarm",
+                           footer: "Once rings at the next occurrence. Times follow this Mac’s time zone; delivery depends on macOS notification settings.",
+                           separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                GroupedRow("Time") {
+                    DatePicker("Time", selection: $alarmTime, displayedComponents: .hourAndMinute)
+                        .labelsHidden().disabled(isScheduling)
+                }
+                GroupedRow("Label") {
+                    TextField("Alarm name", text: $alarmTitle).disabled(isScheduling)
+                        .textFieldStyle(.plain).multilineTextAlignment(.trailing).frame(maxWidth: 220)
+                        .accessibilityLabel("Alarm name")
+                }
+                WidgetPopoutRow {
+                    HStack(spacing: 5) {
+                        Text("Repeat").font(DockDesign.Grouped.titleFont)
+                        Spacer(minLength: 8)
+                        ForEach(Array(Calendar.current.shortWeekdaySymbols.enumerated()), id: \.offset) { index, symbol in
+                            let weekday = index + 1
+                            let selected = repeatWeekdays.contains(weekday)
+                            Button(String(symbol.prefix(1))) {
+                                if selected { repeatWeekdays.remove(weekday) } else { repeatWeekdays.insert(weekday) }
+                            }
+                            .buttonStyle(.plain).disabled(isScheduling)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(selected ? Color.white : Color.primary)
+                            .frame(width: 24, height: 24)
+                            .background(selected ? DockDesign.accent : Color.primary.opacity(0.08), in: Circle())
+                            .contentShape(Circle())
+                            .accessibilityLabel("Repeat on \(symbol)")
+                            .accessibilityAddTraits(selected ? .isSelected : [])
+                        }
+                        Button("Once") { repeatWeekdays.removeAll() }
+                            .buttonStyle(.borderless).controlSize(.small)
+                            .disabled(repeatWeekdays.isEmpty || isScheduling)
                     }
-                    .buttonStyle(.plain).disabled(isScheduling)
-                    .font(.caption.weight(.semibold))
-                    .frame(width: 23, height: 23)
-                    .background(repeatWeekdays.contains(weekday) ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.08), in: Circle())
-                    .accessibilityLabel("Repeat on \(symbol)")
-                    .accessibilityAddTraits(repeatWeekdays.contains(weekday) ? .isSelected : [])
                 }
-                if !repeatWeekdays.isEmpty {
-                    Button("Once") { repeatWeekdays.removeAll() }.font(.caption).buttonStyle(.plain)
-                }
-                Spacer(minLength: 0)
             }
-            HStack {
+            HStack(spacing: 10) {
                 if editingAlarmID != nil {
-                    Button("Cancel Editing") { clearEditor() }.disabled(isScheduling)
+                    Button("Cancel Editing") { clearEditor() }.buttonStyle(GalleryGlassButtonStyle()).disabled(isScheduling)
                 }
                 Spacer()
-                Button(editingAlarmID == nil ? "Add Alarm" : "Save Changes", action: saveAlarm)
-                    .buttonStyle(DockButtonStyle(primary: true)).disabled(isScheduling)
+                PillButton(editingAlarmID == nil ? "Add Alarm" : "Save Changes", action: saveAlarm)
+                    .disabled(isScheduling)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            if let operationMessage {
-                Text(operationMessage).font(.caption).foregroundStyle(.secondary)
-            }
-
-            if alarms.isEmpty {
-                Label("No alarms yet", systemImage: "alarm").foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 70)
-            } else {
-                DockScrollView {
-                    LazyVStack(spacing: 6) {
-                        ForEach(alarms) { alarm in alarmRow(alarm) }
-                    }
-                }
-                .frame(maxHeight: 220)
-            }
+            if let operationMessage { WidgetPopoutCaption(operationMessage) }
         }
-        .frame(width: 390).frame(minHeight: 180, alignment: .topLeading)
     }
 
     @ViewBuilder private func alarmRow(_ alarm: DockAlarm) -> some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(String(format: "%02d:%02d", alarm.hour, alarm.minute))
-                    .font(.system(size: 21, weight: .medium, design: .rounded).monospacedDigit())
-                Text(alarm.title + (alarm.repeatWeekdays.isEmpty ? " · Once" : " · " + weekdaySummary(alarm.repeatWeekdays)))
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    if alarm.isEnabled, let date = AlarmSchedule.nextFireDate(hour: alarm.hour, minute: alarm.minute, repeatWeekdays: alarm.repeatWeekdays, now: context.date) {
-                        Text("Next calculated time: " + date.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption2).foregroundStyle(.secondary)
-                    } else { Text("Off · no alert requested").font(.caption2).foregroundStyle(.secondary) }
+        WidgetPopoutRow {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(String(format: "%02d:%02d", alarm.hour, alarm.minute))
+                        .font(.system(size: 26, weight: .regular).monospacedDigit())
+                        .foregroundStyle(alarm.isEnabled ? .primary : .secondary)
+                    Text(alarm.title + " · " + AlarmFacePresentation.repeatSummary(alarm.repeatWeekdays))
+                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        if alarm.isEnabled, let date = AlarmSchedule.nextFireDate(hour: alarm.hour, minute: alarm.minute, repeatWeekdays: alarm.repeatWeekdays, now: context.date) {
+                            Text("Next: " + date.formatted(date: .abbreviated, time: .shortened))
+                                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                        } else { Text("Off · no alert requested").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary) }
+                    }
                 }
-            }
-            Spacer()
-            Toggle("Enabled", isOn: Binding(get: { alarm.isEnabled }, set: { enabled in changeEnabled(alarm, to: enabled) }))
-                .labelsHidden().toggleStyle(.switch).fixedSize().accessibilityLabel("Enable \(alarm.title)").disabled(busyAlarmIDs.contains(alarm.id) || isScheduling)
-            Button { editAlarm(alarm) } label: { Image(systemName: "pencil") }
-                .buttonStyle(.plain).accessibilityLabel("Edit \(alarm.title)")
+                Spacer(minLength: 6)
+                WidgetRowIconButton(symbol: "pencil", label: "Edit \(alarm.title)") { editAlarm(alarm) }
+                    .disabled(isScheduling || busyAlarmIDs.contains(alarm.id))
+                Button(role: .destructive) { removeAlarm(alarm) } label: {
+                    Image(systemName: "trash").font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).help("Remove alarm").accessibilityLabel("Remove \(alarm.title)")
                 .disabled(isScheduling || busyAlarmIDs.contains(alarm.id))
-            Button(role: .destructive) { removeAlarm(alarm) } label: { Image(systemName: "trash") }
-                .buttonStyle(.plain).help("Remove alarm").disabled(isScheduling || busyAlarmIDs.contains(alarm.id))
+                Toggle("Enabled", isOn: Binding(get: { alarm.isEnabled }, set: { enabled in changeEnabled(alarm, to: enabled) }))
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small).fixedSize()
+                    .accessibilityLabel("Enable \(alarm.title)").disabled(busyAlarmIDs.contains(alarm.id) || isScheduling)
+            }
         }
-        .padding(8)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 9))
     }
 
     private func editAlarm(_ alarm: DockAlarm) {
@@ -221,10 +289,5 @@ private struct AlarmPopoutWidgetView: View {
             if editingAlarmID == alarm.id { clearEditor() }
             operationMessage = "Alarm removed. Its alerts were cancelled."
         } catch { operationMessage = "Could not remove the alarm. It is still saved. " + error.localizedDescription }
-    }
-
-    private func weekdaySummary(_ weekdays: [Int]) -> String {
-        let symbols = Calendar.current.shortWeekdaySymbols
-        return weekdays.sorted().compactMap { symbols.indices.contains($0 - 1) ? symbols[$0 - 1] : nil }.joined(separator: " ")
     }
 }

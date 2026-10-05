@@ -12,37 +12,48 @@ struct AirDropWidgetProvider: DockWidgetProvider {
     }
 }
 
+/// The AirDrop module: a Control Center toggle glyph, active while something is dragged over it,
+/// with its short name under it on wider layouts.
+struct AirDropDockFace: View {
+    var targeted = false
+    @Environment(\.widgetLayout) private var layout
+    @Environment(\.dockWidgetContentWidth) private var width
+    @Environment(\.widgetShowsLabel) private var showsLabel
+    private var showsName: Bool { layout != .icon && !WidgetModuleMetrics.isNarrow(width) && showsLabel }
+    var body: some View {
+        VStack(spacing: 2) {
+            WidgetToggleGlyph(kind: "AirDrop", symbol: WidgetRegistry.airDropSymbol, active: targeted, diameter: showsName ? 30 : 36)
+            if showsName {
+                Text(targeted ? "Drop to share" : "AirDrop").font(DockDesign.Module.label).lineLimit(1)
+                    .minimumScaleFactor(DockDesign.Module.minimumTextSize / 11)
+            }
+        }
+        .moduleInsets()
+    }
+}
+
 private struct AirDropCompactTile: View {
     @State private var isDropTargeted = false
     @State private var anchorView: NSView?
     @Environment(\.dockWidgetContentWidth) private var width
+    @Environment(\.dockModuleRadius) private var moduleRadius
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: moduleRadius, style: .continuous)
         ZStack {
-            HStack(spacing: 7) {
-                Image(systemName: WidgetRegistry.airDropSymbol)
-                    .font(.system(size: width > 54 ? 21 : 25, weight: .medium))
-                    .foregroundStyle(.tint)
-                if width > 54 {
-                    Text("AirDrop").font(.system(size: 10, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7)
-                }
-            }
+            AirDropDockFace(targeted: isDropTargeted)
 
             AirDropTileAnchor { anchorView = $0 }
                 .allowsHitTesting(false)
 
             if isDropTargeted {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.18))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color.accentColor, lineWidth: 1.5)
-                    }
+                shape.fill(DockDesign.accent.opacity(0.12))
+                    .overlay { shape.strokeBorder(DockDesign.accent, lineWidth: 1.5) }
                     .allowsHitTesting(false)
             }
         }
         .frame(width: width, height: 54)
-        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(shape)
         .onDrop(of: [UTType.fileURL, UTType.url], isTargeted: $isDropTargeted, perform: shareDroppedItems)
         .help("Drop files or links to share with AirDrop")
         .accessibilityLabel("AirDrop")
@@ -154,56 +165,63 @@ private struct AirDropPopoutView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Share with AirDrop").font(.headline)
-            Text("Choose files, drop them here, or add a web link. MyDock passes the selected items to the macOS sharing picker.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(isDropTargeted ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.07))
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.28), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-                VStack(spacing: 6) {
-                    Image(systemName: "arrow.down.doc").font(.title2).foregroundStyle(.tint)
-                    Text(isDropTargeted ? "Drop to add items" : "Drop files or links here")
-                        .font(.callout.weight(.medium))
+                WidgetPopoutDropArea(targeted: isDropTargeted, minHeight: 120) {
+                    VStack(spacing: 6) {
+                        WidgetToggleGlyph(kind: "AirDrop", symbol: WidgetRegistry.airDropSymbol, active: isDropTargeted, diameter: 44)
+                        Text(isDropTargeted ? "Drop to add items" : "Drop files or links here")
+                            .font(.system(size: 13, weight: .medium))
+                        Text("MyDock passes them to the macOS sharing picker.")
+                            .font(DockDesign.Grouped.footerFont).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 12)
                 }
                 AirDropDropTarget(isTargeted: $isDropTargeted, onDrop: addURLs)
             }
-            .frame(height: 96)
+            .frame(minHeight: 120)
 
-            HStack(spacing: 8) {
-                Button("Choose Files…", action: chooseFiles)
-                if !shareURLs.isEmpty {
-                    Text("\(shareURLs.count) item\(shareURLs.count == 1 ? "" : "s") ready")
-                        .font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                WidgetPopoutSectionHeader(shareURLs.isEmpty ? "Add Items" : "\(shareURLs.count) item\(shareURLs.count == 1 ? "" : "s") ready") {
+                    if !shareURLs.isEmpty {
+                        Button("Clear") { shareURLs = []; errorMessage = nil }
+                    }
                 }
-                Spacer()
-                if !shareURLs.isEmpty {
-                    Button("Clear") { shareURLs = []; errorMessage = nil }
-                        .buttonStyle(.plain).foregroundStyle(.secondary)
+                GroupedSection(separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                    ForEach(shareURLs, id: \.absoluteString) { url in
+                        WidgetPopoutRow {
+                            HStack(spacing: 8) {
+                                Image(systemName: url.isFileURL ? "doc" : "link").foregroundStyle(.secondary).frame(width: 18)
+                                    .accessibilityHidden(true)
+                                Text(url.isFileURL ? url.lastPathComponent : (url.host ?? url.absoluteString))
+                                    .font(DockDesign.Grouped.titleFont).lineLimit(1)
+                            }
+                        }
+                    }
+                    GroupedRow("Choose Files…", role: .button, action: chooseFiles)
+                    WidgetPopoutRow {
+                        HStack(spacing: 8) {
+                            TextField("https://example.com", text: $linkText)
+                                .textFieldStyle(.plain)
+                                .onSubmit(addLink)
+                                .accessibilityLabel("Web link")
+                            Button("Add Link", action: addLink).buttonStyle(.borderless)
+                        }
+                    }
                 }
-            }
-
-            HStack(spacing: 8) {
-                TextField("https://example.com", text: $linkText)
-                    .textFieldStyle(DockTextFieldStyle())
-                    .onSubmit(addLink)
-                Button("Add Link", action: addLink)
             }
 
             if !shareURLs.isEmpty {
-                AirDropShareButton(urls: shareURLs)
-                    .frame(height: 30)
+                HStack {
+                    Spacer()
+                    AirDropShareButton(urls: shareURLs)
+                        .frame(height: 30).fixedSize()
+                }
             }
             if let errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
+                WidgetPopoutCaption(errorMessage, color: .orange)
             }
         }
-        .padding(.bottom, 4)
-        .frame(width: 340)
     }
 
     private func chooseFiles() {

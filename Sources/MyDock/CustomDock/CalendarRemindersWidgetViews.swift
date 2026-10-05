@@ -22,6 +22,95 @@ struct RemindersWidgetProvider: DockWidgetProvider {
     }
 }
 
+// MARK: - Pure presentation
+
+enum CalendarFacePresentation {
+    /// Which parts of the module show for the family's own layout choice and the Dock layout.
+    static func parts(calendarLayout: CalendarWidgetLayout, dockLayout: WidgetLayout) -> (date: Bool, event: Bool) {
+        (calendarLayout != .nextEvent || dockLayout != .wide, calendarLayout != .date && dockLayout == .wide)
+    }
+
+    /// The one secondary line under an event title, short enough for a 154 pt module.
+    static func compactStatus(_ event: CalendarEventSnapshot, now: Date, calendar: Calendar = .current) -> String {
+        if event.endDate <= now { return "Ended" }
+        if event.isAllDay { return "All day" }
+        if event.startDate <= now { return "Now · until " + event.endDate.formatted(date: .omitted, time: .shortened) }
+        let minutes = Int(ceil(event.startDate.timeIntervalSince(now) / 60))
+        if minutes < 60 { return "In \(max(1, minutes)) min" }
+        let time = event.startDate.formatted(date: .omitted, time: .shortened)
+        if calendar.isDate(event.startDate, inSameDayAs: now) { return time }
+        if calendar.isDate(event.startDate, inSameDayAs: now.addingTimeInterval(86_400)) { return "Tomorrow " + time }
+        return event.startDate.formatted(.dateTime.weekday(.abbreviated)) + " " + time
+    }
+
+    /// The module's text when there is no event to show. Truthful: unavailable access is never shown as "no events".
+    static func emptyState(errorMessage: String?, accessAvailable: Bool) -> (title: String, detail: String) {
+        if errorMessage != nil { return ("Unavailable", "Allow access") }
+        return accessAvailable ? ("No events", "Next 7 days") : ("Calendar", "Choose calendars")
+    }
+}
+
+enum RemindersFacePresentation {
+    static func overdueCount(_ reminders: [ReminderSnapshot], now: Date) -> Int {
+        reminders.filter { $0.dueDate.map { $0 < now } ?? false }.count
+    }
+    static func isOverdue(_ reminder: ReminderSnapshot, now: Date) -> Bool { reminder.dueDate.map { $0 < now } ?? false }
+}
+
+// MARK: - Calendar face
+
+/// The Calendar module: weekday over the day number, and on wide layouts the next event beside it.
+struct CalendarDockFace: View {
+    var date: Date
+    var showsDate = true
+    var showsEvent = false
+    var event: CalendarEventSnapshot?
+    var emptyTitle = "No events"
+    var emptyDetail = "Next 7 days"
+    @Environment(\.dockWidgetContentWidth) private var width
+    @Environment(\.widgetShowsLabel) private var showsLabel
+    private var narrow: Bool { WidgetModuleMetrics.isNarrow(width) }
+    private var eventVisible: Bool { showsEvent && !narrow }
+    var body: some View {
+        HStack(spacing: 10) {
+            if showsDate || !eventVisible { dateBlock }
+            if eventVisible { eventBlock }
+        }
+        .frame(maxWidth: .infinity)
+        .moduleInsets()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Calendar")
+        .accessibilityValue(accessibilityValue)
+    }
+    private var dateBlock: some View {
+        VStack(spacing: 0) {
+            if showsLabel {
+                Text(date.formatted(.dateTime.weekday(.abbreviated)).uppercased())
+                    .font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Text(date.formatted(.dateTime.day()))
+                .font(narrow ? DockDesign.Module.valueMedium : DockDesign.Module.valueLarge).lineLimit(1)
+        }
+        .fixedSize()
+        .frame(maxWidth: eventVisible ? nil : .infinity)
+    }
+    private var eventBlock: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(event?.title ?? emptyTitle).font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(event == nil ? .secondary : .primary).lineLimit(1)
+            Text(event.map { CalendarFacePresentation.compactStatus($0, now: date) } ?? emptyDetail)
+                .font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
+                .minimumScaleFactor(DockDesign.Module.minimumTextSize / 11)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private var accessibilityValue: String {
+        let day = date.formatted(date: .complete, time: .omitted)
+        guard eventVisible else { return day }
+        return day + ", " + (event.map { "\($0.title), " + CalendarFacePresentation.compactStatus($0, now: date) } ?? emptyTitle)
+    }
+}
+
 private struct CalendarCompactWidgetView: View {
     @Environment(\.dockWidgetContentWidth) private var contentWidth
     @Environment(\.widgetLayout) private var dockLayout
@@ -39,33 +128,12 @@ private struct CalendarCompactWidgetView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            (contentWidth > 54 ? AnyLayout(HStackLayout(spacing: 9)) : AnyLayout(VStackLayout(spacing: 1))) {
-                if configuration.calendarLayout != .nextEvent || dockLayout == .compact {
-                    VStack(spacing: 1) {
-                        HStack(spacing: 3) {
-                            WidgetIcon(kind: "Calendar", size: 9)
-                            Text(context.date.formatted(.dateTime.weekday(.abbreviated)).uppercased())
-                                .font(.system(size: 7, weight: .bold)).foregroundStyle(.secondary)
-                        }
-                        Text(context.date.formatted(.dateTime.day()))
-                            .font(.system(size: contentWidth > 54 || configuration.calendarLayout == .date ? 26 : 18, weight: .medium)).monospacedDigit()
-                    }
-                }
-                if configuration.calendarLayout != .date && dockLayout == .wide {
-                    VStack(alignment: contentWidth > 54 ? .leading : .center, spacing: 3) {
-                        if let next = CalendarEventOrdering.compactEvent(from: events, now: context.date) {
-                            Text(next.title).font(.system(size: 9, weight: .semibold)).lineLimit(1)
-                            Text(WidgetTimingPresentation.eventStatus(next, now: context.date)).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1)
-                        } else {
-                            Text(errorMessage != nil ? "Unavailable" : accessAvailable ? "No events" : "Calendar")
-                                .font(.system(size: 9, weight: .medium)).lineLimit(1)
-                            if contentWidth > 54 { Text(accessAvailable ? "Today" : "Choose calendars").font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1) }
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, contentWidth > 54 ? 9 : 1)
-            .frame(width: contentWidth, height: 54)
+            let parts = CalendarFacePresentation.parts(calendarLayout: configuration.calendarLayout, dockLayout: dockLayout)
+            let empty = CalendarFacePresentation.emptyState(errorMessage: errorMessage, accessAvailable: accessAvailable)
+            CalendarDockFace(date: context.date, showsDate: parts.date, showsEvent: parts.event,
+                             event: CalendarEventOrdering.compactEvent(from: events, now: context.date),
+                             emptyTitle: empty.title, emptyDetail: empty.detail)
+                .frame(width: contentWidth, height: 54)
         }
         .task(id: configuration) {
             await refreshIfAuthorized()
@@ -99,6 +167,12 @@ private struct CalendarCompactWidgetView: View {
             return
         }
         #if DEBUG
+        if CalendarQAFixture.simulatesDeniedAccess {
+            events = []
+            accessAvailable = false
+            errorMessage = CalendarRemindersServiceError.accessDenied.localizedDescription
+            return
+        }
         if let fixture = CalendarQAFixture.current {
             events = fixture.events()
             accessAvailable = true
@@ -154,6 +228,8 @@ private struct CalendarCompactWidgetView: View {
     }
 }
 
+// MARK: - Calendar popout
+
 private struct CalendarPopoutWidgetView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
@@ -165,89 +241,21 @@ private struct CalendarPopoutWidgetView: View {
     @State private var refreshRequestID = UUID()
     @State private var layoutSelection = CalendarWidgetLayout.dateAndNextEvent
     @State private var showAllDaySelection = false
+    @State private var showsCalendarList = false
 
     private var configuration: WidgetConfiguration {
         currentConfiguration() ?? item.widgetConfiguration ?? WidgetConfiguration()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Picker("Layout", selection: $layoutSelection) {
-                    ForEach(CalendarWidgetLayout.allCases) { layout in Text(layout.title).tag(layout) }
-                }
-                .frame(maxWidth: 210)
-                Spacer()
-                if configuration.calendarLayout != .date {
-                    Button("Refresh", action: reload)
-                        .disabled(isLoading)
-                }
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                WidgetPopoutHero(value: context.date.formatted(.dateTime.weekday(.wide).day()),
+                                 caption: context.date.formatted(.dateTime.month(.wide).year()))
             }
-
-            if configuration.calendarLayout != .date {
-                DisclosureGroup("Calendars · \(selectedCalendarLabel)") {
-                    Button("All calendars") { updateCalendars([]) }.buttonStyle(.plain)
-                    ForEach(calendars) { calendar in
-                        Button { toggleCalendar(calendar.id) } label: {
-                            Label(calendar.title,
-                                  systemImage: configuration.selectedCalendarIDs.contains(calendar.id) ? "checkmark.circle.fill" : "circle")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    Toggle("Show all-day events", isOn: $showAllDaySelection)
-                }
-                .font(.caption)
-                Text("Showing: " + selectedCalendarLabel + " · next seven days")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-
-            if configuration.calendarLayout == .date {
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    HStack(spacing: 12) {
-                        Text(context.date.formatted(.dateTime.day())).font(.system(size: 54, weight: .medium, design: .rounded))
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(context.date.formatted(.dateTime.weekday(.wide))).font(.title3.weight(.semibold))
-                            Text(context.date.formatted(.dateTime.month(.wide).year())).foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else if isLoading {
-                ProgressView("Loading calendar…").frame(maxWidth: .infinity, minHeight: 90)
-            } else if let errorMessage {
-                CalendarWidgetEmptyState(title: errorMessage, symbol: "calendar.badge.exclamationmark", detail: "You can change Calendar access in System Settings.")
-                    .frame(minHeight: 90)
-            } else if events.isEmpty {
-                CalendarWidgetEmptyState(title: "No upcoming events", symbol: "calendar", detail: "There are no events in the next seven days for these calendars.")
-                    .frame(minHeight: 100)
-            } else {
-                if configuration.calendarLayout == .dateAndNextEvent || configuration.calendarLayout == .agenda {
-                    TimelineView(.periodic(from: .now, by: 60)) { context in
-                        HStack(spacing: 8) {
-                            Image(systemName: "calendar").foregroundStyle(.tint)
-                            Text(context.date.formatted(date: .complete, time: .omitted)).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    let visibleEvents = configuration.calendarLayout == .nextEvent
-                        ? CalendarEventOrdering.compactEvent(from: events, now: context.date).map { [$0] } ?? []
-                        : events.filter { $0.endDate > context.date }.sorted { CalendarEventOrdering.precedes($0, $1, now: context.date) }
-                    DockScrollView {
-                        LazyVStack(alignment: .leading, spacing: 7) {
-                            ForEach(visibleEvents) { event in eventRow(event) }
-                            if visibleEvents.isEmpty { Text("No upcoming events in this reading. Refresh to check again.").font(.caption).foregroundStyle(.secondary) }
-                        }
-                    }
-                    .frame(maxHeight: 260)
-                }
-            }
-            if let errorMessage, !isLoading, configuration.calendarLayout == .date {
-                Text(errorMessage).font(.caption).foregroundStyle(.red)
-            }
+            if configuration.calendarLayout != .date { eventsSection }
+            settingsSection
         }
-        .frame(width: 370).frame(minHeight: 190, alignment: .topLeading)
         .onAppear { layoutSelection = configuration.calendarLayout }
         .onChange(of: layoutSelection) { updateLayout($0) }
         .onChange(of: item.widgetConfiguration?.calendarLayout) { layoutSelection = $0 ?? .dateAndNextEvent }
@@ -269,24 +277,133 @@ private struct CalendarPopoutWidgetView: View {
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in reload() }
     }
 
-    @ViewBuilder private func eventRow(_ event: CalendarEventSnapshot) -> some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(event.title).font(.callout.weight(.medium)).lineLimit(2)
-                Text(event.startDate.formatted(date: .abbreviated, time: event.isAllDay ? .omitted : .shortened) + " · " + event.calendarTitle)
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+    private var eventsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            WidgetPopoutSectionHeader(configuration.calendarLayout == .nextEvent ? "Next Event" : "Upcoming") {
+                Button("Refresh", action: reload).disabled(isLoading)
+            }
+            if isLoading {
+                GroupedSection {
+                    WidgetPopoutRow {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Loading calendar…").font(DockDesign.Grouped.titleFont).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } else if let errorMessage {
+                GroupedSection {
+                    GroupedRow(errorMessage, subtitle: "You can change Calendar access in System Settings.",
+                               symbol: "calendar.badge.exclamationmark", color: .orange)
+                    GroupedRow("Open Privacy & Security", role: .button) { WidgetPrivacySettings.open(WidgetPrivacySettings.calendars) }
+                }
+            } else if events.isEmpty {
+                GroupedSection {
+                    GroupedRow("No upcoming events", subtitle: "Nothing in the next seven days for these calendars.", symbol: "calendar", color: .gray)
+                }
+            } else {
                 TimelineView(.periodic(from: .now, by: 60)) { context in
-                    Text(WidgetTimingPresentation.eventStatus(event, now: context.date))
-                        .font(.caption).foregroundStyle(.secondary)
+                    let visibleEvents = configuration.calendarLayout == .nextEvent
+                        ? CalendarEventOrdering.compactEvent(from: events, now: context.date).map { [$0] } ?? []
+                        : events.filter { $0.endDate > context.date }.sorted { CalendarEventOrdering.precedes($0, $1, now: context.date) }
+                    if visibleEvents.isEmpty {
+                        GroupedSection {
+                            GroupedRow("No upcoming events in this reading", subtitle: "Refresh to check again.")
+                        }
+                    } else if visibleEvents.count > 5 {
+                        DockScrollView { eventList(visibleEvents, now: context.date) }.frame(height: 300)
+                    } else {
+                        eventList(visibleEvents, now: context.date)
+                    }
                 }
             }
-            Spacer(minLength: 4)
-            if let url = event.meetingURL {
-                Button("Join") { NSWorkspace.shared.open(url) }.buttonStyle(DockButtonStyle())
+        }
+    }
+
+    private func eventList(_ visibleEvents: [CalendarEventSnapshot], now: Date) -> some View {
+        GroupedSection(separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+            ForEach(visibleEvents) { event in eventRow(event, now: now) }
+        }
+    }
+
+    private func eventRow(_ event: CalendarEventSnapshot, now: Date) -> some View {
+        let ongoing = !event.isAllDay && event.startDate <= now && event.endDate > now
+        return WidgetPopoutRow {
+            HStack(spacing: 10) {
+                Capsule().fill(ongoing ? DockDesign.accent : Color.primary.opacity(0.18)).frame(width: 3, height: 30)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(event.title).font(DockDesign.Grouped.titleFont.weight(.medium)).lineLimit(2)
+                    Text(event.startDate.formatted(date: .abbreviated, time: event.isAllDay ? .omitted : .shortened) + " · " + event.calendarTitle)
+                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
+                    Text(WidgetTimingPresentation.eventStatus(event, now: now))
+                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                if let url = event.meetingURL {
+                    Button("Join") { NSWorkspace.shared.open(url) }.buttonStyle(GalleryGlassButtonStyle())
+                        .accessibilityLabel("Join \(event.title)")
+                }
             }
         }
-        .padding(8)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 9))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var settingsSection: some View {
+        GroupedSection("Calendar", footer: configuration.calendarLayout == .date ? nil : "Showing: " + selectedCalendarLabel + " · next seven days",
+                       separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+            GroupedRow("Show") {
+                Picker("Show", selection: $layoutSelection) {
+                    ForEach(CalendarWidgetLayout.allCases) { layout in Text(layout.title).tag(layout) }
+                }
+                .labelsHidden().fixedSize().accessibilityLabel("Layout")
+            }
+            if configuration.calendarLayout != .date {
+                Button { showsCalendarList.toggle() } label: {
+                    WidgetPopoutRow {
+                        HStack(spacing: 6) {
+                            Text("Calendars").font(DockDesign.Grouped.titleFont)
+                            Spacer(minLength: 8)
+                            Text(selectedCalendarSummary).font(DockDesign.Grouped.titleFont).foregroundStyle(.secondary).lineLimit(1)
+                            Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                                .rotationEffect(.degrees(showsCalendarList ? 90 : 0))
+                        }
+                        .contentShape(Rectangle())
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Calendars")
+                .accessibilityValue(selectedCalendarSummary + (showsCalendarList ? ", expanded" : ", collapsed"))
+                if showsCalendarList {
+                    calendarChoice("All calendars", selected: configuration.selectedCalendarIDs.isEmpty) { updateCalendars([]) }
+                    ForEach(calendars) { calendar in
+                        calendarChoice(calendar.title, selected: configuration.selectedCalendarIDs.contains(calendar.id)) { toggleCalendar(calendar.id) }
+                    }
+                }
+                GroupedRow("All-day events", isOn: $showAllDaySelection)
+            }
+        }
+    }
+
+    private func calendarChoice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            WidgetPopoutRow {
+                HStack {
+                    Text(title).font(DockDesign.Grouped.titleFont).padding(.leading, 12)
+                    Spacer(minLength: 8)
+                    Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold)).foregroundStyle(DockDesign.accent)
+                        .opacity(selected ? 1 : 0)
+                }
+                .contentShape(Rectangle())
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var selectedCalendarSummary: String {
+        configuration.selectedCalendarIDs.isEmpty ? "All" : "\(configuration.selectedCalendarIDs.count) selected"
     }
 
     private var selectedCalendarLabel: String {
@@ -336,6 +453,13 @@ private struct CalendarPopoutWidgetView: View {
             return
         }
         #if DEBUG
+        if CalendarQAFixture.simulatesDeniedAccess {
+            calendars = []
+            events = []
+            errorMessage = CalendarRemindersServiceError.accessDenied.localizedDescription
+            isLoading = false
+            return
+        }
         if let fixture = CalendarQAFixture.current {
             calendars = fixture.calendars
             events = fixture.events()
@@ -383,12 +507,61 @@ private struct CalendarPopoutWidgetView: View {
     }
 }
 
+// MARK: - Reminders face
+
+/// The Reminders module: the open count with "to do", the list name on wide layouts, and an overdue mark.
+struct RemindersModuleFace: View {
+    /// nil: not set up or access unavailable.
+    var count: Int?
+    var overdue = 0
+    var context: String
+    @Environment(\.widgetLayout) private var layout
+    @Environment(\.widgetShowsLabel) private var showsLabel
+    @Environment(\.dockWidgetContentWidth) private var width
+    private var narrow: Bool { WidgetModuleMetrics.isNarrow(width) }
+    private let kind = "Reminders"
+    var body: some View {
+        Group {
+            if let count {
+                VStack(alignment: narrow || !showsLabel ? .center : .leading, spacing: DockDesign.Module.lineSpacing - 1) {
+                    if showsLabel {
+                        HStack(spacing: 4) {
+                            if !narrow { WidgetIcon(kind: kind, size: WidgetModuleMetrics.labelGlyph, enclosed: false) }
+                            Text(labelText).font(DockDesign.Module.label)
+                                .foregroundStyle(overdue > 0 ? WidgetPalette.critical : Color.secondary)
+                                .lineLimit(1).minimumScaleFactor(DockDesign.Module.minimumTextSize / 11)
+                        }
+                    }
+                    HStack(spacing: 4) {
+                        ModuleValue(value: "\(count)", unit: narrow ? "" : "to do", size: narrow ? .medium : .large)
+                        if overdue > 0 && !showsLabel {
+                            Circle().fill(WidgetPalette.critical).frame(width: 6, height: 6).accessibilityHidden(true)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: narrow || !showsLabel ? .center : .leading)
+            } else {
+                ModuleStack(kind: kind, label: "Reminders", value: "Set up", size: .small, showsGlyph: layout == .wide)
+            }
+        }
+        .moduleInsets()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Reminders")
+        .accessibilityValue(count.map { "\($0) to do" + (overdue > 0 ? ", \(overdue) overdue" : "") } ?? "Not set up")
+    }
+    private var labelText: String {
+        if overdue > 0 { return narrow ? "Late" : "\(overdue) overdue" }
+        return layout == .wide && !narrow ? context : "To do"
+    }
+}
+
 private struct RemindersCompactWidgetView: View {
     @Environment(\.dockWidgetContentWidth) private var contentWidth
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
     @State private var count = 0
+    @State private var overdue = 0
     @State private var hasAccess = false
     @State private var errorMessage: String?
     @State private var refreshRequestID = UUID()
@@ -398,8 +571,8 @@ private struct RemindersCompactWidgetView: View {
     }
 
     var body: some View {
-        RemindersDockFace(count: hasAccess && errorMessage == nil ? count : nil,
-                          context: errorMessage != nil ? "Unavailable" : hasAccess ? "Selected reminders" : "Choose a list")
+        RemindersModuleFace(count: hasAccess && errorMessage == nil ? count : nil, overdue: overdue,
+                            context: errorMessage != nil ? "Unavailable" : hasAccess ? "Selected reminders" : "Choose a list")
         .frame(width: contentWidth, height: 54)
         .task(id: configuration.selectedReminderCalendarID) {
             await refreshIfAuthorized()
@@ -424,9 +597,20 @@ private struct RemindersCompactWidgetView: View {
         let selectedListID = configuration.selectedReminderCalendarID
         let requestID = UUID()
         refreshRequestID = requestID
+        #if DEBUG
+        if let fixture = RemindersQAFixture.override {
+            let result = fixture.reminders()
+            count = result.count
+            overdue = RemindersFacePresentation.overdueCount(result, now: .now)
+            hasAccess = fixture != .denied
+            errorMessage = fixture == .denied ? CalendarRemindersServiceError.accessDenied.localizedDescription : nil
+            return
+        }
+        #endif
         guard await CalendarRemindersService.shared.hasRemindersAccess() else {
             guard requestIsCurrent(requestID, selectedListID: selectedListID) else { return }
             count = 0
+            overdue = 0
             hasAccess = false
             errorMessage = "Reminders access is unavailable."
             return
@@ -437,16 +621,19 @@ private struct RemindersCompactWidgetView: View {
             guard requestIsCurrent(requestID, selectedListID: selectedListID) else { return }
             guard stillAuthorized else {
                 count = 0
+                overdue = 0
                 hasAccess = false
                 errorMessage = "Reminders access is unavailable."
                 return
             }
             count = result.count
+            overdue = RemindersFacePresentation.overdueCount(result, now: .now)
             hasAccess = true
             errorMessage = nil
         } catch {
             guard requestIsCurrent(requestID, selectedListID: selectedListID) else { return }
             count = 0
+            overdue = 0
             hasAccess = false
             errorMessage = error.localizedDescription
         }
@@ -465,6 +652,8 @@ private struct RemindersCompactWidgetView: View {
     }
 }
 
+// MARK: - Reminders popout
+
 private struct RemindersPopoutWidgetView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
@@ -482,69 +671,103 @@ private struct RemindersPopoutWidgetView: View {
     @State private var isAddingReminder = false
     @State private var isChangingCompletion = false
 
+    /// Separators start at the reminder text, past the completion circle.
+    private static let rowSeparatorInset = DockDesign.Grouped.rowHorizontalPadding + 20 + 10
+
     private var configuration: WidgetConfiguration {
         currentConfiguration() ?? item.widgetConfiguration ?? WidgetConfiguration()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            Text("Apple Reminders · changes update your Reminders lists. Quick Checklist keeps separate tasks in MyDock.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Picker("List", selection: $selectedList) {
-                    Text("All lists").tag("")
-                    ForEach(lists) { list in Text(list.title).tag(list.id) }
-                }
-                .frame(maxWidth: 220)
-                Picker("Layout", selection: $layoutSelection) {
-                    ForEach(RemindersWidgetLayout.allCases) { layout in Text(layout.title).tag(layout) }
-                }
-                .frame(maxWidth: 150)
-                Button("Refresh", action: reload).disabled(isLoading)
-            }
-
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             if isLoading {
-                ProgressView("Loading reminders…").frame(maxWidth: .infinity, minHeight: 90)
-            } else if let errorMessage {
-                CalendarWidgetEmptyState(title: errorMessage, symbol: "checklist", detail: "You can change access in System Settings.")
-                    .frame(minHeight: 90)
-            } else if configuration.remindersLayout == .count {
-                VStack(spacing: 4) {
-                    Text("\(reminders.count)").font(.system(size: 48, weight: .medium, design: .rounded))
-                    Text("incomplete reminders").font(.callout).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 105)
-            } else if reminders.isEmpty {
-                CalendarWidgetEmptyState(title: "No incomplete reminders", symbol: "checkmark.circle", detail: "Add a reminder here or in the Reminders app.")
-                    .frame(minHeight: 100)
-            } else {
-                let shown = configuration.remindersLayout == .nextReminder ? Array(reminders.prefix(1)) : reminders
-                DockScrollView {
-                    LazyVStack(spacing: 5) {
-                        ForEach(shown) { reminder in reminderRow(reminder) }
+                GroupedSection {
+                    WidgetPopoutRow {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Loading reminders…").font(DockDesign.Grouped.titleFont).foregroundStyle(.secondary)
+                        }
                     }
                 }
-                .frame(maxHeight: 220)
+            } else if let errorMessage {
+                GroupedSection {
+                    GroupedRow(errorMessage, subtitle: "You can change access in System Settings.", symbol: "checklist", color: .orange)
+                    GroupedRow("Open Privacy & Security", role: .button) { WidgetPrivacySettings.open(WidgetPrivacySettings.reminders) }
+                }
+            } else {
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    let overdue = RemindersFacePresentation.overdueCount(reminders, now: context.date)
+                    VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+                        WidgetPopoutHero(value: "\(reminders.count)",
+                                         caption: (reminders.count == 1 ? "reminder to do" : "reminders to do") + (overdue > 0 ? " · \(overdue) overdue" : ""))
+                        if configuration.remindersLayout != .count {
+                            if reminders.isEmpty {
+                                GroupedSection {
+                                    GroupedRow("No incomplete reminders", subtitle: "Add a reminder here or in the Reminders app.", symbol: "checkmark.circle", color: .gray)
+                                }
+                            } else {
+                                let shown = configuration.remindersLayout == .nextReminder ? Array(reminders.prefix(1)) : reminders
+                                if shown.count > 6 {
+                                    DockScrollView { reminderList(shown, now: context.date) }.frame(height: 260)
+                                } else {
+                                    reminderList(shown, now: context.date)
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            HStack(spacing: 7) {
-                TextField("New reminder", text: $newReminderTitle)
-                    .textFieldStyle(DockTextFieldStyle())
-                    .onSubmit(addReminder)
-                Button("Add", action: addReminder)
-                    .buttonStyle(DockButtonStyle(primary: true))
-                    .disabled(isAddingReminder || newReminderTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            VStack(alignment: .leading, spacing: 6) {
+                GroupedSection {
+                    WidgetPopoutRow {
+                        HStack(spacing: 10) {
+                            Image(systemName: "plus.circle.fill").font(.system(size: 19)).foregroundStyle(DockDesign.accent)
+                                .frame(width: 20).accessibilityHidden(true)
+                            TextField("New reminder", text: $newReminderTitle)
+                                .textFieldStyle(.plain)
+                                .onSubmit(addReminder)
+                            if isAddingReminder { ProgressView().controlSize(.small).accessibilityLabel("Adding reminder") }
+                            Button("Add", action: addReminder)
+                                .buttonStyle(.borderless)
+                                .disabled(isAddingReminder || newReminderTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                }
+                if let lastCompletedIdentifier {
+                    HStack {
+                        Text("Reminder completed.").font(DockDesign.Grouped.footerFont).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Undo completion") { undoCompletion(lastCompletedIdentifier) }
+                            .buttonStyle(.borderless).controlSize(.small).disabled(isChangingCompletion)
+                    }
+                    .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+                }
+                if let actionErrorMessage {
+                    WidgetPopoutCaption(actionErrorMessage, color: Color(nsColor: .systemRed))
+                }
             }
-            if isAddingReminder { ProgressView("Adding reminder…").font(.caption) }
-            if let lastCompletedIdentifier {
-                Button("Undo completion") { undoCompletion(lastCompletedIdentifier) }
-                    .font(.caption).buttonStyle(.plain).disabled(isChangingCompletion)
-            }
-            if let actionErrorMessage {
-                Text(actionErrorMessage).font(.caption).foregroundStyle(.red)
+
+            VStack(alignment: .leading, spacing: 6) {
+                WidgetPopoutSectionHeader("Reminders") { Button("Refresh", action: reload).disabled(isLoading) }
+                GroupedSection(footer: "Changes update your Reminders lists. Quick Checklist keeps separate tasks in MyDock.",
+                               separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                    GroupedRow("List") {
+                        Picker("List", selection: $selectedList) {
+                            Text("All lists").tag("")
+                            ForEach(lists) { list in Text(list.title).tag(list.id) }
+                        }
+                        .labelsHidden().fixedSize().accessibilityLabel("List")
+                    }
+                    GroupedRow("Show") {
+                        Picker("Layout", selection: $layoutSelection) {
+                            ForEach(RemindersWidgetLayout.allCases) { layout in Text(layout.title).tag(layout) }
+                        }
+                        .labelsHidden().fixedSize().accessibilityLabel("Layout")
+                    }
+                }
             }
         }
-        .frame(width: 410).frame(minHeight: 220, alignment: .topLeading)
         .onAppear { layoutSelection = configuration.remindersLayout }
         .onChange(of: layoutSelection) { updateLayout($0) }
         .onChange(of: configuration.remindersLayout) { layoutSelection = $0 }
@@ -563,22 +786,33 @@ private struct RemindersPopoutWidgetView: View {
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in reload() }
     }
 
-    @ViewBuilder private func reminderRow(_ reminder: ReminderSnapshot) -> some View {
-        HStack(spacing: 8) {
-            Button { complete(reminder) } label: { Image(systemName: "circle") }
+    private func reminderList(_ shown: [ReminderSnapshot], now: Date) -> some View {
+        GroupedSection(separatorInset: Self.rowSeparatorInset) {
+            ForEach(shown) { reminder in reminderRow(reminder, now: now) }
+        }
+    }
+
+    private func reminderRow(_ reminder: ReminderSnapshot, now: Date) -> some View {
+        let overdue = RemindersFacePresentation.isOverdue(reminder, now: now)
+        return WidgetPopoutRow {
+            HStack(spacing: 10) {
+                Button { complete(reminder) } label: {
+                    Image(systemName: "circle").font(.system(size: 19)).foregroundStyle(.secondary).frame(width: 20)
+                }
                 .buttonStyle(.plain).help("Mark complete").disabled(isChangingCompletion)
                 .accessibilityLabel("Complete \(reminder.title)")
-            VStack(alignment: .leading, spacing: 2) {
-                Text(reminder.title).lineLimit(2)
-                if let dueDate = reminder.dueDate {
-                    Text(dueDate.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(reminder.title).font(DockDesign.Grouped.titleFont).lineLimit(2)
+                    if let dueDate = reminder.dueDate {
+                        Text((overdue ? "Overdue · " : "") + dueDate.formatted(date: .abbreviated, time: .shortened))
+                            .font(DockDesign.Grouped.subtitleFont)
+                            .foregroundStyle(overdue ? WidgetPalette.critical : Color.secondary)
+                    }
                 }
+                Spacer(minLength: 6)
+                Text(reminder.calendarTitle).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
             }
-            Spacer()
-            Text(reminder.calendarTitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
         }
-        .padding(7)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func updateList(_ listID: String) {
@@ -596,6 +830,15 @@ private struct RemindersPopoutWidgetView: View {
         let selectedListID = configuration.selectedReminderCalendarID
         let requestID = UUID()
         refreshRequestID = requestID
+        #if DEBUG
+        if let fixture = RemindersQAFixture.override {
+            lists = fixture.lists
+            reminders = fixture.reminders()
+            errorMessage = fixture == .denied ? CalendarRemindersServiceError.accessDenied.localizedDescription : nil
+            isLoading = false
+            return
+        }
+        #endif
         isLoading = true
         defer { if refreshRequestID == requestID { isLoading = false } }
         do {
@@ -682,21 +925,5 @@ private struct RemindersPopoutWidgetView: View {
                 actionErrorMessage = error.localizedDescription
             }
         }
-    }
-}
-
-private struct CalendarWidgetEmptyState: View {
-    var title: String
-    var symbol: String
-    var detail: String
-
-    var body: some View {
-        VStack(spacing: 7) {
-            Image(systemName: symbol).font(.title2).foregroundStyle(.secondary)
-            Text(title).font(.callout.weight(.medium)).multilineTextAlignment(.center)
-            Text(detail).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, minHeight: 90)
-        .padding(.vertical, 8)
     }
 }

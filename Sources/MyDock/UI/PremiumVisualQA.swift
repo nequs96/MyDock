@@ -98,6 +98,7 @@ enum PremiumVisualQA {
         if ProcessInfo.processInfo.environment["MYDOCK_WIDGETSURFACE_QA"] == "1" { try await exportWidgetSurfaceUI(to: directory, store: store); return }
         if ProcessInfo.processInfo.environment["MYDOCK_GALLERY_QA"] == "1" { try await exportGalleryUI(to: directory, store: store); return }
         if ProcessInfo.processInfo.environment["MYDOCK_WIDGETSHEET_QA"] == "1" { try await exportWidgetSheetUI(to: directory, store: store); return }
+        if ProcessInfo.processInfo.environment["MYDOCK_FACESA_QA"] == "1" { try await exportFacesAUI(to: directory, store: store); return }
         let names = ["System Activity", "Clock", "AI Limits"]
         let everyday = try store.createProfileAndPersist(kind: .custom, name: "Everyday")
         for bundle in ["com.apple.finder", "com.microsoft.VSCode", "com.apple.Terminal"] {
