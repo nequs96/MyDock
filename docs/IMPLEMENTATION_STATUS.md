@@ -27,7 +27,10 @@ The [redesign ledger](history/REDESIGN_LEDGER_2026-10-04.md) is the per-package 
   - keyboard-only flows.
 - The open items below: H1–H9, live accounts, Xcode, signing and release, and performance.
 
-OP-01–OP-07 remain separate product opportunities, to be piloted one at a time. No pilot has been chosen.
+**Product wave (PX-1–PX-8), 5 October 2026.**
+- **Scope:** OP-01–OP-07 are implemented within their ledger scopes, plus Dock essentials, window previews and product polish. See the [product plan](history/PRODUCT_PLAN_2026-10-05.md).
+- **CI at `5dfccf1`:** **829 tests in 93 suites** passed on arm64 and Intel, and the full Xcode Release build succeeded.
+- **Not yet verified natively:** every new feature still needs a check on a Mac. The window previews, drop-to-open, audio switching, workspace start and automatic switching all act on the real system.
 
 ## Remaining-work wave — 4 October 2026 (dated)
 

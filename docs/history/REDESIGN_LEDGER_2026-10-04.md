@@ -1292,3 +1292,42 @@ On the runners every test took about 5 s, so these are timing margins, not regre
 - Intel: the 695-test suite passed.
 
 Merged into `redesign/integration` by fast-forward.
+
+### Product wave PX-1–PX-8 (cloud session, 5 October 2026)
+
+**Plan:** [PRODUCT_PLAN_2026-10-05.md](PRODUCT_PLAN_2026-10-05.md). The user approved all of OP-01–OP-07 plus new features, Sonnet at high effort and Opus, with no Haiku.
+
+**Packages and merges, in merge order:**
+
+| Package | Scope | Model | Merge |
+|---|---|---|---|
+| PX-8 | What's New, Help and shortcuts | Sonnet | `de75c06` |
+| PX-1 | Drop-to-open, app menu, recents | Sonnet | `548b5b7` |
+| PX-3 | ⌘K saved items, next meeting | Sonnet | `7ef58a1` |
+| PX-4 | Audio Output | Sonnet | `19a7c4e` |
+| PX-6 | Automatic switching | Sonnet | `4019f72` |
+| PX-7 | System detail sections | Opus | merged |
+| PX-5 | Workspace start, portable Docks | Opus | `ac9aa00` |
+| PX-2 | Window previews | Opus | `787b7b9` |
+
+**Merge conflicts:** two, resolved by keeping both sides:
+- `AppSettings`: PX-8 and PX-6;
+- the window controller: PX-1 and PX-2.
+
+**Opus review:** SAFE. Fixes applied:
+- export defaults to no personal data;
+- workspace switch is opt-in;
+- no account or store IDs in packages;
+- audio alerts keep their own device;
+- no global key monitor;
+- ⌘K rows are built once per pass.
+
+**CI path to green:**
+- `ac9aa00`: compile error (an immutable `detail`).
+- `1c7360d`: two `#expect` type-inference errors in tests.
+- `5dfccf1`: one test failure. The Audio short name dropped "External".
+- `5dfccf1` then went green on both runners: **829 tests in 93 suites**, Python 11 OK, universal and Xcode Release builds.
+
+10 distinct compiler warnings remain. They go to the full audit.
+
+**Not verified natively:** every PX feature. The full professional audit follows; see `FULL_AUDIT_2026-10-05.md`.

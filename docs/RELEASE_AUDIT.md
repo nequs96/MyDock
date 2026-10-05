@@ -1,6 +1,6 @@
 # Canonical MyDock development baseline
 
-Recorded on **5 October 2026** after the redesign: RD-01–RD-11, then fix waves FX-01–FX-10, follow-ups FU-S/FU-G/FU-W and T2. Source remains in `Sources/MyDock/`. The canonical app remains **`build/MyDock.app`**. The per-package record is [the redesign ledger](history/REDESIGN_LEDGER_2026-10-04.md). The pre-redesign baseline is preserved in [history/RELEASE_EVIDENCE_PRE_REDESIGN_2026-10-05.md](history/RELEASE_EVIDENCE_PRE_REDESIGN_2026-10-05.md).
+Recorded on **5 October 2026** after the redesign (RD-01–RD-11, fix waves FX-01–FX-10, follow-ups FU-S/FU-G/FU-W and T2) and the product wave PX-1–PX-8 ([plan](history/PRODUCT_PLAN_2026-10-05.md)). Source remains in `Sources/MyDock/`. The canonical app remains **`build/MyDock.app`**. The per-package record is [the redesign ledger](history/REDESIGN_LEDGER_2026-10-04.md). The pre-redesign baseline is preserved in [history/RELEASE_EVIDENCE_PRE_REDESIGN_2026-10-05.md](history/RELEASE_EVIDENCE_PRE_REDESIGN_2026-10-05.md).
 
 ## What this baseline adds
 
@@ -13,6 +13,16 @@ Recorded on **5 October 2026** after the redesign: RD-01–RD-11, then fix waves
 - **Add Item window:** Widgets, Apps and More tabs, a detail view with a size pager, floating previews and preset thumbnails that count every item.
 - **Settings:** each page is its own file. Integrations, Dock Setup, both inspectors and Permissions were de-duplicated and use one label set (FX-10).
 - **CI:** two load-sensitive timing tests now poll instead of racing wall-clock sleeps.
+- **Product wave (PX-1–PX-8):**
+  - **Dock essentials:** drop files on an app tile to open them with it; a full app menu (inline windows, Show in Finder, Hide/Show, Quit, Force Quit with confirmation); optional recent apps (off by default).
+  - **Window previews on hover:** off by default; titles-only without Screen Recording; memory-only capture while open.
+  - **⌘K** searches saved snippets, links and shelf files.
+  - **Next meeting:** a dependable next event, with Join only for verified https meeting links.
+  - **Audio Output widget:** the 36th family; output side of Core Audio only.
+  - **Start Workspace** and **portable Dock packages:** import is always new, and no credentials or account IDs are included.
+  - **Automatic switching:** explainable rules, off by default, Custom Docks only.
+  - **System Activity detail:** optional Network and Storage sections.
+  - **What's New, Help and keyboard shortcuts.
 
 ## Current verification
 
@@ -26,6 +36,8 @@ Evidence comes from two sources. **Native Mac evidence** comes from the orchestr
 | Isolated launch sample after FX-07 | Native Mac, 5 Oct | 60 s, steady RSS **96.1 MB** (78 MB before the redesign), mean CPU 0.00 % at `ps` resolution, normal quit |
 | `Validate MyDock` at `3a0dd69` (FX-10, follow-ups, T2) | CI, 5 Oct | **arm64 job green end to end:** `./TestMyDock.sh` **695 tests in 85 suites passed**; Python tooling 11 OK; universal release build and bundle check OK; **full Xcode Release build `BUILD SUCCEEDED` with `Metadata.appintents` present** (the first verified Xcode build). **Intel job: 695-test suite passed**; its build steps were still running when this was recorded. Run `37354111722`. |
 | Static review of `cec6394..3a0dd69` | Opus reviewer | SAFE: no compile, test or behaviour regressions found; all 37 changed files parse |
+| `Validate MyDock` at `5dfccf1` (product wave PX-1–PX-8 and review fixes) | CI, 5 Oct | **Both macOS 26 jobs green end to end, arm64 and Intel:** **829 tests in 93 suites passed**; Python tooling 11 OK; universal release build and bundle check OK; full Xcode Release build succeeded with `Metadata.appintents`. 10 distinct compiler warnings remain (5 in app code, 5 in tests), tracked by the full audit. Run `37360809236`. |
+| Opus review of the product wave (`05ff855..787b7b9`) | Opus reviewer | SAFE, with fixes applied: shared exports start without personal data; workspace start does not switch Docks unless chosen; account and store IDs never travel in packages; audio alerts keep their own device; no system-wide key listener. |
 
 **The canonical `build/MyDock.app` predates FX-08 onward.** It must be rebuilt on the Mac, and the render matrix re-run, before this baseline counts as natively verified.
 
