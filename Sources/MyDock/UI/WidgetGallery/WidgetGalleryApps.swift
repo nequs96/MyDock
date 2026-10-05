@@ -23,11 +23,13 @@ struct WidgetGalleryAppRow: View {
                     }
                 }
                 Spacer(minLength: 8)
-                if added {
-                    GalleryAddedBadge(generation: addGeneration, size: 20)
+                let accessory = WidgetGalleryRowAccessory(added: added)
+                if accessory == .added {
+                    // A plain green check: clearly not the filled blue plus beside it.
+                    GalleryAddedCheck(generation: addGeneration)
                         .transition(.scale(scale: 0.4).combined(with: .opacity))
                 } else {
-                    Image(systemName: "plus.circle.fill")
+                    Image(systemName: accessory.symbol)
                         .font(.system(size: 18))
                         .foregroundStyle(enabled ? DockDesign.accent : Color.secondary)
                         .accessibilityHidden(true)
@@ -42,11 +44,22 @@ struct WidgetGalleryAppRow: View {
         .disabled(!enabled)
         .onHover { hovered = $0 }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(entry.title + (entry.detail.isEmpty ? "" : ", " + entry.detail) + (added ? ", Added" : ""))
+        .accessibilityLabel(entry.title + (entry.detail.isEmpty ? "" : ", " + entry.detail) + WidgetGalleryRowAccessory(added: added).labelSuffix)
         .accessibilityHint(added ? "Already in this Dock." : "Adds the app to this Dock.")
         .accessibilityAddTraits(.isButton)
         .help(entry.application.url.path)
     }
+}
+
+/// The trailing mark of an app row. "Add" is the filled accent plus; "Added" is a bare
+/// check with no filled circle, so the two never look alike.
+enum WidgetGalleryRowAccessory: Equatable {
+    case add, added
+    init(added: Bool) { self = added ? .added : .add }
+    var symbol: String { self == .added ? "checkmark" : "plus.circle.fill" }
+    var drawsFilledCircle: Bool { self == .add }
+    /// Appended to the row's VoiceOver label.
+    var labelSuffix: String { self == .added ? ", Added" : "" }
 }
 
 /// The inset grouped container of the app list, lazily stacked for large app folders.
@@ -103,6 +116,8 @@ struct AddLibraryPreviewState {
     /// Snapshots cannot scroll; the export starts the Widgets content at this section.
     var startSection: WidgetCategory?
     var recentlyAdded: Set<String> = []
+    /// Snapshots have no key window; the export draws this tile id as keyboard-focused.
+    var focusedTile: String?
 }
 private struct AddLibraryPreviewStateKey: EnvironmentKey { static let defaultValue: AddLibraryPreviewState? = nil }
 extension EnvironmentValues {

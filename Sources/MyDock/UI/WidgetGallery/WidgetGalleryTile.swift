@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// A gallery tile: a large live sample preview on a soft glass backdrop, the family name below,
-/// and a check badge once added. Click opens the detail, double-click adds the default layout.
+/// A gallery tile: a large live sample preview floating on the page, as in the iOS widget
+/// gallery, the family name below, and a check badge once added. Click opens the detail,
+/// double-click adds the default layout. Hover, the search highlight and keyboard focus show
+/// as a soft backdrop and a focus ring around the preview (see `galleryTileBackdrop`).
 struct WidgetGalleryTile: View {
     enum Style { case grid, hero }
 
@@ -10,7 +12,10 @@ struct WidgetGalleryTile: View {
     var width: CGFloat
     var style: Style = .grid
     var added = false
+    /// The search field's highlighted result.
     var selected = false
+    /// Keyboard focus is on this tile.
+    var focused = false
     var addGeneration = 0
     /// Overrides the family name, e.g. a layout title in the DEBUG variant catalog.
     var title: String? = nil
@@ -31,24 +36,26 @@ struct WidgetGalleryTile: View {
         return max(0.6, min(maximumScale, horizontal, vertical))
     }
     private var radius: CGFloat { style == .hero ? WidgetGalleryMetrics.heroRadius : WidgetGalleryMetrics.tileRadius }
+    private var name: String { title ?? widget.name }
+    private var badgeSize: CGFloat { style == .hero ? 24 : 22 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            ZStack(alignment: .topTrailing) {
-                WidgetCardPreview(kind: widget.name, width: CGFloat(option.width), displayScale: previewScale, layout: option.layout)
-                    .allowsHitTesting(false)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if added {
-                    GalleryAddedBadge(generation: addGeneration, size: style == .hero ? 24 : 22)
-                        .padding(10)
-                        .transition(.scale(scale: 0.4).combined(with: .opacity))
+            WidgetGalleryPreview(kind: widget.name, width: CGFloat(option.width), displayScale: previewScale, layout: option.layout)
+                .allowsHitTesting(false)
+                // With no tile around the module, the check sits on the module's own corner.
+                .overlay(alignment: .topTrailing) {
+                    if added {
+                        GalleryAddedBadge(generation: addGeneration, size: badgeSize)
+                            .offset(x: badgeSize * 0.35, y: -badgeSize * 0.35)
+                            .transition(.scale(scale: 0.4).combined(with: .opacity))
+                    }
                 }
-            }
-            .frame(width: width, height: backdropHeight)
-            .galleryBackdrop(radius: radius, highlighted: selected)
-            .dockHover(hovered)
+                .dockHover(hovered)
+                .frame(width: width, height: backdropHeight)
+            .galleryTileBackdrop(radius: radius, hovered: hovered && open != nil, selected: selected, focused: focused)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title ?? widget.name)
+                Text(name)
                     .font(style == .hero ? .system(size: 14, weight: .semibold) : WidgetGalleryMetrics.tileTitle)
                     .lineLimit(1)
                 if style == .hero {
@@ -65,14 +72,32 @@ struct WidgetGalleryTile: View {
         .onHover { hovered = $0 }
         .modifier(TileActivation(open: open, addDefault: addDefault))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title ?? widget.name), widget, sample preview" + (added ? ", Added" : ""))
-        .accessibilityHint(open == nil ? "" : "Shows sizes and details.")
+        .accessibilityLabel("\(name), widget, sample preview" + (added ? ", Added" : ""))
+        .accessibilityHint(open == nil ? "" : WidgetGalleryKeymap.tileHint(canAdd: addDefault != nil))
         .accessibilityAddTraits(open == nil ? [] : .isButton)
-        .help(open == nil ? "" : addDefault == nil ? "Show sizes" : "Click to see sizes. Double-click to add.")
+        .help(open == nil ? "" : WidgetGalleryKeymap.tileHelp(canAdd: addDefault != nil))
     }
 }
 
-/// Click opens, double-click adds; VoiceOver gets the same two actions by name.
+/// A widget sample drawn the way the gallery creates the widget: the creation configuration's
+/// icon appearance, accent and glass tint (`WidgetGalleryPreviewStyle.creation`), so what the
+/// gallery shows is what gets added.
+struct WidgetGalleryPreview: View {
+    var kind: String
+    var width: CGFloat
+    var displayScale: CGFloat
+    var layout: WidgetLayout
+
+    var body: some View {
+        let style = WidgetGalleryPreviewStyle.creation(kind: kind)
+        WidgetCardPreview(kind: kind, width: width, displayScale: displayScale, layout: layout, appearance: style.appearance)
+            .environment(\.widgetAccent, style.accent)
+            .environment(\.widgetGlassTint, style.glassTint)
+    }
+}
+
+/// Click opens, double-click adds; VoiceOver gets both by name ("Show Sizes", "Add").
+/// The keyboard route (Return/Space, Command-Return) lives in `AddLibrary`, which owns focus.
 private struct TileActivation: ViewModifier {
     var open: (() -> Void)?
     var addDefault: (() -> Void)?
@@ -82,9 +107,13 @@ private struct TileActivation: ViewModifier {
                 content
                     .gesture(TapGesture(count: 2).onEnded { addDefault() }.exclusively(before: TapGesture().onEnded { open() }))
                     .accessibilityAction(.default) { open() }
+                    .accessibilityAction(named: "Show Sizes") { open() }
                     .accessibilityAction(named: "Add") { addDefault() }
             } else {
-                content.onTapGesture(perform: open).accessibilityAction(.default) { open() }
+                content
+                    .onTapGesture(perform: open)
+                    .accessibilityAction(.default) { open() }
+                    .accessibilityAction(named: "Show Sizes") { open() }
             }
         } else {
             content

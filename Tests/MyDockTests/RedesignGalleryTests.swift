@@ -113,6 +113,102 @@ struct RedesignGalleryTests {
         #expect(WidgetGalleryModel.moreEntries(kind: .custom, query: "website").map(\.title) == ["Link…"])
     }
 
+    // MARK: FX-07
+
+    @Test func focusedTileKeysShowSizesAndCommandReturnAdds() {
+        #expect(WidgetGalleryKeymap.action(for: .returnKey, context: .tile) == .showSizes)
+        #expect(WidgetGalleryKeymap.action(for: .space, context: .tile) == .showSizes)
+        #expect(WidgetGalleryKeymap.action(for: .returnKey, command: true, context: .tile) == .addDefault)
+        // Without a Dock to add to, the keyboard still reaches the sizes but never adds.
+        #expect(WidgetGalleryKeymap.action(for: .returnKey, context: .tile, canAdd: false) == .showSizes)
+        #expect(WidgetGalleryKeymap.action(for: .returnKey, command: true, context: .tile, canAdd: false) == .none)
+    }
+
+    @Test func searchReturnKeepsAddingTheHighlightedDefault() {
+        #expect(WidgetGalleryKeymap.action(for: .returnKey, context: .searchResults) == .addDefault)
+        #expect(WidgetGalleryKeymap.action(for: .returnKey, command: true, context: .searchResults) == .addDefault)
+        #expect(WidgetGalleryKeymap.action(for: .space, context: .searchResults) == .none)
+        #expect(WidgetGalleryKeymap.action(for: .returnKey, context: .searchResults, canAdd: false) == .none)
+        #expect(WidgetGalleryKeymap.action(for: .returnKey, context: .detail) == .addSelectedSize)
+        #expect(WidgetGalleryKeymap.action(for: .space, context: .detail) == .none)
+    }
+
+    @Test func escapeClosesDetailThenClearsSearchThenCloses() {
+        #expect(WidgetGalleryKeymap.escape(detailOpen: true, hasQuery: true) == .closeDetail)
+        #expect(WidgetGalleryKeymap.escape(detailOpen: false, hasQuery: true) == .clearSearch)
+        #expect(WidgetGalleryKeymap.escape(detailOpen: false, hasQuery: false) == .close)
+        #expect(WidgetGalleryKeymap.action(for: .escape, context: .detail, hasQuery: true) == .closeDetail)
+        #expect(WidgetGalleryKeymap.action(for: .escape, context: .tile, hasQuery: true) == .clearSearch)
+        #expect(WidgetGalleryKeymap.action(for: .escape, context: .searchResults) == .close)
+    }
+
+    @Test func tileHintDocumentsTheKeymap() {
+        let hint = WidgetGalleryKeymap.tileHint(canAdd: true)
+        #expect(hint.contains("Return or Space") && hint.contains("Command-Return"))
+        #expect(!WidgetGalleryKeymap.tileHint(canAdd: false).contains("Command-Return"))
+        #expect(WidgetGalleryKeymap.tileHelp(canAdd: true).contains("Command-Return"))
+    }
+
+    @Test func arrowKeysMoveFocusByItemAndRow() {
+        #expect(WidgetGalleryModel.movedIndex(from: 0, direction: .right, columns: 3, count: 10) == 1)
+        #expect(WidgetGalleryModel.movedIndex(from: 0, direction: .left, columns: 3, count: 10) == 0)
+        #expect(WidgetGalleryModel.movedIndex(from: 1, direction: .down, columns: 3, count: 10) == 4)
+        #expect(WidgetGalleryModel.movedIndex(from: 8, direction: .down, columns: 3, count: 10) == 9)
+        #expect(WidgetGalleryModel.movedIndex(from: 4, direction: .up, columns: 3, count: 10) == 1)
+        #expect(WidgetGalleryModel.movedIndex(from: 1, direction: .up, columns: 3, count: 10) == 0)
+        #expect(WidgetGalleryModel.movedIndex(from: 0, direction: .down, columns: 3, count: 0) == 0)
+    }
+
+    @Test func previewsUseTheCreationConfigurationForEveryFamily() throws {
+        for definition in WidgetRegistry.all {
+            let created = try #require(DockItem.widget(definition.name).widgetConfiguration)
+            let style = WidgetGalleryPreviewStyle.creation(kind: definition.name)
+            #expect(style.appearance == created.iconAppearance)
+            #expect(style.appearance == .mono)
+            #expect(style == WidgetGalleryPreviewStyle(configuration: created))
+            #expect(WidgetGalleryModel.creationConfiguration(for: definition.name) == created)
+        }
+    }
+
+    @Test func spacerDescriptionsAreDistinct() {
+        let spacers = WidgetGalleryModel.moreEntries(kind: .custom, query: "").filter { $0.item?.spacerKind != nil }
+        #expect(spacers.count == SpacerKind.allCases.count)
+        #expect(Set(spacers.map(\.detail)).count == spacers.count)
+        #expect(spacers.allSatisfy { !$0.detail.isEmpty })
+    }
+
+    @Test func pagerCaptionFoldsTheLayoutDetailIntoOneLine() {
+        let option = WidgetLayoutOption(layout: .standard, width: 120, title: "Standard", detail: "Place and current weather")
+        #expect(WidgetGalleryModel.pagerCaption(option) == "Standard · Place and current weather")
+        #expect(WidgetGalleryModel.pagerCaption(WidgetLayoutOption(layout: .icon, width: 54, title: "Icon", detail: "")) == "Icon")
+        #expect(WidgetGalleryModel.pagerCaption(WidgetLayoutOption(layout: .icon, width: 54, title: "Icon", detail: "icon")) == "Icon")
+        for definition in WidgetRegistry.all {
+            for option in WidgetGalleryModel.layoutOptions(for: definition.name) {
+                let caption = WidgetGalleryModel.pagerCaption(option)
+                #expect(caption.hasPrefix(option.title))
+                #expect(!caption.contains("\n"))
+            }
+        }
+    }
+
+    @Test func addedAppRowsShowADistinctCheckAndKeepTheAddedLabel() {
+        let add = WidgetGalleryRowAccessory(added: false)
+        let added = WidgetGalleryRowAccessory(added: true)
+        #expect(add == .add && added == .added)
+        #expect(add.symbol != added.symbol)
+        #expect(add.drawsFilledCircle && !added.drawsFilledCircle)
+        #expect(!added.symbol.contains("circle"))
+        #expect(added.labelSuffix == ", Added" && add.labelSuffix.isEmpty)
+    }
+
+    @Test func presetChipsKeepModuleProportionsWithoutText() {
+        for definition in WidgetRegistry.all {
+            let width = PresetModuleChip.width(for: definition.name, height: 28)
+            #expect(width >= 28 && width <= 56)
+            if WidgetGalleryModel.defaultLayout(for: definition.name) == .icon { #expect(width == 28) }
+        }
+    }
+
     @Test func gridColumnsStayBetweenTwoAndFour() {
         #expect(WidgetGalleryModel.columnCount(for: 0) == 2)
         #expect(WidgetGalleryModel.columnCount(for: 300) == 2)

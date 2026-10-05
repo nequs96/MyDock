@@ -27,6 +27,13 @@ struct AddLibrary: View {
     @State private var capabilityFilter: WidgetDiscoveryFilter = .all
     @State private var detail: WidgetDefinition?
     @State private var detailLayout: WidgetLayout = .compact
+    /// The widget tile with keyboard focus (its entry id).
+    @FocusState private var focusedTile: String?
+    /// The tile a keyboard-opened detail came from; closing the detail focuses it again.
+    @State private var detailOrigin: String?
+    /// True while focus is being handed back to `detailOrigin`, so the search field that
+    /// reappears does not take focus.
+    @State private var returningFocus = false
     /// Frozen when the window opens so a tile does not vanish the moment it is added.
     @State private var suggestions: [WidgetDefinition]
     @State private var contentWidth: CGFloat = 780
@@ -113,6 +120,12 @@ struct AddLibrary: View {
     private func isSelected(_ id: String) -> Bool {
         keyboardNavigation && navigationEntries.indices.contains(selected) && navigationEntries[selected].id == id
     }
+    private func isFocused(_ id: String) -> Bool {
+        #if DEBUG
+        if let focused = preview?.focusedTile { return focused == id }
+        #endif
+        return focusedTile == id
+    }
     private func tileWidth(columns: Int) -> CGFloat {
         let spacing = WidgetGalleryMetrics.gridSpacing
         return floor((contentWidth - spacing * CGFloat(columns - 1)) / CGFloat(columns))
@@ -147,6 +160,7 @@ struct AddLibrary: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 } else {
                     gallery
+                        .background(GalleryTileKeys(tileFocused: focusedTile != nil, key: tileKey, directAdd: directAdd))
                         .transition(.opacity)
                 }
             }
@@ -177,7 +191,7 @@ struct AddLibrary: View {
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in refreshID = UUID() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didUnmountNotification)) { _ in refreshID = UUID() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refreshID = UUID() }
-        .onChange(of: query) { _ in selected = 0; keyboardNavigation = false }
+        .onChange(of: query) { _ in selected = 0; keyboardNavigation = false; focusedTile = nil }
         .onChange(of: tab) { _ in selected = 0; keyboardNavigation = false }
         .onChange(of: capabilityFilter) { _ in selected = 0; keyboardNavigation = false }
         .onExitCommand(perform: escape)
@@ -204,7 +218,9 @@ struct AddLibrary: View {
             } else {
                 ZStack {
                     GallerySearchPill(placeholder: tab.searchPlaceholder, text: $query,
-                                      move: moveSelection, choose: performSelected, cancel: escape)
+                                      move: moveSelection, choose: performSelected, cancel: escape,
+                                      focusOnAppear: !returningFocus, tab: focusTiles,
+                                      didBeginEditing: { focusedTile = nil })
                         .frame(maxWidth: WidgetGalleryMetrics.searchMaximumWidth)
                         .padding(.horizontal, 64)
                     HStack {
@@ -286,6 +302,12 @@ struct AddLibrary: View {
                 if navigationEntries.indices.contains(value) { proxy.scrollTo(navigationEntries[value].id, anchor: .center) }
             }
             .onChange(of: tab) { _ in proxy.scrollTo("content-top", anchor: .top) }
+            .onChange(of: focusedTile) { id in
+                guard let id else { return }
+                DockDesign.Motion.perform(DockDesign.Motion.appear, reduceMotion: accessibility.reduceMotion) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
         }
     }
 
@@ -336,9 +358,14 @@ struct AddLibrary: View {
         let item = DockItem.widget(widget.name)
         let isAdded = added(item)
         return WidgetGalleryTile(widget: widget, layout: WidgetGalleryModel.defaultLayout(for: widget.name), width: width, style: style,
-                                 added: isAdded, selected: isSelected(id), addGeneration: generation(item),
+                                 added: isAdded, selected: isSelected(id), focused: isFocused(id), addGeneration: generation(item),
                                  open: { openDetail(widget) },
                                  addDefault: allowsAdding ? { addWidget(widget, layout: nil) } : nil)
+            // Keyboard route: Tab or the arrows reach the tile, Return/Space show sizes,
+            // Command-Return adds (GalleryTileKeys and WidgetGalleryKeymap).
+            .galleryFocusable()
+            .focused($focusedTile, equals: id)
+            .onMoveCommand { moveFocus(from: id, direction: $0) }
             .id(id)
             .contextMenu {
                 if allowsAdding {
@@ -399,7 +426,7 @@ struct AddLibrary: View {
                     .help("Scan application folders again")
             }
             Text(profile.kind == .custom ? "Add widgets again to create separate instances." : "Click an app to add it.")
-                .font(.system(size: 11)).foregroundStyle(.tertiary)
+                .font(.system(size: 11)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: 640)
         .frame(maxWidth: .infinity)
@@ -444,14 +471,67 @@ struct AddLibrary: View {
 
     // MARK: Actions
 
-    private func openDetail(_ widget: WidgetDefinition) {
+    /// `origin` is the focused tile when the keyboard opened the detail; focus returns there.
+    private func openDetail(_ widget: WidgetDefinition, from origin: String? = nil) {
+        detailOrigin = origin
         DockDesign.Motion.perform(DockDesign.Motion.appear, reduceMotion: accessibility.reduceMotion) {
             detailLayout = WidgetGalleryModel.defaultLayout(for: widget.name)
             detail = widget
         }
     }
     private func closeDetail() {
+        let origin = detailOrigin
+        detailOrigin = nil
+        // Keep the reappearing search field from taking focus back from the tile.
+        if origin != nil { returningFocus = true }
         DockDesign.Motion.perform(DockDesign.Motion.appear, reduceMotion: accessibility.reduceMotion) { detail = nil }
+        guard let origin else { return }
+        // The tile exists again only after the gallery is back in the hierarchy.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            focusedTile = origin
+            returningFocus = false
+        }
+    }
+
+    /// Return, Space or Command-Return on the focused widget tile.
+    private func tileKey(_ key: WidgetGalleryKey, command: Bool) {
+        guard detail == nil, let id = focusedTile, let entry = navigationEntries.first(where: { $0.id == id }),
+              case .widget(let widget) = entry.kind else { return }
+        switch WidgetGalleryKeymap.action(for: key, command: command, context: .tile, canAdd: allowsAdding, hasQuery: !query.isEmpty) {
+        case .showSizes: openDetail(widget, from: id)
+        case .addDefault: addWidget(widget, layout: nil)
+        default: break
+        }
+    }
+    /// Command-Return in the gallery: adds the focused tile's default size, otherwise the
+    /// search field's highlighted result, exactly like Return there.
+    private func directAdd() {
+        guard detail == nil else { return }
+        if focusedTile != nil { tileKey(.returnKey, command: true); return }
+        guard WidgetGalleryKeymap.action(for: .returnKey, command: true, context: .searchResults, canAdd: allowsAdding) == .addDefault,
+              navigationEntries.indices.contains(selected) else { return }
+        perform(navigationEntries[selected])
+    }
+    /// Tab from the search field lands on the highlighted widget tile, or the first one.
+    private func focusTiles() -> Bool {
+        guard detail == nil, tab == .widgets, !navigationEntries.isEmpty else { return false }
+        let index = keyboardNavigation && navigationEntries.indices.contains(selected) ? selected : 0
+        keyboardNavigation = false
+        focusedTile = navigationEntries[index].id
+        return true
+    }
+    private func moveFocus(from id: String, direction: MoveCommandDirection) {
+        guard let index = navigationEntries.firstIndex(where: { $0.id == id }) else { return }
+        let move: WidgetGalleryMoveDirection
+        switch direction {
+        case .left: move = .left
+        case .right: move = .right
+        case .up: move = .up
+        case .down: move = .down
+        @unknown default: return
+        }
+        let target = WidgetGalleryModel.movedIndex(from: index, direction: move, columns: columns, count: navigationEntries.count)
+        focusedTile = navigationEntries[target].id
     }
     private func stepDetailLayout(_ offset: Int) {
         guard let detail else { return }
@@ -500,13 +580,23 @@ struct AddLibrary: View {
         keyboardNavigation = true
         selected = min(max(0, navigationEntries.count - 1), max(0, selected + offset))
     }
+    /// Return in the search field: adds the highlighted result's default size (the detail's
+    /// selected size while it is open), as it always has.
     private func performSelected() {
-        guard detail == nil else { if let detail { addWidget(detail, layout: detailLayout) }; return }
-        if navigationEntries.indices.contains(selected) { perform(navigationEntries[selected]) }
+        let context: WidgetGalleryKeyContext = detail == nil ? .searchResults : .detail
+        switch WidgetGalleryKeymap.action(for: .returnKey, context: context, canAdd: allowsAdding) {
+        case .addSelectedSize: if let detail { addWidget(detail, layout: detailLayout) }
+        case .addDefault: if navigationEntries.indices.contains(selected) { perform(navigationEntries[selected]) }
+        default: break
+        }
     }
     /// Escape leaves the detail first, then clears the search, then closes.
     private func escape() {
-        if detail != nil { closeDetail() } else if !query.isEmpty { query = "" } else { close() }
+        switch WidgetGalleryKeymap.escape(detailOpen: detail != nil, hasQuery: !query.isEmpty) {
+        case .closeDetail: closeDetail()
+        case .clearSearch: query = ""
+        default: close()
+        }
     }
 
     private func applyPreviewState() {

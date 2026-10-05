@@ -12,6 +12,13 @@ struct LibrarySearchField: NSViewRepresentable {
     var compact = false
     /// Overrides the compact (13 pt) or regular (16 pt) size, e.g. inside a search pill.
     var fontSize: CGFloat? = nil
+    /// Takes keyboard focus when it appears. Off when focus is being returned elsewhere,
+    /// e.g. to the widget tile a closed detail view came from.
+    var focusOnAppear = true
+    /// Tab out of the field; return true when the caller moved focus itself.
+    var tab: (() -> Bool)? = nil
+    /// The user started typing in the field.
+    var didBeginEditing: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextField {
@@ -26,8 +33,10 @@ struct LibrarySearchField: NSViewRepresentable {
         field.placeholderString = placeholder
         field.delegate = context.coordinator
         field.setAccessibilityLabel(placeholder)
-        DispatchQueue.main.async { [weak field] in
-            if let field { field.window?.makeFirstResponder(field) }
+        if focusOnAppear {
+            DispatchQueue.main.async { [weak field] in
+                if let field { field.window?.makeFirstResponder(field) }
+            }
         }
         return field
     }
@@ -43,12 +52,14 @@ struct LibrarySearchField: NSViewRepresentable {
         func controlTextDidChange(_ notification: Notification) {
             if let field = notification.object as? NSTextField { parent.text = field.stringValue }
         }
+        func controlTextDidBeginEditing(_ notification: Notification) { parent.didBeginEditing?() }
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.moveDown(_:)): parent.move(1)
             case #selector(NSResponder.moveUp(_:)): parent.move(-1)
             case #selector(NSResponder.insertNewline(_:)): parent.choose()
             case #selector(NSResponder.cancelOperation(_:)): parent.cancel()
+            case #selector(NSResponder.insertTab(_:)): return parent.tab?() ?? false
             default: return false
             }
             return true

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Gallery metrics: one radius family and the type scale used by every gallery surface.
@@ -22,6 +23,9 @@ struct GallerySearchPill: View {
     var move: (Int) -> Void = { _ in }
     var choose: () -> Void = {}
     var cancel: () -> Void = {}
+    var focusOnAppear = true
+    var tab: (() -> Bool)? = nil
+    var didBeginEditing: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 7) {
@@ -30,7 +34,8 @@ struct GallerySearchPill: View {
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             LibrarySearchField(placeholder: placeholder, text: $text, move: move, choose: choose, cancel: cancel,
-                               compact: false, fontSize: 14)
+                               compact: false, fontSize: 14, focusOnAppear: focusOnAppear, tab: tab,
+                               didBeginEditing: didBeginEditing)
                 .frame(height: 20)
             if !text.isEmpty {
                 Button { text = "" } label: {
@@ -178,6 +183,97 @@ extension View {
 
     func galleryBackdrop(radius: CGFloat = WidgetGalleryMetrics.tileRadius, highlighted: Bool = false) -> some View {
         modifier(GalleryBackdrop(radius: radius, highlighted: highlighted))
+    }
+
+    /// The area behind a widget tile's floating preview: nothing at rest, a soft highlight on
+    /// hover, an accent wash for the search highlight and a focus ring for keyboard focus.
+    func galleryTileBackdrop(radius: CGFloat, hovered: Bool, selected: Bool, focused: Bool) -> some View {
+        modifier(GalleryTileBackdrop(radius: radius, hovered: hovered, selected: selected, focused: focused))
+    }
+
+    /// Makes a gallery tile keyboard-focusable. On macOS 14 and later the system focus effect
+    /// is replaced by the tile's own ring (`galleryTileBackdrop`), which follows the tile shape.
+    @ViewBuilder func galleryFocusable(_ enabled: Bool = true) -> some View {
+        if #available(macOS 14.0, *) {
+            focusable(enabled).focusEffectDisabled()
+        } else {
+            focusable(enabled)
+        }
+    }
+}
+
+/// No tile, no stroke: the live preview floats on the page like the iOS widget gallery, so
+/// only the module's own radius shows. States stay visible without a nested frame. Increase
+/// Contrast keeps a visible edge around the tile area.
+struct GalleryTileBackdrop: ViewModifier {
+    var radius: CGFloat
+    var hovered: Bool
+    var selected: Bool
+    var focused: Bool
+    @DockAccessibilityStyle() private var accessibility
+    @Environment(\.colorScheme) private var scheme
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: radius, style: .continuous) }
+    private var fill: Color {
+        if selected { return DockDesign.accent.opacity(scheme == .dark ? 0.20 : 0.12) }
+        if hovered { return Color.primary.opacity(scheme == .dark ? 0.07 : 0.05) }
+        return .clear
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                shape.fill(fill)
+                    .animation(accessibility.animation(DockDesign.Motion.hover), value: hovered)
+            }
+            .overlay {
+                if accessibility.contrast == .increased {
+                    shape.dockInnerEdge(DockDesign.Outline.color(.increased), lineWidth: DockDesign.Outline.controlWidth(.increased))
+                } else if selected {
+                    shape.dockInnerEdge(DockDesign.accent.opacity(0.55), lineWidth: 1)
+                }
+            }
+            .overlay {
+                if focused {
+                    RoundedRectangle(cornerRadius: radius + 4, style: .continuous)
+                        .strokeBorder(DockDesign.accent, lineWidth: 3)
+                        .padding(-4)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+    }
+}
+
+/// The added state of an app row: a plain green check with no circle, deliberately unlike
+/// the filled accent plus. Light mode uses a deeper green so the glyph keeps 3:1 on white.
+struct GalleryAddedCheck: View {
+    var generation: Int = 0
+    @DockAccessibilityStyle() private var accessibility
+    @Environment(\.colorScheme) private var scheme
+    @State private var scale: CGFloat = 1
+
+    private var green: Color {
+        switch (scheme, accessibility.contrast) {
+        case (.dark, .increased): Color(red: 0.45, green: 0.90, blue: 0.55)
+        case (.dark, _): Color(red: 0.30, green: 0.82, blue: 0.42)
+        case (_, .increased): Color(red: 0.08, green: 0.42, blue: 0.18)
+        default: Color(red: 0.13, green: 0.53, blue: 0.24)
+        }
+    }
+
+    var body: some View {
+        Image(systemName: WidgetGalleryRowAccessory.added.symbol)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(green)
+            .frame(width: 22, height: 22)
+            .scaleEffect(scale)
+            .accessibilityHidden(true)
+            .onChange(of: generation) { _ in
+                guard !accessibility.reduceMotion else { return }
+                scale = 1.28
+                withAnimation(DockDesign.Motion.appear) { scale = 1 }
+            }
     }
 }
 
