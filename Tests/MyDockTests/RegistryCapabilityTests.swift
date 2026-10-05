@@ -29,6 +29,7 @@ struct RegistryCapabilityTests {
         "Hydration#compact#compact|88|Compact|Essential information;standard|124|Standard|More context",
         "System Activity#compact#compact|86|Compact|CPU and live history;meter|92|Meter|CPU in a ring gauge;trend|158|Trend|History and one secondary reading",
         "Network Activity#compact#compact|100|Compact|Download and upload;trend|170|Trend|Rates and download history",
+        "Audio Output#compact#compact|96|Compact|Device icon and name;wide|164|Wide|Device name and volume",
         "AI Limits#compact#compact|88|Compact|Essential information;standard|124|Standard|More context",
         "AI Activity#standard#compact|88|Compact|Usage total;standard|126|Standard|Total and session metadata;trend|184|Activity|History without chart axes",
         "AirDrop#icon#icon|54|Icon|Quick action;compact|88|Compact|Action and identity",
@@ -51,7 +52,7 @@ struct RegistryCapabilityTests {
     }
 
     @Test func presentationOutputIsIdenticalToLegacyCatalogForAllFamilies() {
-        #expect(Self.legacySnapshot.count == 35)
+        #expect(Self.legacySnapshot.count == 36)
         #expect(WidgetRegistry.all.map(\.name) == Self.legacySnapshot.map { String($0.split(separator: "#", maxSplits: 1)[0]) })
         for line in Self.legacySnapshot {
             let name = String(line.split(separator: "#", maxSplits: 1)[0])

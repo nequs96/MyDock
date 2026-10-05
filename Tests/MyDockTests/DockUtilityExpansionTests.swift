@@ -123,6 +123,6 @@ struct DockUtilityExpansionTests {
             #expect(!String(describing: type(of: WidgetProviderRegistry.provider(for: kind))).contains("Placeholder"))
             #expect(!WidgetPresentationCatalog.options(for: kind).isEmpty)
         }
-        #expect(WidgetRegistry.all.count == 35)
+        #expect(WidgetRegistry.all.count == 36)
     }
 }
