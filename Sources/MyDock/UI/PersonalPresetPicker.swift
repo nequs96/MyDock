@@ -18,11 +18,13 @@ struct PersonalPresetPicker: View {
                 GroupedRow(entry.profile.name) {
                     HStack {
                         Button("Use") { select(ProfileSanitizer.newIdentity(entry.profile)) }
+                            .buttonStyle(.bordered)
                             .accessibilityLabel("Use preset \(entry.profile.name)")
                         Button("Export…") { exportPreset(entry.id) }
+                            .buttonStyle(.bordered)
                             .accessibilityLabel("Export preset \(entry.profile.name)")
                         Button("Remove", role: .destructive) { library.remove(entry.id) }
-                            .buttonStyle(.plain).foregroundStyle(Color(nsColor: .systemRed)).padding(.horizontal, 8)
+                            .buttonStyle(.bordered)
                             .accessibilityLabel("Remove preset \(entry.profile.name)")
                     }
                 }

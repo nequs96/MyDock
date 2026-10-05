@@ -82,7 +82,7 @@ extension SettingsView {
     }
 
     var appearanceStyleSection: some View {
-        GroupedSection("Style", footer: "Your Dock updates as you edit.") {
+        GroupedSection("Style", footer: "A style is a preset for finish, edge, widget surface and tint. Fine-tune each in Glass below.") {
             VStack(alignment: .leading, spacing: 12) {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 122), spacing: 8)], spacing: 12) {
                     ForEach(DockQuickStyle.allCases) { style in
@@ -93,7 +93,7 @@ extension SettingsView {
                     }
                 }
                 if !DockQuickStyle.allCases.contains(where: { $0.matches(appearanceSettings) }) {
-                    Text("Custom").font(.caption).foregroundStyle(.secondary)
+                    Text("Custom: fine-tuned below").font(.caption).foregroundStyle(.secondary)
                 }
             }.padding(12)
             // Swatches show the Dock's own theme, the same source the hero preview uses.
@@ -102,7 +102,7 @@ extension SettingsView {
     }
 
     var appearanceGlassSection: some View {
-        GroupedSection("Glass", footer: supportsLiquidGlass ? "Auto tint follows the Dock color." : "Liquid Glass uses frosted material before macOS 26.") {
+        GroupedSection("Glass", footer: (supportsLiquidGlass ? "Auto tint follows the Dock color." : "Liquid Glass uses frosted material before macOS 26.") + " These controls adjust the selected style.") {
             SettingsControlRow(title: "Finish") {
                 Picker("Appearance", selection: appearanceBinding(\.customDockMaterial)) {
                     ForEach(SettingsAppearanceDefaults.finishes) { Text($0.title).tag($0) }

@@ -67,7 +67,7 @@ extension PremiumVisualQA {
             // 3. Samples beside live faces.
             try await render(FacesAQAPage(title: "Faces A · sample (left, creation appearance) and live (right) · \(schemeName)") {
                 FacesAQASamplesVersusLive(store: store, items: items, profileID: id, settings: base)
-            }, name: "facesa-sample-vs-live-\(schemeName)", size: NSSize(width: 1000, height: 640), scheme: scheme, directory: directory)
+            }, name: "facesa-sample-vs-live-\(schemeName)", size: NSSize(width: 1000, height: 1300), scheme: scheme, directory: directory)
             // 4. Accessibility.
             for (variant, contrast, transparency) in [("reduce-transparency", ColorSchemeContrast.standard, true), ("increase-contrast", .increased, false)] {
                 try await render(FacesAQAPage(title: "Faces A · \(variant.replacingOccurrences(of: "-", with: " ")) · \(schemeName)") {
@@ -81,7 +81,7 @@ extension PremiumVisualQA {
             for kind in FacesAQA.families {
                 try await render(FacesAQAPopoverHost { WidgetPopout(store: store, item: item(kind), profileID: id) },
                                  name: "facesa-popout-\(slug(kind))-\(schemeName)",
-                                 size: NSSize(width: WidgetPopoutMetrics.contentWidth + 2 * WidgetPopoutMetrics.padding + 40, height: FacesAQA.popoutHeight(kind)),
+                                 size: NSSize(width: FacesAQA.popoutWidth, height: FacesAQA.popoutHeight(kind)),
                                  scheme: scheme, directory: directory)
             }
         }
@@ -95,7 +95,7 @@ extension PremiumVisualQA {
             for kind in ["Calculator", "Trash", "Quick Checklist"] {
                 try await render(FacesAQAPopoverHost { WidgetPopout(store: store, item: item(kind), profileID: id) },
                                  name: "facesa-popout-\(slug(kind))-\(variant)-light",
-                                 size: NSSize(width: WidgetPopoutMetrics.contentWidth + 2 * WidgetPopoutMetrics.padding + 40, height: FacesAQA.popoutHeight(kind)),
+                                 size: NSSize(width: FacesAQA.popoutWidth, height: FacesAQA.popoutHeight(kind)),
                                  scheme: .light, directory: directory, contrast: contrast, reduceTransparency: transparency)
             }
         }
@@ -104,7 +104,7 @@ extension PremiumVisualQA {
             let shown = override ?? item(kind)
             try await render(FacesAQAPopoverHost { WidgetPopout(store: store, item: shown, profileID: id) },
                              name: "facesa-popout-\(slug(kind))-\(state)-light",
-                             size: NSSize(width: WidgetPopoutMetrics.contentWidth + 2 * WidgetPopoutMetrics.padding + 40, height: height ?? FacesAQA.popoutHeight(kind)),
+                             size: NSSize(width: FacesAQA.popoutWidth, height: height ?? FacesAQA.popoutHeight(kind)),
                              scheme: .light, directory: directory)
         }
         CalendarQAFixture.override = .empty
@@ -147,6 +147,9 @@ extension PremiumVisualQA {
 }
 
 enum FacesAQA {
+    /// The popout's own fixed width, so the capture has no extra margin on one side.
+    static let popoutWidth = WidgetPopoutMetrics.contentWidth + 2 * WidgetPopoutMetrics.padding
+
     static let families = ["Calendar", "Reminders", "Alarm", "Disk Space", "Calculator", "Quick Checklist", "File Shelf", "Text Snippets",
                            "Quick Links", "Unit Converter", "Color Picker", "Now Playing", "Weather", "AirDrop", "Trash"]
 
@@ -391,7 +394,7 @@ private struct FacesAQASamplesVersusLive: View {
     var profileID: UUID
     var settings: AppSettings
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .leading), count: 3), alignment: .leading, spacing: 10) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .leading), count: 2), alignment: .leading, spacing: 10) {
             ForEach(items) { item in
                 let kind = item.widgetKind ?? item.title
                 let layout = WidgetPresentationCatalog.defaultLayout(for: kind)

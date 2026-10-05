@@ -36,7 +36,7 @@ struct DockCanvas: View {
 
     private var contentLength: CGFloat {
         profile.items.reduce(0) { $0 + DockSurfaceMetrics.itemLength($1, settings: settings, scale: scale) }
-            + CGFloat(profile.items.count) * CGFloat(settings.customDockItemSpacing) * scale + 24 * scale + 48 + 24
+            + CGFloat(max(profile.items.count - 1, 0)) * CGFloat(settings.customDockItemSpacing) * scale + 24 * scale + 48
     }
 
     var body: some View {
@@ -60,9 +60,9 @@ struct DockCanvas: View {
                             if insertion == item.id { Capsule().fill(DockDesign.accent).frame(width: 2, height: 40) }
                         }
                 }
-                Color.primary.opacity(0.001).frame(width: 24, height: 56 * scale).contentShape(Rectangle())
-                    .overlay { if atEnd { Capsule().fill(DockDesign.accent).frame(width: 2, height: 40) } }
-                    .accessibilityLabel("Drop at end of Dock")
+            }
+            .overlay(alignment: .trailing) {
+                if atEnd { Capsule().fill(DockDesign.accent).frame(width: 2, height: 40).offset(x: 6 * scale).accessibilityLabel("Drop at end of Dock") }
             }
             .padding(12 * scale)
             .coordinateSpace(name: "dock-drag-content")
