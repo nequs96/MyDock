@@ -16,22 +16,25 @@ import SwiftUI
 enum MotionQA {
     static func schemeName(_ scheme: ColorScheme) -> String { scheme == .dark ? "dark" : "light" }
 
-    /// The popout as `CustomDockView` hosts it (20 pt padding on the window surface), pinned to
-    /// one frame of the appear spring and drawn above the Dock with its anchor active.
+    /// The popout as `CustomDockView` hosts it since FX-03: no host padding or slab; the NSPopover's
+    /// own material is the one surface (emulated here with `.regularMaterial`, opaque under Reduce
+    /// Transparency through `WidgetPopoverSurface`). Pinned to one frame of the appear spring, which
+    /// scales the content inside the unscaled popover window, and drawn above the Dock with its anchor active.
     static func popoutScene(store: ProfileStore, profile: DockProfile, item: DockItem, progress: Double,
                             reduceMotion: Bool = false) -> some View {
-        ZStack {
+        let popover = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        return ZStack {
             DockStyleQA.wallpaper
             VStack(spacing: 6) {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 0) {
                     WidgetPopout(store: store, item: item, profileID: profile.id)
                         .frame(minWidth: 250, minHeight: 150, alignment: .topLeading)
                 }
                 .modifier(DockPopoutAppearEffect(anchor: .bottom, progress: progress))
-                .padding(20)
-                .background(WidgetDesign.surface)
+                .modifier(WidgetPopoverSurface())
                 .fixedSize()
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(.regularMaterial, in: popover)
+                .clipShape(popover)
                 .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
                 DockStyleQA.indicatorFixtures(DockLayoutPreview(store: store, profile: profile, maximumSideLength: 560))
                     .environment(\.dockPreviewActivePopoutAnchor, item.id)
@@ -58,7 +61,9 @@ enum MotionQA {
                     VStack(alignment: .leading, spacing: 6) {
                         ZStack {
                             SwatchWallpaper()
-                            DockLayoutPreview(store: store, profile: profile, maximumSideLength: 160).padding(.horizontal, 10)
+                            // The finished Dock fitted by scale: no overflow chevrons or cut modules.
+                            DockLayoutPreview(store: store, profile: profile, maximumSideLength: 160, fitsByScale: true)
+                                .padding(.horizontal, 10)
                         }
                         .frame(width: 560, height: 116).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         Text("Created as \(preset.quickStyle.title)").font(DockDesign.caption).foregroundStyle(.secondary)

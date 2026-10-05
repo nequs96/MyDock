@@ -137,6 +137,28 @@ enum DockStyleQA {
         panel.close()
     }
 
+    /// D4: in side Docks a badge stays inside its one-tile-wide column. The badge is measured as it
+    /// renders (one, two and three characters at the smallest, default and largest Dock sizes).
+    static func assertSideBadgesFitTheColumn() throws {
+        for scale in [CGFloat(0.65), 1, 1.5] {
+            for text in ["3", "24", "99+"] {
+                let badge = NSHostingView(rootView: DockBadgeView(text: text, scale: scale).environment(\.dockSnapshotRendering, true))
+                let size = badge.fittingSize
+                for position in [DockPosition.left, .right] {
+                    var settings = AppSettings()
+                    settings.customDockPosition = position
+                    let tile = CGSize(width: DockSurfaceMetrics.itemLength(.application(at: URL(fileURLWithPath: "/System/Applications/Mail.app")), settings: settings, scale: scale),
+                                      height: 54 * scale)
+                    let frame = DockBadgePlacement.frame(badgeSize: size, tileSize: tile, position: position, scale: scale)
+                    guard size.width > 0, frame.minX >= 0, frame.maxX <= tile.width + 0.5, frame.minY >= 0 else {
+                        throw NSError(domain: "MyDockDockStyleQA", code: 3, userInfo: [NSLocalizedDescriptionKey:
+                            "Badge \"\(text)\" at \(scale)x leaves the \(position.rawValue) Dock column: \(frame) in \(tile)"])
+                    }
+                }
+            }
+        }
+    }
+
     static func dockScene(store: ProfileStore, profile: DockProfile, horizontal: Bool) -> some View {
         ZStack {
             wallpaper
@@ -213,6 +235,7 @@ enum DockStyleQA {
 
 extension PremiumVisualQA {
     static func exportDockStyleUI(to directory: URL, store: ProfileStore) async throws {
+        try DockStyleQA.assertSideBadgesFitTheColumn()
         let id = try store.createProfileAndPersist(kind: .custom, name: "Dock style preview")
         store.updateSettings {
             $0.onboardingComplete = true; $0.showRunningApps = false; $0.showTrash = false

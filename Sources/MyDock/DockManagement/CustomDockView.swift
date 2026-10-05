@@ -81,6 +81,8 @@ struct CustomDockView: View {
     private var systemTrashItem: DockItem { DockRenderModel.systemTrash }
     @State private var hoverPosition: CGFloat?
     @State private var runtimeApplications: [DockItem] = []
+    /// Running-app matches, recomputed only when the running apps or the pinned apps change.
+    @State private var runningAppCache = DockRunningAppCache(resolve: { AppLauncher.resolvedURL(for: $0) })
     @State private var hoveredItemID: UUID?
     @State private var longPressTriggeredItemID: UUID?
     @State private var resizeStartSize: CGFloat?
@@ -358,7 +360,8 @@ struct CustomDockView: View {
         .animation(DockMotionPolicy.profileTransformAnimation(reduceMotion: reducesMotion, animationsEnabled: settings.dockAnimationsEnabled), value: profile.id)
         .animation(DockMotionPolicy.reorderAnimation(reduceMotion: reducesMotion, animationsEnabled: settings.dockAnimationsEnabled), value: profile.items.map(\.id))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .environment(\.colorScheme, settings.customDockTheme == .dark ? .dark : settings.customDockTheme == .light ? .light : settings.customDockMaterial == .dark ? .dark : systemAppearance.scheme)
+        .environment(\.colorScheme, DockColorSchemePolicy.scheme(theme: settings.customDockTheme, material: settings.customDockMaterial,
+                                                                  system: systemAppearance.scheme))
         .contextMenu {
             if !isPreview {
                 switchProfileMenu
@@ -396,13 +399,13 @@ struct CustomDockView: View {
         }
     }
 
-    private func resizeGrip(horizontal: Bool) -> some View {
+    private func resizeGrip(horizontal: Bool, showsLine: Bool) -> some View {
         let scale = CGFloat(settings.customDockSize)
         let layoutSize = DockResizeGripGeometry.layoutSize(horizontal: horizontal, scale: scale)
         let hitSize = DockResizeGripGeometry.hitSize(horizontal: horizontal, scale: scale)
         let outset = DockResizeGripGeometry.hitOutset(horizontal: horizontal, scale: scale)
         return RoundedRectangle(cornerRadius: 1)
-            .fill(Color.primary.opacity(resizeGripHovered ? 0.45 : 0.20))
+            .fill(Color.primary.opacity(resizeGripHovered ? 0.45 : showsLine ? 0.20 : 0))
             .frame(width: horizontal ? 1 : 30, height: horizontal ? 30 : 1)
             .frame(width: layoutSize.width, height: layoutSize.height)
             .frame(width: hitSize.width, height: hitSize.height)
@@ -451,7 +454,16 @@ struct CustomDockView: View {
     }
 
     private func estimatedContentLength(size: CGFloat) -> CGFloat {
-        renderModel.contentLength(settings: settings, scale: size)
+        let model = renderModel
+        return isPreview ? DockSeparatorPolicy.previewContentLength(model.entries, settings: settings, scale: size)
+            : model.contentLength(settings: settings, scale: size)
+    }
+
+    /// The entries drawn: previews end at their last tile (`DockSeparatorPolicy.previewCollapsedEntryIDs`).
+    private func drawnEntries(_ model: DockRenderModel) -> [DockRenderEntry] {
+        guard isPreview else { return model.entries }
+        let collapsed = DockSeparatorPolicy.previewCollapsedEntryIDs(model.entries)
+        return model.entries.filter { !collapsed.contains($0.id) }
     }
 
     private func overflowJumpButton(proxy: ScrollViewProxy, horizontal: Bool, toEnd: Bool, size: CGFloat) -> some View {
@@ -459,7 +471,8 @@ struct CustomDockView: View {
             ? (toEnd ? "chevron.right" : "chevron.left")
             : (toEnd ? "chevron.down" : "chevron.up")
         return Button {
-            guard let targetID = (toEnd ? renderModel.entries.last : renderModel.entries.first)?.id else { return }
+            let entries = drawnEntries(renderModel)
+            guard let targetID = (toEnd ? entries.last : entries.first)?.id else { return }
             let anchor: UnitPoint = horizontal
                 ? (toEnd ? .trailing : .leading)
                 : (toEnd ? .bottom : .top)
@@ -521,15 +534,13 @@ struct CustomDockView: View {
             return Set(profile.items.filter { $0.type == .application && identifiers.contains($0.bundleIdentifier ?? "") }.map(\.id))
         }
         #endif
-        guard !isPreview || usesLivePreviewData else { return [] }
-        let running = Set(runtimeApplications.compactMap(\.url).map(InstalledApplicationIdentity.normalizedURL))
-        guard !running.isEmpty else { return [] }
-        let runningIdentifiers = Set(runtimeApplications.compactMap(\.bundleIdentifier))
-        return Set(profile.items.filter { item in
-            DockRunningIndicatorPolicy.isRunning(item, pinned: true, runningURLs: running,
-                                                 runningBundleIdentifiers: runningIdentifiers,
-                                                 resolvedURL: { AppLauncher.resolvedURL(for: item) })
-        }.map(\.id))
+        return runningMatches.runningPinnedItemIDs
+    }
+
+    /// Cached: body evaluations (hover, magnification) compare inputs and normalize no URL.
+    private var runningMatches: DockRunningAppMatches {
+        guard !isPreview || usesLivePreviewData else { return DockRunningAppMatches() }
+        return runningAppCache.matches(runtime: runtimeApplications, profileItems: profile.items)
     }
 
     private func badge(for item: DockItem) -> String? {
@@ -542,7 +553,11 @@ struct CustomDockView: View {
 
     @ViewBuilder private func itemViews(horizontal: Bool, size: CGFloat) -> some View {
         let runningPinned = runningPinnedItemIDs
-        ForEach(renderModel.positionedEntries(settings: settings, scale: size), id: \.visualID) { positioned in
+        let model = renderModel
+        let visibleSeparators = DockSeparatorPolicy.visibleSeparatorIDs(model.entries)
+        let collapsed = isPreview ? DockSeparatorPolicy.previewCollapsedEntryIDs(model.entries) : []
+        ForEach(model.positionedEntries(settings: settings, scale: size).filter { !collapsed.contains($0.entry.id) },
+                id: \.visualID) { positioned in
             let entry = positioned.entry
             switch entry {
             case .item(let item, let pinned):
@@ -568,11 +583,13 @@ struct CustomDockView: View {
                 }
             case .insertion:
                 Group {
+                    // The line shows only when content follows; the grip and drop target always exist.
+                    let showsLine = visibleSeparators.contains(entry.id)
                     if isPreview {
-                        RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.20))
+                        RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(showsLine ? 0.20 : 0))
                             .frame(width: horizontal ? 1 : 30, height: horizontal ? 30 : 1)
                             .frame(width: horizontal ? 14 * size : 42 * size, height: horizontal ? 42 * size : 14 * size)
-                    } else { resizeGrip(horizontal: horizontal) }
+                    } else { resizeGrip(horizontal: horizontal, showsLine: showsLine) }
                 }
                     .contentShape(Rectangle())
                     .help(isPreview ? "Dock separator" : "Drag to resize the Dock. Drop items here to place them at the end of pinned items.")
@@ -585,7 +602,7 @@ struct CustomDockView: View {
                         return moved || added
                     }
             case .boundary(let kind):
-                RoundedRectangle(cornerRadius: 1).fill(.primary.opacity(kind == "running" ? 0 : 0.16))
+                RoundedRectangle(cornerRadius: 1).fill(.primary.opacity(visibleSeparators.contains(entry.id) ? 0.16 : 0))
                     .frame(width: horizontal ? 1 : 30, height: horizontal ? 30 : 1)
                     .padding(.horizontal, horizontal ? 2 * size : 0)
                     .padding(.vertical, horizontal ? 0 : 2 * size)
@@ -677,8 +694,10 @@ struct CustomDockView: View {
             }
             .overlay(alignment: .topTrailing) {
                 if let badge = badge(for: item) {
+                    // Side Docks keep the badge inside the one-tile-wide column (D4).
+                    let offset = DockBadgePlacement.offset(position: settings.customDockPosition, scale: size)
                     DockBadgeView(text: badge, scale: size)
-                        .offset(x: 4 * size, y: -2 * size)
+                        .offset(x: offset.width, y: offset.height)
                 }
             }
             .help(AppLauncher.isMissingTarget(item) ? "\(item.displayName) · Saved location unavailable" : item.displayName)
@@ -898,7 +917,7 @@ struct CustomDockView: View {
     }
 
     private var renderModel: DockRenderModel {
-        DockRenderModel(profile: profile, settings: settings, runningApplications: runningApps.map(\.item),
+        DockRenderModel(profile: profile, settings: settings, unpinnedRunningApplications: runningApps.map(\.item),
                         windows: isPreview && !usesLivePreviewData ? [] : windowMonitor.windows, runningMediaSources: isPreview && !usesLivePreviewData ? Set(NowPlayingSource.allCases) : nowPlayingMonitor.runningSources)
     }
 
@@ -1053,9 +1072,7 @@ struct CustomDockView: View {
     }
 
     private var runningApps: [RunningDockApp] {
-        guard !isPreview || usesLivePreviewData else { return [] }
-        return RuntimeDockIdentity.unpinned(runtimeApplications, pinnedURLs: RuntimeDockApplications.pinnedURLs(in: profile))
-            .map { RunningDockApp(id: $0.id.uuidString, item: $0) }
+        runningMatches.unpinnedRuntime.map { RunningDockApp(id: $0.id.uuidString, item: $0) }
     }
 }
 
