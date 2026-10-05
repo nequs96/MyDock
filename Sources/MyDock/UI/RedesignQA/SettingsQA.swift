@@ -41,11 +41,13 @@ extension PremiumVisualQA {
                 let suffix = variant == "wide" ? "" : "-" + variant
                 let narrow = variant == "narrow"
                 if let profile = store.customProfiles.first {
-                    try await render(DockAppearanceInspector(store: store, profile: profile, close: {}),
+                    try await render(DockAppearanceInspector(store: store, profile: profile, close: {})
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).background(DockDesign.page.ignoresSafeArea()),
                                      name: "settings-dock-inspector-\(name)\(suffix)", size: NSSize(width: narrow ? 440 : 620, height: 460),
                                      scheme: scheme, directory: directory, contrast: contrast, reduceTransparency: transparency)
                 }
-                try await render(DockItemInspector(item: item, update: { _ in }, replace: {}, close: {}),
+                try await render(DockItemInspector(item: item, update: { _ in }, replace: {}, close: {})
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).background(DockDesign.page.ignoresSafeArea()),
                                  name: "settings-item-inspector-\(name)\(suffix)", size: NSSize(width: narrow ? 440 : 480, height: 520),
                                  scheme: scheme, directory: directory, contrast: contrast, reduceTransparency: transparency)
                 try await render(PersonalPresetPicker(store: store, library: library, select: { _ in }).padding(24).background(DockDesign.page),
