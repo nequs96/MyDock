@@ -1,6 +1,6 @@
 # Xcode app build and Focus filter verification
 
-The repository includes `MyDock.xcodeproj` and its XcodeGen specification, `project.yml`. The checked-in project references the same Swift sources and 13 unit-test files as the Swift package, including `FocusDockFilterIntent.swift`, and includes the original `AppIcon.icns`. `GenerateXcodeProject.sh` reads the product name, bundle identifier, and version from `Sources/MyDock/Core/Product.swift` before regenerating the project.
+The repository includes `MyDock.xcodeproj` and its XcodeGen specification, `project.yml`. The checked-in project references the same Swift sources and unit-test files as the Swift package, including `FocusDockFilterIntent.swift`, and includes the original `AppIcon.icns`. `GenerateXcodeProject.sh` reads the product name, bundle identifier, and version from `Sources/MyDock/Core/Product.swift` before regenerating the project.
 
 ## Build with full Xcode
 
