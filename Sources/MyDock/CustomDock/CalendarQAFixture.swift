@@ -12,6 +12,9 @@ enum CalendarQAFixture: String, CaseIterable {
     /// Set by the QA export while it renders one state; takes precedence over the environment.
     @MainActor static var override: CalendarQAFixture?
 
+    /// Set by the QA export to render the truthful "access denied" state without asking EventKit.
+    @MainActor static var simulatesDeniedAccess = false
+
     /// Pure selection: an unknown or missing value selects nothing, so production behavior is unchanged.
     static func selection(override: CalendarQAFixture?, environment: [String: String]) -> CalendarQAFixture? {
         override ?? environment[environmentKey].flatMap { CalendarQAFixture(rawValue: $0.lowercased()) }
@@ -35,6 +38,23 @@ enum CalendarQAFixture: String, CaseIterable {
         case .upcoming: return [event("qa-next", "Team standup", start: 45 * 60, end: 75 * 60),
                                 event("qa-after", "Lunch with Sam", start: 4 * 3600, end: 5 * 3600)]
         }
+    }
+}
+
+/// DEBUG-only Reminders fixtures for isolated visual QA: the production Reminders views read these instead of
+/// EventKit while an export renders, so list, empty and denied states render without touching the user's lists.
+enum RemindersQAFixture: String, CaseIterable {
+    case list, empty, denied
+
+    @MainActor static var override: RemindersQAFixture?
+
+    var lists: [ReminderListSnapshot] { self == .denied ? [] : [ReminderListSnapshot(id: "qa-list", title: "Errands")] }
+
+    func reminders(now: Date = Date()) -> [ReminderSnapshot] {
+        guard self == .list else { return [] }
+        return [ReminderSnapshot(id: "qa-1", title: "Return library books", dueDate: now.addingTimeInterval(-26 * 3600), calendarID: "qa-list", calendarTitle: "Errands"),
+                ReminderSnapshot(id: "qa-2", title: "Pick up groceries", dueDate: now.addingTimeInterval(3 * 3600), calendarID: "qa-list", calendarTitle: "Errands"),
+                ReminderSnapshot(id: "qa-3", title: "Book a dentist appointment", dueDate: nil, calendarID: "qa-list", calendarTitle: "Errands")]
     }
 }
 #endif

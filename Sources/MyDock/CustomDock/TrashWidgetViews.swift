@@ -10,37 +10,71 @@ struct TrashWidgetProvider: DockWidgetProvider {
     }
 }
 
+#if DEBUG
+/// Render-QA seam: a fixed Trash reading instead of the isolated-session status, set only by DEBUG exports.
+@MainActor
+enum TrashQAFixture {
+    static var override: (count: Int, errorMessage: String?)?
+}
+#endif
+
+/// Pure Trash presentation: glyph, short label and the "full" state that faces colour.
+struct TrashFacePresentation: Equatable {
+    var symbol: String
+    var label: String
+    var isFull: Bool
+    var isUnavailable: Bool
+
+    init(count: Int, errorMessage: String?) {
+        isUnavailable = errorMessage != nil
+        isFull = errorMessage == nil && count > 0
+        symbol = isUnavailable ? "exclamationmark.triangle" : isFull ? "trash.fill" : "trash"
+        label = isUnavailable ? "Unavailable" : count == 0 ? "Empty" : count == 1 ? "1 item" : "\(count) items"
+    }
+}
+
+/// The Trash module: a Control Center toggle glyph, filled while the home Trash has items;
+/// wider layouts add one short line ("12 items", "Empty").
+struct TrashDockFace: View {
+    var count: Int
+    var errorMessage: String?
+    @Environment(\.widgetLayout) private var layout
+    @Environment(\.dockWidgetContentWidth) private var width
+    @Environment(\.widgetShowsLabel) private var showsLabel
+    private var state: TrashFacePresentation { TrashFacePresentation(count: count, errorMessage: errorMessage) }
+    private var showsName: Bool { layout != .icon && !WidgetModuleMetrics.isNarrow(width) && showsLabel }
+    var body: some View {
+        VStack(spacing: 2) {
+            WidgetToggleGlyph(kind: "Trash", symbol: state.symbol, active: state.isFull, diameter: showsName ? 30 : 36)
+            if showsName {
+                Text(state.label).font(DockDesign.Module.label).monospacedDigit()
+                    .foregroundStyle(state.isUnavailable ? .secondary : .primary)
+                    .lineLimit(1).minimumScaleFactor(DockDesign.Module.minimumTextSize / 11)
+            }
+        }
+        .moduleInsets()
+    }
+}
+
 private struct TrashCompactWidgetView: View {
     @ObservedObject private var status = TrashStatus.shared
     @Environment(\.dockWidgetContentWidth) private var width
 
+    private var reading: (count: Int, errorMessage: String?) {
+        #if DEBUG
+        if let fixture = TrashQAFixture.override { return fixture }
+        #endif
+        return (status.itemCount, status.errorMessage)
+    }
+
     var body: some View {
-        let label = status.errorMessage != nil ? "Unavailable" : status.itemCount == 0 ? "Empty" : "\(status.itemCount)"
-        Group {
-            if width > 54 {
-                HStack(spacing: 7) {
-                    Image(systemName: status.errorMessage != nil ? "exclamationmark.triangle" : status.itemCount == 0 ? "trash" : "trash.fill")
-                        .font(.system(size: 21, weight: .regular))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Trash").font(.system(size: 10, weight: .medium))
-                        Text(label).font(.system(size: 9, weight: .medium, design: .rounded).monospacedDigit()).foregroundStyle(.secondary)
-                    }.lineLimit(1).minimumScaleFactor(0.7)
-                }
-            } else {
-                VStack(spacing: 2) {
-                    Image(systemName: status.errorMessage != nil ? "exclamationmark.triangle" : status.itemCount == 0 ? "trash" : "trash.fill")
-                        .font(.system(size: 23, weight: .regular))
-                    Text(label)
-                        .font(.system(size: 8, weight: .medium, design: .rounded).monospacedDigit())
-                        .lineLimit(1).minimumScaleFactor(0.7)
-                }
-            }
-        }
-        .frame(width: width, height: 54)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Trash")
-        .accessibilityValue(status.errorMessage ?? (status.itemCount == 0 ? "Empty" : "\(status.itemCount) items in home Trash"))
-        .help(status.errorMessage ?? (status.itemCount == 0 ? "Home Trash is empty" : TrashCopy.countLabel(status.itemCount)))
+        let reading = reading
+        TrashDockFace(count: reading.count, errorMessage: reading.errorMessage)
+            .frame(width: width, height: 54)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Trash")
+            .accessibilityValue(reading.errorMessage ?? (reading.count == 0 ? "Empty" : "\(reading.count) items in home Trash"))
+            .help(reading.errorMessage ?? (reading.count == 0 ? "Home Trash is empty" : TrashCopy.countLabel(reading.count)))
     }
 }
 
@@ -49,37 +83,34 @@ private struct TrashPopoutWidgetView: View {
     @State private var confirmingEmpty = false
     @State private var actionError: String?
 
+    private var reading: (count: Int, errorMessage: String?) {
+        #if DEBUG
+        if let fixture = TrashQAFixture.override { return fixture }
+        #endif
+        return (status.itemCount, status.errorMessage)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Image(systemName: status.errorMessage != nil ? "exclamationmark.triangle" : status.itemCount == 0 ? "trash" : "trash.fill")
-                    .font(.system(size: 36)).foregroundColor(status.itemCount == 0 ? Color.secondary : Color.orange)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(status.errorMessage != nil ? "Trash Unavailable" : status.itemCount == 0 ? "Home Trash is Empty" : "\(status.itemCount) Items")
-                        .font(.title3.weight(.semibold))
-                    Text(TrashCopy.countScope)
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
+        let reading = reading
+        let state = TrashFacePresentation(count: reading.count, errorMessage: reading.errorMessage)
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+            VStack(spacing: 4) {
+                WidgetToggleGlyph(kind: "Trash", symbol: state.symbol, active: state.isFull, diameter: 48)
+                WidgetPopoutHero(value: state.isUnavailable ? "Unavailable" : reading.count == 0 ? "Empty" : "\(reading.count)",
+                                 caption: state.isUnavailable ? nil : reading.count == 0 ? "Your home Trash is empty" : reading.count == 1 ? "item in your home Trash" : "items in your home Trash",
+                                 valueColor: state.isUnavailable ? .secondary : .primary)
             }
-
-            if let errorMessage = status.errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity)
+            if let errorMessage = reading.errorMessage {
+                WidgetPopoutCaption(errorMessage, color: .orange)
             }
-
-            HStack {
-                Button("Open Trash", action: TrashActions.openTrash)
-                    .buttonStyle(DockButtonStyle())
-                Spacer()
-                Button("Empty Trash…", role: .destructive) { confirmingEmpty = true }
-                    .buttonStyle(DockButtonStyle(primary: true))
+            GroupedSection(footer: TrashCopy.countScope, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                GroupedRow("Open Trash", role: .button, action: TrashActions.openTrash)
+                GroupedRow("Empty Trash…", role: .destructive) { confirmingEmpty = true }
                     .help(TrashCopy.emptyHelp)
-                    .disabled(status.itemCount == 0 || status.errorMessage != nil)
+                    .disabled(reading.count == 0 || reading.errorMessage != nil)
             }
         }
-        .padding(.bottom, 4)
-        .frame(width: 300)
         .task { status.refresh() }
         .confirmationDialog(TrashCopy.emptyConfirmationTitle, isPresented: $confirmingEmpty, titleVisibility: .visible) {
             Button(TrashCopy.emptyButton, role: .destructive, action: emptyTrash)

@@ -59,13 +59,16 @@ struct WidgetCardPreview: View {
         case "Weather": WeatherDockFace(configuration: weatherSample)
         case "Now Playing": MediaDockFace(title: "Dreams", artist: "Fleetwood Mac", artwork: nil, isPlaying: true)
         case "World Clock": WorldClockDockFace(configuration: WidgetConfiguration())
-        case "Reminders": RemindersDockFace(count: 3, context: "Weekend errands")
+        case "Reminders": RemindersModuleFace(count: 3, context: "Weekend errands")
         case "Stripe", "Paddle", "Shopify": FacesBBusinessDockFace(kind: kind, title: kind, metric: kind == "Shopify" ? "Order value" : "Revenue", amount: 2_400, currency: "USD", fullValue: "$2,400.00", context: "Today")
         case "Alarm":
-            // Mirrors the live Alarm face: label and the next alarm time; its name on wider layouts.
-            ModuleStack(kind: kind, label: "Alarm", value: "7:30", trailing: width >= 100 ? "Morning" : nil).moduleInsets()
+            // The live Alarm face with a sample next alarm.
+            AlarmDockFace(time: Self.sampleAlarmTime, title: "Morning")
         case "Calendar":
-            CalendarSampleFace(kind: kind, wide: selected == .wide)
+            // The live Calendar face with a sample event 45 minutes from now.
+            CalendarDockFace(date: .now, showsDate: true, showsEvent: selected == .wide, event: Self.sampleEvent)
+        case "Trash": TrashDockFace(count: 12, errorMessage: nil)
+        case "AirDrop": AirDropDockFace()
         case "AI Limits": AILimitsCompactView(item: AILimitsFaceSample.item())
         default: LocalWidgetDockFace(item: sampleItem)
         }
@@ -98,25 +101,14 @@ extension WidgetCardPreview {
     static func accessibilityLabel(kind: String) -> String { "\(kind), sample preview" }
 }
 
-/// Sample Calendar face in the module grammar: weekday over the day, the next event on wide layouts.
-private struct CalendarSampleFace: View {
-    var kind: String
-    var wide: Bool
-    @Environment(\.dockWidgetContentWidth) private var width
-    @Environment(\.widgetAccent) private var accent
-    var body: some View {
-        HStack(spacing: 10) {
-            VStack(spacing: 0) {
-                Text("THU").font(DockDesign.Module.label).foregroundStyle(WidgetPalette.resolved(kind: kind, accent: accent))
-                Text("1").font(DockDesign.Module.valueLarge)
-            }
-            if wide && width > 54 {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Design review").font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                    Text("10:30 AM").font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }.moduleInsets()
+extension WidgetCardPreview {
+    /// Sample data for the RD-09 families' samples; the faces are the live ones.
+    static var sampleAlarmTime: String {
+        (Calendar.current.date(bySettingHour: 7, minute: 30, second: 0, of: .now) ?? .now).formatted(date: .omitted, time: .shortened)
+    }
+    static var sampleEvent: CalendarEventSnapshot {
+        CalendarEventSnapshot(id: "sample", title: "Design review", startDate: .now.addingTimeInterval(45 * 60), endDate: .now.addingTimeInterval(75 * 60),
+                              isAllDay: false, calendarID: "sample", calendarTitle: "Work", meetingURL: nil)
     }
 }
 
