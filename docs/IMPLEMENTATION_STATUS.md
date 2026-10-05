@@ -1,6 +1,35 @@
 # MyDock implementation and acceptance status
 
-## Remaining-work wave — 4 October 2026 (current)
+## Redesign — 5 October 2026 (current)
+
+The authorized redesign is implemented. It covers widget visuals, widget settings and customization, app settings, Dock appearance and the Add Item window:
+- RD-01–RD-11;
+- fix waves FX-01–FX-10;
+- follow-ups FU-S, FU-G and FU-W;
+- T2, Auto accent semantics.
+
+The [redesign ledger](history/REDESIGN_LEDGER_2026-10-04.md) is the per-package record, with implementation status and verification status kept separate.
+
+**Verification:**
+- On the Mac, FX-08/FX-09 passed `./TestMyDock.sh` with **685 tests in 84 suites**.
+- On the Mac, the build and the 1,366-render matrix were done after FX-07.
+- FX-10 and later have CI and static-review evidence only; see [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
+
+**Open:**
+- A native rebuild, relaunch and full render matrix for FX-08 onward.
+- The redesign's manual checklist:
+  - Liquid Glass over wallpapers, in light and dark;
+  - hover and morph;
+  - reveal and auto-hide;
+  - side Docks;
+  - multiple displays;
+  - Intel and macOS 13–15 fallbacks;
+  - keyboard-only flows.
+- The open items below: H1–H9, live accounts, Xcode, signing and release, and performance.
+
+OP-01–OP-07 remain separate product opportunities, to be piloted one at a time. No pilot has been chosen.
+
+## Remaining-work wave — 4 October 2026 (dated)
 
 After the completion handoff, the remaining authorized engineering work is done:
 - PR-13 phase 2: cache-only provider publish path, with authored state and runtime readings kept apart.
