@@ -149,6 +149,11 @@ struct WidgetPopout: View {
         }
         .padding(WidgetPopoutMetrics.padding)
         .frame(width: WidgetPopoutMetrics.contentWidth + 2 * WidgetPopoutMetrics.padding, alignment: .leading)
+        // The shell is as tall as its content wants; containers scroll instead of squeezing it.
+        // Family content is vertically compressible (scale-to-fit values such as WidgetPopoutHero),
+        // so without this a hosting view that sizes its window from the shell's min/max height
+        // ratchets the window down a point per pass and AppKit aborts the layout loop.
+        .fixedSize(horizontal: false, vertical: true)
         .dockGlass(.regular, in: RoundedRectangle(cornerRadius: WidgetPopoutMetrics.radius, style: .continuous))
     }
 
