@@ -176,6 +176,7 @@ private struct StockPopoutView: View {
                             .font(DockDesign.Grouped.subtitleFont.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
                     }
                 }
+                .widgetPopoutHeroAligned()
                 let visiblePoints = Array(snapshot.points.suffix(configuration.stockRange.pointCount))
                 MarketSparkline(points: visiblePoints,
                                 color: StockFaceFormatting.changeColor(snapshot.change),
@@ -442,16 +443,16 @@ private struct WatchlistPopoutView: View {
     @ViewBuilder private func selectedChart(_ stock: WatchlistStock) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(stock.symbol + " · " + stock.displayName)
-                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).widgetPopoutHeroAligned()
             if let snapshot = stock.snapshot, let latest = snapshot.latest {
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(latest.close.formatted(.currency(code: snapshot.currency))).font(DockDesign.Module.valueLarge)
                         if let change = snapshot.changePercent {
                             Text(StockFaceFormatting.percentText(change)).font(DockDesign.Grouped.subtitleFont.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
                         }
-                        Spacer()
                     }
+                    .widgetPopoutHeroAligned()
                     let visiblePoints = Array(snapshot.points.suffix(configuration.stockRange.pointCount))
                     MarketSparkline(points: visiblePoints,
                                     color: StockFaceFormatting.changeColor(snapshot.change),

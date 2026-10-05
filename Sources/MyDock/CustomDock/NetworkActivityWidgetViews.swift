@@ -218,12 +218,12 @@ private struct NetworkActivityPopoutWidgetView: View {
     }
 
     private func rateCard(title: String, value: String, history: [Double], color: Color, symbol: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .center, spacing: 5) {
             Label(title, systemImage: symbol).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
             ModuleValue(value: value, size: .medium)
             NetworkRateSparkline(values: history, color: color).frame(height: 26)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .widgetPopoutHeroAligned()
     }
 
     private func interfaceRow(_ interface: NetworkInterfaceRate) -> some View {

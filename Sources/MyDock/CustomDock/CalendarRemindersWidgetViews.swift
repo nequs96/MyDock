@@ -84,6 +84,49 @@ enum CalendarEventRowPresentation {
     }
 }
 
+/// The thin leading bar on a Calendar event, as in Apple's Calendar widget: the event calendar's colour.
+/// Mono (the Mono accent or the Mono icon treatment, the rule `WidgetIcon.fillIsPrimary` applies) stays monochrome: a neutral bar.
+enum CalendarEventBarStyle: Equatable {
+    case neutral(emphasized: Bool)
+    case calendar(CalendarColorSnapshot)
+
+    static func isMonochrome(accent: WidgetAccent, appearance: WidgetIconAppearance) -> Bool {
+        if case .mono = accent { return true }
+        return appearance == .mono
+    }
+
+    static func resolve(color: CalendarColorSnapshot?, monochrome: Bool, emphasized: Bool = false) -> CalendarEventBarStyle {
+        if !monochrome, let color { return .calendar(color) }
+        return .neutral(emphasized: emphasized)
+    }
+
+    /// Wider under Increase Contrast so the colour stays legible on any material.
+    static func width(increasedContrast: Bool) -> CGFloat { increasedContrast ? 4 : 3 }
+}
+
+extension CalendarColorSnapshot {
+    var swiftUIColor: Color { Color(.sRGB, red: red, green: green, blue: blue, opacity: 1) }
+}
+
+struct CalendarColorBar: View {
+    var style: CalendarEventBarStyle
+    var height: CGFloat = 30
+    @DockAccessibilityStyle() private var accessibility
+    private var increased: Bool { accessibility.contrast == .increased }
+    var body: some View {
+        Capsule().fill(fill)
+            .overlay { if increased, case .calendar = style { Capsule().strokeBorder(Color.primary.opacity(0.45), lineWidth: 0.5) } }
+            .frame(width: CalendarEventBarStyle.width(increasedContrast: increased), height: height)
+            .accessibilityHidden(true)
+    }
+    private var fill: Color {
+        switch style {
+        case .calendar(let color): color.swiftUIColor
+        case .neutral(let emphasized): Color.primary.opacity(emphasized ? (increased ? 0.7 : 0.55) : (increased ? 0.35 : 0.18))
+        }
+    }
+}
+
 enum RemindersFacePresentation {
     static func overdueCount(_ reminders: [ReminderSnapshot], now: Date) -> Int {
         reminders.filter { $0.dueDate.map { $0 < now } ?? false }.count
@@ -103,6 +146,8 @@ struct CalendarDockFace: View {
     var emptyDetail = "Next 7 days"
     @Environment(\.dockWidgetContentWidth) private var width
     @Environment(\.widgetShowsLabel) private var showsLabel
+    @Environment(\.widgetAccent) private var accent
+    @Environment(\.widgetIconAppearance) private var appearance
     private var narrow: Bool { WidgetModuleMetrics.isNarrow(width) }
     private var eventVisible: Bool { showsEvent && !narrow }
     var body: some View {
@@ -128,13 +173,22 @@ struct CalendarDockFace: View {
         .fixedSize()
         .frame(maxWidth: eventVisible ? nil : .infinity)
     }
+    /// The calendar colour bar; a neutral bar adds nothing to the module, so Mono and unknown colours omit it.
+    private var barStyle: CalendarEventBarStyle {
+        CalendarEventBarStyle.resolve(color: event?.calendarColor,
+                                      monochrome: CalendarEventBarStyle.isMonochrome(accent: accent, appearance: appearance))
+    }
     private var eventBlock: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(event?.title ?? emptyTitle).font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(event == nil ? .secondary : .primary).lineLimit(1)
-            Text(event.map { CalendarFacePresentation.compactStatus($0, now: date) } ?? emptyDetail)
-                .font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
-                .minimumScaleFactor(DockDesign.Module.minimumTextSize / 11)
+        HStack(spacing: 6) {
+            if case .calendar = barStyle { CalendarColorBar(style: barStyle, height: 28) }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(event?.title ?? emptyTitle).font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(event == nil ? .secondary : .primary).lineLimit(1)
+                Text(event.map { CalendarFacePresentation.compactStatus($0, now: date) } ?? emptyDetail)
+                    .font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
+                    .minimumScaleFactor(DockDesign.Module.minimumTextSize / 11)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -366,14 +420,17 @@ private struct CalendarPopoutWidgetView: View {
         }
     }
 
+    private var barIsMonochrome: Bool {
+        CalendarEventBarStyle.isMonochrome(accent: configuration.widgetAccent ?? .auto, appearance: configuration.iconAppearance)
+    }
+
     /// One event: a calendar bar, the title, and one line that merges status, time and calendar.
     private func eventRow(_ event: CalendarEventSnapshot, now: Date) -> some View {
         let ongoing = !event.isAllDay && event.startDate <= now && event.endDate > now
         return WidgetPopoutRow {
             HStack(spacing: 10) {
-                // EventKit's calendar colour is not in the snapshot yet; the bar marks the ongoing event.
-                Capsule().fill(ongoing ? DockDesign.accent : Color.primary.opacity(0.18)).frame(width: 3, height: 30)
-                    .accessibilityHidden(true)
+                // The calendar's colour; Mono stays neutral, and the neutral bar marks the ongoing event.
+                CalendarColorBar(style: CalendarEventBarStyle.resolve(color: event.calendarColor, monochrome: barIsMonochrome, emphasized: ongoing))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(event.title).font(DockDesign.Grouped.titleFont.weight(.medium)).lineLimit(2)
                     Text(CalendarEventRowPresentation.detail(event, now: now))

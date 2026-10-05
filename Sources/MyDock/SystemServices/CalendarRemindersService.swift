@@ -1,3 +1,4 @@
+import CoreGraphics
 import EventKit
 import Foundation
 
@@ -26,6 +27,27 @@ struct CalendarListSnapshot: Identifiable, Hashable, Sendable {
     var title: String
 }
 
+/// A calendar's colour as sRGB components. Runtime-only: read from EventKit with each event, never persisted
+/// in profiles or backups (CGColor is not Sendable, so the snapshot carries plain numbers).
+struct CalendarColorSnapshot: Hashable, Sendable {
+    var red: Double
+    var green: Double
+    var blue: Double
+
+    init(red: Double, green: Double, blue: Double) {
+        self.red = Self.clamped(red); self.green = Self.clamped(green); self.blue = Self.clamped(blue)
+    }
+
+    init?(cgColor: CGColor?) {
+        guard let cgColor, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let converted = cgColor.converted(to: space, intent: .defaultIntent, options: nil),
+              let components = converted.components, components.count >= 3 else { return nil }
+        self.init(red: Double(components[0]), green: Double(components[1]), blue: Double(components[2]))
+    }
+
+    private static func clamped(_ value: Double) -> Double { value.isFinite ? min(1, max(0, value)) : 0 }
+}
+
 struct CalendarEventSnapshot: Identifiable, Hashable, Sendable {
     var id: String
     var title: String
@@ -35,6 +57,8 @@ struct CalendarEventSnapshot: Identifiable, Hashable, Sendable {
     var calendarID: String
     var calendarTitle: String
     var meetingURL: URL?
+    /// The event calendar's colour; nil when EventKit reports none. Runtime-only.
+    var calendarColor: CalendarColorSnapshot? = nil
 
     var timeDescription: String {
         if isAllDay { return "All day" }
@@ -149,7 +173,8 @@ actor CalendarRemindersService {
                     isAllDay: event.isAllDay,
                     calendarID: event.calendar.calendarIdentifier,
                     calendarTitle: event.calendar.title,
-                    meetingURL: meetingURL(event)
+                    meetingURL: meetingURL(event),
+                    calendarColor: CalendarColorSnapshot(cgColor: event.calendar.cgColor)
                 )
             }
         guard hasFullAccess(to: .event) else { throw CalendarRemindersServiceError.accessDenied }

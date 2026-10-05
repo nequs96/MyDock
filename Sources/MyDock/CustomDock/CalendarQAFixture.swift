@@ -24,19 +24,24 @@ enum CalendarQAFixture: String, CaseIterable {
         selection(override: override, environment: ProcessInfo.processInfo.environment)
     }
 
-    var calendars: [CalendarListSnapshot] { [CalendarListSnapshot(id: "qa-calendar", title: "Work")] }
+    /// Two calendars with distinct colours, as EventKit would report them (blue Work, green Home).
+    static let workColor = CalendarColorSnapshot(red: 0.04, green: 0.52, blue: 1.0)
+    static let homeColor = CalendarColorSnapshot(red: 0.20, green: 0.78, blue: 0.35)
+
+    var calendars: [CalendarListSnapshot] { [CalendarListSnapshot(id: "qa-calendar", title: "Work"), CalendarListSnapshot(id: "qa-home", title: "Home")] }
 
     func events(now: Date = Date()) -> [CalendarEventSnapshot] {
-        func event(_ id: String, _ title: String, start: TimeInterval, end: TimeInterval) -> CalendarEventSnapshot {
+        func event(_ id: String, _ title: String, start: TimeInterval, end: TimeInterval, home: Bool = false) -> CalendarEventSnapshot {
             CalendarEventSnapshot(id: id, title: title, startDate: now.addingTimeInterval(start), endDate: now.addingTimeInterval(end),
-                                  isAllDay: false, calendarID: "qa-calendar", calendarTitle: "Work", meetingURL: nil)
+                                  isAllDay: false, calendarID: home ? "qa-home" : "qa-calendar", calendarTitle: home ? "Home" : "Work", meetingURL: nil,
+                                  calendarColor: home ? Self.homeColor : Self.workColor)
         }
         switch self {
         case .empty: return []
         case .ongoing: return [event("qa-ongoing", "Design review", start: -15 * 60, end: 30 * 60),
-                               event("qa-later", "Planning sync", start: 3 * 3600, end: 4 * 3600)]
+                               event("qa-later", "Dinner with Sam", start: 3 * 3600, end: 4 * 3600, home: true)]
         case .upcoming: return [event("qa-next", "Team standup", start: 45 * 60, end: 75 * 60),
-                                event("qa-after", "Lunch with Sam", start: 4 * 3600, end: 5 * 3600)]
+                                event("qa-after", "Lunch with Sam", start: 4 * 3600, end: 5 * 3600, home: true)]
         }
     }
 }

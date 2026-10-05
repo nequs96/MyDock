@@ -388,6 +388,12 @@ struct WidgetPopoutHero: View {
     }
 }
 
+extension View {
+    /// A family's own hero line (a price, a rate, a token count) sits on the same centred axis as `WidgetPopoutHero`,
+    /// the alignment nearly every family already uses.
+    func widgetPopoutHeroAligned() -> some View { frame(maxWidth: .infinity, alignment: .center) }
+}
+
 /// The role of a round timer control: grey secondary, green Start, orange Pause.
 enum WidgetRoundButtonRole: Equatable {
     case neutral, start, pause
