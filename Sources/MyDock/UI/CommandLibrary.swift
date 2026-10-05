@@ -17,6 +17,7 @@ struct CommandLibrary: View {
     @State private var apps: [DockItem] = []
     @State private var selected = 0
     @State private var recentlyAdded = Set<String>()
+    @Environment(\.workspaceStartHandler) private var workspaceStartHandler
 
     init(store: ProfileStore, profile: DockProfile, commandMode: Bool = false, allowsAdding: Bool = true,
          initialQuery: String = "", initialCategory: String = "All",
@@ -44,6 +45,11 @@ struct CommandLibrary: View {
         if commandMode {
             result += store.state.profiles.map { p in
                 Entry(id: p.id.uuidString, title: "Switch to " + p.name, detail: "Dock", symbol: "dock.rectangle", action: { switchProfile(p.id); close() })
+            }
+            if let workspaceStartHandler {
+                result += store.state.profiles.filter(\.hasWorkspace).map { p in
+                    Entry(id: "workspace:" + p.id.uuidString, title: "Start Workspace: " + p.name, detail: "Workspace", symbol: "play.circle", action: { close(); workspaceStartHandler.start(p.id) })
+                }
             }
             result += [Entry(id: "new", title: "Create New Dock", detail: "⌘N", symbol: "plus", action: { close(); newDock() }),
                        Entry(id: "settings", title: "Open Settings", detail: "⌘,", symbol: "gearshape", action: { close(); settings() })]

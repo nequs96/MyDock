@@ -49,6 +49,7 @@ enum SettingsSearchCatalog {
         .init(title: "Trash and app badges", section: "Dock items", page: .behavior, keywords: "notifications count"),
         .init(title: "Keyboard shortcuts", section: "Global profile shortcuts", page: .shortcuts, keywords: "hotkey global switch"),
         .init(title: "Backup and restore", section: "Saved Docks", page: .general, keywords: "export import json saved docks"),
+        .init(title: "Export or import a Dock", section: "Saved Docks", page: .general, keywords: "share portable package another mac"),
         .init(title: "Recovery and history", section: "Recovery & history", page: .general, keywords: "undo snapshot previous revision"),
         .init(title: "MyDock appearance", section: "Application", page: .general, keywords: "interface light dark system theme"),
         .init(title: "Launch at login", section: "Application", page: .general, keywords: "startup"),

@@ -26,6 +26,7 @@ extension DockProfileDraft {
         result.name = try Self.mergeValue(original.name, profile.name, latest.name, field: "the profile name")
         result.color = try Self.mergeValue(original.color, profile.color, latest.color, field: "the profile color")
         result.appearance = try Self.mergeValue(original.appearance, profile.appearance, latest.appearance, field: "profile appearance")
+        result.workspace = try Self.mergeValue(original.workspace, profile.workspace, latest.workspace, field: "the workspace")
         let base = Dictionary(uniqueKeysWithValues: original.items.map { ($0.id, $0) })
         let edited = Dictionary(uniqueKeysWithValues: profile.items.map { ($0.id, $0) })
         let current = Dictionary(uniqueKeysWithValues: latest.items.map { ($0.id, $0) })

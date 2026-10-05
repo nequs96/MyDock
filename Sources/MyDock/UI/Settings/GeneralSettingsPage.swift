@@ -20,6 +20,14 @@ extension SettingsView {
                 .help("Personal backups include notes, lists, snippets, shelf files, history, timers, alarms and selections. Layout backups keep app, file, folder and link locations. Credentials, permissions and provider caches are always excluded; layout backups also exclude connections and personal data.")
             GroupedRow("Back Up…", role: .button) { exportBackup() }
             GroupedRow("Restore…", role: .button) { importBackup() }
+            GroupedRow("Export Dock…", role: .button) {
+                dockExportRequest = PortableDockExportRequest(profiles: store.state.profiles, selectedID: store.activeCustomProfile?.id,
+                                                              includePersonalData: includePersonalBackupData)
+            }
+            .disabled(store.state.profiles.isEmpty)
+            .help("Review and export one Dock to use on another Mac or share")
+            GroupedRow("Import Dock…", role: .button) { importDock() }
+                .help("Preview a Dock file and add it as a new Dock")
             if let backupMessage { Text(backupMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }
             GroupedRow("macOS Dock profiles", value: "\(store.nativeProfiles.count)")
             GroupedRow("Custom Dock profiles", value: "\(store.customProfiles.count)")
@@ -77,6 +85,26 @@ extension SettingsView {
         } catch {
             backupMessage = error.localizedDescription
             DiagnosticsService.shared.record(.backupOperationFailed)
+        }
+    }
+
+    private func importDock() {
+        do {
+            if let preview = try PortableDockPanels.chooseImport(existingNames: store.state.profiles.map(\.name)) {
+                dockImportPreview = preview
+            }
+        } catch {
+            backupMessage = error.localizedDescription
+        }
+    }
+
+    func addImportedDock(_ preview: PortableDockImportPreview) {
+        dockImportPreview = nil
+        do {
+            try PortableDockPackage.importAsNew(preview, into: store)
+            backupMessage = "Added \(preview.profile.name) as a new Dock."
+        } catch {
+            backupMessage = error.localizedDescription
         }
     }
 

@@ -70,6 +70,9 @@ struct DockManagerView: View {
     @State private var creationSource = "Empty"
     @State private var creationKind: DockProfileKind = .custom
     @State private var confirmingClear = false
+    @State private var workspaceStart: WorkspaceStartRequest?
+    @State private var dockExport: PortableDockExportRequest?
+    @State private var dockImport: PortableDockImportPreview?
     private var saveStatus: String? { selectedProfileID.flatMap { edits.saveFeedback[$0] } }
     @Environment(\.undoManager) private var undoManager
 
@@ -190,8 +193,23 @@ struct DockManagerView: View {
                                }
                            }, close: { libraryMode = nil })
             }
+            .environment(\.workspaceStartHandler, WorkspaceStartHandler { beginWorkspaceStart($0) })
         }
         .sheet(isPresented: $showingCreation) { creationSheet }
+        .sheet(item: $workspaceStart) { request in
+            WorkspaceStartSheet(request: request, launcher: SystemWorkspaceLauncher(),
+                                switchToDock: { useProfile(request.profile) },
+                                locate: { locateWorkspaceItem($0, in: request.profile.id) },
+                                close: { workspaceStart = nil })
+        }
+        .sheet(item: $dockExport) { request in
+            PortableDockExportSheet(profiles: request.profiles, selectedID: request.selectedID,
+                                    includePersonalData: request.includePersonalData,
+                                    close: { dockExport = nil }, exported: { _ in dockExport = nil })
+        }
+        .sheet(item: $dockImport) { preview in
+            PortableDockImportSheet(preview: preview, add: { addImportedDock(preview) }, cancel: { dockImport = nil })
+        }
         .confirmationDialog("Remove all items from this Dock?", isPresented: $confirmingClear) {
             Button("Remove All Items", role: .destructive) { updateDraft { $0.items.removeAll() } }
         } message: { Text("You can undo this change.") }
@@ -277,7 +295,7 @@ struct DockManagerView: View {
         .contextMenu {
             Button(profile.kind == .native ? "Apply to macOS Dock" : "Activate") { useProfile(profile) }
             Button("Rename") { requestProfileSelection(profile.id); openDocks(); if selectedProfileID == profile.id { beginRename(profile) } }
-            Button("Export…") { exportProfile(profile) }
+            Button("Export Dock…") { exportProfile(profile) }
             Button("Duplicate") { duplicateProfile(profile); openDocks() }
             Button("Save as Personal Preset") { store.personalPresets.record(profile, reason: "Personal preset") }
             Button("Delete…", role: .destructive) { profileToDelete = profile.id; confirmingProfileDeletion = true }
@@ -376,10 +394,10 @@ struct DockManagerView: View {
                     HStack(spacing: 12) {
                         Button { libraryMode = .add } label: { Label("Add Item", systemImage: "plus") }
                             .buttonStyle(DockButtonStyle()).accessibilityIdentifier("manager.add-item")
-                        if profile.kind == .custom {
-                            Button { showingDockInspector.toggle(); clearItemSelection() } label: { Image(systemName: "slider.horizontal.3") }
-                                .buttonStyle(DockButtonStyle(icon: true)).help("Edit Dock appearance").accessibilityLabel("Edit Dock appearance")
-                        }
+                        Button { showingDockInspector.toggle(); clearItemSelection() } label: { Image(systemName: "slider.horizontal.3") }
+                            .buttonStyle(DockButtonStyle(icon: true))
+                            .help(profile.kind == .custom ? "Edit Dock appearance" : "Dock options")
+                            .accessibilityLabel(profile.kind == .custom ? "Edit Dock appearance" : "Dock options")
                     }
                     if showingDockInspector || !selectedItemIDs.isEmpty {
                         workspaceInspector(profile).frame(maxWidth: min(480, geometry.size.width - 48))
@@ -451,7 +469,10 @@ struct DockManagerView: View {
             }
             }.padding(16).background(DockDesign.card, in: RoundedRectangle(cornerRadius: DockDesign.Radius.group))
         } else {
-            DockAppearanceInspector(store: store, profile: profile, close: { showingDockInspector = false })
+            DockAppearanceInspector(store: store, profile: profile, close: { showingDockInspector = false },
+                                    workspace: DockWorkspaceSection(profile: profile,
+                                                                    setIncluded: { id, included in updateDraft { $0.setWorkspaceItem(id, included: included) } },
+                                                                    start: { beginWorkspaceStart(profile.id) }))
         }
     }
 
@@ -526,6 +547,7 @@ struct DockManagerView: View {
                             profile.color = source.color
                             profile.appearance = source.appearance
                             profile.items = source.items.map { store.copyItemForDuplication($0) }
+                            profile.workspace = source.workspace?.remapped(from: source.items, to: profile.items)
                         }
                         let id = try store.createProfile(profile)
                         requestProfileSelection(id); openDocks(); showingCreation = false
@@ -538,12 +560,38 @@ struct DockManagerView: View {
     private func exportProfile(_ profile: DockProfile) {
         do {
             let current = try edits.save(profile.id) ?? profile
-            let panel = NSSavePanel()
-            panel.allowedContentTypes = [.json]
-            panel.nameFieldStringValue = current.name + ".json"
-            guard panel.runModal() == .OK, let url = panel.url else { return }
-            try BackupManager.makeArchive(from: [current]).write(to: url, options: .atomic)
+            dockExport = PortableDockExportRequest(profiles: [current], selectedID: current.id, includePersonalData: false)
         } catch { dockOperationMessage = error.localizedDescription }
+    }
+
+    private func importDock() {
+        do {
+            if let preview = try PortableDockPanels.chooseImport(existingNames: store.state.profiles.map(\.name)) { dockImport = preview }
+        } catch { dockOperationMessage = error.localizedDescription }
+    }
+
+    private func addImportedDock(_ preview: PortableDockImportPreview) {
+        dockImport = nil
+        do {
+            let id = try PortableDockPackage.importAsNew(preview, into: store)
+            requestProfileSelection(id); openDocks()
+        } catch { dockOperationMessage = error.localizedDescription }
+    }
+
+    private func beginWorkspaceStart(_ profileID: UUID) {
+        let profile = selectedProfileID == profileID ? selectedProfile : store.state.profiles.first(where: { $0.id == profileID })
+        guard let profile, profile.hasWorkspace else { return }
+        workspaceStart = WorkspaceStartRequest(profile: profile, isCurrentDock: isActive(profile), canLocate: selectedProfileID == profileID)
+    }
+
+    /// Reuses the existing Locate… repair on the edited Dock; the repaired item keeps its identity.
+    private func locateWorkspaceItem(_ item: DockItem, in profileID: UUID) -> DockItem? {
+        guard selectedProfileID == profileID, item.type != .link,
+              let repaired = AppLauncher.chooseReplacement(for: item) else { return nil }
+        updateDraft { draft in
+            if let index = draft.items.firstIndex(where: { $0.id == item.id }) { draft.items[index] = repaired }
+        }
+        return repaired
     }
 
     private func duplicateProfile(_ profile: DockProfile) {
@@ -576,7 +624,9 @@ struct DockManagerView: View {
             if profile.kind == .custom {
                 Button("Save as Personal Preset") { store.personalPresets.record(profile, reason: "Personal preset") }
             }
-            Button("Export…") { exportProfile(profile) }
+            Button("Export Dock…") { exportProfile(profile) }
+            Button("Import Dock…") { importDock() }
+            if profile.hasWorkspace { Button("Start Workspace…") { beginWorkspaceStart(profile.id) } }
             Button("Duplicate") { duplicateProfile(profile) }
             Button("Keyboard Shortcut…") { shortcutProfile = profile }
             Menu("Profile Color") {
