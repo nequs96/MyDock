@@ -117,6 +117,194 @@ enum DockRunningIndicatorPolicy {
     }
 }
 
+/// Running applications matched against a profile's pinned apps (FX-02, Codex #7). URL normalization
+/// resolves symlinks, which touches the file system per path component, so it runs only here, when
+/// the running applications or the pinned apps change, never on a hover or magnification re-render.
+struct DockRunningAppMatches: Equatable {
+    /// Normalized installed-copy URLs of pinned apps (saved location, plus a relocation when consulted).
+    var pinnedURLs: Set<URL> = []
+    /// Runtime entries that are not a pinned app's installed copy, in runtime order.
+    var unpinnedRuntime: [DockItem] = []
+    /// Pinned apps whose installed copy is running.
+    var runningPinnedItemIDs: Set<UUID> = []
+
+    /// The resolver (a disk stat, possibly a Launch Services lookup) is consulted only for a pinned app
+    /// whose saved copy is not running while an app with its bundle identifier is: only then can a
+    /// relocated copy be the running one.
+    static func compute(runtime: [DockItem], profileItems: [DockItem],
+                        normalize: (URL) -> URL, resolve: (DockItem) -> URL?) -> DockRunningAppMatches {
+        let running = runtime.compactMap { item in item.url.map { (item: item, url: normalize($0)) } }
+        guard !running.isEmpty else { return DockRunningAppMatches() }
+        let runningURLs = Set(running.map(\.url))
+        let runningIdentifiers = Set(runtime.compactMap(\.bundleIdentifier))
+        var matches = DockRunningAppMatches()
+        for item in profileItems where item.type == .application {
+            var urls: [URL] = []
+            if let url = item.url { urls.append(normalize(url)) }
+            if !urls.contains(where: runningURLs.contains), runningIdentifiers.contains(item.bundleIdentifier ?? ""),
+               let resolved = resolve(item) {
+                urls.append(normalize(resolved))
+            }
+            matches.pinnedURLs.formUnion(urls)
+            if urls.contains(where: runningURLs.contains) { matches.runningPinnedItemIDs.insert(item.id) }
+        }
+        matches.unpinnedRuntime = running.filter { !matches.pinnedURLs.contains($0.url) }.map(\.item)
+        return matches
+    }
+}
+
+/// Holds the last `DockRunningAppMatches` keyed by its inputs. The key comparison is plain equality,
+/// so a body evaluation with unchanged inputs does no file-system work.
+@MainActor
+final class DockRunningAppCache {
+    private struct Key: Equatable {
+        var runtime: [DockItem]
+        var pinnedApplications: [DockItem]
+    }
+    private let normalize: (URL) -> URL
+    private let resolve: @MainActor (DockItem) -> URL?
+    private var key: Key?
+    private var value = DockRunningAppMatches()
+    /// How many times the matches were recomputed (tests).
+    private(set) var computations = 0
+
+    init(normalize: @escaping (URL) -> URL = InstalledApplicationIdentity.normalizedURL,
+         resolve: @escaping @MainActor (DockItem) -> URL?) {
+        self.normalize = normalize
+        self.resolve = resolve
+    }
+
+    func matches(runtime: [DockItem], profileItems: [DockItem]) -> DockRunningAppMatches {
+        let key = Key(runtime: runtime, pinnedApplications: profileItems.filter { $0.type == .application })
+        if key == self.key { return value }
+        self.key = key
+        computations += 1
+        value = DockRunningAppMatches.compute(runtime: runtime, profileItems: key.pinnedApplications,
+                                              normalize: normalize, resolve: { resolve($0) })
+        return value
+    }
+}
+
+extension DockRenderModel {
+    /// The same entries as the designated initializer, from runtime apps already matched against the
+    /// profile (`DockRunningAppMatches.unpinnedRuntime`), so building the model normalizes no URL.
+    init(profile: DockProfile, settings: AppSettings, unpinnedRunningApplications: [DockItem],
+         windows: [DockWindowDescriptor], runningMediaSources: Set<NowPlayingSource>) {
+        self.init(profile: profile, settings: settings, runningApplications: [], windows: windows,
+                  runningMediaSources: runningMediaSources, pinnedApplicationURLs: [])
+        guard settings.showRunningApps, !unpinnedRunningApplications.isEmpty,
+              let boundary = entries.firstIndex(where: { $0.id == DockRenderEntry.boundary("running").id }) else { return }
+        entries.insert(contentsOf: unpinnedRunningApplications.map { DockRenderEntry.item($0, pinned: false) }, at: boundary + 1)
+    }
+}
+
+/// Separator lines in the Dock (FX-02). The pinned-end line (the resize grip in the live Dock) and the
+/// minimized-windows boundary draw a line only between content: never at either end of the Dock and
+/// never twice in a row. The running-apps boundary is an invisible drop target and never draws one.
+enum DockSeparatorPolicy {
+    static func isContent(_ entry: DockRenderEntry) -> Bool {
+        switch entry {
+        case .item(let item, _): item.type != .spacer
+        case .window: true
+        case .boundary, .insertion: false
+        }
+    }
+
+    static func drawsLineWhenBetweenContent(_ entry: DockRenderEntry) -> Bool {
+        switch entry {
+        case .insertion: true
+        case .boundary(let kind): kind != "running"
+        case .item, .window: false
+        }
+    }
+
+    /// IDs of the separator entries whose line is visible.
+    static func visibleSeparatorIDs(_ entries: [DockRenderEntry]) -> Set<String> {
+        guard let lastContent = entries.lastIndex(where: isContent) else { return [] }
+        var visible: Set<String> = []
+        var contentSinceLine = false
+        for (index, entry) in entries.enumerated() {
+            if isContent(entry) { contentSinceLine = true; continue }
+            guard drawsLineWhenBetweenContent(entry), contentSinceLine, index < lastContent else { continue }
+            visible.insert(entry.id)
+            contentSinceLine = false
+        }
+        return visible
+    }
+
+    /// Previews only: the slots after the last tile (the pinned-end grip, an empty running-apps
+    /// boundary) draw no line and take no live interaction, so they collapse and a preview Dock
+    /// ends at its last tile with even padding. The live Dock keeps them: the grip resizes and
+    /// accepts drops at the end of the pinned items.
+    static func previewCollapsedEntryIDs(_ entries: [DockRenderEntry]) -> Set<String> {
+        guard let lastContent = entries.lastIndex(where: isContent) else { return [] }
+        return Set(entries[(lastContent + 1)...].map(\.id))
+    }
+
+    /// `DockRenderModel.contentLength` without the collapsed preview slots.
+    static func previewContentLength(_ entries: [DockRenderEntry], settings: AppSettings, scale: CGFloat) -> CGFloat {
+        let collapsed = previewCollapsedEntryIDs(entries)
+        return DockSurfaceMetrics.length(entries.filter { !collapsed.contains($0.id) }.map { $0.length(settings: settings, scale: scale) },
+                                         spacing: CGFloat(settings.customDockItemSpacing), scale: scale)
+    }
+}
+
+/// Where a notification badge sits on its tile (FX-02, D4). Bottom Docks hang it outward from the
+/// top-trailing corner like the system Dock. Side Docks keep it inside the tile: their item column is
+/// exactly one tile wide and the scroll axis is vertical, so an outward overhang is clipped.
+enum DockBadgePlacement {
+    static func offset(position: DockPosition, scale: CGFloat) -> CGSize {
+        position == .bottom ? CGSize(width: 4 * scale, height: -2 * scale) : .zero
+    }
+
+    /// The badge's frame in its tile's coordinates (origin top-leading), from a top-trailing alignment.
+    static func frame(badgeSize: CGSize, tileSize: CGSize, position: DockPosition, scale: CGFloat) -> CGRect {
+        let offset = offset(position: position, scale: scale)
+        return CGRect(x: tileSize.width - badgeSize.width + offset.width, y: offset.height,
+                      width: badgeSize.width, height: badgeSize.height)
+    }
+}
+
+/// The colour scheme a Dock renders in: an explicit Dock theme, then the Midnight material (dark),
+/// then the system appearance. The window or app scheme never decides how the Dock looks.
+enum DockColorSchemePolicy {
+    static func scheme(theme: CustomDockTheme, material: CustomDockMaterial, system: ColorScheme) -> ColorScheme {
+        switch theme {
+        case .dark: .dark
+        case .light: .light
+        case .system: material == .dark ? .dark : system
+        }
+    }
+}
+
+/// Which editor items settle after a reorder (FX-02). A move keeps every item, so the moved ones are
+/// the selection when moving it alone explains the new order, else the items outside the longest run
+/// that kept its relative order. Adds, removals and unchanged orders settle nothing.
+enum DockReorderSettlePolicy {
+    static func movedItems(from old: [UUID], to new: [UUID], selection: Set<UUID> = []) -> Set<UUID> {
+        guard old != new, old.count == new.count, Set(old) == Set(new), Set(new).count == new.count else { return [] }
+        let selected = selection.intersection(new)
+        if !selected.isEmpty, old.filter({ !selected.contains($0) }) == new.filter({ !selected.contains($0) }) {
+            return selected
+        }
+        // Longest increasing subsequence of old positions, in new order (patience sorting).
+        let oldIndex = Dictionary(uniqueKeysWithValues: old.enumerated().map { ($1, $0) })
+        let positions = new.map { oldIndex[$0]! }
+        var tails: [Int] = [], tailIndex: [Int] = [], previous = Array(repeating: -1, count: positions.count)
+        for (index, value) in positions.enumerated() {
+            var low = 0, high = tails.count
+            while low < high { let mid = (low + high) / 2; if tails[mid] < value { low = mid + 1 } else { high = mid } }
+            if low > 0 { previous[index] = tailIndex[low - 1] }
+            if low == tails.count { tails.append(value); tailIndex.append(index) }
+            else { tails[low] = value; tailIndex[low] = index }
+        }
+        var kept: Set<UUID> = []
+        var cursor = tailIndex.last ?? -1
+        while cursor >= 0 { kept.insert(new[cursor]); cursor = previous[cursor] }
+        return Set(new).subtracting(kept)
+    }
+}
+
 /// Only settings that change Dock presentation, placement, monitoring or reveal
 /// behaviour. UI-only state (last Settings page, onboarding, native-Dock switching
 /// preferences) must never reassign the hosting root view.

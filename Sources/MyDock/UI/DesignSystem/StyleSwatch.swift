@@ -74,9 +74,12 @@ struct DockSwatchLook: Hashable {
 }
 
 /// Mini Dock: a few dummy icons and modules on the described surface, over a sample wallpaper.
+/// The wallpaper follows the window like the Settings hero's; the Dock follows the same scheme
+/// source as the real Dock (`DockColorSchemePolicy`): the Dock theme, then the system appearance.
 struct DockSwatchPreview: View {
     var look: DockSwatchLook
-    @Environment(\.colorScheme) private var scheme
+    @Environment(\.dockSwatchTheme) private var theme
+    @ObservedObject private var systemAppearance = DockSystemAppearance.shared
     @DockAccessibilityStyle() private var accessibility
 
     private static let iconColors: [Color] = [
@@ -93,7 +96,12 @@ struct DockSwatchPreview: View {
         }
     }
 
-    private var darkSurface: Bool { look.surface == .midnight || scheme == .dark }
+    /// The scheme the real Dock would use for this look.
+    private var dockScheme: ColorScheme {
+        DockColorSchemePolicy.scheme(theme: theme, material: look.surface == .midnight ? .dark : .liquidGlass,
+                                     system: systemAppearance.scheme)
+    }
+    private var darkSurface: Bool { look.surface == .midnight || dockScheme == .dark }
 
     private var dock: some View {
         HStack(spacing: 3.5) {
@@ -181,5 +189,14 @@ struct SwatchWallpaper: View {
                            center: UnitPoint(x: 0.22, y: 0.18), startRadius: 0, endRadius: 70)
         }
         .accessibilityHidden(true)
+    }
+}
+
+private struct DockSwatchThemeKey: EnvironmentKey { static let defaultValue: CustomDockTheme = .system }
+extension EnvironmentValues {
+    /// The Dock colour theme swatches preview in; `.system` follows the system appearance.
+    var dockSwatchTheme: CustomDockTheme {
+        get { self[DockSwatchThemeKey.self] }
+        set { self[DockSwatchThemeKey.self] = newValue }
     }
 }

@@ -24,8 +24,11 @@ struct DockCanvas: View {
     let duplicate: (DockItem) -> Void
     let addURLs: ([URL], UUID?) -> Void
     @Namespace private var transformation
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @DockAccessibilityStyle() private var accessibility
     @State private var insertion: UUID?
+    /// Items just moved (keyboard, accessibility action or drop); they settle on `Motion.morph`.
+    @State private var settlingItemIDs: Set<UUID> = []
+    @State private var settledOrder: [UUID] = []
     @State private var atEnd = false
     @State private var liftedItems: Set<UUID> = []
     private var settings: AppSettings { store.effectiveSettings(for: profile) }
@@ -43,6 +46,8 @@ struct DockCanvas: View {
                 ForEach(DockVisualIdentity.items(profile.items)) { visual in
                     let item = visual.item
                     tile(item)
+                        .scaleEffect(DockMotionPolicy.settleScale(isSettling: settlingItemIDs.contains(item.id),
+                                                                  reduceMotion: reduceMotion))
                         .opacity(liftedItems.contains(item.id) ? 0.35 : 1)
                         .matchedGeometryEffect(id: visual.id, in: transformation)
                         .transition(.asymmetric(insertion: .scale(scale: 0.82).combined(with: .opacity), removal: .opacity))
@@ -70,7 +75,8 @@ struct DockCanvas: View {
             }
             .background(DockMaterialSurface(settings: settings, color: (DockProfileColor(rawValue: profile.color) ?? .blue).displayColor))
             .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
-            .environment(\.colorScheme, settings.customDockTheme == .dark ? .dark : settings.customDockTheme == .light ? .light : settings.customDockMaterial == .dark ? .dark : systemAppearance.scheme)
+            .environment(\.colorScheme, DockColorSchemePolicy.scheme(theme: settings.customDockTheme, material: settings.customDockMaterial,
+                                                                      system: systemAppearance.scheme))
             .padding(24)
             .frame(minWidth: geometry.size.width)
         }
@@ -98,9 +104,29 @@ struct DockCanvas: View {
             guard !Task.isCancelled else { return }
             focusedItem = cursor.map { ItemFocus(itemID: $0, requestID: focusRequestID) }
         }
-        .animation(reduceMotion ? nil : DockDesign.Motion.transform, value: profile.items)
-        .animation(reduceMotion ? nil : DockDesign.Motion.reorder, value: insertion)
+        // The live Dock's reorder motion: items glide on `Motion.reorder`, then moved items settle.
+        .animation(DockMotionPolicy.reorderAnimation(reduceMotion: reduceMotion, animationsEnabled: settings.dockAnimationsEnabled),
+                   value: profile.items)
+        .animation(DockMotionPolicy.reorderAnimation(reduceMotion: reduceMotion, animationsEnabled: settings.dockAnimationsEnabled),
+                   value: insertion)
+        .onAppear { settledOrder = profile.items.map(\.id) }
+        .onChange(of: profile.items.map(\.id)) { order in
+            let moved = DockReorderSettlePolicy.movedItems(from: settledOrder, to: order, selection: selection)
+            settledOrder = order
+            settle(moved)
+        }
         .accessibilityLabel("Dock workspace. Select items to edit, or drag to reorder.")
+    }
+
+    private var reduceMotion: Bool { accessibility.reduceMotion }
+
+    /// Moved items dip slightly and settle on `Motion.morph`; nothing moves under Reduce Motion.
+    private func settle(_ itemIDs: Set<UUID>) {
+        guard !itemIDs.isEmpty,
+              let animation = DockMotionPolicy.settleAnimation(reduceMotion: reduceMotion,
+                                                               animationsEnabled: settings.dockAnimationsEnabled) else { return }
+        settlingItemIDs = itemIDs
+        DispatchQueue.main.async { withAnimation(animation) { settlingItemIDs = [] } }
     }
 
     private func handleDrop(_ values: [DockDropValue], before: UUID?) -> Bool {
