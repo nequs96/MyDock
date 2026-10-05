@@ -1191,6 +1191,8 @@ struct AppSettings: Codable, Equatable {
     var showRunningApps = true
     var showMinimizedWindows = false
     var showWindowPreviews = false
+    /// PX-2: hover a running app tile to see its windows. Off by default.
+    var showWindowPreviewsOnHover = false
     var showTrash = false
     var showAppBadges = false
     var clickFocusedAppToMinimize = false
@@ -1208,6 +1210,7 @@ struct AppSettings: Codable, Equatable {
         case customDockItemSpacing, customDockCornerRadius, customDockTintStrength, customDockWidgetStyle, showWidgetLabels
         case customDockDisplayID, automaticallyHideCustomDock, showRevealHandle, hideCustomDockWhenSystemDockAppears, customDockDesktopMode, customDockMaterial, smoothNativeDockSwitches, showRunningApps
         case showMinimizedWindows, showWindowPreviews, showTrash, showAppBadges, clickFocusedAppToMinimize, magnificationEnabled
+        case showWindowPreviewsOnHover
         case automaticallySaveNativeDockChanges, showActiveProfileNameInMenuBar, onboardingComplete, lastSettingsPage
     }
 
@@ -1243,6 +1246,7 @@ struct AppSettings: Codable, Equatable {
         showRunningApps = try values.decodeIfPresent(Bool.self, forKey: .showRunningApps) ?? true
         showMinimizedWindows = try values.decodeIfPresent(Bool.self, forKey: .showMinimizedWindows) ?? false
         showWindowPreviews = try values.decodeIfPresent(Bool.self, forKey: .showWindowPreviews) ?? false
+        showWindowPreviewsOnHover = (try? values.decodeIfPresent(Bool.self, forKey: .showWindowPreviewsOnHover)) ?? false
         showTrash = try values.decodeIfPresent(Bool.self, forKey: .showTrash) ?? false
         showAppBadges = try values.decodeIfPresent(Bool.self, forKey: .showAppBadges) ?? false
         clickFocusedAppToMinimize = try values.decodeIfPresent(Bool.self, forKey: .clickFocusedAppToMinimize) ?? false

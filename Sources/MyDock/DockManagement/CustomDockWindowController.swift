@@ -71,6 +71,7 @@ final class CustomDockWindowController {
         self.store = store
         self.openSettings = openSettings
         self.overviewIsPresent = overviewIsPresent
+        DockWindowPreviewController.shared.openSettings = openSettings
         _ = store.widgetLifecycle
         observation = store.$state.receive(on: RunLoop.main).sink { [weak self] state in
             self?.update(state: state)
@@ -130,6 +131,7 @@ final class CustomDockWindowController {
             state.settings.showMinimizedWindows && state.settings.showWindowPreviews
         )
         DockBadgeMonitor.shared.setEnabled(state.settings.showAppBadges)
+        DockWindowPreviewController.shared.setEnabled(state.settings.showWindowPreviewsOnHover)
         guard state.settings.setupMode != .nativeOnly,
               let profileID = state.settings.activeCustomProfileID,
               let authoredProfile = state.profiles.first(where: { $0.id == profileID && $0.kind == .custom }) else {
@@ -142,6 +144,7 @@ final class CustomDockWindowController {
             store.widgetData.setVisible(false)
             DockBadgeMonitor.shared.setDockVisible(false)
             WindowAccessibilityMonitor.shared.setEnabled(false)
+            DockWindowPreviewController.shared.dismiss()
             lastPresentation = nil
             presentationVisible = false
             panel?.alphaValue = 0
@@ -160,6 +163,7 @@ final class CustomDockWindowController {
             store.widgetData.setVisible(false)
             DockBadgeMonitor.shared.setDockVisible(false)
             WindowAccessibilityMonitor.shared.setEnabled(false)
+            DockWindowPreviewController.shared.dismiss()
             lastPresentation = nil
             presentationVisible = false
             panel?.alphaValue = 0
@@ -445,6 +449,7 @@ final class CustomDockWindowController {
         store.widgetData.setVisible(false)
         DockBadgeMonitor.shared.setDockVisible(false)
         WindowAccessibilityMonitor.shared.setEnabled(false)
+        DockWindowPreviewController.shared.dismiss()
     }
 
     private func hideDockPanelForSystemDock() {
@@ -458,6 +463,7 @@ final class CustomDockWindowController {
         store.widgetData.setVisible(false)
         DockBadgeMonitor.shared.setDockVisible(false)
         WindowAccessibilityMonitor.shared.setEnabled(false)
+        DockWindowPreviewController.shared.dismiss()
     }
 
     /// H4: a style or Off/Reduce Motion change while a reveal/hide transition is running must not leave
