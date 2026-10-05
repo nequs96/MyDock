@@ -13,7 +13,7 @@ The [redesign ledger](history/REDESIGN_LEDGER_2026-10-04.md) is the per-package 
 **Verification:**
 - On the Mac, FX-08/FX-09 passed `./TestMyDock.sh` with **685 tests in 84 suites**.
 - On the Mac, the build and the 1,366-render matrix were done after FX-07.
-- FX-10 and later have CI and static-review evidence only; see [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
+- FX-10 and later have CI and static-review evidence only. At `3a0dd69`, CI passed **695 tests in 85 suites** on arm64 and Intel, and the full Xcode Release build succeeded. See [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
 
 **Open:**
 - A native rebuild, relaunch and full render matrix for FX-08 onward.

@@ -24,7 +24,7 @@ Evidence comes from two sources. **Native Mac evidence** comes from the orchestr
 | Render matrix after FX-07 (`df50ea8`) | Native Mac, 5 Oct | 17 DEBUG modes, exit 0, **1,366 PNGs** in `.build/visual-qa/redesign-20261005/final/`, reviewed by an independent visual reviewer |
 | Canonical build after FX-07 | Native Mac, 5 Oct | `./BuildMyDock.sh` exit 0. SHA-256 `3f81e5be8fd1e0dba75bea4227d2c8b541912b5b19b09835ada42f9396181a2f`. x86_64 + arm64; min macOS 13.0; SDK 26.4. Ad-hoc signature valid. |
 | Isolated launch sample after FX-07 | Native Mac, 5 Oct | 60 s, steady RSS **96.1 MB** (78 MB before the redesign), mean CPU 0.00 % at `ps` resolution, normal quit |
-| `Validate MyDock` at `3a0dd69` (FX-10, follow-ups, T2) | CI, 5 Oct | In progress when recorded; the result is added here when the run finishes |
+| `Validate MyDock` at `3a0dd69` (FX-10, follow-ups, T2) | CI, 5 Oct | **arm64 job green end to end:** `./TestMyDock.sh` **695 tests in 85 suites passed**; Python tooling 11 OK; universal release build and bundle check OK; **full Xcode Release build `BUILD SUCCEEDED` with `Metadata.appintents` present** (the first verified Xcode build). **Intel job: 695-test suite passed**; its build steps were still running when this was recorded. Run `37354111722`. |
 | Static review of `cec6394..3a0dd69` | Opus reviewer | SAFE: no compile, test or behaviour regressions found; all 37 changed files parse |
 
 **The canonical `build/MyDock.app` predates FX-08 onward.** It must be rebuilt on the Mac, and the render matrix re-run, before this baseline counts as natively verified.
@@ -42,5 +42,5 @@ Evidence comes from two sources. **Native Mac evidence** comes from the orchestr
 - **Glass blending:** whether widget glass blends with the Dock glass natively (RD-11 follow-up).
 - **Calendar with real EventKit data and colours:** all renders use DEBUG fixtures.
 - **Live provider accounts:** none were used.
-- **Release:** signing and notarization.
+- **Release:** signing and notarization. CI builds with Xcode but does not sign.
 - **Performance:** only `ps` samples so far; no Instruments-grade measurements. RSS is about 18 MB higher than before the redesign.

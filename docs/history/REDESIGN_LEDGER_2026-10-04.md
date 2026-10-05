@@ -1281,4 +1281,14 @@ On the runners every test took about 5 s, so these are timing margins, not regre
   - The Accent row explains Auto: "Neutral; colour shows when active".
   - The orchestrator made an armed alarm count as active (`d237722`).
 
-**Review.** An Opus reviewer did a static compile and behaviour review of `cec6394..HEAD` before the final CI run (see below).
+**Review.** An Opus reviewer did a static compile and behaviour review of `cec6394..3a0dd69`: SAFE, with all 37 files parsing. Its follow-ups: the Time Progress bar honours a chosen accent, and the accent comment was corrected (`3a0dd69`).
+
+**CI at `3a0dd69`** (run `37354111722`):
+- arm64: green end to end.
+  - 695 tests in 85 suites, 0 failed.
+  - Python 11 OK.
+  - Universal release build and bundle OK.
+  - Full Xcode Release build succeeded with `Metadata.appintents`.
+- Intel: the 695-test suite passed.
+
+Merged into `redesign/integration` by fast-forward.
