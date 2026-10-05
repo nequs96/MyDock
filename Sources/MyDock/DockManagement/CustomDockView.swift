@@ -868,6 +868,8 @@ struct CustomDockView: View {
                             // The shell carries its own insets and draws no card of its own.
                             WidgetPopout(store: store, item: activeItem, profileID: profile.id)
                                 .frame(minWidth: 250, minHeight: 150, alignment: .topLeading)
+                                // PX-7: lets a popout open another widget's popout here as a tab.
+                                .environment(\.widgetPopoutOpener, WidgetPopoutOpener(open: { popouts.open($0) }))
                         } else if activeItem.type == .folder, let folderURL = activeItem.url {
                             FolderContentsPopout(folderURL: folderURL, folderName: activeItem.displayName) { popouts.dismiss() }
                                 .padding(8)

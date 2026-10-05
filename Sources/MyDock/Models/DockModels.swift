@@ -285,6 +285,7 @@ struct DockItem: Codable, Identifiable, Hashable {
     static func widget(_ kind: String) -> DockItem {
         var configuration = WidgetConfiguration()
         configuration.iconAppearance = .mono
+        if kind == "System Activity" { SystemDetailSections.applyCreationDefaults(to: &configuration) }
         return DockItem(type: .widget, title: kind, widgetKind: kind, widgetConfiguration: configuration)
     }
 }
@@ -440,6 +441,10 @@ struct WidgetConfiguration: Codable, Hashable {
     var glassTint: WidgetGlassTint?
     var aiActivitySecondaryMetric: AIActivitySecondaryMetric
     var systemSecondaryMetric: SystemSecondaryMetric
+    // PX-7: related sections in the System Activity popout. Nil (saved before PX-7) shows none;
+    // new System Activity widgets start with both on (`DockItem.widget`).
+    var systemShowsNetwork: Bool?
+    var systemShowsStorage: Bool?
     var shelfFiles: [ShelfFile]
     var textSnippets: [TextSnippet]
     var quickLinks: [QuickLink]
@@ -538,6 +543,7 @@ struct WidgetConfiguration: Codable, Hashable {
         case widgetAccent, showsLabel, glassTint
         case shelfFiles, textSnippets, quickLinks, savedColors
         case cardWidth, iconStyle, checklistEntries, widgetLayout, iconAppearance, aiActivitySecondaryMetric, systemSecondaryMetric
+        case systemShowsNetwork, systemShowsStorage
         case noteText, noteBackground, focusDurationSeconds, focusElapsedBeforeStart, focusStartedAt
         case worldClockTimeZoneID, worldClockAdditionalTimeZoneIDs, stockSymbol, stockName, stockCurrency, stockRange
         case stockRefreshIntervalMinutes, stockShowsVolume, stockSnapshot, watchlistStocks, watchlistSelectedSymbol
@@ -679,6 +685,8 @@ struct WidgetConfiguration: Codable, Hashable {
         }
         aiActivitySecondaryMetric = try values.decodeIfPresent(AIActivitySecondaryMetric.self, forKey: .aiActivitySecondaryMetric) ?? .sessions
         systemSecondaryMetric = try values.decodeIfPresent(SystemSecondaryMetric.self, forKey: .systemSecondaryMetric) ?? .memory
+        systemShowsNetwork = try? values.decodeIfPresent(Bool.self, forKey: .systemShowsNetwork)
+        systemShowsStorage = try? values.decodeIfPresent(Bool.self, forKey: .systemShowsStorage)
         shelfFiles = try values.decodeIfPresent([ShelfFile].self, forKey: .shelfFiles) ?? []
         textSnippets = try values.decodeIfPresent([TextSnippet].self, forKey: .textSnippets) ?? []
         quickLinks = try values.decodeIfPresent([QuickLink].self, forKey: .quickLinks) ?? []
