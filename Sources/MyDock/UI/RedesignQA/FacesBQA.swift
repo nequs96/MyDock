@@ -54,16 +54,30 @@ enum FacesBQA {
                 }, productBreakdown: [.init(name: "Notebook", units: 12, orders: 8)], trafficBreakdown: [.init(name: "Direct", units: 0, orders: 20)],
                 productBreakdownIncompleteOrders: state == .stale ? 1 : 0, trafficAttributedOrders: 20)
         case "AI Limits":
-            c.aiLimitsVisibleProviders = [.copilot]
+            c.aiLimitsVisibleProviders = [.copilot, .geminiCLI]
             c.aiLimitsCompactProvider = .copilot
             c.aiLimitsSnapshot = AILimitsSnapshot(fetchedAt: date, readings: [AIProviderLimitReading(provider: .copilot,
                 availability: state == .unavailable ? .unavailable : .available, plan: "Pro",
                 windows: state == .unavailable ? [] : [AILimitWindow(name: "Monthly credits", usedPercent: state == .stale ? 96 : 28,
                     resetsAt: now.addingTimeInterval(86_400), durationMinutes: 43_200)], updatedAt: date,
                 message: state == .unavailable ? "No supported local reading is available." : nil,
-                lastRefreshError: state == .stale ? "Example temporary connection failure" : nil)])
+                lastRefreshError: state == .stale ? "Example temporary connection failure" : nil),
+                AIProviderLimitReading(provider: .geminiCLI, availability: .available,
+                    windows: [.init(name: "Daily", usedPercent: 15, durationMinutes: 1440)], updatedAt: date)])
         case "AI Activity":
             c = AIActivityPreviewData.item().widgetConfiguration!
+            if var activity = c.aiActivitySnapshot {
+                let total: Int64 = 643_900_000
+                let original = max(1, activity.totals.totalTokens)
+                for index in activity.points.indices {
+                    activity.points[index].totalTokens = activity.points[index].totalTokens * total / original
+                }
+                if !activity.points.isEmpty {
+                    activity.points[activity.points.count - 1].totalTokens += total - activity.points.map(\.totalTokens).reduce(0, +)
+                }
+                activity.totals.totalTokens = total
+                c.aiActivitySnapshot = activity
+            }
             c.aiActivitySnapshot?.fetchedAt = date
             c.aiActivitySnapshot?.available = state != .unavailable
             c.aiActivitySnapshot?.partial = state == .stale
@@ -88,7 +102,9 @@ enum FacesBQA {
     static func network(_ state: State) -> FacesBNetworkReadings {
         guard state == .ready || state == .stale else { return FacesBNetworkReadings() }
         return FacesBNetworkReadings(interfaces: [.init(name: "en0", receivedBytesPerSecond: 2_400_000,
-            sentBytesPerSecond: 148_000, addresses: ["192.0.2.10"])], updatedAt: state == .stale ? now.addingTimeInterval(-86_400) : now,
+            sentBytesPerSecond: 148_000, addresses: ["192.0.2.10", "fe80::123%en0"]),
+            .init(name: "awdl0", receivedBytesPerSecond: 0, sentBytesPerSecond: 0, addresses: ["fe80::456%awdl0"]),
+            .init(name: "utun4", receivedBytesPerSecond: 0, sentBytesPerSecond: 0, addresses: [])], updatedAt: state == .stale ? now.addingTimeInterval(-86_400) : now,
             downloadHistory: [1, 4, 3, 8, 5, 4, 7, 6], uploadHistory: [1, 2, 1, 3, 2, 4, 2, 3],
             hasCompletedRateSample: true, aggregateDownloadRate: 2_400_000, aggregateUploadRate: 148_000)
     }
@@ -167,16 +183,18 @@ extension PremiumVisualQA {
                 for state in FacesBQA.State.allCases {
                     let item = FacesBQA.item(kind, state: state)
                     store.add(item, to: profileID)
-                    try await render(FacesBQAPopout(store: store, item: item, profileID: profileID)
+                    let naturalSize = facesBPopoutSize(store: store, item: item, profileID: profileID, state: state, scheme: scheme, fullContentForQA: true)
+                    let inspectionSize = facesBPopoutSize(store: store, item: item, profileID: profileID, state: state, scheme: scheme, fullContentForQA: true)
+                    try await render(FacesBQAPopout(store: store, item: item, profileID: profileID, fullContentForQA: true)
                         .environment(\.facesBSystemReadings, FacesBQA.system(state))
                         .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
                         name: "facesb-popout-\(slug(kind))-\(state.rawValue)-\(suffix)",
-                        size: NSSize(width: 510, height: 640), scheme: scheme, directory: directory)
+                        size: naturalSize, scheme: scheme, directory: directory)
                     try await render(FacesBQAPopout(store: store, item: item, profileID: profileID, fullContentForQA: true)
                         .environment(\.facesBSystemReadings, FacesBQA.system(state))
                         .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
                         name: "facesb-popout-content-\(slug(kind))-\(state.rawValue)-\(suffix)",
-                        size: NSSize(width: 510, height: 1500), scheme: scheme, directory: directory)
+                        size: inspectionSize, scheme: scheme, directory: directory)
                     // Default-height shipping sheet, plus a taller export to inspect all embedded content.
                     try await render(WidgetConfigurationSheet(store: store, item: item, profileID: profileID)
                         .environment(\.facesBSystemReadings, FacesBQA.system(state))
@@ -190,11 +208,11 @@ extension PremiumVisualQA {
                         size: NSSize(width: 504, height: 1800), scheme: scheme, directory: directory)
                     if state == .ready {
                         for mode in ["reduce-transparency", "increase-contrast"] {
-                            try await render(FacesBQAPopout(store: store, item: item, profileID: profileID)
+                            try await render(FacesBQAPopout(store: store, item: item, profileID: profileID, fullContentForQA: true)
                                 .environment(\.facesBSystemReadings, FacesBQA.system(state))
                                 .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
                                 name: "facesb-popout-\(slug(kind))-\(mode)-\(suffix)",
-                                size: NSSize(width: 510, height: 640), scheme: scheme, directory: directory,
+                                size: naturalSize, scheme: scheme, directory: directory,
                                 contrast: mode == "increase-contrast" ? .increased : .standard,
                                 reduceTransparency: mode == "reduce-transparency")
                             try await render(WidgetConfigurationSheet(store: store, item: item, profileID: profileID)
@@ -210,6 +228,25 @@ extension PremiumVisualQA {
             }
         }
         try matrix.validate(registry: WidgetRegistry.all.filter { FacesBQA.families.contains($0.name) })
+    }
+    private static func facesBPopoutSize(store: ProfileStore, item: DockItem, profileID: UUID, state: FacesBQA.State,
+                                         scheme: ColorScheme, fullContentForQA: Bool = false) -> NSSize {
+        let host = NSHostingView(rootView: WidgetPopout(store: store, item: item, profileID: profileID)
+            .environment(\.facesBSystemReadings, FacesBQA.system(state))
+            .environment(\.facesBNetworkReadings, FacesBQA.network(state))
+            .environment(\.dockSnapshotRendering, true).environment(\.colorScheme, scheme))
+        let content = host.fittingSize
+        // render() uses a titled NSWindow. Its safe area sits inside the exported bitmap;
+        // include that measured inset so the final Settings row and shell padding remain visible.
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: content),
+                              styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        window.titlebarAppearsTransparent = true
+        window.toolbarStyle = .unifiedCompact
+        window.isReleasedWhenClosed = false
+        let safeAreaHeight = window.frame.height - window.contentLayoutRect.height
+        window.close()
+        let maximum = FacesBQAPopout(store: store, item: item, profileID: profileID, fullContentForQA: fullContentForQA).maximumHeight
+        return NSSize(width: ceil(content.width), height: min(maximum, max(150, ceil(content.height + safeAreaHeight))))
     }
     private static func slug(_ kind: String) -> String { kind.lowercased().replacingOccurrences(of: " ", with: "-") }
 }
@@ -237,6 +274,7 @@ private struct FacesBQAGroup<Content: View>: View {
     }
 }
 /// The shipping single-widget popover host, including its scroll view and current outer chrome.
+/// Matrix captures lift only its display-height cap to inspect the entire natural-height content.
 /// Changes to CustomDockView's host must be reflected here by the shell owner.
 private struct FacesBQAPopout: View {
     var store: ProfileStore
@@ -244,7 +282,7 @@ private struct FacesBQAPopout: View {
     var profileID: UUID
     /// Inspection export only; the default uses CustomDockView's screen-dependent scroll cap.
     var fullContentForQA = false
-    private var maximumHeight: CGFloat {
+    var maximumHeight: CGFloat {
         if fullContentForQA { return 1500 }
         let selectedDisplayID = store.effectiveSettings(profileID: profileID).customDockDisplayID
         let screen = NSScreen.screens.first { screen in
@@ -263,7 +301,8 @@ private struct FacesBQAPopout: View {
             }
         }
         .modifier(DockPopoutAppearEffect(anchor: .bottom, progress: 1))
-        .padding(20)
+        .modifier(WidgetPopoverSurface())
+        // NSWindow bitmap exports need the native popover's backing colour; the real shell remains inside.
         .background(WidgetDesign.surface)
         .frame(minWidth: 250, minHeight: 150, maxHeight: maximumHeight, alignment: .topLeading)
         .id(item.id)

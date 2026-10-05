@@ -32,6 +32,13 @@ struct WatchlistCompactView: View {
 }
 
 enum StockFaceFormatting {
+    static func percentText(_ percent: Double, locale: Locale = .current) -> String {
+        (percent / 100).formatted(.percent.precision(.fractionLength(2)).sign(strategy: .always()).locale(locale))
+    }
+    static func changeText(_ change: Double, percent: Double, locale: Locale = .current) -> String {
+        change.formatted(.number.precision(.fractionLength(2)).sign(strategy: .always()).locale(locale))
+            + " (" + percentText(percent, locale: locale) + ")"
+    }
     static func changeColor(_ change: Double?) -> Color {
         guard let change, change.isFinite, change < 0 else { return .secondary }
         return WidgetPalette.critical
@@ -61,6 +68,8 @@ private struct StockPopoutView: View {
     #else
     private var snapshotRendering: Bool { false }
     #endif
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
+    @State private var showsSettings = false
     @State private var searchText = ""
     @State private var searchResults: [MarketSymbol] = []
     @State private var isSearching = false
@@ -80,19 +89,21 @@ private struct StockPopoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if configuration.stockSymbol.isEmpty {
-                WidgetPopoutHero(value: "Choose a ticker", caption: "Search by ticker or company name.")
-            } else {
-                chartContent
-                GroupedSection {
-                    GroupedRow("Yahoo Finance", role: .button) { openFinance(configuration.stockSymbol) }
+            if showsHero {
+                if configuration.stockSymbol.isEmpty {
+                    WidgetPopoutHero(value: "Choose a ticker", caption: "Search by ticker or company name.")
+                } else {
+                    chartContent
+                    GroupedSection {
+                        GroupedRow("Open on Yahoo Finance", role: .button, symbol: "arrow.up.right") { openFinance(configuration.stockSymbol) }
+                    }
                 }
             }
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            controls
+            if configuration.stockSymbol.isEmpty { controls } else { WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) { controls } }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .task(id: "\(configuration.stockSymbol)|\(configuration.stockCurrency)|\(configuration.stockRefreshIntervalMinutes)") {
@@ -161,7 +172,7 @@ private struct StockPopoutView: View {
                     Text(latest.close.formatted(.currency(code: snapshot.currency)))
                         .font(DockDesign.Module.valueLarge)
                     if let change = snapshot.change, let percent = snapshot.changePercent {
-                        Text("\(change >= 0 ? "+" : "")\(change.formatted(.number.precision(.fractionLength(2)))) (\(String(format: "%+.2f%%", percent)))")
+                        Text(StockFaceFormatting.changeText(change, percent: percent))
                             .font(DockDesign.Grouped.subtitleFont.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
                     }
                 }
@@ -189,7 +200,7 @@ private struct StockPopoutView: View {
     }
 
     private var controls: some View {
-        GroupedSection("Settings", footer: "End-of-day quotes from Alpha Vantage.") {
+        GroupedSection(footer: "End-of-day quotes from Alpha Vantage.") {
             GroupedRow("Search") {
                 HStack(spacing: 8) {
                     TextField("Ticker or company", text: $searchText).textFieldStyle(.plain)
@@ -300,6 +311,8 @@ private struct WatchlistPopoutView: View {
     #else
     private var snapshotRendering: Bool { false }
     #endif
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
+    @State private var showsSettings = false
     @State private var searchText = ""
     @State private var searchResults: [MarketSymbol] = []
     @State private var isSearching = false
@@ -320,17 +333,19 @@ private struct WatchlistPopoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if configuration.watchlistStocks.isEmpty {
-                WidgetPopoutHero(value: "Your watchlist is empty", caption: "Search for a ticker to add it.")
-            } else {
-                watchlistTabs
-                if let selected { selectedChart(selected) }
+            if showsHero {
+                if configuration.watchlistStocks.isEmpty {
+                    WidgetPopoutHero(value: "Your watchlist is empty", caption: "Search for a ticker to add it.")
+                } else {
+                    if let selected { selectedChart(selected) }
+                    watchlistTabs
+                }
             }
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            controls
+            if configuration.watchlistStocks.isEmpty { controls } else { WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) { controls } }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .task(id: "\(configuration.watchlistSelectedSymbol)|\(selected?.currency ?? "")|\(interval)") {
@@ -426,27 +441,14 @@ private struct WatchlistPopoutView: View {
 
     @ViewBuilder private func selectedChart(_ stock: WatchlistStock) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 8) {
-                TextField("Display name", text: displayNameBinding(for: stock))
-                    .font(.subheadline.weight(.semibold)).textFieldStyle(.plain)
-                    .accessibilityLabel("Display name for \(stock.symbol)")
-                Text(stock.symbol).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                Button { move(stock.symbol, by: -1) } label: { Image(systemName: "arrow.left") }
-                    .buttonStyle(.plain).disabled(configuration.watchlistStocks.first?.symbol == stock.symbol)
-                    .help("Move \(stock.symbol) earlier")
-                Button { move(stock.symbol, by: 1) } label: { Image(systemName: "arrow.right") }
-                    .buttonStyle(.plain).disabled(configuration.watchlistStocks.last?.symbol == stock.symbol)
-                    .help("Move \(stock.symbol) later")
-                Button("Open on Yahoo Finance", systemImage: "arrow.up.right.square") { openFinance(stock.symbol) }
-                    .labelStyle(.iconOnly).help("Open \(stock.symbol) on Yahoo Finance")
-            }
+            Text(stock.symbol + " · " + stock.displayName)
+                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
             if let snapshot = stock.snapshot, let latest = snapshot.latest {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(latest.close.formatted(.currency(code: snapshot.currency))).font(DockDesign.Module.valueLarge)
                         if let change = snapshot.changePercent {
-                            Text(String(format: "%+.2f%%", change)).font(DockDesign.Grouped.subtitleFont.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
+                            Text(StockFaceFormatting.percentText(change)).font(DockDesign.Grouped.subtitleFont.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
                         }
                         Spacer()
                     }
@@ -465,11 +467,14 @@ private struct WatchlistPopoutView: View {
                 Label("No saved quote for \(stock.symbol)", systemImage: "chart.xyaxis.line")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 75)
             }
+            GroupedSection {
+                GroupedRow("Open on Yahoo Finance", role: .button, symbol: "arrow.up.right") { openFinance(stock.symbol) }
+            }
         }
     }
 
     private var controls: some View {
-        GroupedSection("Settings", footer: "End-of-day quotes from Alpha Vantage.") {
+        GroupedSection(footer: "End-of-day quotes from Alpha Vantage.") {
             GroupedRow("Search") {
                 HStack(spacing: 8) {
                     TextField("Ticker or company", text: $searchText).textFieldStyle(.plain)
@@ -481,6 +486,13 @@ private struct WatchlistPopoutView: View {
                     .buttonStyle(.borderless)
                     .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
                     .help("Search market symbols").accessibilityLabel("Search market symbols")
+                }
+            }
+            if let selected {
+                GroupedRow("Display name", subtitle: selected.symbol) {
+                    TextField("Display name", text: displayNameBinding(for: selected))
+                        .textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                        .accessibilityLabel("Display name for \(selected.symbol)")
                 }
             }
             if !searchResults.isEmpty { searchResultsList }

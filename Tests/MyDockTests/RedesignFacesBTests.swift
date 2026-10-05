@@ -62,6 +62,80 @@ struct RedesignFacesBTests {
         #expect(AIFacePresentation.activityValue(snapshot: nil) == "Set up")
     }
 
+    @Test func limitHeroUsesPrimaryUntilWarningAndOnlyDockProvider() throws {
+        for value in [Int?.none, 0, 28, 89] { #expect(AIFacePresentation.limitHeroColor(usedPercent: value) == Color.primary) }
+        #expect(AIFacePresentation.limitHeroColor(usedPercent: 90) == WidgetPalette.warning)
+        #expect(AIFacePresentation.limitHeroColor(usedPercent: 100) == WidgetPalette.critical)
+        var c = WidgetConfiguration()
+        c.aiLimitsVisibleProviders = [.claude, .copilot]
+        c.aiLimitsCompactProvider = .copilot
+        c.aiLimitsSnapshot = AILimitsSnapshot(fetchedAt: .now, readings: [
+            AIProviderLimitReading(provider: .claude, availability: .available, windows: [.init(name: "Session", usedPercent: 90)]),
+            AIProviderLimitReading(provider: .copilot, availability: .available, windows: [.init(name: "Monthly credits", usedPercent: 28)])
+        ])
+        #expect(AIFacePresentation.primaryReading(configuration: c)?.provider == .copilot)
+        c.aiLimitsSnapshot?.readings.removeAll { $0.provider == .copilot }
+        #expect(AIFacePresentation.primaryReading(configuration: c) == nil)
+        c.aiLimitsVisibleProviders = [.claude]
+        #expect(AIFacePresentation.primaryReading(configuration: c)?.provider == .claude)
+    }
+    @Test func narrowActivityCandidateRoundsWithoutDecimalsAndKeepsPartialMarker() throws {
+        var snapshot = try #require(AIActivityPreviewData.item().widgetConfiguration?.aiActivitySnapshot)
+        snapshot.totals.totalTokens = 643_900_000
+        #expect(AIFacePresentation.narrowActivityValue(snapshot: snapshot, locale: Locale(identifier: "pl_PL")) == "644M")
+        snapshot.partial = true
+        snapshot.estimated = false
+        #expect(AIFacePresentation.narrowActivityValue(snapshot: snapshot) == "644M+")
+        snapshot.estimated = true
+        #expect(AIFacePresentation.narrowActivityValue(snapshot: snapshot) == "644M")
+        snapshot.totals.totalTokens = 999
+        #expect(AIFacePresentation.narrowActivityValue(snapshot: snapshot) == "999")
+        #expect(AIFacePresentation.narrowActivityValue(snapshot: nil) == "Set up")
+    }
+    @Test func networkFiltersIdleLinkLocalInterfacesWithoutLosingTraffic() {
+        let interfaces: [NetworkInterfaceRate] = [
+            .init(name: "en0", receivedBytesPerSecond: 0, sentBytesPerSecond: 0, addresses: ["192.168.1.2", "fe80::1%en0"]),
+            .init(name: "utun0", receivedBytesPerSecond: 1, sentBytesPerSecond: nil, addresses: ["fe80::2"]),
+            .init(name: "awdl0", receivedBytesPerSecond: 0, sentBytesPerSecond: 0, addresses: ["fe80::3"]),
+            .init(name: "bridge0", receivedBytesPerSecond: nil, sentBytesPerSecond: nil, addresses: []),
+            .init(name: "en1", receivedBytesPerSecond: nil, sentBytesPerSecond: nil, addresses: ["2001:db8::1"])
+        ]
+        #expect(NetworkInterfacePresentation.active(interfaces).map(\.name) == ["en0", "utun0", "en1"])
+        #expect(NetworkInterfacePresentation.other(interfaces).map(\.name) == ["awdl0", "bridge0"])
+        #expect(NetworkInterfacePresentation.addresses(interfaces[0].addresses) == ["192.168.1.2"])
+        #expect(NetworkInterfacePresentation.addresses(interfaces[1].addresses).isEmpty)
+        #expect(NetworkInterfacePresentation.active([]).isEmpty)
+    }
+    @Test func networkAddressFilterCoversLinkLocalRangesAndInvalidAddresses() {
+        for address in ["fe80::1", "FE80::2%en0", "febf::1", "169.254.1.2", "127.0.0.1", "::1", "::", "0.0.0.0", "ff02::1", "::ffff:169.254.1.2", "invalid"] {
+            #expect(!NetworkInterfacePresentation.isRoutable(address), "\(address)")
+        }
+        for address in ["10.0.0.1", "192.0.2.1", "2001:db8::1", "fd12::1", "::ffff:192.0.2.1"] {
+            #expect(NetworkInterfacePresentation.isRoutable(address), "\(address)")
+        }
+    }
+    @Test func changeAndSystemFormattersRespectLocale() {
+        let polish = Locale(identifier: "pl_PL")
+        let english = Locale(identifier: "en_US")
+        #expect(StockFaceFormatting.percentText(1.25, locale: polish).contains("+1,25"))
+        #expect(StockFaceFormatting.percentText(-1.25, locale: english) == "-1.25%")
+        #expect(StockFaceFormatting.changeText(2.5, percent: 1.25, locale: polish).contains("+2,50"))
+        #expect(StockFaceFormatting.percentText(0, locale: english) == "+0.00%")
+        let load = SystemLoadAverage(oneMinute: 2.4, fiveMinutes: 1.9, fifteenMinutes: 1.4)
+        #expect(SystemActivityFormatting.load(load, locale: polish) == "2,40 · 1,90 · 1,40")
+        #expect(SystemActivityFormatting.load(load, locale: english) == "2.40 · 1.90 · 1.40")
+        #expect(SystemActivityFormatting.bytes(1_500_000_000, locale: polish).contains("1,5"))
+        #expect(SystemActivityFormatting.bytes(1_500_000_000, locale: english).contains("1.5"))
+    }
+    @Test func businessSetupHasOneAccountFieldAndNoUnconnectedSettings() {
+        for policy in [StripeSetupPresentation.showsSettings, PaddleSetupPresentation.showsSettings, ShopifySetupPresentation.showsSettings] {
+            #expect(!policy("", false))
+            #expect(policy("connected-id", false))
+            #expect(policy("", true))
+            #expect(policy("connected-id", true))
+        }
+    }
+
     #if DEBUG
     @Test func businessPeriodTokensStayCompact() {
         #expect(StripePeriod.allCases.map(\.faceToken) == ["Today", "7d", "30d", "90d"])

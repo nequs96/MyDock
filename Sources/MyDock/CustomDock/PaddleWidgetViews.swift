@@ -36,6 +36,8 @@ private struct PaddlePopoutView: View {
     @ObservedObject private var setupDrafts = WidgetSetupDraftStore.shared
     @State private var connections: [PaddleConnectedAccount] = []
     @State private var isConnecting = false
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
+    @State private var showsSettings = false
     @State private var isRefreshing = false
     @State private var refreshRequestID = UUID()
     @State private var isDisconnectConfirmationPresented = false
@@ -47,20 +49,27 @@ private struct PaddlePopoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let snapshot {
-                WidgetPopoutHero(value: PaddleMetricFormatter.text(for: configuration.paddleMetric, snapshot: snapshot),
-                    caption: "\(configuration.paddleMetric.title) · \(configuration.paddleMetric.popoutUnit(currency: snapshot.currency)) · \(snapshot.period.title)")
-                if configuration.paddleShowsChart { metricChart(snapshot) }
-            } else {
-                WidgetPopoutHero(value: configuration.paddleAccountID.isEmpty ? "Connect Paddle" : "No data",
-                    caption: "Paddle Billing · Metrics read access")
+            if showsHero {
+                if let snapshot {
+                    WidgetPopoutHero(
+                        value: PaddleMetricFormatter.text(for: configuration.paddleMetric, snapshot: snapshot),
+                        caption: "\(configuration.paddleMetric.title) · \(configuration.paddleMetric.popoutUnit(currency: snapshot.currency)) · \(snapshot.period.title)")
+                    if configuration.paddleShowsChart { metricChart(snapshot) }
+                } else {
+                    WidgetPopoutHero(
+                        value: configuration.paddleAccountID.isEmpty ? "Connect Paddle" : "No data",
+                        caption: "Paddle Billing · Metrics read access")
+                }
             }
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            if snapshot == nil { connectionControls }
-            controls
+            if !PaddleSetupPresentation.showsSettings(accountID: configuration.paddleAccountID, hasSavedReading: snapshot != nil) {
+                connectionControls
+            } else {
+                WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) { controls }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: "\(configuration.paddleAccountID)|\(configuration.paddlePeriod.rawValue)|\(configuration.paddleDisplayName)") {
@@ -68,20 +77,22 @@ private struct PaddlePopoutView: View {
             await refresh()
         }
         .onAppear(perform: reloadConnections)
-        .confirmationDialog("Disconnect \(configuration.paddleDisplayName)?",
-                            isPresented: $isDisconnectConfirmationPresented,
-                            titleVisibility: .visible) {
+        .confirmationDialog(
+            "Disconnect \(configuration.paddleDisplayName)?",
+            isPresented: $isDisconnectConfirmationPresented,
+            titleVisibility: .visible
+        ) {
             Button("Disconnect and Remove Key", role: .destructive) { disconnect() }
-            Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes the Paddle API key from this Mac's Keychain and disconnects every MyDock widget using it. It does not revoke the key in Paddle.")
         }
     }
 
-    private var controls: some View {
-        GroupedSection("Settings", footer: provenanceFooter) {
+    @ViewBuilder private var controls: some View {
+        GroupedSection(footer: provenanceFooter) {
             GroupedRow("Account name", symbol: "pencil") {
-                TextField("Account name", text: accountNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                TextField("Account name", text: configuration.paddleAccountID.isEmpty ? connectionAccountNameBinding : accountNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
             }
             GroupedRow("Account") {
                 Picker("Account", selection: accountBinding) {
@@ -104,13 +115,10 @@ private struct PaddlePopoutView: View {
             }
 
             GroupedRow("Show chart", symbol: "chart.xyaxis.line", isOn: chartBinding)
-            if snapshot != nil {
-                DisclosureGroup("Connection") { connectionControls }
-                    .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
-                    .padding(.vertical, DockDesign.Grouped.rowVerticalPadding)
-            }
+
         }
         .help(metricExplanation)
+        connectionControls
     }
 
     private var provenanceFooter: String { "Paddle reports its balance currency by UTC day." }
@@ -119,26 +127,30 @@ private struct PaddlePopoutView: View {
     private var connectionControls: some View {
         VStack(alignment: .leading, spacing: 7) {
             GroupedSection("Connection") {
-                GroupedRow("Account name") {
-                    TextField("Account name", text: connectionAccountNameBinding).textFieldStyle(.plain)
-                        .disabled(isConnecting)
-                }
-
-                GroupedRow("API key") {
-                    SecureField("Paddle Billing API key", text: apiKeyBinding).textFieldStyle(.plain)
-                        .disabled(isConnecting)
-                }
-                GroupedRow("Connect", role: .button) { Task { await connect() } }
-                    .disabled(isConnecting || setupDraft.accountName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || setupDraft.apiKey.isEmpty)
-                if isConnecting { GroupedRow("Connecting…") { ProgressView().controlSize(.small) } }
-                GroupedRow("Clear Draft", role: .button) { setupDrafts.clearDrafts(for: item.id) }
-                    .disabled(isConnecting || setupDraft.isPristine)
                 if !configuration.paddleAccountID.isEmpty {
                     GroupedRow("Disconnect", role: .destructive) { isDisconnectConfirmationPresented = true }
+                } else {
+                    if !PaddleSetupPresentation.showsSettings(accountID: configuration.paddleAccountID, hasSavedReading: snapshot != nil) {
+                        GroupedRow("Account name") {
+                            TextField("Account name", text: connectionAccountNameBinding).textFieldStyle(.plain)
+                                .disabled(isConnecting)
+                        }
+                    }
+                    GroupedRow("API key") {
+                        SecureField("Paddle Billing API key", text: apiKeyBinding).textFieldStyle(.plain)
+                            .disabled(isConnecting)
+                    }
+                    GroupedRow("Connect", role: .button) { Task { await connect() } }
+                        .disabled(isConnecting || setupDraft.accountName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || setupDraft.apiKey.isEmpty)
+                    if isConnecting { GroupedRow("Connecting…") { ProgressView().controlSize(.small) } }
+                    GroupedRow("Clear Draft", role: .button) { setupDrafts.clearDrafts(for: item.id) }
+                        .disabled(isConnecting || setupDraft.isPristine)
                 }
             }
         }
-        .help("Grant only Metrics → Read (metrics.read). Live and sandbox keys use their matching API environment. An unfinished form stays in memory for this widget until connected or cleared; its key is never written to profile data or backups." )
+        .help(
+            "Grant only Metrics → Read (metrics.read). Live and sandbox keys use their matching API environment. An unfinished form stays in memory for this widget until connected or cleared; its key is never written to profile data or backups."
+        )
     }
 
     private var connectionAccountNameBinding: Binding<String> {
@@ -328,4 +340,10 @@ enum PaddleChartAccessibility {
 
 extension PaddleMetric {
     func popoutUnit(currency: String) -> String { self == .activeSubscribers ? "customers" : currency }
+}
+
+enum PaddleSetupPresentation {
+    static func showsSettings(accountID: String, hasSavedReading: Bool) -> Bool {
+        !accountID.isEmpty || hasSavedReading
+    }
 }

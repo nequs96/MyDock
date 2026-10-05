@@ -35,6 +35,8 @@ private struct StripePopoutView: View {
     private var snapshotRendering: Bool { false }
     #endif
     @ObservedObject private var setupDrafts = WidgetSetupDraftStore.shared
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
+    @State private var showsSettings = false
     @State private var isRefreshing = false
     @State private var refreshRequestID = UUID()
     @State private var isConnecting = false
@@ -49,24 +51,33 @@ private struct StripePopoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let currencyMetrics {
-                WidgetPopoutHero(value: StripeMetricFormatter.text(for: configuration.stripeMetric, values: currencyMetrics),
-                    caption: "\(configuration.stripeMetric.title) · \(configuration.stripeMetric.popoutUnit(currency: configuration.stripeCurrency)) · \(snapshot?.period.title ?? configuration.stripePeriod.title)")
-            } else {
-                WidgetPopoutHero(value: snapshot == nil ? "Connect Stripe" : "No currency data",
-                    caption: snapshot == nil ? "Use a restricted, read-only key." : "Choose a currency reported by this account.")
-            }
-            if let count = snapshot?.unsupportedSubscriptionItems, count > 0 {
-                GroupedSection {
-                    GroupedRow("Subscription estimate", subtitle: "\(count) complex items excluded", symbol: "info.circle")
+            if showsHero {
+                if let currencyMetrics {
+                    WidgetPopoutHero(
+                        value: StripeMetricFormatter.text(for: configuration.stripeMetric, values: currencyMetrics),
+                        caption:
+                            "\(configuration.stripeMetric.title) · \(configuration.stripeMetric.popoutUnit(currency: configuration.stripeCurrency)) · \(snapshot?.period.title ?? configuration.stripePeriod.title)"
+                    )
+                } else {
+                    WidgetPopoutHero(
+                        value: snapshot == nil ? (configuration.stripeAccountID.isEmpty ? "Connect Stripe" : "No data") : "No currency data",
+                        caption: snapshot == nil && configuration.stripeAccountID.isEmpty ? "Use a restricted, read-only key." : "Choose a currency reported by this account.")
+                }
+                if let count = snapshot?.unsupportedSubscriptionItems, count > 0 {
+                    GroupedSection {
+                        GroupedRow("Subscription estimate", subtitle: "\(count) complex items excluded", symbol: "info.circle")
+                    }
                 }
             }
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            if snapshot == nil { connectionControls }
-            controls
+            if !StripeSetupPresentation.showsSettings(accountID: configuration.stripeAccountID, hasSavedReading: snapshot != nil) {
+                connectionControls
+            } else {
+                WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) { controls }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: "\(configuration.stripeAccountID)|\(configuration.stripePeriod.rawValue)|\(configuration.stripeDisplayName)") {
@@ -74,20 +85,22 @@ private struct StripePopoutView: View {
             await refresh()
         }
         .onAppear(perform: reloadConnections)
-        .confirmationDialog("Disconnect \(configuration.stripeDisplayName)?",
-                            isPresented: $showingDisconnectConfirmation,
-                            titleVisibility: .visible) {
+        .confirmationDialog(
+            "Disconnect \(configuration.stripeDisplayName)?",
+            isPresented: $showingDisconnectConfirmation,
+            titleVisibility: .visible
+        ) {
             Button("Disconnect and Remove Key", role: .destructive) { disconnect() }
-            Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes the restricted key from this Mac's Keychain and disconnects every MyDock widget using it. It does not revoke the key in Stripe.")
         }
     }
 
-    private var controls: some View {
-        GroupedSection("Settings", footer: provenanceFooter) {
+    @ViewBuilder private var controls: some View {
+        GroupedSection(footer: provenanceFooter) {
             GroupedRow("Account name", symbol: "pencil") {
-                TextField("Account name", text: displayNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                TextField("Account name", text: configuration.stripeAccountID.isEmpty ? connectionNameBinding : displayNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
             }
             GroupedRow("Metric") {
                 Picker("Metric", selection: metricBinding) {
@@ -119,14 +132,9 @@ private struct StripePopoutView: View {
                 .labelsHidden()
                 .disabled([.revenue, .netAfterFees].contains(configuration.stripeMetric) == false)
             }
-
-            if snapshot != nil {
-                DisclosureGroup("Connection") { connectionControls }
-                    .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
-                    .padding(.vertical, DockDesign.Grouped.rowVerticalPadding)
-            }
         }
         .help(metricExplanation)
+        connectionControls
     }
 
     private var provenanceFooter: String { "Stripe reports each currency without conversion." }
@@ -135,31 +143,36 @@ private struct StripePopoutView: View {
     private var connectionControls: some View {
         VStack(alignment: .leading, spacing: 7) {
             GroupedSection("Connection") {
-                GroupedRow("Account name") {
-                    TextField("Account name", text: connectionNameBinding)
-                        .textFieldStyle(.plain)
-                        .disabled(isConnecting)
-                }
-
-                GroupedRow("Restricted key") {
-                    SecureField("Restricted key (rk_live_… or rk_test_…)", text: restrictedKeyBinding)
-                        .textFieldStyle(.plain)
-                        .disabled(isConnecting)
-                }
-                GroupedRow("Connect", role: .button) { Task { await connect() } }
-                    .disabled(isConnecting || setupDraft.accountName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || setupDraft.restrictedKey.isEmpty)
-                if isConnecting { GroupedRow("Connecting…") { ProgressView().controlSize(.small) } }
-                GroupedRow("Clear Draft", role: .button) { setupDrafts.clearDrafts(for: item.id) }
-                    .disabled(isConnecting || setupDraft.isPristine)
                 if !configuration.stripeAccountID.isEmpty {
                     GroupedRow("Disconnect", role: .destructive) { showingDisconnectConfirmation = true }
-                }
-                if let url = URL(string: "https://docs.stripe.com/keys#limit-access") {
-                    GroupedRow("Permissions") { Link("Key permissions", destination: url) }
+                } else {
+                    if !StripeSetupPresentation.showsSettings(accountID: configuration.stripeAccountID, hasSavedReading: snapshot != nil) {
+                        GroupedRow("Account name") {
+                            TextField("Account name", text: connectionNameBinding)
+                                .textFieldStyle(.plain)
+                                .disabled(isConnecting)
+                        }
+                    }
+                    GroupedRow("Restricted key") {
+                        SecureField("Restricted key (rk_live_… or rk_test_…)", text: restrictedKeyBinding)
+                            .textFieldStyle(.plain)
+                            .disabled(isConnecting)
+                    }
+                    GroupedRow("Connect", role: .button) { Task { await connect() } }
+                        .disabled(isConnecting || setupDraft.accountName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || setupDraft.restrictedKey.isEmpty)
+                    if isConnecting { GroupedRow("Connecting…") { ProgressView().controlSize(.small) } }
+                    GroupedRow("Clear Draft", role: .button) { setupDrafts.clearDrafts(for: item.id) }
+                        .disabled(isConnecting || setupDraft.isPristine)
+
+                    if let url = URL(string: "https://docs.stripe.com/keys#limit-access") {
+                        GroupedRow("Permissions") { Link("Key permissions", destination: url) }
+                    }
                 }
             }
         }
-        .help("Grant read-only Account, Balance, Balance Transactions, and Subscriptions access. MyDock never requests write access. An unfinished form stays in memory for this widget until connected or cleared; its key is never written to profile data or backups." )
+        .help(
+            "Grant read-only Account, Balance, Balance Transactions, and Subscriptions access. MyDock never requests write access. An unfinished form stays in memory for this widget until connected or cleared; its key is never written to profile data or backups."
+        )
     }
 
     private var connectionNameBinding: Binding<String> {
@@ -374,4 +387,10 @@ extension StripePeriod {
 
 extension StripeMetric {
     func popoutUnit(currency: String) -> String { self == .payingSubscribers ? "subscribers" : currency }
+}
+
+enum StripeSetupPresentation {
+    static func showsSettings(accountID: String, hasSavedReading: Bool) -> Bool {
+        !accountID.isEmpty || hasSavedReading
+    }
 }

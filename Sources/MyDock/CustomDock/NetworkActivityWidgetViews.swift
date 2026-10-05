@@ -1,3 +1,4 @@
+import Darwin
 import SwiftUI
 
 struct NetworkActivityWidgetProvider: DockWidgetProvider {
@@ -146,6 +147,9 @@ private struct NetworkActivityCompactWidgetView: View {
 }
 
 private struct NetworkActivityPopoutWidgetView: View {
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
+    @State private var showsSettings = false
+    @State private var showsOtherInterfaces = false
     @StateObject private var monitor = NetworkActivityMonitor.shared
     @State private var subscriptionID = UUID()
 
@@ -178,26 +182,39 @@ private struct NetworkActivityPopoutWidgetView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                rateCard(title: "Download", value: aggregate(\.receivedBytesPerSecond), history: downloadHistory, color: .secondary, symbol: "arrow.down")
-                rateCard(title: "Upload", value: aggregate(\.sentBytesPerSecond), history: uploadHistory, color: .secondary, symbol: "arrow.up")
+            if showsHero {
+                HStack {
+                    Text("Live samples every 4 seconds").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Refresh") { monitor.refreshNow() }.buttonStyle(.borderless).controlSize(.small)
+                        .accessibilityLabel("Refresh network readings")
+                }
+                HStack(spacing: 10) {
+                    rateCard(title: "Download", value: aggregate(\.receivedBytesPerSecond), history: downloadHistory, color: .secondary, symbol: "arrow.down")
+                    rateCard(title: "Upload", value: aggregate(\.sentBytesPerSecond), history: uploadHistory, color: .secondary, symbol: "arrow.up")
+                }
+                GroupedSection("Interfaces") {
+                    let active = NetworkInterfacePresentation.active(interfaces)
+                    if active.isEmpty { GroupedRow("No active network interfaces", symbol: "network.slash") }
+                    ForEach(active) { interface in interfaceRow(interface) }
+                    let other = NetworkInterfacePresentation.other(interfaces)
+                    if !other.isEmpty {
+                        DisclosureGroup("Other interfaces (\(other.count))", isExpanded: $showsOtherInterfaces) {
+                            ForEach(other) { interface in interfaceRow(interface) }
+                        }.padding(DockDesign.Grouped.rowHorizontalPadding)
+                    }
+                }
             }
-            HStack {
-                Spacer()
-                Button { monitor.refreshNow() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(WidgetCircleButtonStyle()).help("Refresh network readings")
-                    .accessibilityLabel("Refresh network readings")
-            }
-            GroupedSection("Interfaces", footer: "Local traffic samples every 4 seconds while visible.") {
-                if interfaces.isEmpty {
-                    GroupedRow("No active network interfaces", symbol: "network.slash")
-                } else {
-                    ForEach(interfaces) { interface in interfaceRow(interface) }
+            WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) {
+                GroupedSection(footer: "Local traffic samples while the Dock or popout is visible.") {
+                    GroupedRow("Sampling interval", value: "4 seconds")
+                    GroupedRow("Interface scope", value: "Active interfaces")
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .onAppear {
+            guard showsHero else { return }
             #if DEBUG
             if fixture != nil { return }
             #endif
@@ -216,7 +233,7 @@ private struct NetworkActivityPopoutWidgetView: View {
     }
 
     private func interfaceRow(_ interface: NetworkInterfaceRate) -> some View {
-        GroupedRow(interface.name, subtitle: interface.addresses.isEmpty ? nil : interface.addresses.joined(separator: " · "),
+        GroupedRow(interface.name, subtitle: NetworkInterfacePresentation.addresses(interface.addresses).isEmpty ? nil : NetworkInterfacePresentation.addresses(interface.addresses).joined(separator: " · "),
             symbol: "cable.connector") {
             Text("↓ \(rateText(interface.receivedBytesPerSecond))   ↑ \(rateText(interface.sentBytesPerSecond))")
                 .font(DockDesign.Grouped.subtitleFont.monospacedDigit()).foregroundStyle(.secondary)
@@ -277,3 +294,33 @@ extension EnvironmentValues {
     }
 }
 #endif
+
+/// NetworkInterfaceReader already excludes down and loopback interfaces. This pure presentation
+/// filter keeps only routable addresses or observed traffic in the primary list.
+enum NetworkInterfacePresentation {
+    static func isRoutable(_ address: String) -> Bool {
+        let host = String(address.split(separator: "%", maxSplits: 1).first ?? "")
+        var v4 = in_addr()
+        if inet_pton(AF_INET, host, &v4) == 1 {
+            let bytes = withUnsafeBytes(of: &v4) { Array($0) }
+            return bytes[0] != 0 && bytes[0] != 127 && bytes[0] < 224 && !(bytes[0] == 169 && bytes[1] == 254)
+        }
+        var v6 = in6_addr()
+        guard inet_pton(AF_INET6, host, &v6) == 1 else { return false }
+        let bytes = withUnsafeBytes(of: &v6) { Array($0) }
+        if bytes[0] == 0xfe && bytes[1] & 0xc0 == 0x80 { return false } // fe80::/10
+        if bytes[0] == 0xff { return false }
+        if bytes.prefix(15).allSatisfy({ $0 == 0 }) && bytes[15] <= 1 { return false }
+        if bytes.prefix(10).allSatisfy({ $0 == 0 }) && bytes[10] == 0xff && bytes[11] == 0xff {
+            return isRoutable(bytes.suffix(4).map(String.init).joined(separator: "."))
+        }
+        return true
+    }
+    static func addresses(_ values: [String]) -> [String] { values.filter(isRoutable) }
+    static func isActive(_ interface: NetworkInterfaceRate) -> Bool {
+        !addresses(interface.addresses).isEmpty || [interface.receivedBytesPerSecond, interface.sentBytesPerSecond]
+            .contains { value in value.map { $0.isFinite && $0 > 0 } ?? false }
+    }
+    static func active(_ interfaces: [NetworkInterfaceRate]) -> [NetworkInterfaceRate] { interfaces.filter(isActive) }
+    static func other(_ interfaces: [NetworkInterfaceRate]) -> [NetworkInterfaceRate] { interfaces.filter { !isActive($0) } }
+}

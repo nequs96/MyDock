@@ -36,6 +36,8 @@ private struct ShopifyPopoutView: View {
     @ObservedObject private var setupDrafts = WidgetSetupDraftStore.shared
     @State private var connectedStores: [ShopifyConnectedStore] = []
     @State private var isConnecting = false
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
+    @State private var showsSettings = false
     @State private var isRefreshing = false
     @State private var refreshRequestID = UUID()
     @State private var isDisconnectConfirmationPresented = false
@@ -47,21 +49,28 @@ private struct ShopifyPopoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let snapshot {
-                WidgetPopoutHero(value: ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: snapshot),
-                    caption: "\(configuration.shopifyMetric.title) · \(configuration.shopifyMetric.popoutUnit(currency: snapshot.currency)) · \(snapshot.period.title)")
-                if configuration.shopifyShowsChart { metricChart(snapshot) }
-                breakdowns(snapshot)
-            } else {
-                WidgetPopoutHero(value: configuration.shopifyStoreID.isEmpty ? "Connect Shopify" : "No data",
-                    caption: "Store order activity · read_orders access")
+            if showsHero {
+                if let snapshot {
+                    WidgetPopoutHero(
+                        value: ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: snapshot),
+                        caption: "\(configuration.shopifyMetric.title) · \(configuration.shopifyMetric.popoutUnit(currency: snapshot.currency)) · \(snapshot.period.title)")
+                    if configuration.shopifyShowsChart { metricChart(snapshot) }
+                    breakdowns(snapshot)
+                } else {
+                    WidgetPopoutHero(
+                        value: configuration.shopifyStoreID.isEmpty ? "Connect Shopify" : "No data",
+                        caption: "Store order activity · read_orders access")
+                }
             }
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            if snapshot == nil { connectionControls }
-            controls
+            if !ShopifySetupPresentation.showsSettings(accountID: configuration.shopifyStoreID, hasSavedReading: snapshot != nil) {
+                connectionControls
+            } else {
+                WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) { controls }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: "\(configuration.shopifyStoreID)|\(configuration.shopifyPeriod.rawValue)|\(configuration.shopifyDisplayName)") {
@@ -69,20 +78,24 @@ private struct ShopifyPopoutView: View {
             await refresh()
         }
         .onAppear(perform: reloadStores)
-        .confirmationDialog("Disconnect \(configuration.shopifyDisplayName)?",
-                            isPresented: $isDisconnectConfirmationPresented,
-                            titleVisibility: .visible) {
+        .confirmationDialog(
+            "Disconnect \(configuration.shopifyDisplayName)?",
+            isPresented: $isDisconnectConfirmationPresented,
+            titleVisibility: .visible
+        ) {
             Button("Disconnect and Remove Credentials", role: .destructive) { disconnect() }
-            Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the Shopify client secret and access token from this Mac's Keychain and disconnects every MyDock widget using them. It does not uninstall the app from Shopify.")
+            Text(
+                "This removes the Shopify client secret and access token from this Mac's Keychain and disconnects every MyDock widget using them. It does not uninstall the app from Shopify."
+            )
         }
     }
 
-    private var controls: some View {
-        GroupedSection("Settings", footer: provenanceFooter) {
+    @ViewBuilder private var controls: some View {
+        GroupedSection(footer: provenanceFooter) {
             GroupedRow("Store name", symbol: "pencil") {
-                TextField("Store name", text: displayNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                TextField("Store name", text: configuration.shopifyStoreID.isEmpty ? accountNameBinding : displayNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
             }
             GroupedRow("Store") {
                 Picker("Store", selection: accountBinding) {
@@ -105,13 +118,10 @@ private struct ShopifyPopoutView: View {
             }
 
             GroupedRow("Show chart", symbol: "chart.xyaxis.line", isOn: chartBinding)
-            if snapshot != nil {
-                DisclosureGroup("Connection") { connectionControls }
-                    .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
-                    .padding(.vertical, DockDesign.Grouped.rowVerticalPadding)
-            }
+
         }
         .help(metricExplanation)
+        connectionControls
     }
 
     private var provenanceFooter: String { "Shopify reports order activity, not cash received." }
@@ -120,31 +130,35 @@ private struct ShopifyPopoutView: View {
     private var connectionControls: some View {
         VStack(alignment: .leading, spacing: 7) {
             GroupedSection("Connection") {
-                GroupedRow("Store name") {
-                    TextField("Store name", text: accountNameBinding).textFieldStyle(.plain)
-                        .disabled(isConnecting)
-                }
-
-                GroupedRow("Domain") {
-                    TextField("your-store.myshopify.com", text: domainBinding).textFieldStyle(.plain).disabled(isConnecting)
-                }
-                GroupedRow("Client ID") {
-                    TextField("App Client ID", text: clientIDBinding).textFieldStyle(.plain).disabled(isConnecting)
-                }
-                GroupedRow("Client secret") {
-                    SecureField("App Client Secret", text: clientSecretBinding).textFieldStyle(.plain).disabled(isConnecting)
-                }
-                GroupedRow("Connect", role: .button) { Task { await connect() } }
-                    .disabled(isConnecting || setupDraft.domain.isEmpty || setupDraft.clientID.isEmpty || setupDraft.clientSecret.isEmpty)
-                if isConnecting { GroupedRow("Connecting…") { ProgressView().controlSize(.small) } }
-                GroupedRow("Clear Draft", role: .button) { setupDrafts.clearDrafts(for: item.id) }
-                    .disabled(isConnecting || setupDraft.isPristine)
                 if !configuration.shopifyStoreID.isEmpty {
                     GroupedRow("Disconnect", role: .destructive) { isDisconnectConfirmationPresented = true }
+                } else {
+                    if !ShopifySetupPresentation.showsSettings(accountID: configuration.shopifyStoreID, hasSavedReading: snapshot != nil) {
+                        GroupedRow("Store name") {
+                            TextField("Store name", text: accountNameBinding).textFieldStyle(.plain)
+                                .disabled(isConnecting)
+                        }
+                    }
+                    GroupedRow("Domain") {
+                        TextField("your-store.myshopify.com", text: domainBinding).textFieldStyle(.plain).disabled(isConnecting)
+                    }
+                    GroupedRow("Client ID") {
+                        TextField("App Client ID", text: clientIDBinding).textFieldStyle(.plain).disabled(isConnecting)
+                    }
+                    GroupedRow("Client secret") {
+                        SecureField("App Client Secret", text: clientSecretBinding).textFieldStyle(.plain).disabled(isConnecting)
+                    }
+                    GroupedRow("Connect", role: .button) { Task { await connect() } }
+                        .disabled(isConnecting || setupDraft.domain.isEmpty || setupDraft.clientID.isEmpty || setupDraft.clientSecret.isEmpty)
+                    if isConnecting { GroupedRow("Connecting…") { ProgressView().controlSize(.small) } }
+                    GroupedRow("Clear Draft", role: .button) { setupDrafts.clearDrafts(for: item.id) }
+                        .disabled(isConnecting || setupDraft.isPristine)
                 }
             }
         }
-        .help("Create and install a Dev Dashboard app on a store in the same organization, with read_orders only. Shopify's client credentials grant works only for stores in that organization. An unfinished form stays in memory for this widget until connected or cleared; the client secret is never written to profile data or backups." )
+        .help(
+            "Create and install a Dev Dashboard app on a store in the same organization, with read_orders only. Shopify's client credentials grant works only for stores in that organization. An unfinished form stays in memory for this widget until connected or cleared; the client secret is never written to profile data or backups."
+        )
     }
 
     private var accountNameBinding: Binding<String> {
@@ -374,4 +388,10 @@ enum ShopifyChartAccessibility {
 
 extension ShopifyMetric {
     func popoutUnit(currency: String) -> String { self == .orders ? "orders" : currency }
+}
+
+enum ShopifySetupPresentation {
+    static func showsSettings(accountID: String, hasSavedReading: Bool) -> Bool {
+        !accountID.isEmpty || hasSavedReading
+    }
 }
