@@ -55,6 +55,7 @@
 		39DB649498BFD4C1FBC2C470 /* CommandLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08F4F5518CAB6294D1E6647 /* CommandLibrary.swift */; };
 		3AB00530BF01A4D749332A4B /* DockManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6758F25C6EA73B904DA86066 /* DockManagerView.swift */; };
 		3B03938D926260A1E21BF2EC /* RunningApplications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7536B36501AFF71CA760CA15 /* RunningApplications.swift */; };
+		3C06358CFF5F7B04C83A5D98 /* PopoutLayoutLoopTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 626324F7CE6849CE8EAECF4C /* PopoutLayoutLoopTests.swift */; };
 		3C8957245E78EC8B9E00018C /* WidgetGalleryApps.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60A63C1333C9E1E00346A51 /* WidgetGalleryApps.swift */; };
 		3CE2DB5C29E91498E020A6FA /* CustomDockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEDBAB5997B825251D922554 /* CustomDockView.swift */; };
 		3CF6F8931C29F391419FF7DB /* AppleWidgetCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CCDAA6C3625885871693F16 /* AppleWidgetCard.swift */; };
@@ -355,6 +356,7 @@
 		616B4F9ABB3E6AD721E9CB70 /* DockSwitchFreezeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSwitchFreezeProvider.swift; sourceTree = "<group>"; };
 		61DCD87C32A87E2D34CAEC92 /* AIAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAccountTests.swift; sourceTree = "<group>"; };
 		61EFFFDFDB6B3FA1CDA44C99 /* ProfileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStoreTests.swift; sourceTree = "<group>"; };
+		626324F7CE6849CE8EAECF4C /* PopoutLayoutLoopTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopoutLayoutLoopTests.swift; sourceTree = "<group>"; };
 		62E043D8D750B7188E1DD502 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		65E91584E6116F0E9B70944C /* PaddleWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaddleWidgetViews.swift; sourceTree = "<group>"; };
 		6758F25C6EA73B904DA86066 /* DockManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockManagerView.swift; sourceTree = "<group>"; };
@@ -864,6 +866,7 @@
 				FB6A2ACF6C290EEDEAA8FD00 /* NativeFollowupTests.swift */,
 				187F394EB74B0CC637A727A2 /* NativeInteractionCorrectionTests.swift */,
 				BD305EE8D421114DF62754DE /* PerformanceBaselineTests.swift */,
+				626324F7CE6849CE8EAECF4C /* PopoutLayoutLoopTests.swift */,
 				1B817FD02D713E0939CD51AE /* ProductCompletionTests.swift */,
 				9B78BC2E210B872B542DE57D /* ProductFollowupTests.swift */,
 				022E91F5CADD855D3FB8EC84 /* ProductRuntimeTests.swift */,
@@ -1254,6 +1257,7 @@
 				D55CEBCF9DF9805B63274265 /* NativeFollowupTests.swift in Sources */,
 				0EFB5A9561126D2649FF5026 /* NativeInteractionCorrectionTests.swift in Sources */,
 				5B18BA8745F0A36357046C09 /* PerformanceBaselineTests.swift in Sources */,
+				3C06358CFF5F7B04C83A5D98 /* PopoutLayoutLoopTests.swift in Sources */,
 				7A70C2FFCC5F1D7934DDB5E1 /* ProductCompletionTests.swift in Sources */,
 				575FADD9DB93499178EA09C4 /* ProductFollowupTests.swift in Sources */,
 				EB2565637C769DBE6976C18A /* ProductRuntimeTests.swift in Sources */,
