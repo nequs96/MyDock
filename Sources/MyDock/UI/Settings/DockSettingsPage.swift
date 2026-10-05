@@ -11,18 +11,17 @@ extension SettingsView {
     DockScrollView {
         VStack(alignment: .leading, spacing: 20) {
         SettingsPageHeader(page: selectedPage)
-        GroupedSection("Dock setup") {
+        // The page title already says "Dock Setup", so its first card has no heading of its own.
+        GroupedSection {
             SettingsControlRow(title: "Mode") {
                 Picker("Mode", selection: Binding(get: { store.state.settings.setupMode }, set: { store.setSetupMode($0) })) {
                     ForEach(SetupMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
             }
-            GroupedRow("Show active profile name in menu bar", isOn: Binding(
+            GroupedRow("Show active profile name in menu bar", subtitle: "Both active Dock names appear beside the menu-bar icon.", isOn: Binding(
                 get: { store.state.settings.showActiveProfileNameInMenuBar },
                 set: { enabled in store.updateSettings { $0.showActiveProfileNameInMenuBar = enabled } }
             ))
-            Text("Both active Dock names appear beside the menu-bar icon.")
-                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
             if store.state.settings.setupMode == .customMain {
                 if store.activeCustomProfile == nil {
                     Text("Create or select a Custom Dock first; Apple’s Dock remains available until then.")
@@ -115,17 +114,15 @@ extension SettingsView {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }.id("Dock setup")
-        GroupedSection("Focus filters") {
-            Text(FocusFilterAvailability.guidance())
-                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+        GroupedSection("Focus filters", footer: FocusFilterAvailability.guidance()) {
+            GroupedRow("Dock for each Focus", symbol: "moon.fill", color: .indigo,
+                       value: FocusFilterAvailability.hasIntentMetadata() ? "Available" : "Unavailable")
         }.id("Focus filters")
         GroupedSection("Native Dock switching") {
-            GroupedRow("Automatically save Dock changes", isOn: Binding(
+            GroupedRow("Automatically save Dock changes", subtitle: "Saves Apple Dock edits to the selected profile, checking every five seconds.", isOn: Binding(
                 get: { store.state.settings.automaticallySaveNativeDockChanges },
                 set: { enabled in store.updateSettings { $0.automaticallySaveNativeDockChanges = enabled } }
             ))
-            Text("Save Apple Dock edits to the selected profile, checking apps and spacers every five seconds.")
-                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             if store.state.settings.automaticallySaveNativeDockChanges,
                store.state.settings.activeNativeProfileID == nil {
                 Text("Select a macOS Dock profile to start automatic saving.")
@@ -134,7 +131,7 @@ extension SettingsView {
             if let message = nativeDockAutoSave.errorMessage, store.state.settings.automaticallySaveNativeDockChanges {
                 Text(message).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
-            GroupedRow("Freeze desktop during Dock restart", isOn: Binding(
+            GroupedRow("Freeze desktop during Dock restart", subtitle: "Holds one frame per display in memory. Switching works without Screen Recording.", isOn: Binding(
                 get: { store.state.settings.smoothNativeDockSwitches },
                 set: { enabled in
                     store.updateSettings { $0.smoothNativeDockSwitches = enabled }
@@ -155,8 +152,6 @@ extension SettingsView {
                 }
             ))
             .disabled(!supportsScreenCaptureFreeze)
-            Text("macOS 14+: keeps one frame per display in memory during restart. Switching works without Screen Recording access.")
-                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             if let screenCaptureMessage {
                 Text(screenCaptureMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
             }

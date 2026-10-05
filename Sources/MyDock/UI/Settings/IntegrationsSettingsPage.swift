@@ -12,8 +12,10 @@ extension SettingsView {
         VStack(alignment: .leading, spacing: 20) {
         SettingsPageHeader(page: selectedPage)
         VStack(alignment: .leading, spacing: 20) {
-            AIAccountConnectionView(provider: .codex, allowsAccountActions: store.allowsSystemChanges, settingsPresentation: true)
-            AIAccountConnectionView(provider: .claude, allowsAccountActions: store.allowsSystemChanges, showsLimitsSetup: true, settingsPresentation: true)
+            AIAccountConnectionView(provider: .codex, allowsAccountActions: store.allowsSystemChanges, settingsPresentation: true,
+                                    settingsHeader: "AI accounts")
+            AIAccountConnectionView(provider: .claude, allowsAccountActions: store.allowsSystemChanges, showsLimitsSetup: true, settingsPresentation: true,
+                                    settingsFooter: "Sign in with the provider to add an account.")
         }.id("AI accounts on this Mac")
         ConnectionsCenterView(store: store)
         PrivacyHelpSection()

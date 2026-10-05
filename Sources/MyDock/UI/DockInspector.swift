@@ -12,7 +12,7 @@ struct DockAppearanceInspector: View {
     }
     private func sliderRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: DockDesign.Grouped.glyphSpacing) {
-            Text(title).font(DockDesign.Grouped.titleFont).frame(width: 64, alignment: .leading)
+            Text(title).font(DockDesign.Grouped.titleFont).frame(width: 92, alignment: .leading)
             content().frame(maxWidth: .infinity)
         }
         .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
@@ -28,10 +28,10 @@ struct DockAppearanceInspector: View {
             }.overlay { Text("Dock").font(DockDesign.sectionTitle).allowsHitTesting(false) }
             if profile.kind == .custom {
                 GroupedSection("Appearance", footer: profile.appearance == nil ? "Follows app defaults." : "This Dock has its own appearance.") {
-                sliderRow("Size") {
+                sliderRow("Tile size") {
                     HStack(spacing: 10) {
                         Slider(value: Binding(get: { settings.customDockSize }, set: { value in edit { $0.size = value } }), in: 0.65...1.5, onEditingChanged: { if !$0 { store.flush() } })
-                            .accessibilityLabel("Dock size")
+                            .accessibilityLabel("Tile size")
                             .accessibilityValue("\(Int((settings.customDockSize * 100).rounded())) percent")
                         Text("\(Int((settings.customDockSize * 100).rounded()))%")
                             .monospacedDigit().frame(width: 40, alignment: .trailing)
@@ -42,12 +42,12 @@ struct DockAppearanceInspector: View {
                         ForEach(DockPosition.allCases) { Text($0.title).tag($0) }
                     }.labelsHidden()
                 }
-                GroupedRow("Material") {
-                    Picker("Material", selection: Binding(get: { settings.customDockMaterial }, set: { value in edit { $0.material = value }; store.flush() })) {
+                GroupedRow("Finish") {
+                    Picker("Finish", selection: Binding(get: { settings.customDockMaterial }, set: { value in edit { $0.material = value }; store.flush() })) {
                         ForEach(CustomDockMaterial.allCases) { Text($0.title).tag($0) }
                     }.labelsHidden()
                 }
-                sliderRow("Spacing") {
+                sliderRow("Item spacing") {
                     HStack(spacing: 10) {
                         Slider(value: Binding(get: { settings.customDockItemSpacing }, set: { value in edit { $0.spacing = value } }), in: DockAppearanceBounds.itemSpacing, onEditingChanged: { if !$0 { store.flush() } })
                             .accessibilityLabel("Item spacing")
@@ -56,14 +56,14 @@ struct DockAppearanceInspector: View {
                             .monospacedDigit().frame(width: 40, alignment: .trailing).accessibilityHidden(true)
                     }
                 }
-                GroupedRow("Theme") {
-                    Picker("Theme", selection: Binding(get: { settings.customDockTheme }, set: { value in edit { $0.theme = value }; store.flush() })) {
+                GroupedRow("Color theme") {
+                    Picker("Color theme", selection: Binding(get: { settings.customDockTheme }, set: { value in edit { $0.theme = value }; store.flush() })) {
                         ForEach(CustomDockTheme.allCases) { Text($0.title).tag($0) }
                     }.labelsHidden()
                 }
                 if profile.appearance != nil {
-                    GroupedRow("Reset to Global", role: .button) { store.setAppearance(nil, for: profile.id) }
-                        .help("Remove this Dock's own appearance and follow the global appearance in Settings again")
+                    GroupedRow("Reset to app defaults", role: .button) { store.setAppearance(nil, for: profile.id) }
+                        .help("Remove this Dock's own appearance and follow the app defaults in Settings → Appearance again")
                 }
                 }
             } else {
@@ -94,7 +94,7 @@ struct DockItemInspector: View {
             }.overlay { Text(item.displayName).font(DockDesign.sectionTitle).allowsHitTesting(false) }
             GroupedSection("Item") {
             if item.type == .folder {
-                GroupedRow("Folder name") { TextField("Folder name", text: Binding(get: { draft.folderCustomName ?? "" }, set: { draft.folderCustomName = $0 })) }
+                GroupedRow("Folder name") { inspectorField("Folder name", placeholder: "Original name", text: Binding(get: { draft.folderCustomName ?? "" }, set: { draft.folderCustomName = $0 })) }
                 GroupedRow("Show name in Dock", isOn: Binding(get: { draft.showFolderLabel ?? false }, set: { draft.showFolderLabel = $0 }))
                 GroupedRow("Icon color") {
                 Picker("Icon color", selection: Binding(get: { draft.folderIconColor?.rawValue ?? "" }, set: { draft.folderIconColor = DockProfileColor(rawValue: $0) })) {
@@ -102,8 +102,8 @@ struct DockItemInspector: View {
                     ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
                 }.labelsHidden()
                 }
-                GroupedRow("Icon letter") { TextField("Icon letter", text: Binding(get: { draft.folderIconLetter ?? "" }, set: { draft.folderIconLetter = String($0.prefix(1)) })) }
-                GroupedRow("Icon number") { TextField("Icon number", text: Binding(get: { draft.folderIconNumber ?? "" }, set: { draft.folderIconNumber = String($0.prefix(3)) })) }
+                GroupedRow("Icon letter") { inspectorField("Icon letter", placeholder: "None", text: Binding(get: { draft.folderIconLetter ?? "" }, set: { draft.folderIconLetter = String($0.prefix(1)) })) }
+                GroupedRow("Icon number") { inspectorField("Icon number", placeholder: "None", text: Binding(get: { draft.folderIconNumber ?? "" }, set: { draft.folderIconNumber = String($0.prefix(3)) })) }
             } else if item.type == .spacer {
                 GroupedRow("Width") {
                 Picker("Width", selection: Binding(get: { draft.spacerKind ?? .small }, set: { draft.spacerKind = $0 })) {
@@ -121,5 +121,14 @@ struct DockItemInspector: View {
             }
         }.padding(24).frame(width: 420).background(DockDesign.page)
             .onChange(of: draft) { update($0) }
+    }
+
+    /// Borderless, trailing-aligned field so every value lines up at the row's trailing edge,
+    /// as in the Stripe "Account name" row; the row title names it, the placeholder shows the empty value.
+    private func inspectorField(_ label: String, placeholder: String, text: Binding<String>) -> some View {
+        TextField(placeholder, text: text)
+            .textFieldStyle(.plain).multilineTextAlignment(.trailing)
+            .frame(maxWidth: 180)
+            .accessibilityLabel(label)
     }
 }

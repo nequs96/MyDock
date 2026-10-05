@@ -9,7 +9,7 @@ enum FocusFilterAvailability {
     }
 
     static let availableGuidance = "In System Settings → Focus, choose a Focus, select Add Filter, then choose MyDock and a saved Dock profile. When that Focus turns off, MyDock leaves the last applied Dock selected."
-    static let unavailableGuidance = "Focus filters are not available from this build of MyDock because it does not include App Intents metadata. They require the Xcode-built release app."
+    static let unavailableGuidance = "This copy of MyDock can't offer Focus filters. Install the release version of MyDock to choose a Dock for each Focus."
 
     static func guidance(bundleURL: URL = Bundle.main.bundleURL, fileManager: FileManager = .default) -> String {
         hasIntentMetadata(bundleURL: bundleURL, fileManager: fileManager) ? availableGuidance : unavailableGuidance

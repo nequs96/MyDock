@@ -6,6 +6,8 @@ struct AIAccountConnectionView: View {
     var allowsAccountActions: Bool
     var showsLimitsSetup = false
     var settingsPresentation = false
+    var settingsHeader: String? = nil
+    var settingsFooter: String? = nil
     var refresh: () async -> Void = {}
     @State private var status: AIAccountStatus?
     @State private var checking = false
@@ -60,21 +62,16 @@ struct AIAccountConnectionView: View {
                 Button("Find Account") { Task { await findAccount(refreshData: true) } }
                     .disabled(!allowsAccountActions || checking)
                     .accessibilityLabel("Find \(provider.title) account on this Mac")
-                if provider == .claude, showsLimitsSetup, status?.state == .signedIn, !limitsEnabled {
-                    Button("Enable Limits") {
-                        do {
-                            try ClaudeLimitsSetup.enable(directory: directory)
-                            limitsEnabled = true
-                            message = "Limits sync enabled. Start or restart Claude Code and use it once to receive limits."
-                            Task { await refresh() }
-                        } catch { message = "Could not update Claude Code settings. Your existing settings were preserved." }
-                    }.disabled(!allowsAccountActions)
+                if !settingsPresentation, provider == .claude, showsLimitsSetup, status?.state == .signedIn, !limitsEnabled {
+                    Button("Enable Limits") { enableLimits() }.disabled(!allowsAccountActions)
                 }
             }.controlSize(.small)
     }
 
+    /// One card per provider under the page's "AI accounts" heading: the row names the provider,
+    /// so the card has no title of its own, and the shared footer is shown once by the page.
     private var settingsAccount: some View {
-        GroupedSection(provider == .claude ? "Claude Code" : "Codex", footer: "Sign in with the provider to add an account.") {
+        GroupedSection(settingsHeader, footer: settingsFooter) {
             GroupedRow(provider == .claude ? "Claude Code" : "Codex",
                        subtitle: checking ? "Looking for an account on this Mac…" : status?.message ?? "Find an account already signed in on this Mac",
                        symbol: provider == .codex ? "terminal" : "sparkle", color: .gray) {
@@ -83,11 +80,27 @@ struct AIAccountConnectionView: View {
             }
             accountActions.padding(12).frame(maxWidth: .infinity, alignment: .leading)
             if provider == .claude, showsLimitsSetup {
-                GroupedRow(limitsEnabled ? "Limits sync while you use Claude Code." : "Enable Limits to sync usage.")
-                    .help(limitsEnabled ? "Requires Claude Code 2.1.251 or later." : "Adds usage sync to Claude Code’s status line, keeps your terminal display and saves a settings backup.")
+                if limitsEnabled {
+                    GroupedRow("Limits sync", subtitle: "Requires Claude Code 2.1.251 or later.", value: "On")
+                } else {
+                    GroupedRow("Enable Limits…", role: .button) { enableLimits() }
+                        .disabled(!allowsAccountActions || checking || status?.state != .signedIn)
+                        .help(status?.state == .signedIn
+                              ? "Adds usage sync to Claude Code’s status line, keeps your terminal display and saves a settings backup."
+                              : "Sign in to Claude Code first.")
+                }
             }
             if let message { GroupedRow(message).textSelection(.enabled) }
         }
+    }
+
+    private func enableLimits() {
+        do {
+            try ClaudeLimitsSetup.enable(directory: directory)
+            limitsEnabled = true
+            message = "Limits sync enabled. Start or restart Claude Code and use it once to receive limits."
+            Task { await refresh() }
+        } catch { message = "Could not update Claude Code settings. Your existing settings were preserved." }
     }
 
     private func findAccount(refreshData: Bool) async {

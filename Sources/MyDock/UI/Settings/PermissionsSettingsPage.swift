@@ -13,16 +13,12 @@ extension SettingsView {
         SettingsPageHeader(page: selectedPage)
         GroupedSection("Permission status", footer: "Access is requested when needed.") {
             ForEach(permissionRows) { row in
-                GroupedRow(row.name, subtitle: row.explanation, symbol: row.symbol, color: .blue) {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Label(row.summary, systemImage: row.granted ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 11)).foregroundStyle(row.granted ? Color.green : Color.secondary)
-                        if let settingsURL = row.settingsURL, let url = URL(string: settingsURL) {
-                            Link("Open Settings", destination: url)
-                                .accessibilityLabel("Open \(row.name) settings")
-                        }
-                    }.fixedSize(horizontal: true, vertical: false)
-                }.help(row.name == "Automation" ? "MyDock cannot read a universal Automation status; approval is per app." : row.explanation)
+                let settingsURL = row.settingsURL.flatMap { URL(string: $0) }
+                GroupedRow(row.name, subtitle: row.explanation, symbol: row.symbol, color: .blue,
+                           value: row.summary, chevron: settingsURL != nil,
+                           action: settingsURL.map { url in { _ = NSWorkspace.shared.open(url) } })
+                    .help(row.name == "Automation" ? "MyDock cannot read a universal Automation status; approval is per app." : row.explanation)
+                    .accessibilityHint(settingsURL != nil ? "Opens \(row.name) in System Settings" : "")
             }
             GroupedRow("Refresh Status", role: .button) { Task { await refreshPermissionStatuses() } }
                 .help("Refresh after changing a permission.")
