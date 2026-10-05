@@ -70,7 +70,7 @@ struct AlarmDockFace: View {
         Group {
             if WidgetModuleMetrics.isNarrow(width) {
                 VStack(spacing: 2) {
-                    WidgetIcon(kind: kind, symbol: armed ? "alarm.fill" : "alarm", size: 15, appearance: armed ? nil : .mono, enclosed: false)
+                    WidgetIcon(kind: kind, symbol: armed ? "alarm.fill" : "alarm", size: 15, appearance: armed ? nil : .mono, enclosed: false, active: armed)
                     ModuleValue(value: time.map { ClockDockTextFormatter.text($0, narrow: true) } ?? "Off", size: .small,
                                 color: armed ? .primary : .secondary, lineLimit: 2)
                         .multilineTextAlignment(.center)
