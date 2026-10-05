@@ -11,7 +11,7 @@ extension SettingsView {
     DockScrollView {
         VStack(alignment: .leading, spacing: 20) {
         SettingsPageHeader(page: selectedPage)
-        GroupedSection("Permission status", footer: "Access is requested when needed; Automation approval is per app.") {
+        GroupedSection("Permission status", footer: "Access is requested when needed.") {
             ForEach(permissionRows) { row in
                 GroupedRow(row.name, subtitle: row.explanation, symbol: row.symbol, color: .blue) {
                     VStack(alignment: .trailing, spacing: 4) {
@@ -22,11 +22,11 @@ extension SettingsView {
                                 .accessibilityLabel("Open \(row.name) settings")
                         }
                     }.fixedSize(horizontal: true, vertical: false)
-                }
+                }.help(row.name == "Automation" ? "MyDock cannot read a universal Automation status; approval is per app." : row.explanation)
             }
             GroupedRow("Refresh Status", role: .button) { Task { await refreshPermissionStatuses() } }
                 .help("Refresh after changing a permission.")
-        }.id("Permission status")
+        }.id("Permission status").help("Access is requested when needed; Automation approval is per app.")
         }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
     }
     .task { await refreshPermissionStatuses() }
@@ -56,7 +56,7 @@ extension SettingsView {
                                   status: locationStatus(CLLocationManager().authorizationStatus),
                                   settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"),
             PermissionOverviewRow(name: "Automation",
-                                  status: "Per-app approval; MyDock cannot read a universal status. A prompt appears when you use Now Playing or confirm Empty Trash.",
+                                  status: "Per-app — Approval appears when you use Now Playing or confirm Empty Trash.",
                                   settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
         ]
         DiagnosticsService.shared.record(.permissionStatusRefreshed)

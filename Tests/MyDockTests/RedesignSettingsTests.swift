@@ -87,4 +87,94 @@ struct RedesignSettingsTests {
         #expect(SettingsSearchCatalog.matches(query).contains { $0.page == .appearance })
         #expect(SettingsSearchCatalog.pages(matching: query).contains(.appearance))
     }
+    @Test(arguments: [false, true])
+    func restoreCompleteDefaultsAndUndo(dockScope: Bool) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ProfileStore(fileURL: root.appendingPathComponent("state.json"), allowsSystemChanges: false)
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Restore test")
+        let other = try store.createProfileAndPersist(kind: .custom, name: "Untouched")
+        let scope: UUID? = dockScope ? id : nil
+        store.updateSettings { $0.customDockPosition = .left; $0.showRunningApps = false }
+        SettingsAppearanceEditing.update(in: store, profileID: scope) {
+            DockQuickStyle.midnight.apply(to: &$0)
+            $0.customDockTheme = .dark
+            $0.customDockSize = 1.3
+            $0.customDockItemSpacing = 19
+            $0.customDockCornerRadius = 9
+            $0.customDockEdgeStyle = .contrastOnly
+            $0.customDockWidgetSurface = .plain
+            $0.customDockFloatingInset = 17
+            $0.customDockTintMode = .auto
+            $0.customDockGlassOpacity = 0.6
+            $0.customDockWidgetStyle = .compact
+            $0.showWidgetLabels = false
+        }
+        let before = scope.map { store.effectiveSettings(profileID: $0) } ?? store.state.settings
+        let globalBefore = store.state.settings
+        let otherBefore = store.customProfiles.first { $0.id == other }?.appearance
+        let undo = try #require(SettingsAppearanceEditing.capture(in: store, profileID: scope))
+        #expect(SettingsAppearanceEditing.update(in: store, profileID: scope) { SettingsAppearanceDefaults.restore(to: &$0) })
+        let restored = scope.map { store.effectiveSettings(profileID: $0) } ?? store.state.settings
+        #expect(ProfileAppearance(settings: restored) == ProfileAppearance(settings: AppSettings()))
+        #expect(restored.customDockPosition == .left)
+        #expect(!restored.showRunningApps)
+        if dockScope { #expect(store.state.settings == globalBefore) }
+        #expect(store.customProfiles.first { $0.id == other }?.appearance == otherBefore)
+        #expect(undo.restore(in: store, editingProfileID: scope))
+        let undone = scope.map { store.effectiveSettings(profileID: $0) } ?? store.state.settings
+        #expect(ProfileAppearance(settings: undone) == ProfileAppearance(settings: before))
+    }
+
+    @Test(arguments: [
+        ("Allowed — window controls are available.", "Allowed", "Window controls are available.", "Granted"),
+        ("Not requested — only the Weather current-location action asks.", "Not requested", "Only the Weather current-location action asks.", "Not requested"),
+        ("Denied — open System Settings — then return.", "Denied", "Open System Settings — then return.", "Not granted"),
+        ("Full access allowed.", "Full access allowed.", "Full access allowed.", "Granted"),
+        ("  status unavailable.  ", "Status unavailable.", "Status unavailable.", "Not granted"),
+        ("", "", "", "Not granted")
+    ])
+    func permissionSentenceFormatting(sample: (String, String, String, String)) {
+        let row = PermissionOverviewRow(name: "Calendar", status: sample.0)
+        #expect(row.statusTitle == sample.1)
+        #expect(row.explanation == sample.2)
+        #expect(row.summary == sample.3)
+    }
+
+    @Test(arguments: CustomDockMaterial.allCases)
+    func singleFinishControlReachesEveryMaterial(material: CustomDockMaterial) throws {
+        #expect(SettingsAppearanceDefaults.finishes.contains(material))
+        let source = try uiSource("Settings/AppearanceSettingsPage.swift")
+        #expect(source.components(separatedBy: "selection: appearanceBinding(\\.customDockMaterial)").count - 1 == 1)
+        #expect(source.contains("ForEach(SettingsAppearanceDefaults.finishes)"))
+        #expect(source.contains(".id(\"Finish\")"))
+    }
+
+    @Test func searchCatalogAnchorsResolve() throws {
+        let sources: [MyDockSettingsPage: [String]] = [
+            .dock: ["Settings/DockSettingsPage.swift"],
+            .appearance: ["Settings/AppearanceSettingsPage.swift"],
+            .behavior: ["Settings/BehaviorSettingsPage.swift"],
+            .general: ["Settings/GeneralSettingsPage.swift", "AppLifecycleSettingsView.swift", "RecoveryCenterView.swift"],
+            .shortcuts: ["Settings/ShortcutsSettingsPage.swift"],
+            .integrations: ["Settings/IntegrationsSettingsPage.swift", "ConnectionsCenterView.swift"],
+            .permissions: ["Settings/PermissionsSettingsPage.swift"]
+        ]
+        for entry in SettingsSearchCatalog.entries {
+            let source = try #require(sources[entry.page]).map { try uiSource($0) }.joined(separator: "\n")
+            if entry.section.hasPrefix("Style ") {
+                #expect(source.contains(".id(\"Style \" + style.title)"))
+                #expect(DockQuickStyle.allCases.contains { "Style " + $0.title == entry.section })
+            } else {
+                #expect(source.contains(".id(\"" + entry.section + "\")"), "Missing anchor: \(entry.section)")
+            }
+        }
+        #expect(SettingsSearchCatalog.matches("glass finish").contains { $0.section == "Finish" })
+    }
+
+    private func uiSource(_ path: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return try String(contentsOf: root.appendingPathComponent("Sources/MyDock/UI/" + path), encoding: .utf8)
+    }
+
 }

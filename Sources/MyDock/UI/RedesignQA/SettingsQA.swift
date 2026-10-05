@@ -33,16 +33,26 @@ extension PremiumVisualQA {
                                  name: "settings-appearance-section-\(section.rawValue)-\(name)",
                                  size: NSSize(width: 780, height: 600), scheme: scheme, directory: directory)
             }
-            if let profile = store.customProfiles.first {
-                try await render(DockAppearanceInspector(store: store, profile: profile, close: {}),
-                                 name: "settings-dock-inspector-\(name)", size: NSSize(width: 620, height: 400), scheme: scheme, directory: directory)
-            }
-            try await render(DockItemInspector(item: DockItem(type: .folder, title: "Projects", url: directory), update: { _ in }, replace: {}, close: {}),
-                             name: "settings-item-inspector-\(name)", size: NSSize(width: 480, height: 520), scheme: scheme, directory: directory)
             let library = ProfileLibrary(fileURL: directory.appendingPathComponent("settings-qa-presets.json"))
             if library.entries.isEmpty, let profile = store.customProfiles.first { library.record(profile, reason: "QA") }
-            try await render(PersonalPresetPicker(store: store, library: library, select: { _ in }).padding(24).background(DockDesign.page),
-                             name: "settings-personal-presets-\(name)", size: NSSize(width: 620, height: 300), scheme: scheme, directory: directory)
+            var item = DockItem(type: .folder, title: "Projects", url: directory)
+            item.folderCustomName = "Projects"
+            for (variant, _, contrast, transparency) in variants {
+                let suffix = variant == "wide" ? "" : "-" + variant
+                let narrow = variant == "narrow"
+                if let profile = store.customProfiles.first {
+                    try await render(DockAppearanceInspector(store: store, profile: profile, close: {}),
+                                     name: "settings-dock-inspector-\(name)\(suffix)", size: NSSize(width: narrow ? 440 : 620, height: 460),
+                                     scheme: scheme, directory: directory, contrast: contrast, reduceTransparency: transparency)
+                }
+                try await render(DockItemInspector(item: item, update: { _ in }, replace: {}, close: {}),
+                                 name: "settings-item-inspector-\(name)\(suffix)", size: NSSize(width: narrow ? 440 : 480, height: 520),
+                                 scheme: scheme, directory: directory, contrast: contrast, reduceTransparency: transparency)
+                try await render(PersonalPresetPicker(store: store, library: library, select: { _ in }).padding(24).background(DockDesign.page),
+                                 name: "settings-personal-presets-\(name)\(suffix)", size: NSSize(width: narrow ? 480 : 620, height: 300),
+                                 scheme: scheme, directory: directory, contrast: contrast, reduceTransparency: transparency)
+            }
+
         }
     }
 }

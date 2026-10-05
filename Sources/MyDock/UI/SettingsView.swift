@@ -72,13 +72,6 @@ struct SettingsView: View {
                 }
                 .padding(12).background(Color.orange.opacity(0.12))
             }
-            if !embeddedInWorkspace { HStack {
-                Text("Settings").font(.title2.weight(.semibold))
-                Spacer()
-                Text("MyDock").font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 24).padding(.vertical, 14)
-            Divider() }
             if store.hasUnpersistedChanges || store.persistenceError != nil {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -99,8 +92,7 @@ struct SettingsView: View {
             }
             if !sidebarVisible {
                 VStack(alignment: .leading, spacing: 6) {
-                    // The window header already names the page; only the embedded workspace needs a heading here.
-                    if embeddedInWorkspace { Text("Settings").font(.system(size: 16, weight: .semibold)) }
+                    Text("Settings").font(.system(size: 16, weight: .semibold))
                     // Keep every section visible, wrapping on narrow windows.
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 118, maximum: 180), spacing: 3, alignment: .leading)], alignment: .leading, spacing: 3) {
                             ForEach(MyDockSettingsPage.allCases) { page in
@@ -150,7 +142,6 @@ struct SettingsView: View {
                                 }
                             }.padding(.horizontal, 12)
                         }
-                        Text("MyDock").font(.system(size: 11)).foregroundStyle(.secondary).padding(20)
                     }.frame(width: DockDesign.sidebarWidth).background(DockSidebarBackground())
                     Rectangle().fill(DockDesign.hairline).frame(width: 1)
                 }

@@ -44,6 +44,13 @@ enum DockQuickStyle: String, CaseIterable, Identifiable {
     }
 }
 
+enum SettingsAppearanceDefaults {
+    static let finishes = CustomDockMaterial.allCases
+    static func restore(to settings: inout AppSettings) {
+        settings = ProfileAppearance(settings: AppSettings()).applying(to: settings)
+    }
+}
+
 extension SettingsView {
     var appearancePage: some View {
         DockScrollView {
@@ -75,7 +82,7 @@ extension SettingsView {
     }
 
     var appearanceStyleSection: some View {
-        GroupedSection("Style", footer: "Your Dock updates as you edit; previews use sample data.") {
+        GroupedSection("Style", footer: "Your Dock updates as you edit.") {
             VStack(alignment: .leading, spacing: 12) {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 122), spacing: 8)], spacing: 12) {
                     ForEach(DockQuickStyle.allCases) { style in
@@ -89,24 +96,16 @@ extension SettingsView {
                     Text("Custom").font(.caption).foregroundStyle(.secondary)
                 }
             }.padding(12)
-        }.id("Style")
+        }.id("Style").help("Previews use sample data.")
     }
 
     var appearanceGlassSection: some View {
         GroupedSection("Glass", footer: supportsLiquidGlass ? "Auto tint follows the Dock color." : "Liquid Glass uses frosted material before macOS 26.") {
             SettingsControlRow(title: "Finish") {
                 Picker("Appearance", selection: appearanceBinding(\.customDockMaterial)) {
-                    ForEach(CustomDockMaterial.allCases) { Text($0.title).tag($0) }
+                    ForEach(SettingsAppearanceDefaults.finishes) { Text($0.title).tag($0) }
                 }
-            }
-            if [.liquidGlass, .liquidGlassClear].contains(appearanceSettings.customDockMaterial) {
-                SettingsControlRow(title: "Glass finish") {
-                    Picker("Glass finish", selection: appearanceBinding(\.customDockMaterial)) {
-                        Text("Clear").tag(CustomDockMaterial.liquidGlassClear)
-                        Text("Frosted").tag(CustomDockMaterial.liquidGlass)
-                    }.pickerStyle(.segmented).frame(width: 220)
-                }
-            }
+            }.id("Finish")
             SettingsControlRow(title: "Edge") {
                 Picker("Edge", selection: appearanceBinding(\.customDockEdgeStyle)) {
                     Text("None").tag(DockEdgeStyle.none)
@@ -156,7 +155,7 @@ extension SettingsView {
     }
 
     var appearanceWidgetsSection: some View {
-        GroupedSection("Widgets", footer: "Each widget can override its layout and icon; side Docks use a narrow layout.") {
+        GroupedSection("Widgets", footer: "Widgets can override these defaults.") {
             SettingsControlRow(title: "Default widget surface") {
                 Picker("Default widget surface", selection: appearanceBinding(\.customDockWidgetSurface)) {
                     Text("Glass").tag(DockWidgetSurface.glass)
@@ -170,11 +169,11 @@ extension SettingsView {
                     ForEach(CustomDockWidgetStyle.allCases) { Text($0.title).tag($0) }
                 }
             }
-        }.id("Widgets")
+        }.id("Widgets").help("Each widget can override its layout and icon; side Docks use a narrow layout.")
     }
 
     var appearanceScopeSection: some View {
-        GroupedSection("Scope", footer: appearanceProfileID != nil ? "Edits create a Dock override; app defaults remain available." : "Defaults apply to Docks with inherited appearance.") {
+        GroupedSection("Scope", footer: appearanceProfileID != nil ? "Edits apply to this Dock." : "Defaults apply to Docks with inherited appearance.") {
             SettingsControlRow(title: "Editing") {
                 Picker("Editing", selection: Binding(get: { appearanceProfileID != nil }, set: { thisDock in
                     appearanceProfileID = thisDock ? store.activeCustomProfile?.id ?? store.customProfiles.first?.id : nil
@@ -207,15 +206,11 @@ extension SettingsView {
                 }
             } else {
                 GroupedRow("Reset app appearance defaults", role: .button) {
-                    updateAppearance { $0 = ProfileAppearance(settings: AppSettings()).applying(to: $0) }
+                    updateAppearance { SettingsAppearanceDefaults.restore(to: &$0) }
                 }
             }
             GroupedRow("Restore appearance defaults", role: .button) {
-                updateAppearance {
-                    $0.customDockSize = 1; $0.customDockItemSpacing = 8; $0.customDockCornerRadius = 24
-                    $0.customDockTintStrength = 0.08; $0.customDockWidgetStyle = .cards
-                    $0.showWidgetLabels = true; $0.customDockMaterial = .frosted
-                }
+                updateAppearance { SettingsAppearanceDefaults.restore(to: &$0) }
             }
             if previousAppearance?.isAvailable(for: appearanceProfileID) == true {
                 GroupedRow("Undo last appearance change", role: .button) { undoAppearance() }

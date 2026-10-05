@@ -11,15 +11,15 @@ extension SettingsView {
     DockScrollView {
         VStack(alignment: .leading, spacing: 20) {
         SettingsPageHeader(page: selectedPage)
-        GroupedSection("AI accounts on this Mac", footer: "Existing Codex and Claude Code accounts appear automatically; sign in with the provider to add one.") {
-            AIAccountConnectionView(provider: .codex, allowsAccountActions: store.allowsSystemChanges)
-            AIAccountConnectionView(provider: .claude, allowsAccountActions: store.allowsSystemChanges, showsLimitsSetup: true)
+        VStack(alignment: .leading, spacing: 20) {
+            AIAccountConnectionView(provider: .codex, allowsAccountActions: store.allowsSystemChanges, settingsPresentation: true)
+            AIAccountConnectionView(provider: .claude, allowsAccountActions: store.allowsSystemChanges, showsLimitsSetup: true, settingsPresentation: true)
         }.id("AI accounts on this Mac")
         ConnectionsCenterView(store: store)
         PrivacyHelpSection()
         GroupedSection("Market data") {
             integrationSummary("Alpha Vantage", symbol: "chart.line.uptrend.xyaxis", connected: marketAPIKeySaved)
-            DisclosureGroup("Manage API key", isExpanded: $marketConnectionExpanded) {
+            SettingsExpansionRow(title: "Manage API key", isExpanded: $marketConnectionExpanded) {
             VStack(alignment: .leading, spacing: 12) {
             Text("Stock and Watchlist use Alpha Vantage end-of-day data with free-tier limits; your personal key stays in Keychain, outside backups.")
                 .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
@@ -35,7 +35,7 @@ extension SettingsView {
                     Link("Get a key", destination: url)
                 }
             }
-            }.padding(.top, 12)
+            }
             }
             if let marketAPIKeyMessage {
                 Text(marketAPIKeyMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
@@ -43,7 +43,7 @@ extension SettingsView {
         }.id("Market data")
         GroupedSection("GitHub Copilot usage") {
             integrationSummary("GitHub Copilot", symbol: "sparkles", connected: copilotCredentialsSaved)
-            DisclosureGroup("Manage credentials", isExpanded: $copilotConnectionExpanded) {
+            SettingsExpansionRow(title: "Manage credentials", isExpanded: $copilotConnectionExpanded) {
             VStack(alignment: .leading, spacing: 12) {
             Text("Personal Copilot AI-credit usage uses read-only billing; organization and enterprise usage are excluded. Give the token Plan: read access; it stays in Keychain, outside profiles and backups.")
                 .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
@@ -69,7 +69,7 @@ extension SettingsView {
                     Link("Create token", destination: url)
                 }
             }
-            }.padding(.top, 12)
+            }
             }
             if let copilotCredentialsMessage {
                 Text(copilotCredentialsMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)

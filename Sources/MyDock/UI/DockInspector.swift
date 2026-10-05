@@ -10,21 +10,32 @@ struct DockAppearanceInspector: View {
         change(&appearance)
         store.setAppearance(appearance, for: profile.id, immediately: false, recordHistory: false)
     }
+    private func sliderRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: DockDesign.Grouped.glyphSpacing) {
+            Text(title).font(DockDesign.Grouped.titleFont).frame(width: 64, alignment: .leading)
+            content().frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+        .padding(.vertical, DockDesign.Grouped.rowVerticalPadding)
+        .frame(minHeight: DockDesign.Grouped.rowMinHeight)
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Dock").font(DockDesign.sectionTitle)
                 Spacer()
-                Button(action: close) { Image(systemName: "xmark").frame(width: DockDesign.controlHeight, height: DockDesign.controlHeight).contentShape(Rectangle()) }.buttonStyle(.plain).help("Close inspector").accessibilityLabel("Close inspector")
-            }
+                Button("Done", action: close).buttonStyle(GalleryGlassButtonStyle()).keyboardShortcut(.cancelAction)
+                    .help("Close inspector").accessibilityLabel("Close inspector")
+            }.overlay { Text("Dock").font(DockDesign.sectionTitle).allowsHitTesting(false) }
             if profile.kind == .custom {
                 GroupedSection("Appearance", footer: profile.appearance == nil ? "Follows app defaults." : "This Dock has its own appearance.") {
-                GroupedRow("Size") {
-                    Slider(value: Binding(get: { settings.customDockSize }, set: { value in edit { $0.size = value } }), in: 0.65...1.5, onEditingChanged: { if !$0 { store.flush() } })
-                        .accessibilityLabel("Dock size")
-                        .accessibilityValue("\(Int((settings.customDockSize * 100).rounded())) percent")
-                    Text("\(Int((settings.customDockSize * 100).rounded()))%")
-                        .monospacedDigit().frame(width: 40, alignment: .trailing)
+                sliderRow("Size") {
+                    HStack(spacing: 10) {
+                        Slider(value: Binding(get: { settings.customDockSize }, set: { value in edit { $0.size = value } }), in: 0.65...1.5, onEditingChanged: { if !$0 { store.flush() } })
+                            .accessibilityLabel("Dock size")
+                            .accessibilityValue("\(Int((settings.customDockSize * 100).rounded())) percent")
+                        Text("\(Int((settings.customDockSize * 100).rounded()))%")
+                            .monospacedDigit().frame(width: 40, alignment: .trailing)
+                    }
                 }
                 GroupedRow("Position on this Mac") {
                     Picker("Position on this Mac", selection: Binding(get: { settings.customDockPosition }, set: { value in store.updateSettings { $0.customDockPosition = value } })) {
@@ -36,8 +47,8 @@ struct DockAppearanceInspector: View {
                         ForEach(CustomDockMaterial.allCases) { Text($0.title).tag($0) }
                     }.labelsHidden()
                 }
-                GroupedRow("Spacing") {
-                    HStack {
+                sliderRow("Spacing") {
+                    HStack(spacing: 10) {
                         Slider(value: Binding(get: { settings.customDockItemSpacing }, set: { value in edit { $0.spacing = value } }), in: DockAppearanceBounds.itemSpacing, onEditingChanged: { if !$0 { store.flush() } })
                             .accessibilityLabel("Item spacing")
                             .accessibilityValue("\(Int(settings.customDockItemSpacing.rounded())) points")
@@ -59,7 +70,8 @@ struct DockAppearanceInspector: View {
                 Text("This layout is applied to Apple’s Dock. Widgets and appearance belong to custom Docks.")
                     .font(DockDesign.caption).foregroundStyle(.secondary)
             }
-        }.font(DockDesign.body).padding(16)
+        }.font(DockDesign.body)
+            .padding(16)
             .background(DockDesign.card, in: RoundedRectangle(cornerRadius: DockDesign.Radius.group))
     }
 }
@@ -77,10 +89,9 @@ struct DockItemInspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
-                Text(item.displayName).font(.system(size: 22, weight: .semibold))
                 Spacer()
-                Button("Done", action: close).keyboardShortcut(.defaultAction)
-            }
+                Button("Done", action: close).buttonStyle(GalleryGlassButtonStyle()).keyboardShortcut(.cancelAction)
+            }.overlay { Text(item.displayName).font(DockDesign.sectionTitle).allowsHitTesting(false) }
             GroupedSection("Item") {
             if item.type == .folder {
                 GroupedRow("Folder name") { TextField("Folder name", text: Binding(get: { draft.folderCustomName ?? "" }, set: { draft.folderCustomName = $0 })) }

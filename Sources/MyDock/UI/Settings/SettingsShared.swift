@@ -47,17 +47,33 @@ enum DockDensityPreset: String, CaseIterable, Identifiable {
 
 struct PermissionOverviewRow: Identifiable {
     var name: String
-    var status: String
+    let statusTitle: String
+    let explanation: String
     var settingsURL: String?
     var id: String { name }
-    var granted: Bool { status.hasPrefix("Allowed") || status.hasPrefix("Full access") }
+    var granted: Bool { statusTitle.hasPrefix("Allowed") || statusTitle.hasPrefix("Full access") }
     var summary: String {
         if granted { return "Granted" }
-        if status.hasPrefix("Not requested") { return "Not requested" }
-        if status.hasPrefix("Per-app") { return "Per-app" }
+        if statusTitle.hasPrefix("Not requested") { return "Not requested" }
+        if statusTitle.hasPrefix("Per-app") { return "Per-app" }
         return "Not granted"
     }
-    var explanation: String { status.components(separatedBy: " — ").last ?? status }
+    init(name: String, status: String, settingsURL: String? = nil) {
+        self.name = name
+        self.settingsURL = settingsURL
+        if let separator = status.range(of: " — ") {
+            statusTitle = Self.sentenceCase(String(status[..<separator.lowerBound]))
+            explanation = Self.sentenceCase(String(status[separator.upperBound...]))
+        } else {
+            statusTitle = Self.sentenceCase(status)
+            explanation = Self.sentenceCase(status)
+        }
+    }
+    private static func sentenceCase(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first else { return "" }
+        return String(first).uppercased() + trimmed.dropFirst()
+    }
     var symbol: String {
         switch name {
         case "Accessibility": "accessibility"; case "Screen Recording": "rectangle.on.rectangle"
@@ -95,4 +111,18 @@ struct SettingsShortcutRow: View {
 struct DisplayOption: Identifiable {
     var id: UInt32
     var title: String
+}
+
+/// Inline disclosure in a grouped card, with a trailing chevron and one row inset.
+struct SettingsExpansionRow<Content: View>: View {
+    let title: String
+    @Binding var isExpanded: Bool
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(spacing: 0) {
+            GroupedRow(title, value: isExpanded ? "Hide" : nil, chevron: true) { isExpanded.toggle() }
+                .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            if isExpanded { content.padding(12).frame(maxWidth: .infinity, alignment: .leading) }
+        }
+    }
 }

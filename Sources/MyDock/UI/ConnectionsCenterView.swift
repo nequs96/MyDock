@@ -55,19 +55,13 @@ struct ConnectionsCenterView: View {
     }
 
     var body: some View {
-        DockSettingSection(title: "Connections") {
-            Text("Manage business accounts here, then assign them to widgets. Credentials stay in this Mac’s Keychain and are excluded from profiles and backups.")
-                .font(.caption).foregroundStyle(.secondary)
+        GroupedSection("Connections", footer: "Credentials stay in this Mac’s Keychain.") {
             ForEach(rows) { row in
-                HStack(spacing: 12) {
-                    Image(systemName: row.kind == "Shopify" ? "bag" : "creditcard")
-                        .font(.system(size: 16)).foregroundStyle(.secondary).frame(width: 24)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(row.name.isEmpty ? row.kind : row.name).font(.system(size: 13, weight: .medium))
-                        Text(row.kind + " · Credentials saved").font(DockDesign.caption).foregroundStyle(.secondary)
+                GroupedRow(row.name.isEmpty ? row.kind : row.name,
+                           subtitle: row.kind + " · Credentials saved",
+                           symbol: row.kind == "Shopify" ? "bag" : "creditcard", color: .gray) {
+                    VStack(alignment: .trailing, spacing: 3) {
                         DataSourceProvenanceView(provenance: provenance(for: row), compact: true)
-                    }
-                    Spacer()
                     Menu("Manage") {
                         Button("Test Connection") { Task { await test(row) } }
                         Button("Replace Credentials…") {
@@ -84,14 +78,13 @@ struct ConnectionsCenterView: View {
                         Divider()
                         Button("Disconnect…", role: .destructive) { pendingDisconnect = row }
                     }.fixedSize().disabled(busy)
-                }.frame(minHeight: 44)
+                    }
+                }
             }
             if rows.isEmpty {
-                Label("No business accounts connected", systemImage: "link")
-                    .font(DockDesign.body).foregroundStyle(.secondary).padding(.vertical, 8)
+                GroupedRow("No business accounts connected", symbol: "link")
             }
-            Divider()
-            DisclosureGroup(replacingID == nil ? "Connect a service" : "Replace connection credentials", isExpanded: $connectionFormExpanded) {
+            SettingsExpansionRow(title: replacingID == nil ? "Connect a service" : "Replace connection credentials", isExpanded: $connectionFormExpanded) {
             VStack(alignment: .leading, spacing: 12) {
             Picker("Service", selection: $provider) {
                 ForEach(["Stripe", "Paddle", "Shopify"], id: \.self) { Text($0).tag($0) }
@@ -114,10 +107,12 @@ struct ConnectionsCenterView: View {
                 if replacingID != nil { Button("Cancel Replacement") { clearForm() }.disabled(busy) }
                 if busy { ProgressView().controlSize(.small) }
             }
-            }.padding(.top, 12)
             }
-            if let message { Text(message).font(.caption).textSelection(.enabled) }
+            }
+            if let message { GroupedRow(message).textSelection(.enabled) }
         }
+        .id("Connections")
+        .help("Manage business accounts here, then assign them to widgets. Credentials are excluded from profiles and backups.")
         .confirmationDialog("Disconnect this account?", isPresented: Binding(get: { pendingDisconnect != nil }, set: { if !$0 { pendingDisconnect = nil } })) {
             Button("Disconnect and Remove Credentials", role: .destructive) { disconnect() }
         } message: { Text("Every widget using this connection will be disconnected. This does not revoke access at the provider.") }
