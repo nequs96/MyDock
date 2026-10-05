@@ -141,11 +141,11 @@ enum WindowAccessibilityService {
         return app
     }
 
-    static func discoverWindows(for identity: NativeApplicationIdentity) -> WindowDiscoveryResult {
+    static func discoverWindows(for identity: NativeApplicationIdentity, timeLimit: TimeInterval = 2) -> WindowDiscoveryResult {
         guard AppRuntimeEnvironment.allowsNativeEffects else { return .unavailable }
         guard AXIsProcessTrusted() else { return .permissionRequired }
         guard let app = currentApplication(matches: identity) else { return .applicationUnavailable }
-        return observedWindows(for: app, identity: identity, deadline: Date.now.addingTimeInterval(2))
+        return observedWindows(for: app, identity: identity, deadline: Date.now.addingTimeInterval(timeLimit))
     }
 
     static func windows() -> [DockWindowDescriptor] {

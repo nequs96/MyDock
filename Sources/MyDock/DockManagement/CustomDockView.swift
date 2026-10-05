@@ -106,6 +106,9 @@ struct CustomDockView: View {
     @ObservedObject private var windowMonitor = WindowAccessibilityMonitor.shared
     @ObservedObject private var nowPlayingMonitor = NowPlayingMonitor.shared
     @ObservedObject private var dockBadgeMonitor = DockBadgeMonitor.shared
+    @ObservedObject private var recentApplicationsTracker = RecentApplicationsTracker.shared
+    /// The application tile a Finder drag is hovering, highlighted like a selected tile.
+    @State private var dropTargetedItemID: UUID?
 
     private var popoutMaxHeight: CGFloat {
         let selectedDisplayID = settings.customDockDisplayID
@@ -553,6 +556,13 @@ struct CustomDockView: View {
         return runningAppCache.matches(runtime: runtimeApplications, profileItems: profile.items)
     }
 
+    /// Recent, unpinned apps (the optional section after the running apps). None in previews.
+    private var recentApplicationItems: [DockItem] {
+        guard !isPreview, settings.showRecentApps else { return [] }
+        return RuntimeDockApplications.recentItems(profile: profile, settings: settings, runtime: runtimeApplications,
+                                                   pinnedURLs: runningMatches.pinnedURLs)
+    }
+
     private func refreshMissingTargets() {
         missingTargetIDs = DockMissingTargets.ids(in: profile.items, isMissing: AppLauncher.isMissingTarget)
     }
@@ -568,6 +578,7 @@ struct CustomDockView: View {
     @ViewBuilder private func itemViews(horizontal: Bool, size: CGFloat) -> some View {
         let runningPinned = runningPinnedItemIDs
         let model = renderModel
+        let recentIDs = Set(recentApplicationItems.map(\.id))
         let visibleSeparators = DockSeparatorPolicy.visibleSeparatorIDs(model.entries)
         let collapsed = isPreview ? DockSeparatorPolicy.previewCollapsedEntryIDs(model.entries) : []
         ForEach(model.positionedEntries(settings: settings, scale: size).filter { !collapsed.contains($0.entry.id) },
@@ -591,7 +602,8 @@ struct CustomDockView: View {
                 } else {
                     itemView(item, horizontal: horizontal, size: size, pinned: pinned, center: positioned.center,
                              isRunning: pinned ? runningPinned.contains(item.id)
-                                : DockRunningIndicatorPolicy.isRunning(item, pinned: false, runningURLs: [], resolvedURL: { nil }))
+                                : !recentIDs.contains(item.id)
+                                    && DockRunningIndicatorPolicy.isRunning(item, pinned: false, runningURLs: [], resolvedURL: { nil }))
                         .matchedGeometryEffect(id: positioned.visualID, in: profileTransformation)
                         .transition(.scale(scale: 0.85).combined(with: .opacity))
                 }
@@ -620,7 +632,7 @@ struct CustomDockView: View {
                     .frame(width: horizontal ? 1 : 30, height: horizontal ? 30 : 1)
                     .padding(.horizontal, horizontal ? 2 * size : 0)
                     .padding(.vertical, horizontal ? 0 : 2 * size)
-                    .help(kind == "running" ? "Drop a pinned app here to unpin it" : "Minimized windows")
+                    .help(kind == "running" ? "Drop a pinned app here to unpin it" : kind == "recent" ? "Recent apps" : "Minimized windows")
                     .dropDestination(for: DockDragPayload.self) { values, _ in
                         kind == "running" && handleTypedDrop(values, before: nil, unpin: true)
                     }
@@ -694,7 +706,7 @@ struct CustomDockView: View {
             // Popout anchors carry a glass identity so a popout can morph from its module (macOS 26).
             .modifier(DockPopoutGlassAnchor(id: [.widget, .folder].contains(item.type) ? item.id.uuidString : nil,
                                             namespace: popoutGlass))
-            .background(popouts.tabIDs.contains(item.id) ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 13 * size))
+            .background(popouts.tabIDs.contains(item.id) || dropTargetedItemID == item.id ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 13 * size))
             // Pressed/active while its popout is open; render-only, so hit areas are unchanged.
             .modifier(DockPopoutAnchorState(isActive: isActivePopoutAnchor(item)))
             .overlay(alignment: .bottomTrailing) {
@@ -874,19 +886,29 @@ struct CustomDockView: View {
         .id(item.id.uuidString)
 
         if pinned, popouts.anchorID == nil, !isPreview {
-            tile
-                .draggable(DockDragPayload(profileID: profile.id, itemIDs: [item.id]))
-                .dropDestination(for: DockDragPayload.self) { values, _ in
-                    handleTypedDrop(values, before: item.id)
-                }
-                .help("\(item.displayName) · Drag to reorder")
+            if DockDropOpenPolicy.opensDroppedContent(on: item) {
+                // Files dropped ON an app tile open with that app; reordering is unchanged.
+                tile
+                    .draggable(DockDragPayload(profileID: profile.id, itemIDs: [item.id]))
+                    .dropDestination(for: DockDropValue.self, action: { values, _ in
+                        handleApplicationTileDrop(values, on: item, before: item.id, unpin: false)
+                    }, isTargeted: { setDropTarget($0, for: item) })
+                    .help("\(item.displayName) · Drag to reorder")
+            } else {
+                tile
+                    .draggable(DockDragPayload(profileID: profile.id, itemIDs: [item.id]))
+                    .dropDestination(for: DockDragPayload.self) { values, _ in
+                        handleTypedDrop(values, before: item.id)
+                    }
+                    .help("\(item.displayName) · Drag to reorder")
+            }
         } else if !isPreview, !pinned, item.type == .application,
                   popouts.anchorID == nil {
             tile.allowsHitTesting(!isPreview)
                 .draggable(DockDragPayload(profileID: profile.id, itemIDs: [item.id]))
-                .dropDestination(for: DockDragPayload.self) { values, _ in
-                    handleTypedDrop(values, before: nil, unpin: true)
-                }
+                .dropDestination(for: DockDropValue.self, action: { values, _ in
+                    handleApplicationTileDrop(values, on: item, before: nil, unpin: true)
+                }, isTargeted: { setDropTarget($0, for: item) })
         } else {
             tile.allowsHitTesting(!isPreview).accessibilityHidden(isPreview)
         }
@@ -932,7 +954,8 @@ struct CustomDockView: View {
 
     private var renderModel: DockRenderModel {
         DockRenderModel(profile: profile, settings: settings, unpinnedRunningApplications: runningApps.map(\.item),
-                        windows: isPreview && !usesLivePreviewData ? [] : windowMonitor.windows, runningMediaSources: isPreview && !usesLivePreviewData ? Set(NowPlayingSource.allCases) : nowPlayingMonitor.runningSources)
+                        windows: isPreview && !usesLivePreviewData ? [] : windowMonitor.windows, runningMediaSources: isPreview && !usesLivePreviewData ? Set(NowPlayingSource.allCases) : nowPlayingMonitor.runningSources,
+                        recentApplications: recentApplicationItems)
     }
 
     private var runningIndicatorAlignment: Alignment {
@@ -971,13 +994,13 @@ struct CustomDockView: View {
         if let bundleID = value.runningBundleIdentifier {
             // Compatibility with older drag producers: only an unambiguous
             // installed copy may be pinned by a bundle-only payload.
-            let matches = runningApps.filter { $0.item.bundleIdentifier == bundleID }
+            let matches = draggableRuntimeApps.filter { $0.item.bundleIdentifier == bundleID }
             guard !unpin, matches.count == 1 else { return false }
             store.insert(matches[0].item, before: targetID, in: profile.id)
             return true
         }
         guard value.profileID == profile.id, !value.itemIDs.isEmpty else { return false }
-        let running = runningApps.filter { value.itemIDs.contains($0.item.id) }
+        let running = draggableRuntimeApps.filter { value.itemIDs.contains($0.item.id) }
         if !running.isEmpty {
             guard !unpin, running.count == value.itemIDs.count else { return false }
             for app in running { store.insert(app.item, before: targetID, in: profile.id) }
@@ -993,6 +1016,34 @@ struct CustomDockView: View {
             settle(Set(value.itemIDs))
         }
         return true
+    }
+
+    /// Running and recent unpinned apps: both can be dragged into the pinned items.
+    private var draggableRuntimeApps: [RunningDockApp] {
+        runningApps + recentApplicationItems.map { RunningDockApp(id: $0.id.uuidString, item: $0) }
+    }
+
+    /// A drop ON an application tile: Dock items reorder as before; Finder files or addresses open
+    /// with that app. Anything else is rejected.
+    private func handleApplicationTileDrop(_ values: [DockDropValue], on item: DockItem, before targetID: UUID?, unpin: Bool) -> Bool {
+        let payloads = values.compactMap { if case .items(let payload) = $0 { payload } else { nil } }
+        if !payloads.isEmpty { return handleTypedDrop(payloads, before: targetID, unpin: unpin) }
+        let urls = values.compactMap { if case .url(let url) = $0 { url } else { nil } }
+        guard !isPreview, popouts.anchorID == nil, DockDropOpenPolicy.opensDroppedContent(on: item) else { return false }
+        let openable = DockDropOpenPolicy.openableURLs(urls) { FileManager.default.fileExists(atPath: $0.path) }
+        guard !openable.isEmpty else { return false }
+        AppLauncher.open(openable, with: item)
+        return true
+    }
+
+    /// Highlights an application tile only for Finder or address drags, not for Dock reordering.
+    private func setDropTarget(_ isTargeted: Bool, for item: DockItem) {
+        if isTargeted {
+            let types = NSPasteboard(name: .drag).types?.map(\.rawValue) ?? []
+            dropTargetedItemID = DockDropOpenPolicy.carriesOpenableContent(typeIdentifiers: types) ? item.id : nil
+        } else if dropTargetedItemID == item.id {
+            dropTargetedItemID = nil
+        }
     }
 
     private func handleExternalDrop(_ urls: [URL]) -> Bool {

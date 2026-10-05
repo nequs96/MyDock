@@ -121,6 +121,9 @@ final class CustomDockWindowController {
             },
             NowPlayingMonitor.shared.$runningSources.dropFirst().sink { [weak self] _ in
                 Task { @MainActor [weak self] in guard let self else { return }; self.update(state: self.store.state) }
+            },
+            RecentApplicationsTracker.shared.$recents.dropFirst().sink { [weak self] _ in
+                Task { @MainActor [weak self] in guard let self else { return }; self.update(state: self.store.state) }
             }
         ]
     }
@@ -130,6 +133,7 @@ final class CustomDockWindowController {
             state.settings.showMinimizedWindows && state.settings.showWindowPreviews
         )
         DockBadgeMonitor.shared.setEnabled(state.settings.showAppBadges)
+        RecentApplicationsTracker.shared.setEnabled(state.settings.showRecentApps)
         guard state.settings.setupMode != .nativeOnly,
               let profileID = state.settings.activeCustomProfileID,
               let authoredProfile = state.profiles.first(where: { $0.id == profileID && $0.kind == .custom }) else {
@@ -173,10 +177,14 @@ final class CustomDockWindowController {
         // rootView here can interrupt the gesture and restart live monitors.
         if DockInteractionState.isResizing, lastPresentation?.profileID == profile.id { return }
         let resolvedSettings = store.effectiveSettings(for: profile)
+        let runtimeApplications = RuntimeDockApplications.items()
+        let pinnedApplicationURLs = RuntimeDockApplications.pinnedURLs(in: profile)
         let layout = DockRenderModel(profile: profile, settings: resolvedSettings,
-            runningApplications: RuntimeDockApplications.items(), windows: WindowAccessibilityMonitor.shared.windows,
+            runningApplications: runtimeApplications, windows: WindowAccessibilityMonitor.shared.windows,
             runningMediaSources: NowPlayingMonitor.shared.runningSources,
-            pinnedApplicationURLs: RuntimeDockApplications.pinnedURLs(in: profile))
+            pinnedApplicationURLs: pinnedApplicationURLs,
+            recentApplications: RuntimeDockApplications.recentItems(profile: profile, settings: resolvedSettings,
+                runtime: runtimeApplications, pinnedURLs: pinnedApplicationURLs))
         let signature = DockPresentationSignature(profileID: profile.id, color: profile.color, settings: DockPresentationSettings(resolvedSettings), global: DockPresentationSettings(state.settings),
             displayFrame: screen.visibleFrame, entries: layout.entries.map { "\($0.id):\($0.length(settings: resolvedSettings, scale: 1))" })
         reconcileTransition(settings: state.settings)
@@ -262,10 +270,14 @@ final class CustomDockWindowController {
         let visible = dockPlacementFrame(on: screen)
         let scale = CGFloat(min(max(settings.customDockSize, 0.65), 1.5))
         let tileLength = (54 + (settings.magnificationEnabled ? 22 : 0)) * scale
-        let model = DockRenderModel(profile: profile, settings: settings, runningApplications: RuntimeDockApplications.items(),
+        let runtimeApplications = RuntimeDockApplications.items()
+        let pinnedApplicationURLs = RuntimeDockApplications.pinnedURLs(in: profile)
+        let model = DockRenderModel(profile: profile, settings: settings, runningApplications: runtimeApplications,
                                     windows: WindowAccessibilityMonitor.shared.windows,
                                     runningMediaSources: NowPlayingMonitor.shared.runningSources,
-                                    pinnedApplicationURLs: RuntimeDockApplications.pinnedURLs(in: profile))
+                                    pinnedApplicationURLs: pinnedApplicationURLs,
+                                    recentApplications: RuntimeDockApplications.recentItems(profile: profile, settings: settings,
+                                        runtime: runtimeApplications, pinnedURLs: pinnedApplicationURLs))
         let itemLength = model.contentLength(settings: settings, scale: scale) + (settings.magnificationEnabled ? 32 : 22) * scale
         let frame = DockPanelGeometry.frame(position: settings.customDockPosition, placementArea: visible,
                                             contentLength: itemLength, crossLength: tileLength + 22 * scale,

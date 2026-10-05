@@ -67,6 +67,65 @@ enum AppLauncher {
         }
     }
 
+    /// Opens dropped files or addresses with the application tile they were dropped on.
+    static func open(_ urls: [URL], with item: DockItem) {
+        guard AppRuntimeEnvironment.allowsNativeEffects, item.type == .application, !urls.isEmpty else { return }
+        guard let applicationURL = resolvedURL(for: item), !isMissingTarget(item) else {
+            showFailure("The saved location for \(item.displayName) is unavailable. Use Locate… in its Dock menu to choose its current location.")
+            return
+        }
+        let name = item.displayName
+        NSWorkspace.shared.open(urls, withApplicationAt: applicationURL, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+            guard let error else { return }
+            Task { @MainActor in showFailure("Could not open the items with \(name): \(error.localizedDescription)") }
+        }
+    }
+
+    /// The observed running instance, only while it is still the one the menu captured.
+    private static func validatedApplication(_ identity: NativeApplicationIdentity) -> NSRunningApplication? {
+        guard AppRuntimeEnvironment.allowsNativeEffects,
+              let app = NSRunningApplication(processIdentifier: identity.processID),
+              let current = self.identity(for: app), identity.matches(current) else { return nil }
+        return app
+    }
+
+    static func isHidden(_ identity: NativeApplicationIdentity) -> Bool {
+        validatedApplication(identity)?.isHidden ?? false
+    }
+
+    static func toggleHidden(_ identity: NativeApplicationIdentity) {
+        guard let app = validatedApplication(identity) else {
+            showFailure("This application is no longer the selected running instance. Open its current menu and try again.")
+            return
+        }
+        if app.isHidden { _ = app.unhide() } else { _ = app.hide() }
+    }
+
+    static func showInFinder(_ identity: NativeApplicationIdentity) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([identity.bundleURL])
+    }
+
+    /// Force Quit never runs without the person confirming this alert. Cancel is the default button.
+    static func forceQuit(_ identity: NativeApplicationIdentity) {
+        guard let app = validatedApplication(identity) else {
+            showFailure("This application is no longer the selected running instance. Open its current menu and try again.")
+            return
+        }
+        let name = app.localizedName ?? identity.bundleIdentifier
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = RunningApplicationMenuPolicy.forceQuitTitle(name: name)
+        alert.informativeText = RunningApplicationMenuPolicy.forceQuitMessage
+        alert.addButton(withTitle: "Cancel")
+        let force = alert.addButton(withTitle: "Force Quit")
+        force.hasDestructiveAction = true
+        guard alert.runModal() == .alertSecondButtonReturn, let current = validatedApplication(identity) else { return }
+        if !current.forceTerminate() {
+            showFailure("Could not force quit \(name).")
+        }
+    }
+
     static func chooseReplacement(for item: DockItem) -> DockItem? {
         guard AppRuntimeEnvironment.allowsNativeEffects else { return nil }
         let panel = NSOpenPanel()
