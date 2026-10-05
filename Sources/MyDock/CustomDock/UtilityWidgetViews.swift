@@ -258,7 +258,7 @@ struct DiskSpacePopoutContent: View {
                                  caption: snapshot.map { "available on \($0.name)" } ?? "Disk reading unavailable",
                                  valueColor: stateColor)
                 if let snapshot {
-                    DiskUsageLine(fraction: snapshot.usedFraction, color: snapshot.isLow ? WidgetPalette.warning : WidgetPalette.accent("Disk Space"))
+                    DiskUsageLine(fraction: snapshot.usedFraction, color: snapshot.isLow ? WidgetPalette.warning : WidgetPalette.resolved(kind: "Disk Space", accent: .auto))
                         .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
                 }
             }

@@ -7,14 +7,28 @@ import Testing
 struct RedesignWidgetChromeTests {
     @Test func paletteResolvesEveryAccentChoice() {
         for definition in WidgetRegistry.all {
-            #expect(WidgetPalette.resolved(kind: definition.name, accent: .auto) == WidgetPalette.accent(definition.name))
+            // Auto is Mono at rest and keeps the family colour only while active.
+            #expect(WidgetPalette.resolved(kind: definition.name, accent: .auto) == WidgetPalette.resolved(kind: definition.name, accent: .mono))
+            #expect(WidgetPalette.resolved(kind: definition.name, accent: .auto) == Color.primary)
+            #expect(WidgetPalette.resolved(kind: definition.name, accent: .auto, active: true) == WidgetPalette.accent(definition.name))
             #expect(WidgetPalette.resolved(kind: definition.name, accent: .mono) == Color.primary)
+            #expect(WidgetPalette.resolved(kind: definition.name, accent: .mono, active: true) == Color.primary)
             for color in DockProfileColor.allCases {
+                // A named accent tints at rest and when active, exactly as before.
                 #expect(WidgetPalette.resolved(kind: definition.name, accent: .profile(color)) == color.displayColor)
+                #expect(WidgetPalette.resolved(kind: definition.name, accent: .profile(color), active: true) == color.displayColor)
             }
         }
         // Unknown kinds still resolve.
-        #expect(WidgetPalette.resolved(kind: "Future Widget", accent: .auto) == WidgetPalette.everyday)
+        #expect(WidgetPalette.resolved(kind: "Future Widget", accent: .auto) == Color.primary)
+        #expect(WidgetPalette.resolved(kind: "Future Widget", accent: .auto, active: true) == WidgetPalette.everyday)
+        // Semantic state colours are not accent-dependent.
+        #expect(WidgetPalette.critical != Color.primary && WidgetPalette.warning != Color.primary)
+    }
+
+    @Test func autoAccentCaptionSaysColourShowsWhenActive() {
+        #expect(WidgetAppearanceOptions.autoAccentCaption == "Neutral; colour shows when active")
+        #expect(WidgetAppearanceOptions.accentTitle(.auto) == "Automatic")
     }
 
     @Test func paletteKeepsOneHuePerCategory() {
