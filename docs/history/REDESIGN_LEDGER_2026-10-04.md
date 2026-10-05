@@ -1156,3 +1156,46 @@ Low items, export-only issues and further taste notes are recorded in the review
   - 5 (preset thumbnails +N);
   - the gallery double stroke under Increase Contrast;
   - the CommandLibrary "Example" size.
+
+### Second fix wave: FX-09 and FX-08 merged; Codex usage limit
+
+#### FX-09 (branch commit `8953888`, `widget-visuals`)
+
+**What it changed:**
+- **One settings row per popout:** Hydration, Reminders, Time Progress, App Folder and Sticky Note now hide their settings behind one disclosure row, like the other families.
+- **Sheet preview while warming up:** System and Network show the sample face, captioned "· Sample", until the first reading arrives.
+- **Customize panel:** it no longer repeats the reading. A new `widgetPopoutContext` value (`.dock` or `.sheet`) tells the settings disclosure and Alarm where they are, instead of reusing the "hero hidden" flag.
+- **One refresh control:** an icon circle in the header, plus `.widgetPopoutRefresh(...)` for families that fetch their own data. The Calendar, Reminders, Weather and Disk refresh links are gone. A failed fetch with no saved data now reads "Couldn't update" with a Retry.
+- **Previews:** `WidgetCardPreview` defaults to the appearance new widgets are created with (Mono), so onboarding and the command palette now match. Faces in scaled previews are flattened at the target scale, so they render crisply. Native verification is still needed for loss of glass vibrancy in flattened faces.
+- **Calendar rows:** shortened, e.g. "Now · ends 19:31 · Work" and "Tue 09:00 · Work".
+- **Low items:** Mono active toggle, Countdown footer, Weather stepper, Unit Converter caption.
+
+**Blocked:** Calendar colour bars. `CalendarRemindersService` exposes no colour for each calendar. Recorded as a follow-up.
+
+#### Orchestrator gallery fixes (`8971afe^`)
+
+- `PresetThumbnailPlan`: the thumbnail shows every widget, fills the rest with apps up to 6 slots, and adds a "+N" chip for anything left over. Tested.
+- Under Increase Contrast, the gallery tile draws its edge only for hover or selection (no double stroke).
+- The CommandLibrary "Example" label is now 11 pt secondary.
+
+#### FX-08 (Codex, high, saved by the orchestrator as `c9fa4df`)
+
+**Codex usage limit:** Codex stopped mid-run at its final verification step. It reported "You've hit your usage limit … try again at Oct 10th, 2026 9:05 AM", exited 1 and wrote no report.
+- Its uncommitted work was complete, and its focused tests had passed (22, 2 and 20).
+- The orchestrator saved it as `c9fa4df`, viewed its renders, merged it, and verified the integration unsandboxed: **685 tests in 84 suites** (`.build/redesign-fx08-test.log`).
+
+**Renders viewed:**
+- AI Limits: one primary 72% hero; other providers as rows; one Settings row.
+- Network: filtered interfaces, plus "Other interfaces (2)".
+
+**Codex is unavailable until 10 October.** FX-10, planned for Codex, was relaunched as a Claude Opus worker (`general-purpose`, model opus) with the same brief.
+
+#### Timer test under load
+
+During the FX-09 integration run, `hiddenTimerCompletesAndDurationEditsRescheduleIt` failed once: it hit its 2 s deadline while a Codex build was running in parallel.
+- In isolation it passed 3 of 3 times (about 70 ms each), and it passed in the following unloaded full run.
+- The test is pre-existing and unchanged. It is load-sensitive, not a regression. Watch it in CI.
+
+#### Integration fix `HEAD`
+
+System and Network sample live every 4 s, so their in-content "Refresh" buttons were dropped, along with the now-unused `refreshNow()`. The "Live samples every 4 seconds" line stays. `./TestMyDock.sh`: **685 tests in 84 suites** (`.build/redesign-refresh-test.log`).
