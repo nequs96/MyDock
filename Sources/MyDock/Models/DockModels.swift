@@ -1189,6 +1189,7 @@ struct AppSettings: Codable, Equatable {
     var customDockTheme: CustomDockTheme = .system
     var smoothNativeDockSwitches = false
     var showRunningApps = true
+    var showRecentApps = false
     var showMinimizedWindows = false
     var showWindowPreviews = false
     var showTrash = false
@@ -1207,6 +1208,7 @@ struct AppSettings: Codable, Equatable {
         case setupMode, activeNativeProfileID, activeCustomProfileID, customDockPosition, customDockSize
         case customDockItemSpacing, customDockCornerRadius, customDockTintStrength, customDockWidgetStyle, showWidgetLabels
         case customDockDisplayID, automaticallyHideCustomDock, showRevealHandle, hideCustomDockWhenSystemDockAppears, customDockDesktopMode, customDockMaterial, smoothNativeDockSwitches, showRunningApps
+        case showRecentApps
         case showMinimizedWindows, showWindowPreviews, showTrash, showAppBadges, clickFocusedAppToMinimize, magnificationEnabled
         case automaticallySaveNativeDockChanges, showActiveProfileNameInMenuBar, onboardingComplete, lastSettingsPage
     }
@@ -1241,6 +1243,7 @@ struct AppSettings: Codable, Equatable {
         customDockMaterial = try values.decodeIfPresent(CustomDockMaterial.self, forKey: .customDockMaterial) ?? .frosted
         smoothNativeDockSwitches = try values.decodeIfPresent(Bool.self, forKey: .smoothNativeDockSwitches) ?? false
         showRunningApps = try values.decodeIfPresent(Bool.self, forKey: .showRunningApps) ?? true
+        showRecentApps = try values.decodeIfPresent(Bool.self, forKey: .showRecentApps) ?? false
         showMinimizedWindows = try values.decodeIfPresent(Bool.self, forKey: .showMinimizedWindows) ?? false
         showWindowPreviews = try values.decodeIfPresent(Bool.self, forKey: .showWindowPreviews) ?? false
         showTrash = try values.decodeIfPresent(Bool.self, forKey: .showTrash) ?? false

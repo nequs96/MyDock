@@ -28,6 +28,7 @@ extension SettingsView {
         }.id("Custom Dock behavior").help("The screen edge stays active without a handle; overlap detection uses window positions without screen capture.")
         GroupedSection("Apps and windows", footer: "Window previews stay on this Mac.") {
             GroupedRow("Show running apps", isOn: Binding(get: { store.state.settings.showRunningApps }, set: { value in store.updateSettings { $0.showRunningApps = value } }))
+            GroupedRow("Show recent apps", subtitle: "Up to three recently used apps that are not in the Dock.", isOn: Binding(get: { store.state.settings.showRecentApps }, set: { value in store.updateSettings { $0.showRecentApps = value } }))
             GroupedRow("Show minimized windows", isOn: Binding(get: { store.state.settings.showMinimizedWindows }, set: { value in store.updateSettings { $0.showMinimizedWindows = value } }))
                 .onChange(of: store.state.settings.showMinimizedWindows) { enabled in
                     if enabled { _ = WindowAccessibilityService.requestAccessPrompt() }

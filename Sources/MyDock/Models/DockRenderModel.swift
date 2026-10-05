@@ -78,7 +78,7 @@ struct DockRenderModel {
 
     init(profile: DockProfile, settings: AppSettings, runningApplications: [DockItem],
          windows: [DockWindowDescriptor], runningMediaSources: Set<NowPlayingSource>,
-         pinnedApplicationURLs: Set<URL>? = nil) {
+         pinnedApplicationURLs: Set<URL>? = nil, recentApplications: [DockItem] = []) {
         entries = profile.items.filter { item in
             guard item.widgetKind == "Now Playing" else { return true }
             let c = item.widgetConfiguration ?? WidgetConfiguration()
@@ -91,6 +91,7 @@ struct DockRenderModel {
             let pinned = pinnedApplicationURLs ?? RuntimeDockIdentity.pinnedApplicationURLs(in: profile)
             entries += RuntimeDockIdentity.unpinned(runningApplications, pinnedURLs: pinned).map { .item($0, pinned: false) }
         }
+        insertRecentApplications(recentApplications, settings: settings)
         let minimized = windows.filter(\.isMinimized)
         if settings.showMinimizedWindows, !minimized.isEmpty {
             entries.append(.boundary("windows"))

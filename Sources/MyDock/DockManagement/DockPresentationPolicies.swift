@@ -189,12 +189,15 @@ extension DockRenderModel {
     /// The same entries as the designated initializer, from runtime apps already matched against the
     /// profile (`DockRunningAppMatches.unpinnedRuntime`), so building the model normalizes no URL.
     init(profile: DockProfile, settings: AppSettings, unpinnedRunningApplications: [DockItem],
-         windows: [DockWindowDescriptor], runningMediaSources: Set<NowPlayingSource>) {
+         windows: [DockWindowDescriptor], runningMediaSources: Set<NowPlayingSource>,
+         recentApplications: [DockItem] = []) {
         self.init(profile: profile, settings: settings, runningApplications: [], windows: windows,
                   runningMediaSources: runningMediaSources, pinnedApplicationURLs: [])
-        guard settings.showRunningApps, !unpinnedRunningApplications.isEmpty,
-              let boundary = entries.firstIndex(where: { $0.id == DockRenderEntry.boundary("running").id }) else { return }
-        entries.insert(contentsOf: unpinnedRunningApplications.map { DockRenderEntry.item($0, pinned: false) }, at: boundary + 1)
+        if settings.showRunningApps, !unpinnedRunningApplications.isEmpty,
+           let boundary = entries.firstIndex(where: { $0.id == DockRenderEntry.boundary("running").id }) {
+            entries.insert(contentsOf: unpinnedRunningApplications.map { DockRenderEntry.item($0, pinned: false) }, at: boundary + 1)
+        }
+        insertRecentApplications(recentApplications, settings: settings)
     }
 }
 
@@ -328,6 +331,7 @@ struct DockPresentationSettings: Equatable {
     var material: CustomDockMaterial
     var theme: CustomDockTheme
     var showRunningApps: Bool
+    var showRecentApps: Bool
     var showMinimizedWindows: Bool
     var showWindowPreviews: Bool
     var showTrash: Bool
@@ -348,7 +352,7 @@ struct DockPresentationSettings: Equatable {
         displayID = s.customDockDisplayID; automaticallyHide = s.automaticallyHideCustomDock
         showRevealHandle = s.showRevealHandle; hideWhenSystemDockAppears = s.hideCustomDockWhenSystemDockAppears
         desktopMode = s.customDockDesktopMode; material = s.customDockMaterial; theme = s.customDockTheme
-        showRunningApps = s.showRunningApps; showMinimizedWindows = s.showMinimizedWindows
+        showRunningApps = s.showRunningApps; showRecentApps = s.showRecentApps; showMinimizedWindows = s.showMinimizedWindows
         showWindowPreviews = s.showWindowPreviews; showTrash = s.showTrash; showAppBadges = s.showAppBadges
         clickFocusedAppToMinimize = s.clickFocusedAppToMinimize; magnificationEnabled = s.magnificationEnabled
         edgeStyle = s.customDockEdgeStyle; widgetSurface = s.customDockWidgetSurface
