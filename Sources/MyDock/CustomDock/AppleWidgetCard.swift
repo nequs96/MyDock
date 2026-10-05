@@ -120,7 +120,8 @@ extension WidgetCardPreview {
     }
     static var sampleEvent: CalendarEventSnapshot {
         CalendarEventSnapshot(id: "sample", title: "Design review", startDate: .now.addingTimeInterval(45 * 60), endDate: .now.addingTimeInterval(75 * 60),
-                              isAllDay: false, calendarID: "sample", calendarTitle: "Work", meetingURL: nil)
+                              isAllDay: false, calendarID: "sample", calendarTitle: "Work", meetingURL: nil,
+                              calendarColor: CalendarColorSnapshot(red: 0.04, green: 0.52, blue: 1.0))
     }
 }
 
