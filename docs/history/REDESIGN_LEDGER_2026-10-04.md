@@ -622,3 +622,22 @@ Output: `.build/visual-qa/redesign-20261005/integrated/<MODE>/`. Every mode exit
 - Crash report `~/Library/Logs/DiagnosticReports/MyDock-2026-10-05-025958.ips`: `NSGenericException` (reason redacted in the unified log), thrown from `-[NSWindow updateConstraintsIfNeeded]` → `_NSViewUpdateConstraints`. This is the AppKit "too many Update Constraints passes" layout-loop pattern.
 - In isolation `TrashStatus` holds the static `isolatedMessage` and never publishes, so the leading hypothesis is a SwiftUI/AppKit layout feedback loop at this width with this text. RD-09's own export used a fixture message and did not crash.
 - The live popover could hit the same loop with a real error string. Assigned to **FX-01**.
+
+### Review and fix wave launch — 5 October 2026 (base `1071b86`)
+
+- **FX-01** (`widget-visuals` agent): root-cause and fix the Trash popout layout loop, with a regression test, and rerun the WIDGET, FACESA, FACESB and WIDGETSHEET exports.
+- **RD-12 code review** (Codex `gpt-6.1-sol`, effort high): read-only in a detached worktree `../MyDock-wt/RD-12`, with no `.git` write access. It reviews the full diff `534faf7..1071b86` for compatibility, correctness, accessibility, platform safety, hot-path performance, scope and tests.
+- **RD-12 visual review** (`visual-reviewer` agent): read-only, over the integrated render matrix.
+
+The fix wave, FX-02 onwards, will bundle the reviewers' findings with the defects already recorded:
+- the duplicate Finish / Glass finish controls;
+- long footers;
+- the duplicate "Settings" title;
+- the Clock sheet hero repeated under its preview;
+- AI Limits popout order and duplicate freshness;
+- the RD-10 popouts against the RD-08 shell;
+- the trailing Dock separator;
+- unused `RemindersDockFace`;
+- Disk and Media face truncation;
+- the stale SURFACES click point;
+- `DockCanvas` keyboard moves using `transform`.
