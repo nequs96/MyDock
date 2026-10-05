@@ -7,7 +7,7 @@ struct SystemActivityWidgetProvider: DockWidgetProvider {
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(SystemActivityPopoutWidgetView())
+        AnyView(SystemActivityPopoutWidgetView(store: store, item: item, profileID: profileID))
     }
 }
 
@@ -261,6 +261,12 @@ private struct SystemActivityCompactWidgetView: View {
 }
 
 private struct SystemActivityPopoutWidgetView: View {
+    @ObservedObject var store: ProfileStore
+    var item: DockItem
+    var profileID: UUID
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
+    @State private var showsSettings = false
+    private var configuration: WidgetConfiguration { store.presentationConfiguration(for: item, in: profileID) }
     @StateObject private var monitor = SystemActivityMonitor.shared
     @StateObject private var scanner = StorageScanMonitor.shared
     @State private var subscriptionID = UUID()
@@ -318,107 +324,141 @@ private struct SystemActivityPopoutWidgetView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            WidgetPopoutHero(value: cpuPercentage.map { "\(Int($0.rounded()))%" } ?? "Warming up",
-                caption: "CPU · Memory " + memorySummary,
-                valueColor: (cpuPercentage ?? 0) >= 90 ? WidgetPalette.critical : .primary)
-            HStack {
-                Spacer()
-                Button { monitor.refreshNow() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(WidgetCircleButtonStyle()).help("Refresh system readings")
-                    .accessibilityLabel("Refresh system readings")
-            }
-            if let perCorePercentages = perCorePercentages {
-                FacesBDataSection(title: "Logical processors") {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
-                        ForEach(Array(perCorePercentages.enumerated()), id: \.offset) { index, percentage in
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 2) {
-                                    Text("\(index + 1)").foregroundStyle(.secondary)
-                                    Spacer(minLength: 2)
-                                    Text("\(Int(percentage.rounded()))%").monospacedDigit()
-                                }.font(DockDesign.Grouped.subtitleFont.weight(.medium))
-                                ProgressView(value: percentage, total: 100).tint(.secondary).controlSize(.mini)
-                            }.accessibilityElement(children: .ignore)
-                                .accessibilityLabel("Core \(index + 1), \(Int(percentage.rounded())) percent")
-                        }
-                    }
+            if showsHero {
+                HStack {
+                    Text("Live samples every 4 seconds").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Refresh") { monitor.refreshNow() }.buttonStyle(.borderless).controlSize(.small)
+                        .accessibilityLabel("Refresh system readings")
                 }
-            }
-            GroupedSection("System health") {
-                healthRow("Thermal state", value: thermalState.title, symbol: "thermometer.medium")
-                healthRow("Uptime", value: uptimeSummary, symbol: "clock")
-                healthRow("Load · 1 / 5 / 15 min", value: loadAverageSummary, symbol: "chart.bar.xaxis")
-                healthRow("Swap used", value: swapSummary, symbol: "externaldrive")
-                healthRow("Memory pressure", value: memoryPressure.title, symbol: "memorychip")
-            }
-            if let memory = memory {
-                FacesBDataSection(title: "Memory breakdown") {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), alignment: .leading, spacing: 12) {
-                        memoryDetail("Active", memory.activeBytes)
-                        memoryDetail("Wired", memory.wiredBytes)
-                        memoryDetail("Compressed", memory.compressedBytes)
-                        memoryDetail("Inactive", memory.inactiveBytes)
-                        memoryDetail("Free", memory.freeBytes)
-                        memoryDetail("Purgeable", memory.purgeableBytes)
-                    }
-                }
-            }
-            if let volume = startupVolume {
-                FacesBDataSection(title: volume.name) {
-                    HStack(alignment: .firstTextBaseline) {
-                        ModuleValue(value: volume.availableBytes.formattedByteCount)
-                        Text("available").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    ProgressView(value: Double(volume.totalBytes - min(volume.availableBytes, volume.totalBytes)), total: Double(max(1, volume.totalBytes))).tint(.secondary)
-                    Text("\(volume.totalBytes.formattedByteCount) total capacity").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                }
-            }
-            FacesBDataSection(title: "Explore storage") {
-                GroupedSection(footer: "Local readings sample every 4 seconds while visible.") {
-                    if scanner.isScanning {
-                        GroupedRow("Scanning…") { ProgressView().controlSize(.small) }
-                        GroupedRow("Cancel", role: .button) { scanner.cancel() }
-                    } else {
-                        GroupedRow("Scan Folders", role: .button) { scanner.scanDefaultLocations() }
-                        GroupedRow("Choose Folder…", role: .button, action: chooseFolder)
-                        if !scanner.results.isEmpty { GroupedRow("Again", role: .button) { scanner.scanAgain() } }
-                    }
-                }
-                .help("Scan Home, Applications and Library, or choose a folder. Nothing is deleted or uploaded. CPU is busy time across logical processors; load is runnable tasks, not a percentage. Memory categories overlap; pressure changes when macOS reports it.")
-                if scanner.isScanning {
-                    Text(scanner.currentPath ?? "Preparing scan…").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    if let progress = scanner.progress {
-                        Text("\(progress.scannedFileCount) files · \(progress.scannedBytes.formattedByteCount)").font(DockDesign.Grouped.subtitleFont).monospacedDigit()
-                    }
-                }
-                ForEach(scanner.warnings, id: \.self) { Text($0).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.orange) }
-                if !scanner.results.isEmpty {
-                    Text("Locations are counted separately. Home includes Library.").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                    ForEach(scanner.results, id: \.rootPath) { result in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(result.rootPath).font(DockDesign.Grouped.subtitleFont.weight(.semibold)).lineLimit(1).truncationMode(.middle)
-                            Text(storageSummary(result)).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                            ForEach(result.largestFiles) { file in
-                                Button { reveal(file) } label: {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "doc").foregroundStyle(.secondary)
-                                        Text(file.name).lineLimit(1).truncationMode(.middle)
-                                        Spacer(minLength: 4)
-                                        Text(file.byteSize.formattedByteCount).monospacedDigit().foregroundStyle(.secondary)
-                                        Image(systemName: "arrow.up.forward.app").foregroundStyle(.secondary)
-                                    }.font(DockDesign.Grouped.subtitleFont).padding(.vertical, 4)
-                                }.buttonStyle(.plain).help("Reveal in Finder")
+                WidgetPopoutHero(
+                    value: cpuPercentage.map { "\(Int($0.rounded()))%" } ?? "Warming up",
+                    caption: "CPU · Memory " + memorySummary,
+                    valueColor: (cpuPercentage ?? 0) >= 90 ? WidgetPalette.critical : .primary)
+                if let perCorePercentages = perCorePercentages {
+                    GroupedSection("Logical processors") {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                            ForEach(Array(perCorePercentages.enumerated()), id: \.offset) { index, percentage in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 2) {
+                                        Text("\(index + 1)").foregroundStyle(.secondary)
+                                        Spacer(minLength: 2)
+                                        Text("\(Int(percentage.rounded()))%").monospacedDigit()
+                                    }.font(DockDesign.Grouped.subtitleFont.weight(.medium))
+                                    ProgressView(value: percentage, total: 100).tint(.secondary).controlSize(.mini)
+                                }.accessibilityElement(children: .ignore)
+                                    .accessibilityLabel("Core \(index + 1), \(Int(percentage.rounded())) percent")
                             }
+                        }.padding(DockDesign.Grouped.rowHorizontalPadding)
+                    }
+                }
+                GroupedSection("System health") {
+                    healthRow("Thermal state", value: thermalState.title, symbol: "thermometer.medium")
+                    healthRow("Uptime", value: uptimeSummary, symbol: "clock")
+                    healthRow("Load · 1 / 5 / 15 min", value: loadAverageSummary, symbol: "chart.bar.xaxis")
+                    healthRow("Swap used", value: swapSummary, symbol: "externaldrive")
+                    healthRow("Memory pressure", value: memoryPressure.title, symbol: "memorychip")
+                }
+                if let memory = memory {
+                    GroupedSection("Memory breakdown") {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), alignment: .leading, spacing: 12) {
+                            memoryDetail("Active", memory.activeBytes)
+                            memoryDetail("Wired", memory.wiredBytes)
+                            memoryDetail("Compressed", memory.compressedBytes)
+                            memoryDetail("Inactive", memory.inactiveBytes)
+                            memoryDetail("Free", memory.freeBytes)
+                            memoryDetail("Purgeable", memory.purgeableBytes)
+                        }.padding(DockDesign.Grouped.rowHorizontalPadding)
+                    }
+                }
+                if let volume = startupVolume {
+                    GroupedSection(volume.name) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .firstTextBaseline) {
+                                ModuleValue(value: volume.availableBytes.formattedByteCount)
+                                Text("available").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                                Spacer()
+                            }
+                            ProgressView(value: Double(volume.totalBytes - min(volume.availableBytes, volume.totalBytes)), total: Double(max(1, volume.totalBytes))).tint(
+                                .secondary)
+                            Text("\(volume.totalBytes.formattedByteCount) total capacity").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                        }.padding(DockDesign.Grouped.rowHorizontalPadding)
+                    }
+                }
+                GroupedSection("Explore storage") {
+                    Group {
+                        if scanner.isScanning {
+                            GroupedRow("Scanning…") { ProgressView().controlSize(.small) }
+                            GroupedRow("Cancel", role: .button) { scanner.cancel() }
+                        } else {
+                            GroupedRow("Scan Folders", role: .button) { scanner.scanDefaultLocations() }
+                            GroupedRow("Choose Folder…", role: .button, action: chooseFolder)
+                            if !scanner.results.isEmpty { GroupedRow("Again", role: .button) { scanner.scanAgain() } }
+                        }
+                    }.help(
+                        "Scan Home, Applications and Library, or choose a folder. Nothing is deleted or uploaded. CPU is busy time across logical processors; load is runnable tasks, not a percentage. Memory categories overlap; pressure changes when macOS reports it."
+                    )
+                    if scanner.isScanning || !scanner.warnings.isEmpty || !scanner.results.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            if scanner.isScanning {
+                                Text(scanner.currentPath ?? "Preparing scan…").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                if let progress = scanner.progress {
+                                    Text("\(progress.scannedFileCount) files · \(progress.scannedBytes.formattedByteCount)").font(DockDesign.Grouped.subtitleFont).monospacedDigit()
+                                }
+                            }
+                            ForEach(scanner.warnings, id: \.self) { Text($0).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.orange) }
+                            if !scanner.results.isEmpty {
+                                Text("Locations are counted separately. Home includes Library.").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                                ForEach(scanner.results, id: \.rootPath) { result in
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text(result.rootPath).font(DockDesign.Grouped.subtitleFont.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+                                        Text(storageSummary(result)).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                                        ForEach(result.largestFiles) { file in
+                                            Button {
+                                                reveal(file)
+                                            } label: {
+                                                HStack(spacing: 8) {
+                                                    Image(systemName: "doc").foregroundStyle(.secondary)
+                                                    Text(file.name).lineLimit(1).truncationMode(.middle)
+                                                    Spacer(minLength: 4)
+                                                    Text(file.byteSize.formattedByteCount).monospacedDigit().foregroundStyle(.secondary)
+                                                    Image(systemName: "arrow.up.forward.app").foregroundStyle(.secondary)
+                                                }.font(DockDesign.Grouped.subtitleFont).padding(.vertical, 4)
+                                            }.buttonStyle(.plain).help("Reveal in Finder")
+                                        }
+                                    }
+                                }
+                            }
+                        }.padding(DockDesign.Grouped.rowHorizontalPadding)
+                    }
+                }
+            }
+            if showsHero {
+                WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) {
+                    GroupedSection(footer: "Local readings sample every 4 seconds while visible.") {
+                        GroupedRow("Dock secondary metric") {
+                            Picker(
+                                "Dock secondary metric",
+                                selection: Binding(
+                                    get: { configuration.systemSecondaryMetric },
+                                    set: { value in
+                                        store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.systemSecondaryMetric = value }
+                                    })
+                            ) { ForEach(SystemSecondaryMetric.allCases) { Text($0.title).tag($0) } }.labelsHidden()
                         }
                     }
                 }
+            } else {
+                // The sheet's Appearance group already edits systemSecondaryMetric.
+                Text("Local readings sample every 4 seconds while visible.")
+                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
+            guard showsHero else { return }
             #if DEBUG
-            if fixture != nil { return }
+                if fixture != nil { return }
             #endif
             monitor.subscribe(subscriptionID, popout: true)
         }
@@ -441,7 +481,7 @@ private struct SystemActivityPopoutWidgetView: View {
 
     private var loadAverageSummary: String {
         guard let load = loadAverage else { return "Unavailable" }
-        return String(format: "%.2f · %.2f · %.2f", load.oneMinute, load.fiveMinutes, load.fifteenMinutes)
+        return SystemActivityFormatting.load(load)
     }
 
     private var uptimeSummary: String {
@@ -486,8 +526,18 @@ private struct SystemActivityPopoutWidgetView: View {
     }
 }
 
+enum SystemActivityFormatting {
+    static func load(_ load: SystemLoadAverage, locale: Locale = .current) -> String {
+        [load.oneMinute, load.fiveMinutes, load.fifteenMinutes]
+            .map { $0.formatted(.number.precision(.fractionLength(2)).locale(locale)) }.joined(separator: " · ")
+    }
+    static func bytes(_ bytes: UInt64, locale: Locale = .current) -> String {
+        Int64(clamping: bytes).formatted(.byteCount(style: .file).locale(locale))
+    }
+}
+
 private extension UInt64 {
-    var formattedByteCount: String { ByteCountFormatter.string(fromByteCount: Int64(clamping: self), countStyle: .file) }
+    var formattedByteCount: String { SystemActivityFormatting.bytes(self) }
 }
 
 #if DEBUG
@@ -511,15 +561,3 @@ extension EnvironmentValues {
     }
 }
 #endif
-
-/// Calm data section shared by the RD-10 content views; the popout shell supplies its surface.
-struct FacesBDataSection<Content: View>: View {
-    var title: String
-    @ViewBuilder var content: Content
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(DockDesign.Module.labelLarge).foregroundStyle(.secondary).accessibilityAddTraits(.isHeader)
-            content
-        }.frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
