@@ -92,10 +92,6 @@ final class SystemActivityMonitor: ObservableObject {
         }
     }
 
-    func refreshNow() {
-        Task { await sample() }
-    }
-
     private func sample() async {
         guard SystemActivitySamplingPolicy.shouldSample(dockIsVisible: dockIsVisible || !visiblePopouts.isEmpty,
                                                          subscriberCount: subscribers.count) else { return }
@@ -325,12 +321,8 @@ private struct SystemActivityPopoutWidgetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if showsHero {
-                HStack {
-                    Text("Live samples every 4 seconds").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Refresh") { monitor.refreshNow() }.buttonStyle(.borderless).controlSize(.small)
-                        .accessibilityLabel("Refresh system readings")
-                }
+                // Sampled live every 4 seconds, so there is no manual refresh control (one pattern: content over chrome).
+                Text("Live samples every 4 seconds").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                 WidgetPopoutHero(
                     value: cpuPercentage.map { "\(Int($0.rounded()))%" } ?? "Warming up",
                     caption: "CPU · Memory " + memorySummary,

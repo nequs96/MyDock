@@ -48,8 +48,6 @@ final class NetworkActivityMonitor: ObservableObject {
         updateSamplingState()
     }
 
-    func refreshNow() { Task { await sample() } }
-
     private func updateSamplingState() {
         RefreshScheduler.shared.setDemand(&schedulerDemand, kind: .popout, active: !visiblePopouts.isEmpty)
         let shouldSample = SystemActivitySamplingPolicy.shouldSample(dockIsVisible: dockIsVisible || !visiblePopouts.isEmpty,
@@ -183,12 +181,8 @@ private struct NetworkActivityPopoutWidgetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if showsHero {
-                HStack {
-                    Text("Live samples every 4 seconds").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Refresh") { monitor.refreshNow() }.buttonStyle(.borderless).controlSize(.small)
-                        .accessibilityLabel("Refresh network readings")
-                }
+                // Sampled live every 4 seconds, so there is no manual refresh control (one pattern: content over chrome).
+                Text("Live samples every 4 seconds").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                 HStack(spacing: 10) {
                     rateCard(title: "Download", value: aggregate(\.receivedBytesPerSecond), history: downloadHistory, color: .secondary, symbol: "arrow.down")
                     rateCard(title: "Upload", value: aggregate(\.sentBytesPerSecond), history: uploadHistory, color: .secondary, symbol: "arrow.up")
