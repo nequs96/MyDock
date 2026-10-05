@@ -670,3 +670,143 @@ Report: `../MyDock-wt/RD-12.report.md`. The worktree stayed unchanged.
 - RT, RM and IC handling in code.
 
 The reviewer also ran **609 tests** unsandboxed (plus 93 focused redesign tests) and a universal Release build, with no warnings in redesign files.
+
+### RD-12 visual review — `visual-reviewer` agent, read-only, at `1071b86`
+
+The reviewer viewed about 75 integrated renders across every mode.
+
+**Verdict:** "Not yet screenshot-worthy, but close." The Dock itself photographs best. Three things break the illusion:
+- the popout is a card inside an opaque slab;
+- previews truncate their own sample text;
+- packages do not share one chrome vocabulary.
+
+The orchestrator verified D1 in source: `CustomDockView.swift:827-829` adds `.padding(20).background(WidgetDesign.surface)` (opaque `windowBackgroundColor`) around the `WidgetPopout` glass shell. It also viewed `MOTION/motion-popout-end-light.png`.
+
+**Defects:**
+
+| ID | Defect |
+|---|---|
+| D1 | The popout is a card inside an opaque slab. |
+| D2 | Gallery samples are Soft while new widgets are Mono (same as Codex #8). |
+| D3 | The Sticky Note face truncates "Make somethin…" on the hero, presets and sheet. |
+| D4 | Badge clipped in the vertical Dock. |
+| D5 | AI Activity Standard/Activity faces overflow 54 pt with three lines. |
+| D6 | Paddle/Shopify Standard trailing period truncates ("30 da…"). |
+| D7 | Timer Start buttons fail contrast in light (about 2:1). |
+| D8 | Weather forecast shows day glyphs at night; hours read as a bare "03". |
+| D9 | RD-10 popouts use `.caption2`/`.tertiary`; Stock setup shows a disabled Refresh row; Stripe states contradict ("Not connected" while showing a value), with duplicate Refresh, two freshness lines and long legal footers; System Activity's hero is not `WidgetPopoutHero`, and FacesBQA does not render inside the real shell. |
+| D10 | Settings General/Integrations are not on the grouped grammar (`AppLifecycleSettingsView`, `RecoveryCenterView`, `PrivacyHelpSection`, Integrations account rows). |
+| D11 | In narrow Settings, the window header and sidebar header/footer push the selected page below the fold. |
+| D12 | The sheet repeats the hero for every hero family; the Trash caption is duplicated by its footer; the Alarm hero duplicates its first row in another time format. |
+| D13 | Six different close/Done controls and five header styles. |
+| D14 | The popout Customize panel duplicates the sheet's Appearance with a different size control; three colour palettes (App Folder uses saturated system colours). |
+| D15 | Label-over-value order is inconsistent (System Activity Compact and the side Dock); with labels off, alignment varies. |
+| D16 | Permissions rows show lowercase sentence fragments. |
+| D17 | Smaller issues (detailed below). |
+| D18 | To verify natively: soft upscaled gallery and sheet previews; the Settings hero follows the system scheme while the swatches follow the window scheme. |
+
+D17 covers:
+- the gallery Apps added check and the add plus look alike;
+- the spacer descriptions are duplicated;
+- the Dock inspector sliders are misaligned;
+- Now Playing uses plain `gobackward`/`goforward`;
+- the Weather "Next Hours" columns crowd the left;
+- the presets "Remove" button is not destructive;
+- the Checklist "Add" button is invisible under Increase Contrast;
+- dead 8–9 pt provider compact views remain in `WidgetViews.swift`;
+- starter preset previews overflow, and their thumbnails shrink text to about 5 pt.
+
+**Taste suggestions:**
+
+| ID | Suggestion |
+|---|---|
+| T1 | Popouts carry settings; Control Center would show the reading and primary actions only. |
+| T2 | Auto accent tints every glyph; make Auto ≈ Mono except for active state. |
+| T3 | Gallery tiles nest a stroked tile around the module. |
+| T4 | Long footers everywhere. |
+| T5 | The sheet preview strip adds a third nested rectangle. |
+| T6 | Calendar rows: three lines with a full date. |
+| T7 | Detail page copy is three secondary lines. |
+
+### Fix wave plan (binding ownership; base after FX-01 where noted)
+
+**Shared rule (D13):**
+- Every sheet, inspector and window closes with `Button("Done").buttonStyle(GalleryGlassButtonStyle()).keyboardShortcut(.cancelAction)`, trailing.
+- Popovers keep the circle icon buttons.
+- Sheets use a centred title; popouts use a leading Module-label header.
+- Footers use `GroupedSection(footer:)` at 11 pt `.secondary`: one short sentence or none.
+- Nothing uses `.caption2` or `.tertiary` text.
+
+**FX-02 (Claude `dock-surface`): Dock and the editor.** Owns:
+- `CustomDockView` except the popover host lines;
+- `DockPresentationPolicies`;
+- `CustomDockWindowController`;
+- `DockCanvas`;
+- `StyleSwatch`;
+- `DockLayoutPreview`.
+
+Fixes:
+- Codex #7: cache running-indicator matches;
+- D4: vertical badge clip;
+- the trailing separator;
+- D18: StyleSwatch scheme source;
+- `DockCanvas` keyboard reorder motion.
+
+**FX-03 (Claude `widget-visuals`, after FX-01): widget shell, sheet and shared faces.** Owns:
+- `WidgetViews.swift`;
+- `WidgetConfigurationSheet.swift`;
+- `WidgetPrimitives.swift`;
+- `AppleWidgetCard.swift`;
+- `WidgetAppearance.swift`;
+- the popover host lines in `CustomDockView` (around 826–832) only.
+
+Fixes:
+- D1: one surface per popout;
+- Codex #2: Remove failure and retry;
+- D3: Sticky Note;
+- D6: period tokens;
+- D7: Start contrast;
+- D12: no hero in embedded mode;
+- D14: Customize reuses the sheet's Appearance and SizePager, and the App Folder palette comes from `WidgetPalette`;
+- D15: label over value and labels-off alignment;
+- the Disk and Media truncation;
+- removing dead `RemindersDockFace` and the dead provider compact views;
+- the Clock hero.
+
+**FX-04 (Claude `widget-visuals`, after FX-01 and FX-03): RD-09 family files.** Fixes:
+- D8: Weather night glyphs and hour labels;
+- D12: the Trash footer and the Alarm time format;
+- D17: Now Playing seek symbols, Weather Next Hours layout, Checklist IC Add;
+- T1: move settings rows behind Customize where a family puts more than about 3 settings rows in the popout body.
+
+**FX-05 (Codex, high): RD-10 family files plus `FacesBQA`.** Fixes:
+- D9;
+- the AI Limits order and duplicate freshness;
+- D5: AI Activity two lines;
+- Codex #4: accessible chart values;
+- Codex #5: remove the dead colour pickers from the UI while keeping their persisted keys;
+- `FacesBQA` renders inside the real `WidgetPopout` shell;
+- T1 for its families.
+
+**FX-06 (Codex, medium): Settings.** Owns:
+- `UI/Settings/*`, `SettingsView`;
+- `AppLifecycleSettingsView`, `RecoveryCenterView`, `PrivacyHelpSection`;
+- `DockInspector`, `PersonalPresetPicker`;
+- the settings helpers in `DockDesign`.
+
+Fixes:
+- D10, D11 (and the duplicate "Settings" title), D16;
+- Codex #6: Restore defaults;
+- the Finish / Glass finish redundancy;
+- long footers;
+- D17: inspector slider alignment and the presets Remove button;
+- D13 for the inspectors.
+
+**FX-07 (Claude `widget-gallery`): gallery.** Fixes:
+- Codex #3: keyboard route to the detail view;
+- D2 and Codex #8: previews use the creation configuration (`DockItem.widget(kind)`);
+- D17: Apps check vs plus, spacer descriptions;
+- T3: no stroked tile;
+- T7: shorter detail copy.
+
+**Deferred, recorded:** T2 (accent semantics: product decision) and T5 (sheet preview strip).
