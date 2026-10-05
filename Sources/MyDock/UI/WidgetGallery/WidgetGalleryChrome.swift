@@ -227,7 +227,8 @@ struct GalleryTileBackdrop: ViewModifier {
                     .animation(accessibility.animation(DockDesign.Motion.hover), value: hovered)
             }
             .overlay {
-                if accessibility.contrast == .increased {
+                // Under Increase Contrast the module draws its own edge; the tile adds one only for state.
+                if accessibility.contrast == .increased, selected || hovered {
                     shape.dockInnerEdge(DockDesign.Outline.color(.increased), lineWidth: DockDesign.Outline.controlWidth(.increased))
                 } else if selected {
                     shape.dockInnerEdge(DockDesign.accent.opacity(0.55), lineWidth: 1)

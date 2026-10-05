@@ -217,3 +217,15 @@ struct RedesignGalleryTests {
         #expect(WidgetGalleryModel.columnCount(for: 2000) == 4)
     }
 }
+
+@Suite struct PresetThumbnailPlanTests {
+    @Test func widgetsAlwaysShowAndOverflowIsCounted() {
+        let small = PresetThumbnailPlan(appCount: 3, widgetCount: 2)
+        #expect(small.shownApps == 3 && small.shownWidgets == 2 && small.hidden == 0)
+        let commerce = PresetThumbnailPlan(appCount: 1, widgetCount: 4)
+        #expect(commerce.shownWidgets == 4 && commerce.shownApps == 1 && commerce.hidden == 0)
+        let big = PresetThumbnailPlan(appCount: 5, widgetCount: 4)
+        #expect(big.shownWidgets == 4 && big.shownApps == 2 && big.hidden == 3)
+        #expect(big.shownApps + big.shownWidgets <= PresetThumbnailPlan.slots)
+    }
+}

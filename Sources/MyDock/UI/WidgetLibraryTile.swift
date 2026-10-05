@@ -128,13 +128,21 @@ struct PresetLibraryTile: View {
             }.frame(maxWidth: .infinity, alignment: .leading)
             // A text-free mini Dock: app icons, then each widget as a glyph in its module shape.
             // Real faces at this size would shrink their text to about 5 pt.
+            // Every widget is shown, apps fill the rest, and anything beyond the strip is counted
+            // so the thumbnail never hides what the preset contains.
+            let apps = items.filter { $0.type == .application }
+            let plan = PresetThumbnailPlan(appCount: apps.count, widgetCount: preset.widgetKinds.count)
             HStack(spacing: 5) {
-                ForEach(items.filter { $0.type == .application }.prefix(3)) { item in
+                ForEach(apps.prefix(plan.shownApps)) { item in
                     Image(nsImage: AppLauncher.icon(for: item, size: Self.chipHeight)).resizable().scaledToFit()
                         .frame(width: Self.chipHeight, height: Self.chipHeight)
                 }
-                ForEach(preset.widgetKinds.prefix(2), id: \.self) { kind in
+                ForEach(preset.widgetKinds.prefix(plan.shownWidgets), id: \.self) { kind in
                     PresetModuleChip(kind: kind, height: Self.chipHeight, radius: Self.chipRadius)
+                }
+                if plan.hidden > 0 {
+                    Text("+\(plan.hidden)").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                        .frame(minWidth: Self.chipHeight, minHeight: Self.chipHeight)
                 }
             }
             .padding(Self.stripPadding)
@@ -158,6 +166,20 @@ struct PresetLibraryTile: View {
         } else {
             stripShape.fill(.regularMaterial)
         }
+    }
+}
+
+/// How many apps and widgets a preset thumbnail shows: widgets first (they define the preset),
+/// apps fill the remaining slots, and the rest becomes a "+N" count.
+struct PresetThumbnailPlan: Equatable {
+    static let slots = 6
+    var shownApps: Int
+    var shownWidgets: Int
+    var hidden: Int
+    init(appCount: Int, widgetCount: Int) {
+        shownWidgets = min(widgetCount, Self.slots)
+        shownApps = min(appCount, Self.slots - shownWidgets)
+        hidden = appCount + widgetCount - shownApps - shownWidgets
     }
 }
 

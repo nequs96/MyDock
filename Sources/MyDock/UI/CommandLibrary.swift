@@ -118,7 +118,7 @@ struct CommandLibrary: View {
                                         VStack(alignment: .trailing, spacing: 2) {
                                             WidgetCardPreview(kind: item.widgetKind ?? "", width: 144, displayScale: 0.7)
                                                 .frame(width: 108, height: 40).allowsHitTesting(false).accessibilityHidden(true)
-                                            Text("Example").font(.caption2).foregroundStyle(.tertiary)
+                                            Text("Example").font(.system(size: 11)).foregroundStyle(.secondary)
                                                 .accessibilityLabel("Example preview for \(entry.title)")
                                         }
                                     }
