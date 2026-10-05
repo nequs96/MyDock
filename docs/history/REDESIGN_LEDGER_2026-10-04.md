@@ -641,3 +641,32 @@ The fix wave, FX-02 onwards, will bundle the reviewers' findings with the defect
 - Disk and Media face truncation;
 - the stale SURFACES click point;
 - `DockCanvas` keyboard moves using `transform`.
+
+### RD-12 code review — Codex `gpt-6.1-sol` (high), read-only, at `1071b86`
+
+Report: `../MyDock-wt/RD-12.report.md`. The worktree stayed unchanged.
+
+**Findings**, all routed to the fix wave:
+
+1. **Blocker:** the Trash popout render crash, reproduced independently with a second crash report. Already assigned to FX-01.
+2. **Major:** a failed Remove Widget save leaves the item removed from a dirty draft. The sheet dismisses anyway, and undo is never registered, so a retry returns false (`WidgetConfigurationSheet.swift:192`).
+3. **Major:** gallery widget tiles are gesture-only. A keyboard-only user can add the default layout but cannot open the detail size pager (`WidgetGalleryTile.swift:83`, `AddLibrary.swift:503`).
+4. **Major:** Paddle and Shopify popout charts became a `MicroSparkline` with a static label. VoiceOver loses the dated values that Swift Charts exposed (`PaddleWidgetViews.swift:204`, `ShopifyWidgetViews.swift:222`).
+5. **Minor:** the Stripe, Paddle and Shopify Color pickers still persist their colour fields, but rendering no longer reads them. Fix: wire them to the accent system, or remove the pickers (keeping the keys).
+6. **Minor:** "Restore appearance defaults" omits edge, widget surface, inset and tint mode (`AppearanceSettingsPage.swift:213`). Verified by the orchestrator.
+7. **Minor:** running-indicator matching still calls `InstalledApplicationIdentity.normalizedURL`, i.e. `resolvingSymlinksInPath`, which touches the file system per path component. It does this for every running and pinned app on every body evaluation, including hover. Verified. The fix is to cache matches when application or profile state changes. The orchestrator's earlier fix only removed the resolver fallback.
+8. **Minor:** gallery previews render with `.soft` icons, while new widgets are created `.mono`. Previews should use the creation configuration.
+
+**Verified OK by the reviewer:**
+- persistence compatibility;
+- appearance scope and undo;
+- quick styles;
+- floating and reveal geometry;
+- `allowsAdding`;
+- untouched `CommandLibrary`;
+- refresh demand;
+- availability guards;
+- DEBUG-only seams;
+- RT, RM and IC handling in code.
+
+The reviewer also ran **609 tests** unsandboxed (plus 93 focused redesign tests) and a universal Release build, with no warnings in redesign files.
