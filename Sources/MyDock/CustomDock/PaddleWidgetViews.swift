@@ -1,4 +1,3 @@
-import Charts
 import SwiftUI
 
 struct PaddleWidgetProvider: DockWidgetProvider {
@@ -21,7 +20,7 @@ struct PaddleCompactView: View {
             amount: snapshot.map { PaddleMetricFormatter.amount(for: configuration.paddleMetric, snapshot: $0) },
             currency: configuration.paddleMetric == .activeSubscribers ? nil : snapshot?.currency,
             fullValue: snapshot.map { PaddleMetricFormatter.text(for: configuration.paddleMetric, snapshot: $0) },
-            context: configuration.paddlePeriod.title, emptyValue: configuration.paddleAccountID.isEmpty ? "Connect" : "No data")
+            context: configuration.paddlePeriod.faceToken, emptyValue: configuration.paddleAccountID.isEmpty ? "Connect" : "No data")
     }
 }
 
@@ -29,6 +28,11 @@ private struct PaddlePopoutView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    #if DEBUG
+    @Environment(\.dockSnapshotRendering) private var snapshotRendering
+    #else
+    private var snapshotRendering: Bool { false }
+    #endif
     @ObservedObject private var setupDrafts = WidgetSetupDraftStore.shared
     @State private var connections: [PaddleConnectedAccount] = []
     @State private var isConnecting = false
@@ -42,72 +46,25 @@ private struct PaddlePopoutView: View {
     private var setupDraft: PaddleConnectionDraft { setupDrafts.paddleDraft(for: item.id) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            GroupedSection {
-                GroupedRow("Account name", symbol: "pencil") {
-                    TextField("Account name", text: accountNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
-                }
-                GroupedRow("Refresh", symbol: "arrow.clockwise") {
-                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing || configuration.paddleAccountID.isEmpty)
-                    if isRefreshing { ProgressView().controlSize(.small) }
-                }
-            }
-
+        VStack(alignment: .leading, spacing: 16) {
             if let snapshot {
-                Text("\(snapshot.accountName) · Paddle Billing")
-                    .font(.subheadline.weight(.medium)).lineLimit(1)
-            } else {
-                Label("Connect a Paddle Billing account", systemImage: "key.horizontal")
-                    .font(.callout.weight(.medium))
-                Text("Paddle Classic and client-side tokens are not supported. Create a current Billing API key with Metrics → Read (metrics.read).")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-
-            if let snapshot {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(PaddleMetricFormatter.text(for: configuration.paddleMetric, snapshot: snapshot))
-                        .font(DockDesign.Module.valueLarge)
-                    HStack(spacing: 6) {
-                        Text(configuration.paddleMetric.title)
-                        Text("·")
-                        Text(configuration.paddleMetric == .activeSubscribers ? "customers" : snapshot.currency)
-                        Text("·")
-                        Text(snapshot.period.title)
-                    }
-                    .font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 2)
+                WidgetPopoutHero(value: PaddleMetricFormatter.text(for: configuration.paddleMetric, snapshot: snapshot),
+                    caption: "\(configuration.paddleMetric.title) · \(configuration.paddleMetric.popoutUnit(currency: snapshot.currency)) · \(snapshot.period.title)")
                 if configuration.paddleShowsChart { metricChart(snapshot) }
-            }
-
-            controls
-            connectionControls
-
-            if let snapshot {
-                HStack(spacing: 5) {
-                    Image(systemName: isStale ? "clock.badge.exclamationmark" : "checkmark.circle")
-                    Text(isStale ? "Showing last successful values" : "Updated \(snapshot.updatedAt.formatted(date: .omitted, time: .shortened))")
-                    Text("· UTC")
-                }
-                .font(.caption2).foregroundStyle(isStale ? Color.orange : Color.gray)
-                if snapshot.period != configuration.paddlePeriod {
-                    Text("Last successful period: \(snapshot.period.title) · selected: \(configuration.paddlePeriod.title)")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
+            } else {
+                WidgetPopoutHero(value: configuration.paddleAccountID.isEmpty ? "Connect Paddle" : "No data",
+                    caption: "Paddle Billing · Metrics read access")
             }
             if let errorMessage {
-                Label(snapshot == nil ? errorMessage : "Refresh failed. Showing saved data. \(errorMessage)",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            DataSourceProvenanceView(provenance: .paddle(snapshot: snapshot, localName: configuration.paddleDisplayName,
-                                                         metric: configuration.paddleMetric, error: errorMessage))
-            Text("Net revenue is Paddle's reported revenue after tax and fees, before refunds and chargebacks. MRR is its current recurring run rate; ARR is MRR × 12, not a cash forecast. Paddle reports its primary balance currency and UTC-day series.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            if snapshot == nil { connectionControls }
+            controls
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: "\(configuration.paddleAccountID)|\(configuration.paddlePeriod.rawValue)|\(configuration.paddleDisplayName)") {
-            guard !configuration.paddleAccountID.isEmpty else { return }
+            guard !snapshotRendering, !configuration.paddleAccountID.isEmpty else { return }
             await refresh()
         }
         .onAppear(perform: reloadConnections)
@@ -122,10 +79,16 @@ private struct PaddlePopoutView: View {
     }
 
     private var controls: some View {
-        GroupedSection("Display") {
+        GroupedSection("Settings", footer: provenanceFooter) {
+            GroupedRow("Account name", symbol: "pencil") {
+                TextField("Account name", text: accountNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+            }
             GroupedRow("Account") {
                 Picker("Account", selection: accountBinding) {
-                    Text("Not connected").tag("")
+                    Text(snapshot == nil ? "Not connected" : "Saved reading only").tag("")
+                    if !configuration.paddleAccountID.isEmpty, !connections.contains(where: { $0.id == configuration.paddleAccountID }) {
+                        Text(configuration.paddleDisplayName + " (saved)").tag(configuration.paddleAccountID)
+                    }
                     ForEach(connections) { account in Text(account.name).tag(account.id) }
                 }.labelsHidden()
             }
@@ -139,30 +102,30 @@ private struct PaddlePopoutView: View {
                     ForEach(PaddlePeriod.allCases) { Text($0.title).tag($0) }
                 }.labelsHidden()
             }
-            GroupedRow("Color") {
-                Picker("Color", selection: colorBinding) {
-                    ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
-                }.labelsHidden()
-            }
+
             GroupedRow("Show chart", symbol: "chart.xyaxis.line", isOn: chartBinding)
+            if snapshot != nil {
+                DisclosureGroup("Connection") { connectionControls }
+                    .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+                    .padding(.vertical, DockDesign.Grouped.rowVerticalPadding)
+            }
         }
-        .font(.caption)
+        .help(metricExplanation)
     }
+
+    private var provenanceFooter: String { "Paddle reports its balance currency by UTC day." }
+    private var metricExplanation: String { "Net revenue is Paddle's reported revenue after tax and fees, before refunds and chargebacks. MRR is its current recurring run rate; ARR is MRR × 12, not a cash forecast. Paddle reports its primary balance currency and UTC-day series." }
 
     private var connectionControls: some View {
         VStack(alignment: .leading, spacing: 7) {
-            GroupedSection("Connect a Paddle Billing account") {
+            GroupedSection("Connection") {
                 GroupedRow("Account name") {
-                    TextField("Account name", text: connectionAccountNameBinding).textFieldStyle(DockTextFieldStyle())
+                    TextField("Account name", text: connectionAccountNameBinding).textFieldStyle(.plain)
                         .disabled(isConnecting)
                 }
-                GroupedRow("Account color") {
-                    Picker("Account color", selection: accountColorBinding) {
-                        ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
-                    }.labelsHidden().disabled(isConnecting)
-                }
+
                 GroupedRow("API key") {
-                    SecureField("Paddle Billing API key", text: apiKeyBinding).textFieldStyle(DockTextFieldStyle())
+                    SecureField("Paddle Billing API key", text: apiKeyBinding).textFieldStyle(.plain)
                         .disabled(isConnecting)
                 }
                 GroupedRow("Connect", role: .button) { Task { await connect() } }
@@ -174,11 +137,8 @@ private struct PaddlePopoutView: View {
                     GroupedRow("Disconnect", role: .destructive) { isDisconnectConfirmationPresented = true }
                 }
             }
-            Text("Grant only Metrics → Read (metrics.read). Live and sandbox keys use their matching API environment.")
-                .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Text("An unfinished form stays in memory for this widget until connected or cleared; its key is never written to profile data or backups.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
+        .help("Grant only Metrics → Read (metrics.read). Live and sandbox keys use their matching API environment. An unfinished form stays in memory for this widget until connected or cleared; its key is never written to profile data or backups." )
     }
 
     private var connectionAccountNameBinding: Binding<String> {
@@ -193,22 +153,22 @@ private struct PaddlePopoutView: View {
         })
     }
 
-    private var accountColorBinding: Binding<String> {
-        Binding(get: { setupDraft.color }, set: { value in
-            setupDrafts.updatePaddleDraft(for: item.id) { $0.color = value }
-        })
-    }
-
     @ViewBuilder
     private func metricChart(_ snapshot: PaddleSnapshot) -> some View {
-        MicroSparkline(values: snapshot.points.map { chartValue($0, metric: configuration.paddleMetric) }, color: .secondary)
-            .frame(height: 82)
-            .accessibilityHidden(false)
-            .accessibilityLabel("\(configuration.paddleMetric.title) by UTC day")
+        let series = PaddleChartAccessibility.series(snapshot, metric: configuration.paddleMetric)
+        ZStack {
+            MicroSparkline(values: series.map(\.value), color: .secondary)
+        }
+        .frame(height: 82)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(configuration.paddleMetric.title) by UTC day")
+        .accessibilityValue(FacesBChartAccessibility.valueList(series, timeZone: TimeZone(secondsFromGMT: 0)!,
+            currency: configuration.paddleMetric == .activeSubscribers ? nil : snapshot.currency))
     }
 
     private var accountBinding: Binding<String> {
         Binding(get: { configuration.paddleAccountID }, set: { id in
+            guard id != configuration.paddleAccountID else { return }
             guard let account = connections.first(where: { $0.id == id }) else {
                 update { $0.paddleAccountID = ""; $0.paddleSnapshot = nil }
                 return
@@ -232,22 +192,9 @@ private struct PaddlePopoutView: View {
     private var chartBinding: Binding<Bool> {
         Binding(get: { configuration.paddleShowsChart }, set: { value in update { $0.paddleShowsChart = value } })
     }
-    private var colorBinding: Binding<String> {
-        Binding(get: { configuration.paddleColor }, set: { value in
-            update { $0.paddleColor = value }
-            if let account = connections.first(where: { $0.id == configuration.paddleAccountID }) {
-                PaddleConnectionDirectory.update(PaddleConnectedAccount(id: account.id, name: account.name, color: value))
-                reloadConnections()
-            }
-        })
-    }
+
     private var accountNameBinding: Binding<String> {
         Binding(get: { configuration.paddleDisplayName }, set: { value in update { $0.paddleDisplayName = String(value.prefix(80)) } })
-    }
-
-    private var isStale: Bool {
-        guard let snapshot else { return false }
-        return Date.now.timeIntervalSince(snapshot.fetchedAt) > 300 || snapshot.period != configuration.paddlePeriod
     }
 
     private func refresh() async {
@@ -259,9 +206,6 @@ private struct PaddlePopoutView: View {
         currentItem.widgetConfiguration = configuration
         await store.widgetData.refresh(item: currentItem, profileID: profileID)
         guard refreshRequestID == requestID, !Task.isCancelled else { return }
-        if let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: configuration) {
-            errorMessage = store.widgetData.errors[query]
-        }
     }
 
     private func connect() async {
@@ -316,14 +260,6 @@ private struct PaddlePopoutView: View {
         store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: body)
     }
 
-    private func chartValue(_ point: PaddleMetricPoint, metric: PaddleMetric) -> Double {
-        switch metric {
-        case .netRevenue: NSDecimalNumber(decimal: FinancialCurrencyFormatter.majorUnits(from: point.netRevenueMinor, currency: snapshot?.currency ?? "USD")).doubleValue
-        case .mrr: NSDecimalNumber(decimal: FinancialCurrencyFormatter.majorUnits(from: point.mrrMinor, currency: snapshot?.currency ?? "USD")).doubleValue
-        case .arr: NSDecimalNumber(decimal: FinancialCurrencyFormatter.majorUnits(from: point.mrrMinor * 12, currency: snapshot?.currency ?? "USD")).doubleValue
-        case .activeSubscribers: Double(point.activeSubscribers)
-        }
-    }
 }
 
 private enum PaddleMetricFormatter {
@@ -348,6 +284,48 @@ private enum PaddleMetricFormatter {
     }
 }
 
-private func color(for name: String) -> Color {
-    (DockProfileColor(rawValue: name) ?? .blue).displayColor
+extension PaddlePeriod {
+    var faceToken: String {
+        switch self {
+        case .today: "Today"
+        case .sevenDays: "7d"
+        case .thirtyDays: "30d"
+        case .ninetyDays: "90d"
+        }
+    }
+}
+
+struct FacesBDatedChartValue: Equatable {
+    var date: Date
+    var value: Double
+}
+
+enum FacesBChartAccessibility {
+    static func valueList(_ series: [FacesBDatedChartValue], timeZone: TimeZone, currency: String?, locale: Locale = .current) -> String {
+        series.map { point in
+            let day = point.date.formatted(Date.FormatStyle(date: .complete, time: .omitted, locale: locale, timeZone: timeZone))
+            let value = currency.map { point.value.formatted(.currency(code: $0).locale(locale)) }
+                ?? point.value.formatted(.number.locale(locale).precision(.fractionLength(0...2)))
+            return "\(day): \(value)"
+        }.joined(separator: "; ")
+    }
+}
+
+enum PaddleChartAccessibility {
+    static func series(_ snapshot: PaddleSnapshot, metric: PaddleMetric) -> [FacesBDatedChartValue] {
+        snapshot.points.map { point in
+            let value: Decimal
+            switch metric {
+            case .activeSubscribers: value = Decimal(point.activeSubscribers)
+            case .netRevenue: value = FinancialCurrencyFormatter.majorUnits(from: point.netRevenueMinor, currency: snapshot.currency)
+            case .mrr: value = FinancialCurrencyFormatter.majorUnits(from: point.mrrMinor, currency: snapshot.currency)
+            case .arr: value = FinancialCurrencyFormatter.majorUnits(from: point.mrrMinor * 12, currency: snapshot.currency)
+            }
+            return FacesBDatedChartValue(date: point.date, value: NSDecimalNumber(decimal: value).doubleValue)
+        }
+    }
+}
+
+extension PaddleMetric {
+    func popoutUnit(currency: String) -> String { self == .activeSubscribers ? "customers" : currency }
 }

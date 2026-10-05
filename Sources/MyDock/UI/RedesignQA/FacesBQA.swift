@@ -7,7 +7,7 @@ import SwiftUI
 enum FacesBQA {
     static let families = ["Stock", "Watchlist", "Stripe", "Paddle", "Shopify", "AI Limits", "AI Activity", "System Activity", "Network Activity"]
     enum State: String, CaseIterable { case ready, setup, unavailable, stale }
-    static let now = Date(timeIntervalSince1970: 1_791_151_200)
+    static let now = Date.now
 
     static func item(_ kind: String, state: State = .ready) -> DockItem {
         if state == .setup { return .widget(kind) }
@@ -25,6 +25,7 @@ enum FacesBQA {
                 c.watchlistStocks[0].snapshot = nil
             }
         case "Stripe":
+            c.stripeAccountID = "qa-stripe"
             c.stripeDisplayName = "Example account"
             c.stripeCurrency = "USD"
             c.stripeSnapshot = StripeSnapshot(accountID: "qa-stripe", accountName: "Example account", fetchedAt: date,
@@ -33,6 +34,7 @@ enum FacesBQA {
                     netAfterFeesMinor: 228_000, mrrMinor: 480_000, payingSubscribers: 32, availableBalanceMinor: 120_000, pendingBalanceMinor: 10_000)],
                 unsupportedSubscriptionItems: state == .stale ? 2 : 0)
         case "Paddle":
+            c.paddleAccountID = "qa-paddle"
             c.paddleDisplayName = "Example account"
             c.paddleShowsChart = true
             c.paddleSnapshot = state == .unavailable ? nil : PaddleSnapshot(accountID: "qa-paddle", accountName: "Example account", fetchedAt: date,
@@ -41,6 +43,7 @@ enum FacesBQA {
                                       mrrMinor: 480_000, activeSubscribers: 32)
                 }, updatedAt: date)
         case "Shopify":
+            c.shopifyStoreID = "qa-shopify"
             c.shopifyDisplayName = "Example store"
             c.shopifyShowsChart = true
             c.shopifySnapshot = state == .unavailable ? nil : ShopifySnapshot(storeID: "qa-shopify", storeName: "Example store",
@@ -80,12 +83,12 @@ enum FacesBQA {
                 inactiveBytes: 2_000_000_000, freeBytes: 20_000_000_000, purgeableBytes: 1_000_000_000),
             loadAverage: SystemLoadAverage(oneMinute: 2.4, fiveMinutes: 1.9, fifteenMinutes: 1.4), thermalState: .nominal,
             systemUptime: 92_000, startupVolume: .init(name: "Startup disk", totalBytes: 500_000_000_000, availableBytes: 128_000_000_000),
-            memoryPressure: .normal, lastUpdated: now)
+            memoryPressure: .normal, lastUpdated: state == .stale ? now.addingTimeInterval(-86_400) : now)
     }
     static func network(_ state: State) -> FacesBNetworkReadings {
         guard state == .ready || state == .stale else { return FacesBNetworkReadings() }
         return FacesBNetworkReadings(interfaces: [.init(name: "en0", receivedBytesPerSecond: 2_400_000,
-            sentBytesPerSecond: 148_000, addresses: ["192.0.2.10"])], updatedAt: now,
+            sentBytesPerSecond: 148_000, addresses: ["192.0.2.10"])], updatedAt: state == .stale ? now.addingTimeInterval(-86_400) : now,
             downloadHistory: [1, 4, 3, 8, 5, 4, 7, 6], uploadHistory: [1, 2, 1, 3, 2, 4, 2, 3],
             hasCompletedRateSample: true, aggregateDownloadRate: 2_400_000, aggregateUploadRate: 148_000)
     }
@@ -161,16 +164,48 @@ extension PremiumVisualQA {
                 }
             }
             for kind in FacesBQA.families {
-                for state in [FacesBQA.State.ready, .setup] + (kind == "AI Limits" || kind == "AI Activity" ? [.stale, .unavailable] : []) {
+                for state in FacesBQA.State.allCases {
                     let item = FacesBQA.item(kind, state: state)
                     store.add(item, to: profileID)
-                    // Only this preview supplies a shell. Family content supplies no outer surface or padding.
-                    try await render(FacesBQAPopout(title: kind) {
-                        WidgetProviderRegistry.provider(for: kind).popoutView(store: store, item: item, profileID: profileID)
-                            .environment(\.facesBSystemReadings, FacesBQA.system(state))
-                            .environment(\.facesBNetworkReadings, FacesBQA.network(state))
-                    }, name: "facesb-popout-\(slug(kind))-\(state.rawValue)-\(suffix)",
-                        size: NSSize(width: 560, height: kind == "AI Limits" ? 1800 : 1500), scheme: scheme, directory: directory)
+                    try await render(FacesBQAPopout(store: store, item: item, profileID: profileID)
+                        .environment(\.facesBSystemReadings, FacesBQA.system(state))
+                        .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
+                        name: "facesb-popout-\(slug(kind))-\(state.rawValue)-\(suffix)",
+                        size: NSSize(width: 510, height: 640), scheme: scheme, directory: directory)
+                    try await render(FacesBQAPopout(store: store, item: item, profileID: profileID, fullContentForQA: true)
+                        .environment(\.facesBSystemReadings, FacesBQA.system(state))
+                        .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
+                        name: "facesb-popout-content-\(slug(kind))-\(state.rawValue)-\(suffix)",
+                        size: NSSize(width: 510, height: 1500), scheme: scheme, directory: directory)
+                    // Default-height shipping sheet, plus a taller export to inspect all embedded content.
+                    try await render(WidgetConfigurationSheet(store: store, item: item, profileID: profileID)
+                        .environment(\.facesBSystemReadings, FacesBQA.system(state))
+                        .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
+                        name: "facesb-sheet-\(slug(kind))-\(state.rawValue)-\(suffix)",
+                        size: NSSize(width: 504, height: 640), scheme: scheme, directory: directory)
+                    try await render(WidgetConfigurationSheet(store: store, item: item, profileID: profileID, maximumHeight: 1800)
+                        .environment(\.facesBSystemReadings, FacesBQA.system(state))
+                        .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
+                        name: "facesb-sheet-content-\(slug(kind))-\(state.rawValue)-\(suffix)",
+                        size: NSSize(width: 504, height: 1800), scheme: scheme, directory: directory)
+                    if state == .ready {
+                        for mode in ["reduce-transparency", "increase-contrast"] {
+                            try await render(FacesBQAPopout(store: store, item: item, profileID: profileID)
+                                .environment(\.facesBSystemReadings, FacesBQA.system(state))
+                                .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
+                                name: "facesb-popout-\(slug(kind))-\(mode)-\(suffix)",
+                                size: NSSize(width: 510, height: 640), scheme: scheme, directory: directory,
+                                contrast: mode == "increase-contrast" ? .increased : .standard,
+                                reduceTransparency: mode == "reduce-transparency")
+                            try await render(WidgetConfigurationSheet(store: store, item: item, profileID: profileID)
+                                .environment(\.facesBSystemReadings, FacesBQA.system(state))
+                                .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
+                                name: "facesb-sheet-\(slug(kind))-\(mode)-\(suffix)",
+                                size: NSSize(width: 504, height: 640), scheme: scheme, directory: directory,
+                                contrast: mode == "increase-contrast" ? .increased : .standard,
+                                reduceTransparency: mode == "reduce-transparency")
+                        }
+                    }
                 }
             }
         }
@@ -201,17 +236,37 @@ private struct FacesBQAGroup<Content: View>: View {
         }
     }
 }
-private struct FacesBQAPopout<Content: View>: View {
-    var title: String
-    @ViewBuilder var content: Content
+/// The shipping single-widget popover host, including its scroll view and current outer chrome.
+/// Changes to CustomDockView's host must be reflected here by the shell owner.
+private struct FacesBQAPopout: View {
+    var store: ProfileStore
+    var item: DockItem
+    var profileID: UUID
+    /// Inspection export only; the default uses CustomDockView's screen-dependent scroll cap.
+    var fullContentForQA = false
+    private var maximumHeight: CGFloat {
+        if fullContentForQA { return 1500 }
+        let selectedDisplayID = store.effectiveSettings(profileID: profileID).customDockDisplayID
+        let screen = NSScreen.screens.first { screen in
+            guard let selectedDisplayID,
+                  let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
+            return number.uint32Value == selectedDisplayID
+        } ?? NSScreen.main ?? NSScreen.screens.first
+        let visibleHeight = screen?.visibleFrame.height ?? 720
+        return min(600, max(180, visibleHeight - 160))
+    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(DockDesign.Module.valueLarge)
-            Divider()
-            content
-            Spacer(minLength: 0)
-        }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color(nsColor: .windowBackgroundColor))
+        VStack(alignment: .leading, spacing: 10) {
+            DockScrollView(.vertical) {
+                WidgetPopout(store: store, item: item, profileID: profileID)
+                    .frame(minWidth: 250, minHeight: 150, alignment: .topLeading)
+            }
+        }
+        .modifier(DockPopoutAppearEffect(anchor: .bottom, progress: 1))
+        .padding(20)
+        .background(WidgetDesign.surface)
+        .frame(minWidth: 250, minHeight: 150, maxHeight: maximumHeight, alignment: .topLeading)
+        .id(item.id)
     }
 }
 #endif

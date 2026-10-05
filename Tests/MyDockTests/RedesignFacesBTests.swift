@@ -63,6 +63,75 @@ struct RedesignFacesBTests {
     }
 
     #if DEBUG
+    @Test func businessPeriodTokensStayCompact() {
+        #expect(StripePeriod.allCases.map(\.faceToken) == ["Today", "7d", "30d", "90d"])
+        #expect(PaddlePeriod.allCases.map(\.faceToken) == ["Today", "7d", "30d", "90d"])
+        #expect(ShopifyPeriod.allCases.map(\.faceToken) == ["Today", "7d", "MTD", "30d"])
+    }
+
+    @Test func countMetricsNeverClaimCurrencyUnits() {
+        #expect(StripeMetric.payingSubscribers.popoutUnit(currency: "USD") == "subscribers")
+        #expect(PaddleMetric.activeSubscribers.popoutUnit(currency: "JPY") == "customers")
+        #expect(ShopifyMetric.orders.popoutUnit(currency: "EUR") == "orders")
+        #expect(StripeMetric.mrr.popoutUnit(currency: "USD") == "USD")
+        #expect(PaddleMetric.arr.popoutUnit(currency: "JPY") == "JPY")
+        #expect(ShopifyMetric.averageOrderValue.popoutUnit(currency: "EUR") == "EUR")
+    }
+
+    @Test func businessFixturesKeepSelectedAccountIdentity() throws {
+        for state in [FacesBQA.State.ready, .stale, .unavailable] {
+            let stripe = try #require(FacesBQA.item("Stripe", state: state).widgetConfiguration)
+            #expect(stripe.stripeAccountID == stripe.stripeSnapshot?.accountID)
+            let paddle = try #require(FacesBQA.item("Paddle", state: state).widgetConfiguration)
+            #expect(!paddle.paddleAccountID.isEmpty)
+            if let snapshot = paddle.paddleSnapshot { #expect(paddle.paddleAccountID == snapshot.accountID) }
+            let shopify = try #require(FacesBQA.item("Shopify", state: state).widgetConfiguration)
+            #expect(!shopify.shopifyStoreID.isEmpty)
+            if let snapshot = shopify.shopifySnapshot { #expect(shopify.shopifyStoreID == snapshot.storeID) }
+        }
+    }
+
+    @Test func paddleAccessibilityPreservesDatedValuesForEveryMetric() throws {
+        var snapshot = try #require(FacesBQA.item("Paddle").widgetConfiguration?.paddleSnapshot)
+        let expected = [PaddleMetric.netRevenue: 120.0, .mrr: 4800.0, .arr: 57600.0, .activeSubscribers: 32.0]
+        for metric in PaddleMetric.allCases {
+            let series = PaddleChartAccessibility.series(snapshot, metric: metric)
+            #expect(series.map(\.date) == snapshot.points.map(\.date))
+            #expect(series.first?.value == expected[metric])
+            #expect(series.count == 7)
+        }
+        snapshot.currency = "JPY"
+        #expect(PaddleChartAccessibility.series(snapshot, metric: .netRevenue).first?.value == 12000)
+        snapshot.points = []
+        #expect(PaddleChartAccessibility.series(snapshot, metric: .mrr).isEmpty)
+    }
+
+    @Test func shopifyAccessibilityPreservesDatedValuesAndZeroOrderDays() throws {
+        var snapshot = try #require(FacesBQA.item("Shopify").widgetConfiguration?.shopifySnapshot)
+        let expected = [ShopifyMetric.orderValue: 120.0, .orders: 12.0, .averageOrderValue: 10.0]
+        for metric in ShopifyMetric.allCases {
+            let series = ShopifyChartAccessibility.series(snapshot, metric: metric)
+            #expect(series.map(\.date) == snapshot.dailyPoints.map(\.date))
+            #expect(series.first?.value == expected[metric])
+            #expect(series.count == 7)
+        }
+        snapshot.dailyPoints = [ShopifyDailyPoint(date: FacesBQA.now, orderValue: 0, orders: 0)]
+        #expect(ShopifyChartAccessibility.series(snapshot, metric: .averageOrderValue).first?.value == 0)
+    }
+
+    @Test func chartValueListIncludesEveryDateAndCorrectDayBoundary() {
+        let locale = Locale(identifier: "en_US")
+        let series = [FacesBDatedChartValue(date: Date(timeIntervalSince1970: 1_791_151_200), value: 120),
+                      FacesBDatedChartValue(date: Date(timeIntervalSince1970: 1_791_237_600), value: 280)]
+        let utc = FacesBChartAccessibility.valueList(series, timeZone: TimeZone(secondsFromGMT: 0)!, currency: "USD", locale: locale)
+        let storeLocal = FacesBChartAccessibility.valueList(series, timeZone: TimeZone(identifier: "Europe/Warsaw")!, currency: nil, locale: locale)
+        #expect(utc.contains("October 4") && utc.contains("October 5"))
+        #expect(utc.contains("$120.00") && utc.contains("$280.00"))
+        #expect(storeLocal.contains("October 5") && storeLocal.contains("October 6"))
+        #expect(storeLocal.contains(": 120") && storeLocal.contains(": 280"))
+        #expect(FacesBChartAccessibility.valueList([], timeZone: .current, currency: nil).isEmpty)
+    }
+
     @Test func activityPopoutFixtureSurvivesRuntimeProjection() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("FacesBProjection-\(UUID())/state.json")
         let store = ProfileStore(fileURL: url, allowsSystemChanges: false)

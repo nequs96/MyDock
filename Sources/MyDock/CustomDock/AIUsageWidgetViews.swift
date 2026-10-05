@@ -75,7 +75,7 @@ struct AILimitsCompactView: View {
             .accessibilityElement(children: .combine)
             .overlay(alignment: .topTrailing) {
                 if reading?.lastRefreshError != nil {
-                    Image(systemName: "exclamationmark.circle.fill").font(.system(size: 10)).foregroundStyle(WidgetPalette.warning)
+                    Image(systemName: "exclamationmark.circle.fill").font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
                         .padding(.top, 4).padding(.trailing, 4)
                         .help("Stale: refresh failed, last successful reading shown").accessibilityLabel("Stale: refresh failed, last successful reading shown")
                 }
@@ -97,11 +97,15 @@ enum AILimitsFaceSample {
     }
 }
 
-
 private struct AILimitsPopoutView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    #if DEBUG
+    @Environment(\.dockSnapshotRendering) private var snapshotRendering
+    #else
+    private var snapshotRendering: Bool { false }
+    #endif
     @State private var isRefreshing = false
     @State private var refreshRequestID = UUID()
     @State private var activeRefreshTask: Task<AILimitsSnapshot, Never>?
@@ -119,38 +123,21 @@ private struct AILimitsPopoutView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            GroupedSection {
-                GroupedRow("Refresh", symbol: "arrow.clockwise") {
-                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing)
-                    if isRefreshing { ProgressView().controlSize(.small) }
-                }
+        VStack(alignment: .leading, spacing: 16) {
+            if visibleReadings.isEmpty {
+                WidgetPopoutHero(value: "No limits available", caption: "Choose a provider below.")
+            } else {
+                ForEach(visibleReadings) { reading in providerSection(reading) }
             }
-
             ForEach(orderedProviders.filter { configuration.aiLimitsVisibleProviders.contains($0) && ($0 == .codex || $0 == .claude) }) { provider in
                 AIAccountConnectionView(provider: provider, allowsAccountActions: store.allowsSystemChanges,
                                         showsLimitsSetup: true, refresh: { await refresh() })
             }
             controls
-            Divider()
-            if visibleReadings.isEmpty {
-                Text(configuration.aiLimitsVisibleProviders.isEmpty
-                     ? "Turn on a provider to show its usage window here."
-                     : "Refreshing provider limits…")
-                    .font(.callout).foregroundStyle(.secondary)
-            } else {
-                ForEach(visibleReadings) { reading in providerSection(reading) }
-            }
-            if let fetchedAt = configuration.aiLimitsSnapshot?.fetchedAt {
-                Label("Last refresh \(fetchedAt.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            DataSourceProvenanceView(provenance: .aiLimits(snapshot: configuration.aiLimitsSnapshot))
-            Text("A dash means unavailable. MyDock reads Codex's local app-server rate-limit API without starting a task. It does not infer percentages or refresh limits by spending model tokens.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: limitsRefreshKey) {
+            guard !snapshotRendering else { return }
             await refresh()
         }
         .onDisappear {
@@ -163,7 +150,7 @@ private struct AILimitsPopoutView: View {
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            GroupedSection("Display") {
+            GroupedSection("Settings") {
                 GroupedRow("Limit display") {
                     Picker("Limit display", selection: layoutBinding) {
                         ForEach(AILimitLayout.allCases) { Text($0.title).tag($0) }
@@ -180,7 +167,7 @@ private struct AILimitsPopoutView: View {
                     }.labelsHidden().disabled(configuration.aiLimitsVisibleProviders.isEmpty)
                 }
             }
-            GroupedSection("Providers", footer: "Choose popout visibility/order and the provider shown in the compact tile.") {
+            GroupedSection("Providers", footer: "Provider-reported limits from this Mac.") {
                 ForEach(orderedProviders) { provider in
                     GroupedRow(provider.title) {
                         Toggle(provider.title, isOn: visibleBinding(for: provider)).labelsHidden().toggleStyle(.switch).controlSize(.small)
@@ -192,7 +179,7 @@ private struct AILimitsPopoutView: View {
                     if provider == .copilot, configuration.aiLimitsVisibleProviders.contains(.copilot) {
                         GroupedRow("Monthly AI-credit allowance") {
                             TextField("Credits", value: copilotAllowanceBinding, format: .number)
-                                .textFieldStyle(DockTextFieldStyle()).frame(width: 86).multilineTextAlignment(.trailing)
+                                .textFieldStyle(.plain).frame(width: 86).multilineTextAlignment(.trailing)
                         }
                         GroupedRow("Quick set", subtitle: "Match your personal GitHub plan. Copilot usage resets monthly.") {
                             HStack(spacing: 5) {
@@ -205,6 +192,7 @@ private struct AILimitsPopoutView: View {
                 }
             }
         }
+        .help("A dash means unavailable. MyDock reads local provider APIs without starting a task, inferring percentages or spending model tokens.")
     }
 
     private var visibleReadings: [AIProviderLimitReading] {
@@ -216,22 +204,18 @@ private struct AILimitsPopoutView: View {
     @ViewBuilder
     private func providerSection(_ reading: AIProviderLimitReading) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(reading.provider.title).font(.subheadline.weight(.semibold))
-                Spacer()
-                if let plan = reading.plan { Text(plan.capitalized).font(.caption2).foregroundStyle(.secondary) }
-                if reading.lastRefreshError == nil && reading.availability == .available { Image(systemName: "checkmark.circle").foregroundStyle(.secondary) }
-                else { Text("—").foregroundStyle(.secondary) }
-            }
+            WidgetPopoutHero(value: AIFacePresentation.limitValue(reading: reading, mode: configuration.aiLimitsRepresentation),
+                caption: reading.provider.title + (reading.plan.map { " · " + $0.capitalized } ?? ""),
+                valueColor: AIFacePresentation.limitColor(usedPercent: reading.windows.first?.usedPercent))
             if let error = reading.lastRefreshError {
-                Label(AILimitsStalePresentation.message(updatedAt: reading.updatedAt, error: error), systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Label("Saved limits; " + error, systemImage: "exclamationmark.triangle")
+                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             if let identity = reading.verifiedAccountIdentity {
-                Text("Verified account: " + identity).font(.caption2).foregroundStyle(.secondary)
+                Text("Verified account: " + identity).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
             }
             if reading.windows.isEmpty, let message = reading.message {
-                Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(message).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if !reading.windows.isEmpty {
                 ForEach(reading.windows) { window in
@@ -239,8 +223,9 @@ private struct AILimitsPopoutView: View {
                 }
             }
             if reading.availability != .available, reading.provider != .claude, reading.provider != .codex {
-                Text(reading.provider.setupInstructions)
-                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                Text("Open " + reading.provider.title + " to set up local readings.")
+                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
+                    .help(reading.provider.setupInstructions)
                 if let command = reading.provider.statusLineSetupCommand {
                     HStack {
                         Button("Copy statusLine value") {
@@ -255,14 +240,11 @@ private struct AILimitsPopoutView: View {
                             Link("Status line docs", destination: url)
                         }
                     }
-                    .font(.caption2)
-                    Text("If Claude Code already has a statusLine, merge this file-writing step into its command to preserve the current terminal display.")
-                        .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                    .font(DockDesign.Grouped.subtitleFont)
+                    Text("Merge with any existing statusLine command.")
+                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
+                        .help("Merge this file-writing step into the existing Claude Code statusLine command to preserve its terminal display.")
                 }
-            }
-            if let updatedAt = reading.updatedAt {
-                Text("Reading as of \(updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption2).foregroundStyle(.tertiary)
             }
         }
 
@@ -274,20 +256,20 @@ private struct AILimitsPopoutView: View {
         let visualPercent = percent.map { min(100, max(0, $0)) }
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
-                Text(window.name).font(.caption.weight(.medium))
+                Text(window.name).font(DockDesign.Grouped.subtitleFont.weight(.medium))
                 Spacer()
                 Text(percent.map { "\($0)%" } ?? "—")
-                    .font(.system(.caption, design: .rounded).weight(.semibold).monospacedDigit())
+                    .font(DockDesign.Grouped.subtitleFont.weight(.semibold).monospacedDigit())
                 if let reset = window.resetsAt {
                     Text("Resets \(reset.formatted(.relative(presentation: .numeric)))")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                 }
             }
             if let percent {
                 switch configuration.aiLimitsLayout {
                 case .numbers:
                     HStack { Text(configuration.aiLimitsRepresentation.title); Spacer(); Text("\(percent)%").monospacedDigit() }
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                 case .bars:
                     ProgressView(value: Double(visualPercent ?? 0), total: 100)
                         .tint(AIFacePresentation.limitColor(usedPercent: window.usedPercent))
@@ -298,7 +280,7 @@ private struct AILimitsPopoutView: View {
                             Text("\(percent)").font(DockDesign.Module.label).monospacedDigit()
                         }.frame(width: 36, height: 36)
                         Text("\(configuration.aiLimitsRepresentation.title) · \(provider.title)")
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -375,18 +357,24 @@ struct AIActivityCompactView: View {
         return snapshot
     }
     @Environment(\.widgetAccent) private var accent
+    @Environment(\.widgetShowsLabel) private var showsLabel
     var body: some View {
         let narrow = WidgetModuleMetrics.isNarrow(width)
         HStack(spacing: 10) {
-            VStack(alignment: narrow ? .center : .leading, spacing: 2) {
-                ModuleStack(kind: "AI Activity", label: configuration.aiActivityProvider.shortName,
-                            value: AIFacePresentation.activityValue(snapshot: snapshot),
-                            unit: snapshot?.available == true ? "tokens" : "", size: snapshot?.available == true ? .medium : .small,
-                            symbol: configuration.aiActivityProvider == .codex ? "terminal" : "sparkle", keepsLeading: layout == .trend)
-                if !narrow && layout != .compact, let secondary {
-                    Text(secondary).font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
+            VStack(alignment: narrow || (!showsLabel && layout != .trend) ? .center : .leading, spacing: 2) {
+                ModuleLabel(kind: "AI Activity", text: configuration.aiActivityProvider.shortName,
+                    symbol: configuration.aiActivityProvider == .codex ? "terminal" : "sparkle")
+                ViewThatFits(in: .horizontal) {
+                    if !narrow && layout != .compact, let secondary {
+                        (Text(AIFacePresentation.activityValue(snapshot: snapshot)).font(DockDesign.Module.valueMedium)
+                         + Text(" · " + secondary).font(DockDesign.Module.label).foregroundColor(.secondary))
+                            .lineLimit(1).fixedSize()
+                    }
+                    ModuleValue(value: AIFacePresentation.activityValue(snapshot: snapshot),
+                        unit: snapshot?.available == true && !narrow ? "tokens" : "",
+                        size: snapshot?.available == true ? .medium : .small)
                 }
-            }
+            }.frame(maxWidth: .infinity, alignment: narrow || (!showsLabel && layout != .trend) ? .center : .leading)
             if layout == .trend && !narrow, let snapshot, snapshot.available, snapshot.points.count > 1 {
                 MicroSparkline(values: snapshot.points.map { Double($0.totalTokens) }, color: WidgetPalette.resolved(kind: "AI Activity", accent: accent))
                     .frame(width: 46, height: 26)
@@ -506,7 +494,19 @@ private struct AIActivitySummary: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            GroupedSection("Local usage") {
+            if let s = snapshot, s.available {
+                metrics(s)
+                if chartStyle != .totals { chart(s) }
+                if s.totals.requests > 0 || s.totals.reportedCostUSD != nil {
+                    HStack {
+                        if s.totals.requests > 0 { Text("\(s.totals.requests.formatted()) requests") }
+                        Spacer()
+                        if let cost = s.totals.reportedCostUSD { Text("Reported cost \(cost.formatted(.currency(code: "USD")))") }
+                    }.font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                }
+            } else { emptyState }
+            if let recoveryMessage { Text(recoveryMessage).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary) }
+            GroupedSection {
                 GroupedRow("Refresh local activity", symbol: "arrow.clockwise") {
                     if refreshing { ProgressView().controlSize(.mini).help("Updating local activity") }
                     else {
@@ -514,6 +514,11 @@ private struct AIActivitySummary: View {
                             .buttonStyle(.borderless).help("Refresh local activity").accessibilityLabel("Refresh AI Activity")
                     }
                 }
+                if failed {
+                    GroupedRow(snapshot?.available == true ? "Saved activity shown" : "Activity unavailable", symbol: "exclamationmark.circle")
+                }
+            }
+            GroupedSection("Settings", footer: provenanceFooter) {
                 GroupedRow("Provider") {
                     Picker("Provider", selection: $provider) {
                         ForEach([AIProvider.codex, .claude, .grok]) { Text($0.title).tag($0) }
@@ -527,41 +532,14 @@ private struct AIActivitySummary: View {
                 GroupedRow("Chart") {
                     Picker("Chart", selection: $chartStyle) { ForEach(AIActivityChartStyle.allCases) { Text($0.title).tag($0) } }.labelsHidden()
                 }
-            }.accessibilityLabel("Activity options")
-            if let s = snapshot, s.available {
-                metrics(s)
-                if chartStyle != .totals { chart(s) }
-                if s.totals.requests > 0 || s.totals.reportedCostUSD != nil {
-                    HStack {
-                        if s.totals.requests > 0 { Text("\(s.totals.requests.formatted()) requests") }
-                        Spacer()
-                        if let cost = s.totals.reportedCostUSD { Text("Reported cost \(cost.formatted(.currency(code: "USD")))") }
-                    }.font(.caption).foregroundStyle(.secondary)
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Based on local \(provider.title) session logs.").font(.caption).foregroundStyle(.secondary)
-                    if s.partial || s.estimated {
-                        Label(s.estimated ? "Local estimate, not a billing total." : "Some records couldn’t be read. Totals may be incomplete.", systemImage: "info.circle")
-                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                }.help(s.sourceDescription)
-            } else { emptyState }
-            if let recoveryMessage { Text(recoveryMessage).font(.caption).foregroundStyle(.secondary) }
-            if let s = snapshot, s.available {
-                DataSourceProvenanceView(provenance: .aiActivity(snapshot: s, error: coordinator.errors[query]))
-            }
-            Divider()
-            HStack(spacing: 6) {
-                if failed {
-                    Image(systemName: "exclamationmark.circle").accessibilityHidden(true)
-                    Text(snapshot?.available == true ? "Refresh failed · saved activity shown" : "Local activity couldn’t be read")
-                } else if refreshing { Text(snapshot == nil ? "Reading local history…" : "Updating…") }
-                else if let s = snapshot { Text("Read \(s.fetchedAt.formatted(date: .abbreviated, time: .shortened))") }
-                else { Text("Local activity only") }
-                Spacer(minLength: 0)
-                if failed { Button("Retry", action: refresh).buttonStyle(.borderless).disabled(refreshing) }
-            }.font(.caption).foregroundStyle(.secondary).accessibilityElement(children: .combine)
+            }.accessibilityLabel("Activity options").help(snapshot?.sourceDescription ?? "Activity is read from local session logs.")
+
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private var provenanceFooter: String {
+        if snapshot?.estimated == true { return "Local log estimate, not a billing total." }
+        if snapshot?.partial == true { return "Local log totals may be incomplete." }
+        return "Local session logs, not billing totals."
     }
     private func metrics(_ s: AIActivitySnapshot) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
@@ -576,7 +554,7 @@ private struct AIActivitySummary: View {
     private func metric(_ title: String, value: String, primary: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(value).font(primary ? DockDesign.Module.valueLarge : DockDesign.Module.valueMedium).monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
-            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(title).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
         }.accessibilityElement(children: .combine)
     }
     private func chart(_ s: AIActivitySnapshot) -> some View {
@@ -584,7 +562,7 @@ private struct AIActivitySummary: View {
             HStack {
                 Text("Token activity").font(.system(size: 12, weight: .medium))
                 Spacer()
-                Text(range == .today ? "Last 7 days" : range.activityDescription).font(.caption).foregroundStyle(.secondary)
+                Text(range == .today ? "Last 7 days" : range.activityDescription).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
             }
             Chart(s.points) { point in
                 if chartStyle == .bars {
@@ -602,7 +580,7 @@ private struct AIActivitySummary: View {
     }
     private var emptyState: some View {
         VStack(spacing: 10) {
-            Image(systemName: failed ? "exclamationmark.circle" : "chart.bar.xaxis").font(.system(size: 30, weight: .light)).foregroundStyle(.tertiary)
+            Image(systemName: failed ? "exclamationmark.circle" : "chart.bar.xaxis").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
             Text(emptyTitle).font(.system(size: 14, weight: .semibold))
             Text(emptyDetail).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             if let account, account.state != .signedIn, [.codex, .claude].contains(provider), !refreshing {

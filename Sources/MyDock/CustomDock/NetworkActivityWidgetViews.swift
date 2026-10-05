@@ -145,7 +145,6 @@ private struct NetworkActivityCompactWidgetView: View {
     }
 }
 
-
 private struct NetworkActivityPopoutWidgetView: View {
     @StateObject private var monitor = NetworkActivityMonitor.shared
     @State private var subscriptionID = UUID()
@@ -158,12 +157,6 @@ private struct NetworkActivityPopoutWidgetView: View {
         if let fixture { return fixture.interfaces }
         #endif
         return monitor.interfaces
-    }
-    private var updatedAt: Date? {
-        #if DEBUG
-        if let fixture { return fixture.updatedAt }
-        #endif
-        return monitor.updatedAt
     }
     private var downloadHistory: [Double] {
         #if DEBUG
@@ -185,32 +178,22 @@ private struct NetworkActivityPopoutWidgetView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Spacer()
-                Button("Refresh") { monitor.refreshNow() }
-            }
             HStack(spacing: 10) {
                 rateCard(title: "Download", value: aggregate(\.receivedBytesPerSecond), history: downloadHistory, color: .secondary, symbol: "arrow.down")
                 rateCard(title: "Upload", value: aggregate(\.sentBytesPerSecond), history: uploadHistory, color: .secondary, symbol: "arrow.up")
             }
-            if let updatedAt = updatedAt {
-                Text("Sampled \(updatedAt.formatted(date: .omitted, time: .shortened)) · 4-second interval while visible")
-                    .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button { monitor.refreshNow() } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(WidgetCircleButtonStyle()).help("Refresh network readings")
+                    .accessibilityLabel("Refresh network readings")
             }
-            Divider()
-            Text("Interfaces").font(.headline)
-            if interfaces.isEmpty {
-                Label("No active network interfaces", systemImage: "network.slash")
-                    .foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 70)
-            } else {
-                DockScrollView {
-                    LazyVStack(spacing: 6) {
-                        ForEach(interfaces) { interface in
-                            interfaceRow(interface)
-                        }
-                    }
+            GroupedSection("Interfaces", footer: "Local traffic samples every 4 seconds while visible.") {
+                if interfaces.isEmpty {
+                    GroupedRow("No active network interfaces", symbol: "network.slash")
+                } else {
+                    ForEach(interfaces) { interface in interfaceRow(interface) }
                 }
-                .frame(maxHeight: 250)
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -225,7 +208,7 @@ private struct NetworkActivityPopoutWidgetView: View {
 
     private func rateCard(title: String, value: String, history: [Double], color: Color, symbol: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Label(title, systemImage: symbol).font(.caption).foregroundStyle(.secondary)
+            Label(title, systemImage: symbol).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
             ModuleValue(value: value, size: .medium)
             NetworkRateSparkline(values: history, color: color).frame(height: 26)
         }
@@ -233,20 +216,11 @@ private struct NetworkActivityPopoutWidgetView: View {
     }
 
     private func interfaceRow(_ interface: NetworkInterfaceRate) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Label(interface.name, systemImage: "cable.connector")
-                    .font(.callout.weight(.medium))
-                Spacer()
-                Text("↓ \(rateText(interface.receivedBytesPerSecond))   ↑ \(rateText(interface.sentBytesPerSecond))")
-                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            }
-            if !interface.addresses.isEmpty {
-                Text(interface.addresses.joined(separator: " · "))
-                    .font(.caption2.monospaced()).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
-            }
+        GroupedRow(interface.name, subtitle: interface.addresses.isEmpty ? nil : interface.addresses.joined(separator: " · "),
+            symbol: "cable.connector") {
+            Text("↓ \(rateText(interface.receivedBytesPerSecond))   ↑ \(rateText(interface.sentBytesPerSecond))")
+                .font(DockDesign.Grouped.subtitleFont.monospacedDigit()).foregroundStyle(.secondary)
         }
-        .padding(.vertical, 6)
     }
 
     private func aggregate(_ keyPath: KeyPath<NetworkInterfaceRate, Double?>) -> String {
