@@ -1199,6 +1199,7 @@ struct AppSettings: Codable, Equatable {
     var showActiveProfileNameInMenuBar = false
     var onboardingComplete = false
     var lastSettingsPage: MyDockSettingsPage = .dock
+    var automaticSwitching = AutomaticSwitchingSettings()
 
     private enum CodingKeys: String, CodingKey {
         case customDockEdgeStyle, customDockWidgetSurface, customDockFloatingInset, customDockTintMode
@@ -1209,6 +1210,7 @@ struct AppSettings: Codable, Equatable {
         case customDockDisplayID, automaticallyHideCustomDock, showRevealHandle, hideCustomDockWhenSystemDockAppears, customDockDesktopMode, customDockMaterial, smoothNativeDockSwitches, showRunningApps
         case showMinimizedWindows, showWindowPreviews, showTrash, showAppBadges, clickFocusedAppToMinimize, magnificationEnabled
         case automaticallySaveNativeDockChanges, showActiveProfileNameInMenuBar, onboardingComplete, lastSettingsPage
+        case automaticSwitching
     }
 
     init() {}
@@ -1251,6 +1253,7 @@ struct AppSettings: Codable, Equatable {
         showActiveProfileNameInMenuBar = try values.decodeIfPresent(Bool.self, forKey: .showActiveProfileNameInMenuBar) ?? false
         onboardingComplete = try values.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? false
         lastSettingsPage = try values.decodeIfPresent(MyDockSettingsPage.self, forKey: .lastSettingsPage) ?? .dock
+        automaticSwitching = (try? values.decodeIfPresent(AutomaticSwitchingSettings.self, forKey: .automaticSwitching)) ?? AutomaticSwitchingSettings()
     }
 
     private static func bounded(_ value: Double?, default fallback: Double, range: ClosedRange<Double>) -> Double {

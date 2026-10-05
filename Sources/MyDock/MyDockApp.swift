@@ -32,6 +32,8 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     private var persistenceObservation: AnyCancellable?
     private var shortcutObservation: AnyCancellable?
     private var wakeReconcileObservation: AnyCancellable?
+    private var automaticSwitching: AutomaticSwitchingController?
+    private var automaticSwitchingObservation: AnyCancellable?
     private var windows: [String: NSWindow] = [:]
     private let workspaceNavigation = DockWorkspaceNavigation()
     private var pendingCustomMainMode: Bool?
@@ -149,6 +151,10 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         }
         dockController?.update(state: store.state)
         installMenuBarItem()
+        let automaticSwitching = AutomaticSwitchingController(store: store)
+        self.automaticSwitching = automaticSwitching
+        automaticSwitching.start()
+        automaticSwitchingObservation = AutomaticSwitchingStatus.shared.objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in self?.rebuildMenu() }
         stateObservation = store.$state.receive(on: RunLoop.main).sink { [weak self] state in
             self?.rebuildMenu()
             NativeDockAutoSaveMonitor.shared.configure(
@@ -352,6 +358,11 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
                 item.state = DockProfileStatus(profile: profile, settings: store.state.settings).isCurrent ? .on : .off
                 menu.addItem(item)
             }
+        }
+        if let line = AutomaticSwitchingStatus.shared.menuLine {
+            let item = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
         }
         if !menu.items.isEmpty { menu.addItem(.separator()) }
         menu.addItem(NSMenuItem(title: "Manage Docks…", action: #selector(openManager(_:)), keyEquivalent: ""))
