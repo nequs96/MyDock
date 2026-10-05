@@ -18,7 +18,7 @@ extension EnvironmentValues {
     var dockModuleRadius: CGFloat {
         get { self[DockModuleRadiusKey.self] } set { self[DockModuleRadiusKey.self] = newValue }
     }
-    /// Per-widget accent choice; `.auto` uses the family's semantic accent.
+    /// Per-widget accent choice; `.auto` is neutral at rest and uses the family accent only when active.
     var widgetAccent: WidgetAccent {
         get { self[WidgetAccentKey.self] } set { self[WidgetAccentKey.self] = newValue }
     }

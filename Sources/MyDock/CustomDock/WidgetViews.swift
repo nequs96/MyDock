@@ -1364,7 +1364,7 @@ private struct TimeProgressPopoutView: View {
                     let progress = TimeProgressCalculator.fraction(for: configuration.timeProgressPeriod, at: context.date)
                     VStack(spacing: 10) {
                         WidgetPopoutHero(value: "\(Int(progress * 100))%", caption: "through this \(configuration.timeProgressPeriod.rawValue)")
-                        UsageBar(fraction: progress, color: WidgetPalette.resolved(kind: "Time Progress", accent: .auto))
+                        UsageBar(fraction: progress, color: WidgetPalette.resolved(kind: "Time Progress", accent: configuration.widgetAccent ?? .auto))
                             .frame(height: 6)
                             .padding(.horizontal, 24)
                             .accessibilityHidden(true)
