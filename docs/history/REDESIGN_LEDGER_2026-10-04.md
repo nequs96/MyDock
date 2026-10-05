@@ -1027,3 +1027,132 @@ The fork that drafted the handoff was also interrupted. The orchestrator complet
   - the keyboard route wiring in `AddLibrary`/`LibrarySearchField`;
   - text-free preset thumbnails;
   - tests and renders.
+
+### FX-07 — merged (branch commit `ee77b41`)
+
+**What it adds:**
+- **Keyboard route to the detail view:**
+  - Focusable tiles with a 3 pt focus ring.
+  - Keys on a focused tile: Return or Space shows sizes, ⌘Return adds, the arrow keys move focus.
+  - Tab moves from the search field to the tiles. Escape returns focus to the tile it came from.
+  - VoiceOver actions "Show Sizes" and "Add".
+  - Every key is handled by one pure keymap, `WidgetGalleryKeymap`.
+- **Previews match creation:** they use the creation configuration, which is Mono.
+- **Floating previews (T3).**
+- **A distinct green "Added" check**, plus separate spacer descriptions.
+- **Text-free preset thumbnails** (`PresetLibraryTile`).
+- **Shorter copy (T7):** the size pager caption now carries the layout line.
+
+**Not verified:** the keyboard route with real keys. The renders draw focus through a DEBUG hook. Three things need a native check:
+- Tab moving first responder out of the search field;
+- focus restoring after Escape;
+- hidden shortcut buttons when Full Keyboard Access is on.
+
+**Integration:** `./TestMyDock.sh` **664 tests in 81 suites** (`.build/redesign-final-test.log`).
+
+### Final verification pass 1 — 5 October 2026 (HEAD after FX-07)
+
+**Tests and tooling:**
+- `./TestMyDock.sh`: 664 tests in 81 suites, 0 failed.
+- Python tooling: 11 OK.
+- `git diff --check 534faf7..HEAD`: clean.
+
+**Render matrix:** `.build/visual-qa/redesign-20261005/final/`, one debug build, all 17 modes exit 0, **1,366 PNGs** in total.
+
+| Mode | PNGs |
+|---|---|
+| REDESIGN | 42 |
+| DOCKSTYLE | 88 (badge-fit assertion passed) |
+| WIDGETSURFACE | 68 |
+| GALLERY | 99 |
+| SETTINGS | 92 |
+| WIDGETSHEET | 62 |
+| FACESA | 87 |
+| FACESB | 426 |
+| MOTION | 25 |
+| GLASS | 17 (corner-alpha check passed) |
+| WIDGET | 130 |
+| SURFACES | 44 |
+| ADAPTIVE | 36 |
+| TOOLS | 32 |
+| INTERACTION | 17 |
+| FOCUSED | 26 |
+| BASELINE | 75 |
+
+**Canonical app:**
+- `./BuildMyDock.sh` exit 0.
+- SHA-256 `3f81e5be8fd1e0dba75bea4227d2c8b541912b5b19b09835ada42f9396181a2f`.
+- Architectures x86_64 and arm64; minos 13.0; SDK 26.4.
+- `codesign --verify --deep --strict` OK; plist OK.
+- Relaunched as PID 55586. It had not been running when the session resumed.
+
+**Isolated launch sample:**
+- Fresh `MYDOCK_VALIDATION_ROOT`, 60 s, `ps` every 2 s.
+- Steady RSS **96.1 MB**, against 78 MB at the pre-redesign baseline; peak 96.2 MB.
+- Mean CPU 0.00% at `ps` resolution.
+- It exited with status 0 after a normal quit Apple Event and wrote only `state.json` and `instance.lock` in the root.
+- A first attempt was ended with SIGTERM (status 143, no `state.json`). It was redone with the Apple Event, and only the second run is the evidence.
+- RSS is about 18 MB higher than before the redesign: more SwiftUI view state and the design-system layers. It is recorded and not investigated further. This is not an Instruments measurement.
+
+**Final read-only `visual-reviewer` pass over `final/`.** Report summarised here.
+
+D1–D18 dispositions:
+
+| Status | Findings |
+|---|---|
+| Resolved | D1, D3–D8, D9 (as listed), D10 (grammar), D11, D14–D17 |
+| Partly resolved | D2 (onboarding and command palette samples still Soft), D12 (System/Network sheets embed the full popout; Customize repeats the reading), D13 (two popout header styles, four refresh styles), D18 (preview upscaling blur) |
+
+Taste items:
+
+| Item | Status |
+|---|---|
+| T1 | Partly |
+| T3 | Resolved in the Widgets tab |
+| T4 | Mostly resolved |
+| T6 | Not resolved |
+| T7 | Resolved |
+
+New ranked defects:
+
+1. FX-05 families, Stock and Hydration still put full settings groups in the popout body. AI Limits is 958 pt tall.
+2. The AI Limits hero is grey under 90%; 72% appears three times; two providers stack two heroes.
+3. Network Activity lists every BSD interface (popout about 1,100 pt).
+4. The System and Network sheets embed the whole popout body, and the sheet preview shows dashes while warming up.
+5. Preset thumbnails drop items (`prefix(3)` / `prefix(2)`).
+6. The Clock Customize panel repeats the reading.
+7. Stock has a misleading "Yahoo Finance" row and locale-blind percent; System load is locale-blind.
+8. There are four refresh patterns.
+9. Status sentences are drawn as 40 pt heroes. **Fixed by the orchestrator in this commit:** `WidgetPopoutHeroStyle.automatic` renders non-numeric values as a 17 pt status, with an optional glyph and a test.
+10. Integrations: duplicated titles and footers, plus an inert row. Dock Setup: a duplicate title and developer copy.
+11. The Stripe and Paddle setup screens ask for the account name twice.
+12. `WidgetCardPreview` still defaults to Soft (onboarding, CommandLibrary). The CommandLibrary "Example" label uses `.caption2`/`.tertiary` text under 10 pt.
+13. Upscaled previews are soft.
+14. Item inspector fields are misaligned and boxed.
+15. The Dock inspector and the Appearance page use different labels.
+16. The narrow AI face truncates "643,9…".
+17. System Activity mixes section styles.
+18. T6: Calendar rows.
+
+Low items, export-only issues and further taste notes are recorded in the reviewer's report. The headline export issue: FACESB captures at a fixed 640 pt and clips popout content.
+
+**Second fix wave** (ownership as in the first). Base: this commit.
+- **FX-08** (Codex, high), the RD-10 family files plus FacesBQA. Items:
+  - 1, the settings disclosure for its families and Stock;
+  - 2, 3, 4 (for System/Network);
+  - 7, 8 (its families);
+  - 11, 16, 17;
+  - the FacesBQA fixed-height export issue.
+- **FX-09** (`widget-visuals`): `WidgetViews`, `WidgetConfigurationSheet`, `WidgetPrimitives`, `AppleWidgetCard` and the RD-09 family files. Items:
+  - 1 (Hydration), 4 (sheet preview fallback), 6;
+  - 8 (Calendar refresh link and the shared header refresh);
+  - 12 (the creation-appearance default for `WidgetCardPreview`);
+  - 13, 18, plus the low items (Trash sheet active toggle, Countdown footer, Weather disabled stepper, Unit Converter caption).
+- **FX-10** (Codex, medium), Settings and inspectors. Items:
+  - 10;
+  - 14, 15;
+  - the Permissions buttons (taste).
+- **Orchestrator:**
+  - 5 (preset thumbnails +N);
+  - the gallery double stroke under Increase Contrast;
+  - the CommandLibrary "Example" size.
