@@ -328,3 +328,112 @@ enum DockMagnification {
         return 1 + intensity
     }
 }
+
+/// Where the Dock's `GlassEffectContainer` sits (RD-04, re-examined in RD-11).
+///
+/// The container wraps the item stack only; the Dock surface glass is drawn behind it, outside.
+/// A container unions every glass shape that lies within `spacing` of another. A module sits
+/// entirely inside the Dock surface, so its signed distance to the surface is negative and no
+/// spacing keeps it apart: sharing one container would fuse every module into the Dock glass and
+/// erase the module edges at rest. The stack container also stays inside the scroll viewport, so
+/// scrolled-out modules are clipped by `DockScrollClip` like every other item.
+enum DockGlassComposition {
+    enum Scope: Equatable {
+        /// No container: non-glass materials and Reduce Transparency.
+        case none
+        /// One container around the item stack, inside the scroll viewport.
+        case itemStack
+    }
+
+    /// Spacing 0: modules blend only when they touch (morphs), never at rest.
+    static let moduleSpacing: CGFloat = 0
+
+    static func scope(material: CustomDockMaterial, reduceTransparency: Bool) -> Scope {
+        [.liquidGlass, .liquidGlassClear].contains(material) && !reduceTransparency ? .itemStack : .none
+    }
+
+    /// True when `module` would merge with `surface` in one container at `spacing`: their
+    /// boundaries are within `spacing` of each other, or one lies inside the other.
+    static func fuses(_ module: CGRect, with surface: CGRect, spacing: CGFloat) -> Bool {
+        let dx = max(surface.minX - module.maxX, module.minX - surface.maxX, 0)
+        let dy = max(surface.minY - module.maxY, module.minY - surface.maxY, 0)
+        return (dx * dx + dy * dy).squareRoot() <= max(0, spacing)
+    }
+
+    /// The Dock surface never shares the modules' container while modules sit on it.
+    static func surfaceSharesModuleContainer(moduleFrames: [CGRect], surface: CGRect) -> Bool {
+        !moduleFrames.contains { fuses($0, with: surface, spacing: moduleSpacing) }
+    }
+}
+
+/// RD-11 motion for the live Dock and onboarding. Every animation is nil under Reduce Motion
+/// (and when the user turned Dock animations off), and every transform rests at identity.
+enum DockMotionPolicy {
+    // MARK: Popout open
+
+    /// Popout content opens from 96% with a fade on `Motion.appear`.
+    static let popoutStartScale: CGFloat = 0.96
+
+    static func popoutAppearAnimation(reduceMotion: Bool) -> Animation? {
+        DockDesign.Motion.animation(DockDesign.Motion.appear, reduceMotion: reduceMotion)
+    }
+    static func popoutContentScale(appeared: Bool, reduceMotion: Bool) -> CGFloat {
+        popoutContentScale(progress: appeared ? 1 : 0, reduceMotion: reduceMotion)
+    }
+    static func popoutContentOpacity(appeared: Bool, reduceMotion: Bool) -> Double {
+        popoutContentOpacity(progress: appeared ? 1 : 0, reduceMotion: reduceMotion)
+    }
+    /// A frame of the appear spring, 0 (closed) … 1 (open); render exports pin intermediate frames.
+    static func popoutContentScale(progress: Double, reduceMotion: Bool) -> CGFloat {
+        guard !reduceMotion else { return 1 }
+        let clamped = progress.isFinite ? min(max(progress, 0), 1) : 1
+        return popoutStartScale + (1 - popoutStartScale) * CGFloat(clamped)
+    }
+    static func popoutContentOpacity(progress: Double, reduceMotion: Bool) -> Double {
+        guard !reduceMotion else { return 1 }
+        return progress.isFinite ? min(max(progress, 0), 1) : 1
+    }
+
+    // MARK: Popout anchor
+
+    /// The module a popout hangs from reads as pressed while it is open.
+    static let anchorActiveScale: CGFloat = 0.97
+    static let anchorActiveBrightness: Double = 0.05
+
+    static func anchorScale(isActive: Bool, reduceMotion: Bool) -> CGFloat {
+        isActive && !reduceMotion ? anchorActiveScale : 1
+    }
+    /// Brightening washes out on light surfaces, so light schemes use a smaller step.
+    static func anchorBrightness(isActive: Bool, dark: Bool) -> Double {
+        isActive ? anchorActiveBrightness * (dark ? 1 : 0.6) : 0
+    }
+    static func anchorAnimation(reduceMotion: Bool) -> Animation? {
+        DockDesign.Motion.animation(DockDesign.Motion.hover, reduceMotion: reduceMotion)
+    }
+
+    // MARK: Reorder
+
+    static func reorderAnimation(reduceMotion: Bool, animationsEnabled: Bool) -> Animation? {
+        DockDesign.Motion.animation(DockDesign.Motion.reorder, reduceMotion: reduceMotion || !animationsEnabled)
+    }
+    static func profileTransformAnimation(reduceMotion: Bool, animationsEnabled: Bool) -> Animation? {
+        DockDesign.Motion.animation(DockDesign.Motion.transform, reduceMotion: reduceMotion || !animationsEnabled)
+    }
+
+    /// Items dropped into a new place settle from 94% on `Motion.morph`.
+    static let settleStartScale: CGFloat = 0.94
+
+    static func settleAnimation(reduceMotion: Bool, animationsEnabled: Bool) -> Animation? {
+        DockDesign.Motion.animation(DockDesign.Motion.morph, reduceMotion: reduceMotion || !animationsEnabled)
+    }
+    static func settleScale(isSettling: Bool, reduceMotion: Bool) -> CGFloat {
+        isSettling && !reduceMotion ? settleStartScale : 1
+    }
+
+    // MARK: Onboarding
+
+    /// The onboarding hero morphs from today's look into Clear.
+    static func revealAnimation(reduceMotion: Bool) -> Animation? {
+        DockDesign.Motion.animation(DockDesign.Motion.morph, reduceMotion: reduceMotion)
+    }
+}

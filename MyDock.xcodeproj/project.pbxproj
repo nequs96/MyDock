@@ -65,6 +65,7 @@
 		3F8083D806B67E984EDE0EBF /* DockDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AC348626F11E4CF151E4BE4 /* DockDesign.swift */; };
 		40C72F9E5E256C65225CF240 /* StockWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99186BF9921E1D5CDBFFC2 /* StockWidgetViews.swift */; };
 		41DF28BFD69A8E4552B44445 /* DockUtilityModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC2DAA28FFD845BD79C03B /* DockUtilityModels.swift */; };
+		45B3C38D209E8A86C8603941 /* MotionQA.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E90EBFD4F5D4569AC6B738 /* MotionQA.swift */; };
 		45C0C448414192B4AB6D353F /* DataSourceProvenance.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA80185A8000C9EAFD69AB90 /* DataSourceProvenance.swift */; };
 		4A35FF142940FAC6A580A042 /* RedesignGalleryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB530BF00AFF3A9DEDF5155 /* RedesignGalleryTests.swift */; };
 		4AE5974C9CE04E6BF56B9C31 /* ShortcutsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F59E8E5BF7CE0EFB4AD9692 /* ShortcutsService.swift */; };
@@ -102,6 +103,7 @@
 		710833BF1CCB1B53BC8B512E /* SettingsAppearanceEditing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09BA2BF07784809BEFCAC863 /* SettingsAppearanceEditing.swift */; };
 		71BE13811F54F74E343B561F /* PillButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41E107A1123B0845913FA517 /* PillButton.swift */; };
 		72EDC59944ED756B946DEBF8 /* ProviderCorrectnessR2Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5BA4088B5F3C5452C00ACB /* ProviderCorrectnessR2Tests.swift */; };
+		755AD3AD113362A6788339EA /* RedesignMotionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3F2FAAF5F069535ADF8A353 /* RedesignMotionTests.swift */; };
 		757E66086572EE69B441E3CC /* FileThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60C9ED44F4FD476280E1D7EC /* FileThumbnailView.swift */; };
 		7657C2085A26DFCA47793414 /* ReliabilityDurableWriteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FEA0ABC418EA317609FEBE /* ReliabilityDurableWriteTests.swift */; };
 		77470E173C9080BA3A993DB6 /* FinancialCurrencyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83830AAC384D2604F8A38F0E /* FinancialCurrencyFormatter.swift */; };
@@ -230,6 +232,7 @@
 		F5D1599F3629431E621ACCC4 /* DockUtilityWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9BD2DD6D0CACDD0441DDB85 /* DockUtilityWidgetViews.swift */; };
 		F86485F16DE127145CD04F56 /* DockUtilityExpansionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE911CCE3F17E817C08D58A6 /* DockUtilityExpansionTests.swift */; };
 		F8A11768ED505DDC20865568 /* WidgetSheetQA.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29EDA8B6DFFC2C36604B1AC0 /* WidgetSheetQA.swift */; };
+		F8D915279B0274EA5BDD2E96 /* DockStarterPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9DF2B4D98A7F941CE5055BF /* DockStarterPresets.swift */; };
 		F8DE0DA2732848B21F1FA62B /* DiagnosticsPreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 067DDB2D4EC463C8422F4A80 /* DiagnosticsPreviewSheet.swift */; };
 		F9535B70D67C9ECB3DF142CD /* DockLayoutPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89389BAE8CB75C819B69DE04 /* DockLayoutPreview.swift */; };
 		F9CC003830669CDA06F42006 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = D775FAF79BFB59E8B642EF42 /* AppIcon.icns */; };
@@ -425,6 +428,7 @@
 		B42F868C21E6C9BE2978926D /* NetworkActivityReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkActivityReader.swift; sourceTree = "<group>"; };
 		B5631536558138043849A381 /* RedesignDockSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedesignDockSurfaceTests.swift; sourceTree = "<group>"; };
 		B60A63C1333C9E1E00346A51 /* WidgetGalleryApps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetGalleryApps.swift; sourceTree = "<group>"; };
+		B6E90EBFD4F5D4569AC6B738 /* MotionQA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionQA.swift; sourceTree = "<group>"; };
 		BA0EC704F8F4E79C4F36D5E0 /* NetworkActivityWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkActivityWidgetViews.swift; sourceTree = "<group>"; };
 		BB25319664E95494E5A1F058 /* AlarmWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmWidgetViews.swift; sourceTree = "<group>"; };
 		BBB2D387D76BD5D10C2BB05F /* ReliabilityInflightAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReliabilityInflightAttributionTests.swift; sourceTree = "<group>"; };
@@ -467,6 +471,7 @@
 		E7E63723203F3787EC0705CA /* ReliabilitySourceScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReliabilitySourceScopeTests.swift; sourceTree = "<group>"; };
 		E7F36A53ED40B8A89B8D79DB /* DockAuditRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockAuditRegressionTests.swift; sourceTree = "<group>"; };
 		E91CBE858AEB6F9F89C19223 /* WidgetPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetPresentationTests.swift; sourceTree = "<group>"; };
+		E9DF2B4D98A7F941CE5055BF /* DockStarterPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockStarterPresets.swift; sourceTree = "<group>"; };
 		EA80185A8000C9EAFD69AB90 /* DataSourceProvenance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataSourceProvenance.swift; sourceTree = "<group>"; };
 		EAA3D3A3F0C1DCBC454A3AAA /* KeyboardShortcutEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutEditor.swift; sourceTree = "<group>"; };
 		EBCBC80CE6951461F8FDC15B /* AirDropWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirDropWidgetViews.swift; sourceTree = "<group>"; };
@@ -481,6 +486,7 @@
 		F344921BCCD07E03880919EB /* ShopifyDataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShopifyDataService.swift; sourceTree = "<group>"; };
 		F36AD810B7EF2933EC9E74B4 /* WidgetLifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetLifecycleCoordinator.swift; sourceTree = "<group>"; };
 		F3D358FFA42AC40FB824020E /* ReliabilityWave1Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReliabilityWave1Tests.swift; sourceTree = "<group>"; };
+		F3F2FAAF5F069535ADF8A353 /* RedesignMotionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedesignMotionTests.swift; sourceTree = "<group>"; };
 		F454C137161AAABE59576469 /* NativeDockController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDockController.swift; sourceTree = "<group>"; };
 		F47321576B3FFE6B64B02743 /* DockHoverEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockHoverEffect.swift; sourceTree = "<group>"; };
 		F4F9066B61EB3E6EEEAC2ED3 /* WidgetDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetDiscovery.swift; sourceTree = "<group>"; };
@@ -567,6 +573,7 @@
 				39841DDAA32CD2529F828B4C /* DockStyleQA.swift */,
 				28CEEE2393A277B1601468FB /* FacesBQA.swift */,
 				809D3CEFF57072D9A910444E /* GalleryQA.swift */,
+				B6E90EBFD4F5D4569AC6B738 /* MotionQA.swift */,
 				C789579CDA445F5D2B826E1C /* SettingsQA.swift */,
 				29EDA8B6DFFC2C36604B1AC0 /* WidgetSheetQA.swift */,
 				519F84867C2589AE4B57BBE7 /* WidgetSurfaceQA.swift */,
@@ -788,6 +795,7 @@
 				5AC348626F11E4CF151E4BE4 /* DockDesign.swift */,
 				97D23929423AA8E309734DA0 /* DockInspector.swift */,
 				6758F25C6EA73B904DA86066 /* DockManagerView.swift */,
+				E9DF2B4D98A7F941CE5055BF /* DockStarterPresets.swift */,
 				EAA3D3A3F0C1DCBC454A3AAA /* KeyboardShortcutEditor.swift */,
 				D1C9671A2DACBE584516FF0B /* LibrarySearchField.swift */,
 				3DDEB8903C269E742496D5AF /* MenuBarProfileTitle.swift */,
@@ -863,6 +871,7 @@
 				B5631536558138043849A381 /* RedesignDockSurfaceTests.swift */,
 				EDFAA5D99BC72E61CD3BDC87 /* RedesignFacesBTests.swift */,
 				AAB530BF00AFF3A9DEDF5155 /* RedesignGalleryTests.swift */,
+				F3F2FAAF5F069535ADF8A353 /* RedesignMotionTests.swift */,
 				521861F2B29EE6BE81448DEE /* RedesignSettingsTests.swift */,
 				C0FB3C15F8FF5FF725A3FC52 /* RedesignWidgetChromeTests.swift */,
 				3B75535511F666CE55BC49B4 /* RedesignWidgetSheetTests.swift */,
@@ -1095,6 +1104,7 @@
 				FA082EDF00317E8C0583780C /* DockRenderModel.swift in Sources */,
 				E7CCE37D99B72E226C3AC524 /* DockRevealMonitor.swift in Sources */,
 				BC441F1D7D8A4F92A01144D2 /* DockSettingsPage.swift in Sources */,
+				F8D915279B0274EA5BDD2E96 /* DockStarterPresets.swift in Sources */,
 				7CCA3A64708CA7AFF79FDCA3 /* DockStyleQA.swift in Sources */,
 				9A98F1FC8A8DEA925105C612 /* DockSwitchFreezeProvider.swift in Sources */,
 				9893978AB463F55376CA31B1 /* DockUtilityDraftStore.swift in Sources */,
@@ -1123,6 +1133,7 @@
 				FFCD24641D5936E4031BFA69 /* MarketDataService.swift in Sources */,
 				1CC95F826106745B33070E61 /* MenuBarProfileTitle.swift in Sources */,
 				80D900876DC403B00FB0EA86 /* MenuBarView.swift in Sources */,
+				45B3C38D209E8A86C8603941 /* MotionQA.swift in Sources */,
 				BF7E9EE081899935E28D7561 /* MyDockApp.swift in Sources */,
 				9CF1EF762D9DF815E91D2DB4 /* NativeDockAutoHideController.swift in Sources */,
 				069F89AC990CF3FE4CB5386D /* NativeDockAutoSaveMonitor.swift in Sources */,
@@ -1248,6 +1259,7 @@
 				0AB99B843F40C51C4075DC96 /* RedesignDockSurfaceTests.swift in Sources */,
 				DA2982D561D8A7E212F15071 /* RedesignFacesBTests.swift in Sources */,
 				4A35FF142940FAC6A580A042 /* RedesignGalleryTests.swift in Sources */,
+				755AD3AD113362A6788339EA /* RedesignMotionTests.swift in Sources */,
 				BD2DD659A6A6E9813DE411BB /* RedesignSettingsTests.swift in Sources */,
 				B1BB81A0C9CD05757C8BAECD /* RedesignWidgetChromeTests.swift in Sources */,
 				F552426A6FFD891BA093575D /* RedesignWidgetSheetTests.swift in Sources */,

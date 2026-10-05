@@ -13,6 +13,12 @@ struct OnboardingView: View {
     @State private var includeStarterApps = true
     @State private var starterWidgets: Set<String> = ["Clock", "Battery"]
     @State private var importError: String?
+    /// The appearance before setup applied Clear; set once setup is saved, it shows the reveal.
+    @State private var revealBaseline: AppSettings?
+    /// First run only: replaying setup never changes an existing Dock's look.
+    private let appliesClearStyle: Bool
+    /// The "Your Dock, clearer" reveal after the four setup steps.
+    static let revealStep = 4
 
     init(store: ProfileStore, initialStep: Int = 0, onFinish: @escaping () -> Void) {
         self.store = store
@@ -21,7 +27,17 @@ struct OnboardingView: View {
         _setupMode = State(initialValue: store.state.settings.setupMode)
         _dockPosition = State(initialValue: store.state.settings.customDockPosition)
         _displayID = State(initialValue: store.state.settings.customDockDisplayID)
+        appliesClearStyle = !store.state.settings.onboardingComplete
     }
+
+    #if DEBUG
+    /// Render-only: opens directly on the reveal, morphing from `baseline` to the store's look.
+    init(store: ProfileStore, revealingFrom baseline: AppSettings, onFinish: @escaping () -> Void) {
+        self.init(store: store, onFinish: onFinish)
+        _step = State(initialValue: Self.revealStep)
+        _revealBaseline = State(initialValue: baseline)
+    }
+    #endif
 
     var body: some View {
         HStack(spacing: 0) {
@@ -44,6 +60,10 @@ struct OnboardingView: View {
                 Text("Set up once. Refine anytime.").font(.system(size: 11)).foregroundStyle(.tertiary)
             }.padding(.horizontal, 20).padding(.bottom, 24).frame(width: 212).background(DockDesign.sidebar)
             Rectangle().fill(DockDesign.hairline).frame(width: 1)
+            if step == Self.revealStep, let revealBaseline {
+                OnboardingClearReveal(store: store, baseline: revealBaseline, onDone: onFinish)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
             VStack(alignment: .leading, spacing: 24) {
                 DockScreenHeader(eyebrow: "Step \(step + 1) of 4", title: stepTitle, subtitle: stepSubtitle)
                 DockScrollView {
@@ -64,6 +84,7 @@ struct OnboardingView: View {
                     }.buttonStyle(DockButtonStyle(primary: true)).keyboardShortcut(.defaultAction)
                 }
             }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .frame(minWidth: 740, minHeight: 540)
         .background(DockDesign.page).buttonStyle(DockButtonStyle())
@@ -279,20 +300,134 @@ struct OnboardingView: View {
                 return
             }
         }
-        store.finishOnboarding(setupMode: setupMode,
-                               customDockPosition: dockPosition,
-                               customDockDisplayID: displayID,
-                               importedNativeItems: importedItems,
-                               starterWidgets: starterWidgets.sorted(),
-                               starterApplications: includeStarterApps ? DockStarterPreset.everyday.items().filter { $0.type == .application } : [])
-        guard !store.hasUnpersistedChanges, store.state.settings.onboardingComplete else {
-            importError = store.persistenceError ?? "Setup could not be saved. Retry after restoring access to your data folder."
+        let baseline = store.state.settings
+        let result = OnboardingCompletion.finish(store: store, appliesClearStyle: appliesClearStyle) {
+            store.finishOnboarding(setupMode: setupMode,
+                                   customDockPosition: dockPosition,
+                                   customDockDisplayID: displayID,
+                                   importedNativeItems: importedItems,
+                                   starterWidgets: starterWidgets.sorted(),
+                                   starterApplications: includeStarterApps ? DockStarterPreset.everyday.items().filter { $0.type == .application } : [])
+        }
+        if let error = result.error {
+            importError = error
             return
         }
-        onFinish()
+        // Setup is saved. A Custom Dock that just became Clear gets the reveal; Done closes.
+        guard result.appliedClearStyle, setupMode != .nativeOnly else { onFinish(); return }
+        revealBaseline = baseline
+        step = Self.revealStep
     }
 
     private static let starterWidgetNames = ["Clock", "World Clock", "Stopwatch", "Countdown", "Time Progress", "Focus Timer", "Sticky Note", "Hydration", "Battery"]
+}
+
+/// Finishing setup. On first run the Clear style is applied and persisted first, through the
+/// same settings path as the Appearance page; setup is then persisted, and completion is
+/// published only by that successful write. Any failure rolls Clear back, so a failed setup
+/// keeps the previous look.
+@MainActor
+enum OnboardingCompletion {
+    struct Result: Equatable {
+        var error: String?
+        var appliedClearStyle = false
+    }
+
+    static let saveFailure = "Setup could not be saved. Retry after restoring access to your data folder."
+
+    static func finish(store: ProfileStore, appliesClearStyle: Bool, persistSetup: () -> Void) -> Result {
+        let previous = store.state.settings
+        func rollBack() {
+            guard appliesClearStyle else { return }
+            store.updateSettings(immediately: true) { $0 = previous }
+        }
+        if appliesClearStyle {
+            store.updateSettings(immediately: true) { DockQuickStyle.clear.apply(to: &$0) }
+            guard !store.hasUnpersistedChanges else {
+                let error = store.persistenceError ?? saveFailure
+                rollBack()
+                return Result(error: error)
+            }
+        }
+        persistSetup()
+        guard !store.hasUnpersistedChanges, store.state.settings.onboardingComplete else {
+            let error = store.persistenceError ?? saveFailure
+            rollBack()
+            return Result(error: error)
+        }
+        return Result(appliedClearStyle: appliesClearStyle)
+    }
+}
+
+/// "Your Dock, clearer": the user's new Custom Dock morphs from today's look into Clear.
+struct OnboardingClearReveal: View {
+    @ObservedObject var store: ProfileStore
+    /// The settings before setup applied Clear.
+    var baseline: AppSettings
+    var onDone: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Spacer(minLength: 0)
+            OnboardingClearRevealHero(store: store, baseline: baseline)
+            VStack(spacing: 6) {
+                Text("Your Dock, clearer").font(DockDesign.title)
+                Text("Clear glass and quiet widgets. Change the style anytime in Settings.")
+                    .font(DockDesign.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            }
+            PillButton("Done", action: onDone).keyboardShortcut(.defaultAction)
+            Spacer(minLength: 0)
+        }
+        .padding(32)
+    }
+}
+
+/// The reveal's hero: a sample-data preview of the user's Custom Dock. It starts in `baseline`
+/// and morphs into the saved look on `Motion.morph`; under Reduce Motion it shows Clear at once.
+struct OnboardingClearRevealHero: View {
+    @ObservedObject var store: ProfileStore
+    var baseline: AppSettings
+    /// Render-only: pin the start (false) or end (true) frame.
+    var phase: Bool?
+    @State private var revealed = false
+    @DockAccessibilityStyle() private var accessibility
+    static let previewSize = 0.7
+
+    init(store: ProfileStore, baseline: AppSettings, phase: Bool? = nil) {
+        self.store = store
+        self.baseline = baseline
+        self.phase = phase
+    }
+
+    private var profile: DockProfile {
+        store.activeCustomProfile ?? store.customProfiles.first
+            ?? DockProfile(name: "Custom Dock", kind: .custom, items: [.widget("Clock"), .widget("Battery")])
+    }
+
+    var body: some View {
+        let shown = phase ?? (revealed || accessibility.reduceMotion)
+        var preview = profile
+        var appearance = ProfileAppearance(settings: shown ? store.effectiveSettings(for: profile) : baseline)
+        // Preview-only: a smaller Dock so a starter Dock fits the setup window without scrolling.
+        appearance.size = min(appearance.size, Self.previewSize)
+        preview.appearance = appearance
+        return ZStack {
+            SwatchWallpaper()
+            DockLayoutPreview(store: store, profile: preview, maximumSideLength: 200)
+                .padding(20)
+        }
+        .frame(maxWidth: 520).frame(height: 230)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Your Custom Dock in the Clear style, sample preview")
+        .task {
+            guard phase == nil, !revealed else { return }
+            // A beat on today's look first, so the change reads as a reveal.
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            DockDesign.Motion.perform(DockDesign.Motion.morph, reduceMotion: accessibility.reduceMotion) { revealed = true }
+        }
+    }
 }
 
 private struct DisplayChoice: Identifiable {
