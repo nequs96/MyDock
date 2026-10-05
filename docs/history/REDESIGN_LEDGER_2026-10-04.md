@@ -954,3 +954,40 @@ Both tests fail with the fix commented out.
 ### FX-06 launched
 
 Codex, effort medium, base `0ac58f6`. Launched with stdin closed.
+
+### FX-02 — merged (branch commit `47578a1`), plus integration fix `fa9971b`
+
+**Codex #7: `DockRunningAppMatches` and `DockRunningAppCache`.**
+- The cache lives in `@State` and is recomputed only when the running apps or the profile's app items change. A hover re-render costs one equality check.
+- The render model receives the already-matched apps (`DockRenderModel(... unpinnedRunningApplications:)`). Building the model no longer normalizes URLs or calls the resolver.
+- Tests use a counting normalizer: 50 re-evaluations cause no further normalization.
+
+**D4: `DockBadgePlacement`.**
+- Badges sit inside the tile in left/right Docks; bottom Docks keep the outward offset.
+- The DOCKSTYLE export asserts that badges "3", "24" and "99+" fit the column at sizes 0.65, 1 and 1.5.
+
+**Trailing separator: `DockSeparatorPolicy`.**
+- The stray line was the pinned-end `.insertion` entry. A separator now draws only between content.
+- The live resize grip stays as a target; its line shows only between content or on hover.
+- Previews also collapse the empty end slots. Live geometry is unchanged. The orchestrator accepted this.
+
+**D18: `DockColorSchemePolicy`.** One scheme source (Dock theme, then the Midnight material, then the system appearance) is shared by `CustomDockView`, `DockCanvas` and `DockSwatchPreview`. A new `dockSwatchTheme` environment value carries it.
+
+**Editor reorder.** `DockCanvas` uses `DockMotionPolicy.reorderAnimation` and a settle spring. There is no motion under Reduce Motion or with animations off.
+
+**D17 previews.**
+- `DockLayoutPreview(fitsByScale:)` is used in `MotionQA`. The `MotionQA` popout emulation now matches FX-03's single surface.
+- Orchestrator fix `fa9971b`: the real "Preview your new Dock" sheet (`DockManagerView.swift:795`) passes `fitsByScale: true`.
+
+**Hand-offs.**
+- To FX-06, or the orchestrator after FX-06 merges: `AppearanceSettingsPage` must set `.environment(\.dockSwatchTheme, appearanceSettings.customDockTheme)` on the Style section.
+- To FX-07: text-free `PresetLibraryTile` thumbnails.
+- Noted, not changed: `AppLauncher.isMissingTarget` still stats the file system per tile per body evaluation. Caching it needs an invalidation rule; this is recorded as a follow-up.
+
+**Verification.**
+- Worker: 641 tests passed. Exports: DOCKSTYLE 88 (badge check passed), MOTION 25, SETTINGS 75, GLASS 17 (corner alpha passed).
+- Integration: `./TestMyDock.sh` **649 tests in 80 suites** (`.build/redesign-fx02-test.log`).
+
+### FX-07 launched
+
+`widget-gallery` agent, base `fa9971b`.
