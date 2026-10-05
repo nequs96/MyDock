@@ -65,7 +65,8 @@ struct WorkspaceStartSheet: View {
     let locate: (DockItem) -> DockItem?
     let close: () -> Void
     @StateObject private var run: WorkspaceStartRun
-    @State private var alsoSwitch = true
+    /// Off by default: switching (for a macOS Dock profile, applying it to Apple's Dock) is an explicit opt-in.
+    @State private var alsoSwitch = false
 
     init(request: WorkspaceStartRequest, launcher: any WorkspaceLaunching,
          switchToDock: @escaping () -> Void, locate: @escaping (DockItem) -> DockItem?, close: @escaping () -> Void) {

@@ -21,8 +21,9 @@ extension SettingsView {
             GroupedRow("Back Up…", role: .button) { exportBackup() }
             GroupedRow("Restore…", role: .button) { importBackup() }
             GroupedRow("Export Dock…", role: .button) {
+                // A shared Dock never inherits the backup toggle (on by default): personal data is opt-in in the sheet.
                 dockExportRequest = PortableDockExportRequest(profiles: store.state.profiles, selectedID: store.activeCustomProfile?.id,
-                                                              includePersonalData: includePersonalBackupData)
+                                                              includePersonalData: false)
             }
             .disabled(store.state.profiles.isEmpty)
             .help("Review and export one Dock to use on another Mac or share")
