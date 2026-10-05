@@ -533,7 +533,7 @@ enum PremiumVisualQA {
             for item in profile.items {
                 let name = (item.widgetKind ?? "Widget").lowercased().replacingOccurrences(of: " ", with: "-")
                 try await render(WidgetPopout(store: store, item: item, profileID: id).padding(20).background(WidgetDesign.surface),
-                                 name: "widget-" + name + "-" + suffix, size: NSSize(width: 460, height: item.widgetKind == "System Activity" ? 950 : 680), scheme: scheme, directory: directory)
+                                 name: "widget-" + name + "-" + suffix, size: NSSize(width: 460, height: item.widgetKind == "System Activity" ? 1250 : 680), scheme: scheme, directory: directory)
             }
             for kind in ["AI Activity", "AI Limits", "System Activity", "Network Activity", "Calculator", "Quick Checklist", "Disk Space"] {
                 let item = profile.items.first { $0.widgetKind == kind }!
