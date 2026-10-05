@@ -46,7 +46,7 @@ struct WidgetGalleryDetail: View {
             // The caption carries the size name and what it shows ("Standard · Place and
             // current weather"), so the page keeps at most two secondary lines.
             SizePager(options.map(\.layout), selection: $layout, accessibilityLabel: "\(widget.name) size",
-                      caption: { selected in options.first { $0.layout == selected }.map { WidgetGalleryModel.pagerCaption(kind: widget.name, option: $0) } ?? selected.title }) { page in
+                      caption: { selected in options.first { $0.layout == selected }.map(WidgetGalleryModel.pagerCaption) ?? selected.title }) { page in
                 WidgetGalleryPreview(kind: widget.name, width: CGFloat(options.first { $0.layout == page }?.width ?? 120),
                                      displayScale: previewScale, layout: page)
                     .allowsHitTesting(false)

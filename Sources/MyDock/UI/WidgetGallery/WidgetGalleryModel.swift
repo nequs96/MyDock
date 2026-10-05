@@ -192,25 +192,6 @@ enum WidgetGalleryModel {
         return option.title + " · " + detail
     }
 
-    /// Sizes whose catalog wording names a shape the sample does not draw; the gallery says what the face shows.
-    private static let sizeDetailOverrides: [String: String] = [
-        "Battery#compact": "Charge ring and percentage",
-        "Disk Space#compact": "Free space and a usage ring",
-        "System Activity#meter": "CPU in a ring gauge"
-    ]
-
-    /// What a size shows, as the gallery words it: the catalog detail unless the sample draws something else.
-    static func sizeDetail(kind: String, option: WidgetLayoutOption) -> String {
-        sizeDetailOverrides[kind + "#" + option.layout.rawValue] ?? option.detail
-    }
-
-    /// The detail pager caption for a family's size, using the gallery's wording.
-    static func pagerCaption(kind: String, option: WidgetLayoutOption) -> String {
-        var worded = option
-        worded.detail = sizeDetail(kind: kind, option: option)
-        return pagerCaption(worded)
-    }
-
     /// Grid tiles carry the family name only; Everyday Tools adds the description line Suggested tiles show,
     /// because those names say little on their own.
     static func showsDescription(in category: WidgetCategory) -> Bool { category == .utilities }

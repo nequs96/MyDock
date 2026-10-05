@@ -193,14 +193,12 @@ struct RedesignGalleryTests {
 
     @Test func sizeDetailsNameWhatTheSampleDraws() throws {
         let battery = try #require(WidgetGalleryModel.layoutOptions(for: "Battery").first { $0.layout == .compact })
-        #expect(WidgetGalleryModel.pagerCaption(kind: "Battery", option: battery) == "Compact · Charge ring and percentage")
+        #expect(WidgetGalleryModel.pagerCaption(battery) == "Compact · Charge ring and percentage")
         let disk = try #require(WidgetGalleryModel.layoutOptions(for: "Disk Space").first { $0.layout == .compact })
-        #expect(!WidgetGalleryModel.pagerCaption(kind: "Disk Space", option: disk).contains("bar"))
-        let weather = try #require(WidgetGalleryModel.layoutOptions(for: "Weather").first { $0.layout == .standard })
-        #expect(WidgetGalleryModel.pagerCaption(kind: "Weather", option: weather) == WidgetGalleryModel.pagerCaption(weather))
+        #expect(!WidgetGalleryModel.pagerCaption(disk).contains("bar"))
         for definition in WidgetRegistry.all {
             for option in WidgetGalleryModel.layoutOptions(for: definition.name) {
-                let caption = WidgetGalleryModel.pagerCaption(kind: definition.name, option: option)
+                let caption = WidgetGalleryModel.pagerCaption(option)
                 #expect(caption.hasPrefix(option.title) && !caption.contains("\n"))
             }
         }

@@ -88,10 +88,10 @@ enum WidgetLayoutPresets {
         .init(layout: layout, width: width, title: title ?? layout.title, detail: detail)
     }
     static let aiActivity = [option(.compact, 88, "Usage total"), option(.standard, 126, "Total and session metadata"), option(.trend, 184, "History without chart axes", title: "Activity")]
-    static let systemActivity = [option(.compact, 86, "CPU and live history"), option(.meter, 92, "CPU with a small meter"), option(.trend, 158, "History and one secondary reading", title: "Trend")]
+    static let systemActivity = [option(.compact, 86, "CPU and live history"), option(.meter, 92, "CPU in a ring gauge"), option(.trend, 158, "History and one secondary reading", title: "Trend")]
     static let networkActivity = [option(.compact, 100, "Download and upload"), option(.trend, 170, "Rates and download history")]
-    static let battery = [option(.compact, 90, "Charge and battery shape"), option(.wide, 156, "Mac and available accessories")]
-    static let diskSpace = [option(.compact, 104, "Free space and capacity bar"), option(.wide, 158, "Available and total capacity")]
+    static let battery = [option(.compact, 90, "Charge ring and percentage"), option(.wide, 156, "Mac and available accessories")]
+    static let diskSpace = [option(.compact, 104, "Free space and a usage ring"), option(.wide, 158, "Available and total capacity")]
     static let clock = [option(.compact, 104, "Local time"), option(.standard, 112, "Time and date")]
     static let worldClock = [option(.compact, 88, "Primary city"), option(.wide, 164, "City and time zone")]
     static let weather = [option(.compact, 92, "Temperature and condition"), option(.standard, 132, "Place and current weather"), option(.wide, 184, "Upcoming hours", title: "Forecast")]
