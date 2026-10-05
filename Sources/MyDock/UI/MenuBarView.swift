@@ -36,10 +36,10 @@ struct MenuBarView: View {
             }
         }
         Divider()
-        Button("Manage Docks…") { openWindow(id: "manager") }
-        Button("Settings…") { openWindow(id: "settings") }
+        Button("Manage Docks…") { openWindow(id: "manager") }.keyboardShortcut("d", modifiers: [.command, .shift])
+        Button("Settings…") { openWindow(id: "settings") }.keyboardShortcut(",")
         Button("About \(Product.name)") { openWindow(id: "about") }
         Divider()
-        Button("Quit \(Product.name)") { NSApplication.shared.terminate(nil) }
+        Button("Quit \(Product.name)") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
     }
 }

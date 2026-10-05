@@ -350,10 +350,10 @@ struct DockManagerView: View {
                             .font(DockDesign.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
                     if profile.items.isEmpty {
-                        VStack(spacing: 12) {
-                            Text("Your Dock is empty").font(.system(size: 17, weight: .medium))
-                            Text(profile.kind == .native ? "Add apps to save a macOS Dock layout." : "Add the apps and widgets you want available here.").foregroundStyle(.secondary)
-                        }.frame(maxWidth: 480).frame(height: 120)
+                        GalleryEmptyState(title: "Your Dock is empty",
+                                          detail: profile.kind == .native ? "Add apps to save a macOS Dock layout." : "Add the apps and widgets you want available here.",
+                                          symbol: "dock.rectangle", compact: true)
+                            .frame(maxWidth: 480).frame(height: 120)
                             .background(emptyDropActive ? DockDesign.accent.opacity(0.05) : Color.clear,
                                         in: RoundedRectangle(cornerRadius: DockDesign.Radius.group))
                             .overlay {

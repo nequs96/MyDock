@@ -356,6 +356,7 @@ final class ProfileStore: ObservableObject {
 
     func completeOnboarding() {
         state.settings.onboardingComplete = true
+        state.settings.lastSeenWhatsNewVersion = Product.marketingVersion
         commit()
     }
 
@@ -399,6 +400,7 @@ final class ProfileStore: ObservableObject {
         }
 
         nextState.settings.onboardingComplete = true
+        nextState.settings.lastSeenWhatsNewVersion = Product.marketingVersion
         do { try persistCandidate(nextState) } catch { }
     }
 

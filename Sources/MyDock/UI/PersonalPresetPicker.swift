@@ -12,7 +12,8 @@ struct PersonalPresetPicker: View {
             if let message = message ?? library.errorMessage { GroupedRow(message).textSelection(.enabled) }
             GroupedRow("Import…", role: .button) { importPreset() }
             if library.entries.isEmpty {
-                GroupedRow("Save or import a Dock preset to keep it here.")
+                GalleryEmptyState(title: "No Personal Presets", detail: "Save or import a Dock preset to keep it here.",
+                                  symbol: "square.grid.2x2", compact: true)
             }
             ForEach(library.entries) { entry in
                 GroupedRow(entry.profile.name) {

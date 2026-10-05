@@ -1199,6 +1199,8 @@ struct AppSettings: Codable, Equatable {
     var showActiveProfileNameInMenuBar = false
     var onboardingComplete = false
     var lastSettingsPage: MyDockSettingsPage = .dock
+    /// Marketing version whose What's New sheet was last shown or skipped by setup. Nil on old state.
+    var lastSeenWhatsNewVersion: String?
 
     private enum CodingKeys: String, CodingKey {
         case customDockEdgeStyle, customDockWidgetSurface, customDockFloatingInset, customDockTintMode
@@ -1209,6 +1211,7 @@ struct AppSettings: Codable, Equatable {
         case customDockDisplayID, automaticallyHideCustomDock, showRevealHandle, hideCustomDockWhenSystemDockAppears, customDockDesktopMode, customDockMaterial, smoothNativeDockSwitches, showRunningApps
         case showMinimizedWindows, showWindowPreviews, showTrash, showAppBadges, clickFocusedAppToMinimize, magnificationEnabled
         case automaticallySaveNativeDockChanges, showActiveProfileNameInMenuBar, onboardingComplete, lastSettingsPage
+        case lastSeenWhatsNewVersion
     }
 
     init() {}
@@ -1251,6 +1254,7 @@ struct AppSettings: Codable, Equatable {
         showActiveProfileNameInMenuBar = try values.decodeIfPresent(Bool.self, forKey: .showActiveProfileNameInMenuBar) ?? false
         onboardingComplete = try values.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? false
         lastSettingsPage = try values.decodeIfPresent(MyDockSettingsPage.self, forKey: .lastSettingsPage) ?? .dock
+        lastSeenWhatsNewVersion = try? values.decodeIfPresent(String.self, forKey: .lastSeenWhatsNewVersion)
     }
 
     private static func bounded(_ value: Double?, default fallback: Double, range: ClosedRange<Double>) -> Double {
