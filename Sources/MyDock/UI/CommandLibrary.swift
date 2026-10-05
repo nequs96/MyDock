@@ -34,7 +34,7 @@ struct CommandLibrary: View {
     private struct Entry: Identifiable {
         let id: String
         let title: String
-        let detail: String
+        var detail: String
         let symbol: String
         var item: DockItem?
         var enabled = true
@@ -147,11 +147,13 @@ struct CommandLibrary: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 2) {
-                        if entries.isEmpty {
+                        // Built once per pass: each row's section check must not rebuild the list (bookmark resolution, file checks).
+                        let rows = entries
+                        if rows.isEmpty {
                             GalleryEmptyState(title: "No Matches", detail: profile.kind == .custom ? "Try an app or widget name." : "Try an app name or spacer.", compact: true)
                         }
-                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                            if let section = entry.section, index == 0 || entries[index - 1].section != section {
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, entry in
+                            if let section = entry.section, index == 0 || rows[index - 1].section != section {
                                 Text(section).font(DockDesign.caption).foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.top, 10)
                                     .accessibilityAddTraits(.isHeader)
