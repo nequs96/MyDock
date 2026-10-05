@@ -111,6 +111,7 @@ struct RedesignWidgetChromeTests {
             "Clock": [.compact: 104, .standard: 112], "World Clock": [.compact: 88, .wide: 164],
             "Stopwatch": timer, "Countdown": timer, "Alarm": generic, "Time Progress": generic, "Hydration": generic,
             "System Activity": [.compact: 86, .meter: 92, .trend: 158], "Network Activity": [.compact: 100, .trend: 170],
+            "Audio Output": [.compact: 96, .wide: 164],
             "AI Limits": generic, "AI Activity": [.compact: 88, .standard: 126, .trend: 184],
             "AirDrop": quickAction, "Trash": quickAction, "Disk Space": [.compact: 104, .wide: 158],
             "Calculator": quickAction, "Quick Checklist": schedule, "File Shelf": saved, "Text Snippets": saved,

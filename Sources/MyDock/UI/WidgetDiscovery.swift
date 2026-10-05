@@ -63,6 +63,7 @@ enum WidgetDiscovery {
         "Countdown": "deadline duration remaining timer notification", "Alarm": "wake notification reminder time",
         "Time Progress": "day week month year remaining percentage", "Hydration": "water drink volume log reminder",
         "System Activity": "CPU processor memory RAM swap load thermal", "Network Activity": "internet upload download bandwidth speed interface",
+        "Audio Output": "sound speakers headphones airpods volume mute device switch bluetooth",
         "AI Limits": "Codex Claude Copilot quota allowance usage", "AI Activity": "Codex Claude tokens sessions local logs",
         "AirDrop": "share send transfer files", "Trash": "bin recycle deleted files",
         "Disk Space": "storage free capacity volume drive", "Calculator": "math arithmetic expression",

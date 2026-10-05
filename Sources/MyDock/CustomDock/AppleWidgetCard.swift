@@ -61,6 +61,7 @@ struct WidgetCardPreview: View {
         case "AI Activity": AIActivityCompactView(item: AIActivityPreviewData.item())
         case "System Activity": SystemTelemetryDockFace(cpu: 37, history: [15, 21, 30, 18, 28, 37, 29, 37], memory: nil, load: .init(oneMinute: 2.4, fiveMinutes: 1.9, fifteenMinutes: 1.4), secondary: .load)
         case "Network Activity": NetworkDockFace(download: 2_400_000, upload: 148_000, history: [1, 4, 3, 8, 5, 4, 7, 6])
+        case "Audio Output": AudioOutputDockFace(reading: .sample)
         case "Battery": BatteryDockFace(readings: [.init(name: "Mac", percentage: 84, isCharging: false, isInternal: true), .init(name: "AirPods", percentage: 92, isCharging: false, isInternal: false)])
         case "Disk Space": DiskDockFace(snapshot: .init(name: "Startup disk", totalBytes: 500_000_000_000, availableBytes: 128_000_000_000))
         case "Weather": WeatherDockFace(configuration: weatherSample)

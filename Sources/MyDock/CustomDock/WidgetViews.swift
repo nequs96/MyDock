@@ -40,6 +40,7 @@ enum WidgetProviderRegistry {
         "System Activity": SystemActivityWidgetProvider(),
         "Alarm": AlarmWidgetProvider(),
         "Network Activity": NetworkActivityWidgetProvider(),
+        "Audio Output": AudioOutputWidgetProvider(),
         "AirDrop": AirDropWidgetProvider(),
         "Trash": TrashWidgetProvider(),
         "Now Playing": NowPlayingWidgetProvider(),
@@ -320,7 +321,7 @@ enum WidgetSheetHeroPolicy {
     /// Heroes that are a tool's output rather than the reading the Dock face shows.
     static let toolOutputHeroes: Set<String> = ["Unit Converter"]
     /// Families whose popout content is only their hero: the sheet shows no Content for them.
-    static let heroOnlyContent: Set<String> = ["Clock"]
+    static let heroOnlyContent: Set<String> = ["Clock", "Audio Output"]
 
     static func showsHero(kind: String, inSheet: Bool) -> Bool {
         !inSheet || toolOutputHeroes.contains(kind)
@@ -358,11 +359,13 @@ struct WidgetPopoutHero: View {
     var valueColor: Color = .primary
     /// Optional glyph shown above a status (ignored for readings).
     var symbol: String? = nil
+    /// Overrides the digit-based choice for values that are names rather than readings (a device name).
+    var forcedStyle: WidgetPopoutHeroStyle? = nil
     @Environment(\.widgetPopoutShowsHero) private var showsHero
     var body: some View {
         if showsHero { hero }
     }
-    private var style: WidgetPopoutHeroStyle { .automatic(for: value) }
+    private var style: WidgetPopoutHeroStyle { forcedStyle ?? .automatic(for: value) }
     private var hero: some View {
         VStack(spacing: 3) {
             if style == .status, let symbol {

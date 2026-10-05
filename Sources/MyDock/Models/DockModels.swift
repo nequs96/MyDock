@@ -1349,6 +1349,8 @@ enum WidgetRegistry {
               capabilities: .init(layouts: WidgetLayoutPresets.systemActivity, defaultLayout: .compact, refreshDemand: .localSampling)),
         .init(name: "Network Activity", symbol: "network", category: .system, description: "See network activity and interfaces.",
               capabilities: .init(layouts: WidgetLayoutPresets.networkActivity, defaultLayout: .compact, refreshDemand: .localSampling)),
+        .init(name: "Audio Output", symbol: "speaker.wave.2", category: .system, description: "Switch sound output and set volume.",
+              capabilities: .init(layouts: WidgetLayoutPresets.audioOutput, defaultLayout: .compact, refreshDemand: .localSampling)),
         .init(name: "AI Limits", symbol: "gauge.with.dots.needle.67percent", category: .ai, description: "Show available provider limits.",
               capabilities: .init(layouts: WidgetLayoutPresets.generic, defaultLayout: .compact, needsConnection: true, hasSetupState: true, holdsPrivateContent: true, refreshDemand: .remoteFetch)),
         .init(name: "AI Activity", symbol: "sparkles.rectangle.stack", category: .ai, description: "Review local provider activity.",
