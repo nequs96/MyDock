@@ -573,3 +573,52 @@ Both RD-09 and RD-11 were interrupted by an API session limit. They were resumed
 - Worker: 597 tests passed; 25 renders were produced.
 - Integration: `./TestMyDock.sh` **597 tests in 76 suites** (`.build/redesign-rd11-test.log`).
 - Canonical app: rebuilt (SHA-256 starts `da1188e5286b1210`) and relaunched as PID 57634.
+
+### RD-09 — merged `087a1a2` (branch commit `21c5847`)
+
+**Implementation:** implemented.
+
+- **Faces:** pure module-grammar faces: `CalendarDockFace`, `RemindersModuleFace`, `AlarmDockFace`, `TrashDockFace`, `AirDropDockFace`, plus a rebuilt `SavedCollectionDockFace`.
+- **Popouts:** grouped, using RD-08's shared views. Every interaction is kept.
+- **New rows:** "Open Privacy & Security" rows for the Calendar, Reminders and Now Playing errors.
+- **Samples:** Text Snippets now reads "2 snippets".
+- **DEBUG fixtures:** for Reminders, Now Playing and Trash.
+
+**Merge conflicts in `AppleWidgetCard.swift`**, resolved by package ownership:
+- RD-09 owns the Reminders, Calendar, Trash and AirDrop sample cases.
+- RD-10 owns Stripe, Paddle, Shopify and AI Limits.
+- Both dispatch lines were kept.
+
+**Integration:** `./TestMyDock.sh` **609 tests in 77 suites passed** (`.build/redesign-rd09-test.log`). The canonical app was rebuilt (SHA-256 `9a75cac47027da69…`) and relaunched as PID 58771.
+
+**Orchestrator review:** viewed `facesa-states-dark` and `facesa-popout-calendar-ongoing-light`. Both are good.
+
+**Known leftovers for the fix wave:**
+- `RemindersDockFace` in `WidgetPrimitives.swift` is now unused.
+- `DiskDockFace` truncates its value at compact width (e.g. "120,62…").
+- `MediaDockFace` truncates titles at 112 pt.
+- The SURFACES "surface-alarm-edit" fixed click point is stale.
+
+### Integrated render matrix — 5 October 2026 (`087a1a2`, one debug build)
+
+Output: `.build/visual-qa/redesign-20261005/integrated/<MODE>/`. Every mode exits 0 except WIDGET:
+
+| Mode | PNGs |
+|---|---|
+| REDESIGN | 42 |
+| DOCKSTYLE | 88 |
+| WIDGETSURFACE | 66 |
+| GALLERY | 85 |
+| SETTINGS | 74 |
+| WIDGETSHEET | 56 |
+| FACESA | 86 |
+| FACESB | 110 |
+| MOTION | 25 |
+| GLASS | 17 |
+| SURFACES | 44 |
+| WIDGET | 25 before crash |
+
+**Regression found (blocker):** the pre-existing `MYDOCK_WIDGET_QA` export (130 PNGs at baseline) now crashes with SIGTRAP while rendering the **Trash** popout, which comes after AirDrop in registry order.
+- Crash report `~/Library/Logs/DiagnosticReports/MyDock-2026-10-05-025958.ips`: `NSGenericException` (reason redacted in the unified log), thrown from `-[NSWindow updateConstraintsIfNeeded]` → `_NSViewUpdateConstraints`. This is the AppKit "too many Update Constraints passes" layout-loop pattern.
+- In isolation `TrashStatus` holds the static `isolatedMessage` and never publishes, so the leading hypothesis is a SwiftUI/AppKit layout feedback loop at this width with this text. RD-09's own export used a fixture message and did not crash.
+- The live popover could hit the same loop with a real error string. Assigned to **FX-01**.
