@@ -1003,3 +1003,27 @@ The user asked the orchestrator to stop at the usage limit, wait for the running
 **FX-07** (`widget-gallery`) was interrupted by the usage limit. Its partial work is saved as the uncompiled WIP commit `d226a3d` on `worktree-agent-a1de1985da0a04f99`. The handoff's §3.3 lists what it contains and what remains.
 
 The fork that drafted the handoff was also interrupted. The orchestrator completed the handoff: §3.1, §3.3, §4.1/4.2 updates, §8 order and §9 kickoff prompt. No merge or launch happened after `52dbf11`. The original brief `.claude/commands/redesign.md` is now committed, so a fresh checkout has it.
+
+### Resumption — 5 October 2026 (user: "finish the remaining work")
+
+**FX-06 merged** (branch commit `b6c14d1`).
+- The orchestrator reviewed the Appearance page diff and the General/Integrations renders.
+- Integration fix `09e0e82`:
+  - §4.1 of the handoff: the swatches get `.environment(\.dockSwatchTheme, appearanceSettings.customDockTheme)`.
+  - "Restore appearance defaults" now shows only for a Dock override. Under App defaults it duplicated "Reset app appearance defaults".
+- `./TestMyDock.sh`: **653 tests in 80 suites** (`.build/redesign-fx06-test.log`).
+
+**Follow-ups `§4.3` and `§4.4`, done inline:**
+- **§4.3 (stale QA click):** a DEBUG `AlarmQAFixture.editsFirstAlarm` seam opens the first alarm's editor on appear. The SURFACES `surface-alarm-edit` export uses it instead of the stale click point (373, 357). Verified: SURFACES exits 0 with 44 PNGs and the render shows the editor (`.build/visual-qa/redesign-20261005/followups/SURFACES/`).
+- **§4.4 (render-path file checks):** `DockMissingTargets.ids` plus a `missingTargetIDs` state in `CustomDockView` replace three `AppLauncher.isMissingTarget` calls per item per body evaluation. The set refreshes on appear, item changes, app launch/terminate and volume mount/unmount.
+  - New test: each file-backed item is checked once; widgets and spacers are skipped.
+  - Editor views (`DockCanvas`, `DockManagerView`, `DockInspector`) still call it directly. They are not on the hover path.
+- `./TestMyDock.sh`: **654 tests in 81 suites** (`.build/redesign-followups-test.log`).
+
+**§4.2 (the `AIAccountConnectionView` note):** FX-06 restyled it (`AIAccountConnectionView.swift:77`). Marked resolved, pending the final render review.
+
+**FX-07:**
+- The `widget-gallery` agent was resumed but stopped again on a stale stop message from the ended handoff fork. It was told the stop is superseded and is finishing its remaining list from WIP `d226a3d`:
+  - the keyboard route wiring in `AddLibrary`/`LibrarySearchField`;
+  - text-free preset thumbnails;
+  - tests and renders.
