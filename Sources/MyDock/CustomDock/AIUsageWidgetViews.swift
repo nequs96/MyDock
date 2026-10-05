@@ -560,17 +560,16 @@ private struct AIActivitySummary: View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             metric("Tokens", value: AIActivityFormatting.tokens(s.totals.totalTokens) + (s.partial && !s.estimated ? "+" : ""), primary: true)
                 .help(s.tokensText + ". " + s.sourceDescription)
-            Spacer(minLength: 0)
             metric("Sessions", value: AIActivityFormatting.tokens(Int64(s.totals.sessions)))
                 .help("Distinct local sessions with activity in \(s.range.activityDescription). Daily counts count each session once per day.")
             metric("Tool calls", value: AIActivityFormatting.tokens(Int64(s.totals.toolCalls)))
         }
     }
     private func metric(_ title: String, value: String, primary: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .center, spacing: 4) {
             Text(value).font(primary ? DockDesign.Module.valueLarge : DockDesign.Module.valueMedium).monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
             Text(title).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-        }.accessibilityElement(children: .combine)
+        }.widgetPopoutHeroAligned().accessibilityElement(children: .combine)
     }
     private func chart(_ s: AIActivitySnapshot) -> some View {
         VStack(alignment: .leading, spacing: 10) {
