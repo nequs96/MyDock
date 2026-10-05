@@ -131,7 +131,9 @@ extension SettingsView {
             if let message = nativeDockAutoSave.errorMessage, store.state.settings.automaticallySaveNativeDockChanges {
                 Text(message).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
-            GroupedRow("Freeze desktop during Dock restart", subtitle: "Holds one frame per display in memory. Switching works without Screen Recording.", isOn: Binding(
+            GroupedRow("Freeze desktop during Dock restart", subtitle: supportsScreenCaptureFreeze
+                           ? "Holds one frame per display in memory. Switching works without Screen Recording."
+                           : "Requires macOS 14 or later.", isOn: Binding(
                 get: { store.state.settings.smoothNativeDockSwitches },
                 set: { enabled in
                     store.updateSettings { $0.smoothNativeDockSwitches = enabled }

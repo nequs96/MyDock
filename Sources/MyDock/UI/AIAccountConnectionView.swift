@@ -83,7 +83,7 @@ struct AIAccountConnectionView: View {
                 if limitsEnabled {
                     GroupedRow("Limits sync", subtitle: "Requires Claude Code 2.1.251 or later.", value: "On")
                 } else {
-                    GroupedRow("Enable Limits…", role: .button) { enableLimits() }
+                    GroupedRow("Enable Limits", role: .button) { enableLimits() }
                         .disabled(!allowsAccountActions || checking || status?.state != .signedIn)
                         .help(status?.state == .signedIn
                               ? "Adds usage sync to Claude Code’s status line, keeps your terminal display and saves a settings backup."

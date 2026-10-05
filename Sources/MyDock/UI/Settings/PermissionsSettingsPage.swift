@@ -18,7 +18,7 @@ extension SettingsView {
                            value: row.summary, chevron: settingsURL != nil,
                            action: settingsURL.map { url in { _ = NSWorkspace.shared.open(url) } })
                     .help(row.name == "Automation" ? "MyDock cannot read a universal Automation status; approval is per app." : row.explanation)
-                    .accessibilityHint(settingsURL != nil ? "Opens \(row.name) in System Settings" : "")
+                    .accessibilityHint(settingsURL != nil ? "\(row.explanation) Opens \(row.name) in System Settings." : row.explanation)
             }
             GroupedRow("Refresh Status", role: .button) { Task { await refreshPermissionStatuses() } }
                 .help("Refresh after changing a permission.")

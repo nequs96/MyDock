@@ -67,7 +67,7 @@ struct DataSourceProvenanceTests {
 
     @Test func privateHelpCopyStatesRequiredPrivacyAndLimits() {
         let all = (PrivacyHelpCopy.privacyPoints + PrivacyHelpCopy.limitationPoints).joined(separator: " ")
-        for phrase in ["Keychain", "Backups never include credentials", "not a bill", "all volumes", "Xcode-built"] {
+        for phrase in ["Keychain", "Backups never include credentials", "not a bill", "all volumes", "release version of MyDock"] {
             #expect(all.contains(phrase), "\(phrase) missing")
         }
     }

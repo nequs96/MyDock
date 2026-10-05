@@ -16,7 +16,7 @@ enum PrivacyHelpCopy {
     static let limitationPoints: [String] = [
         "AI Activity reads local session logs. It shows usage on this Mac, not a bill or a plan quota.",
         "Empty Trash empties Finder's Trash on all volumes, including external drives MyDock does not count.",
-        "Focus filters need the Xcode-built app, which includes the App Intents metadata they rely on.",
+        "Focus filters need the release version of MyDock; other copies show them as unavailable in Dock Setup.",
         "Business figures are the last stored reading. Each source line shows what it measures and when it last refreshed."
     ]
 }
