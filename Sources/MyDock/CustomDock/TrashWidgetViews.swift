@@ -31,6 +31,18 @@ struct TrashFacePresentation: Equatable {
         symbol = isUnavailable ? "exclamationmark.triangle" : isFull ? "trash.fill" : "trash"
         label = isUnavailable ? "Unavailable" : count == 0 ? "Empty" : count == 1 ? "1 item" : "\(count) items"
     }
+
+    /// The popout hero: the count (or "Empty", "Unavailable") as the one large value.
+    static func heroValue(count: Int, errorMessage: String?) -> String {
+        errorMessage != nil ? "Unavailable" : count == 0 ? "Empty" : "\(count)"
+    }
+
+    /// The hero's one secondary line: only the unit. Where the count comes from is said once, by the
+    /// `TrashCopy.countScope` footer, so the hero never repeats it.
+    static func heroCaption(count: Int, errorMessage: String?) -> String? {
+        guard errorMessage == nil, count > 0 else { return nil }
+        return count == 1 ? "item" : "items"
+    }
 }
 
 /// The Trash module: a Control Center toggle glyph, filled while the home Trash has items;
@@ -94,13 +106,16 @@ private struct TrashPopoutWidgetView: View {
         let reading = reading
         let state = TrashFacePresentation(count: reading.count, errorMessage: reading.errorMessage)
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
-            VStack(spacing: 4) {
-                WidgetToggleGlyph(kind: "Trash", symbol: state.symbol, active: state.isFull, diameter: 48)
-                WidgetPopoutHero(value: state.isUnavailable ? "Unavailable" : reading.count == 0 ? "Empty" : "\(reading.count)",
-                                 caption: state.isUnavailable ? nil : reading.count == 0 ? "Your home Trash is empty" : reading.count == 1 ? "item in your home Trash" : "items in your home Trash",
-                                 valueColor: state.isUnavailable ? .secondary : .primary)
+            // The glyph is the hero's decoration: the settings sheet hides both together.
+            WidgetPopoutHeroGroup {
+                VStack(spacing: 4) {
+                    WidgetToggleGlyph(kind: "Trash", symbol: state.symbol, active: state.isFull, diameter: 48)
+                    WidgetPopoutHero(value: TrashFacePresentation.heroValue(count: reading.count, errorMessage: reading.errorMessage),
+                                     caption: TrashFacePresentation.heroCaption(count: reading.count, errorMessage: reading.errorMessage),
+                                     valueColor: state.isUnavailable ? .secondary : .primary)
+                }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
             if let errorMessage = reading.errorMessage {
                 WidgetPopoutCaption(errorMessage, color: .orange)
             }

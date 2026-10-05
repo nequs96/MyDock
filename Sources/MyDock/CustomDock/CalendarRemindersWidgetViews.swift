@@ -242,6 +242,8 @@ private struct CalendarPopoutWidgetView: View {
     @State private var layoutSelection = CalendarWidgetLayout.dateAndNextEvent
     @State private var showAllDaySelection = false
     @State private var showsCalendarList = false
+    /// What the popout shows and which calendars it reads sit behind a final, collapsed disclosure.
+    @State private var settingsExpanded = false
 
     private var configuration: WidgetConfiguration {
         currentConfiguration() ?? item.widgetConfiguration ?? WidgetConfiguration()
@@ -254,7 +256,9 @@ private struct CalendarPopoutWidgetView: View {
                                  caption: context.date.formatted(.dateTime.month(.wide).year()))
             }
             if configuration.calendarLayout != .date { eventsSection }
-            settingsSection
+            WidgetPopoutSettingsDisclosure(summary: configuration.calendarLayout.title, isExpanded: $settingsExpanded) {
+                settingsSection
+            }
         }
         .onAppear { layoutSelection = configuration.calendarLayout }
         .onChange(of: layoutSelection) { updateLayout($0) }
@@ -350,7 +354,7 @@ private struct CalendarPopoutWidgetView: View {
     }
 
     private var settingsSection: some View {
-        GroupedSection("Calendar", footer: configuration.calendarLayout == .date ? nil : "Showing: " + selectedCalendarLabel + " · next seven days",
+        GroupedSection("Calendar", footer: configuration.calendarLayout == .date ? nil : "Next seven days from " + selectedCalendarLabel + ".",
                        separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
             GroupedRow("Show") {
                 Picker("Show", selection: $layoutSelection) {
@@ -365,7 +369,7 @@ private struct CalendarPopoutWidgetView: View {
                             Text("Calendars").font(DockDesign.Grouped.titleFont)
                             Spacer(minLength: 8)
                             Text(selectedCalendarSummary).font(DockDesign.Grouped.titleFont).foregroundStyle(.secondary).lineLimit(1)
-                            Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                            Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
                                 .rotationEffect(.degrees(showsCalendarList ? 90 : 0))
                         }
                         .contentShape(Rectangle())
@@ -729,7 +733,7 @@ private struct RemindersPopoutWidgetView: View {
                                 .onSubmit(addReminder)
                             if isAddingReminder { ProgressView().controlSize(.small).accessibilityLabel("Adding reminder") }
                             Button("Add", action: addReminder)
-                                .buttonStyle(.borderless)
+                                .buttonStyle(WidgetRowTextButtonStyle())
                                 .disabled(isAddingReminder || newReminderTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }

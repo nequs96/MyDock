@@ -31,6 +31,28 @@ enum AlarmFacePresentation {
         if Set(weekdays) == Set(1...7) { return "Every day" }
         return weekdays.sorted().compactMap { symbols.indices.contains($0 - 1) ? symbols[$0 - 1] : nil }.joined(separator: " ")
     }
+
+    /// The one alarm time format: this Mac's short time ("7:30 AM", "07:30"). The face, the popout
+    /// hero and the alarm rows all use it, so one alarm never reads in two formats.
+    static func timeText(_ date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        var style = Date.FormatStyle(date: .omitted, time: .shortened, locale: locale)
+        style.timeZone = timeZone
+        return date.formatted(style)
+    }
+
+    /// An alarm's wall-clock time in the same format, on a fixed reference day so no DST gap shifts it.
+    static func timeText(hour: Int, minute: Int, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let date = calendar.date(from: DateComponents(year: 2001, month: 1, day: 15, hour: hour, minute: minute)) ?? .now
+        return timeText(date, locale: locale, timeZone: timeZone)
+    }
+
+    /// The alarms listed under the popout hero: every alarm except the one the hero already shows.
+    static func listed(_ alarms: [DockAlarm], excluding heroID: UUID?) -> [DockAlarm] {
+        guard let heroID else { return alarms }
+        return alarms.filter { $0.id != heroID }
+    }
 }
 
 /// The Alarm module: the next alarm time as the value, its name (or "Alarm") as the label.
@@ -79,11 +101,17 @@ private struct AlarmCompactWidgetView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let next = AlarmFacePresentation.next(alarms, now: context.date)
-            AlarmDockFace(time: next?.date.formatted(date: .omitted, time: .shortened), title: next?.alarm.title)
+            AlarmDockFace(time: next.map { AlarmFacePresentation.timeText($0.date) }, title: next?.alarm.title)
                 .frame(width: width, height: 54)
         }
         .help("Alarm")
     }
+}
+
+/// Alarm copy: one short footer sentence; the detail lives in its tooltip.
+enum AlarmCopy {
+    static let editorFooter = "Alarms follow this Mac’s time zone."
+    static let editorFooterHelp = "A one-time alarm rings at the next occurrence. Delivery depends on macOS notification settings."
 }
 
 private struct AlarmPopoutWidgetView: View {
@@ -97,32 +125,50 @@ private struct AlarmPopoutWidgetView: View {
     @State private var isScheduling = false
     @State private var busyAlarmIDs = Set<UUID>()
     @State private var editingAlarmID: UUID?
+    /// The New Alarm form sits behind a final disclosure; it opens for editing and when there is no alarm yet.
+    @State private var editorExpanded = false
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
 
     private var alarms: [DockAlarm] { store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id }?.widgetConfiguration?.alarms ?? [] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             TimelineView(.periodic(from: .now, by: 60)) { context in
-                if let next = AlarmFacePresentation.next(alarms, now: context.date) {
-                    WidgetPopoutHero(value: next.date.formatted(date: .omitted, time: .shortened),
-                                     caption: next.alarm.title + " · " + AlarmFacePresentation.day(next.date, now: context.date))
-                } else {
-                    WidgetPopoutHero(value: "Off", caption: alarms.isEmpty ? "No alarms yet" : "No alarm is on", valueColor: .secondary)
+                let next = AlarmFacePresentation.next(alarms, now: context.date)
+                // The hero shows the next alarm; the list below never repeats it. In the settings sheet the
+                // hero is hidden, so every alarm is listed with its time.
+                let heroAlarm = showsHero ? next?.alarm : nil
+                let listed = AlarmFacePresentation.listed(alarms, excluding: heroAlarm?.id)
+                VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+                    if let next {
+                        WidgetPopoutHero(value: AlarmFacePresentation.timeText(next.date),
+                                         caption: next.alarm.title + " · " + AlarmFacePresentation.day(next.date, now: context.date))
+                    } else {
+                        WidgetPopoutHero(value: "Off", caption: alarms.isEmpty ? "No alarms yet" : "No alarm is on", valueColor: .secondary)
+                    }
+                    if let heroAlarm {
+                        GroupedSection { alarmRow(heroAlarm, showsTime: false) }
+                    }
+                    if !listed.isEmpty {
+                        GroupedSection(heroAlarm == nil ? "Alarms" : "Other Alarms", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                            ForEach(listed) { alarm in alarmRow(alarm, showsTime: true) }
+                        }
+                    }
                 }
             }
-            if !alarms.isEmpty {
-                GroupedSection("Alarms", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
-                    ForEach(alarms) { alarm in alarmRow(alarm) }
-                }
+            WidgetPopoutSettingsDisclosure(editingAlarmID == nil ? "New Alarm" : "Edit Alarm", isExpanded: $editorExpanded) {
+                editor
             }
-            editor
+            if let operationMessage { WidgetPopoutCaption(operationMessage) }
         }
+        .onAppear { if alarms.isEmpty { editorExpanded = true } }
     }
 
     private var editor: some View {
         VStack(alignment: .leading, spacing: 10) {
-            GroupedSection(editingAlarmID == nil ? "New Alarm" : "Edit Alarm",
-                           footer: "Once rings at the next occurrence. Times follow this Mac’s time zone; delivery depends on macOS notification settings.",
+            // In the Dock popout the disclosure names the form; in the settings sheet the section does.
+            GroupedSection(showsHero ? nil : (editingAlarmID == nil ? "New Alarm" : "Edit Alarm"),
+                           footer: AlarmCopy.editorFooter,
                            separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
                 GroupedRow("Time") {
                     DatePicker("Time", selection: $alarmTime, displayedComponents: .hourAndMinute)
@@ -154,10 +200,12 @@ private struct AlarmPopoutWidgetView: View {
                         }
                         Button("Once") { repeatWeekdays.removeAll() }
                             .buttonStyle(.borderless).controlSize(.small)
+                            .help("Clear the repeat days: a one-time alarm rings at the next occurrence.")
                             .disabled(repeatWeekdays.isEmpty || isScheduling)
                     }
                 }
             }
+            .help(AlarmCopy.editorFooterHelp)
             HStack(spacing: 10) {
                 if editingAlarmID != nil {
                     Button("Cancel Editing") { clearEditor() }.buttonStyle(GalleryGlassButtonStyle()).disabled(isScheduling)
@@ -167,26 +215,31 @@ private struct AlarmPopoutWidgetView: View {
                     .disabled(isScheduling)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            if let operationMessage { WidgetPopoutCaption(operationMessage) }
         }
     }
 
-    @ViewBuilder private func alarmRow(_ alarm: DockAlarm) -> some View {
+    /// One alarm: its time (in the shared format) over its name and repeat, then edit, remove and on/off.
+    /// The row under the hero omits the time, which the hero already shows.
+    @ViewBuilder private func alarmRow(_ alarm: DockAlarm, showsTime: Bool) -> some View {
         WidgetPopoutRow {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(String(format: "%02d:%02d", alarm.hour, alarm.minute))
-                        .font(.system(size: 26, weight: .regular).monospacedDigit())
-                        .foregroundStyle(alarm.isEnabled ? .primary : .secondary)
-                    Text(alarm.title + " · " + AlarmFacePresentation.repeatSummary(alarm.repeatWeekdays))
-                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
-                    TimelineView(.periodic(from: .now, by: 60)) { context in
-                        if alarm.isEnabled, let date = AlarmSchedule.nextFireDate(hour: alarm.hour, minute: alarm.minute, repeatWeekdays: alarm.repeatWeekdays, now: context.date) {
-                            Text("Next: " + date.formatted(date: .abbreviated, time: .shortened))
-                                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                        } else { Text("Off · no alert requested").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary) }
+                    if showsTime {
+                        Text(AlarmFacePresentation.timeText(hour: alarm.hour, minute: alarm.minute))
+                            .font(.system(size: 26, weight: .regular).monospacedDigit())
+                            .foregroundStyle(alarm.isEnabled ? .primary : .secondary)
+                    }
+                    let schedule = AlarmFacePresentation.repeatSummary(alarm.repeatWeekdays) + (alarm.isEnabled ? "" : " · Off")
+                    if showsTime {
+                        // Two lines: the time, then name and schedule.
+                        Text(alarm.title + " · " + schedule)
+                            .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
+                    } else {
+                        Text(alarm.title).font(DockDesign.Grouped.titleFont).lineLimit(1)
+                        Text(schedule).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
+                .accessibilityElement(children: .combine)
                 Spacer(minLength: 6)
                 WidgetRowIconButton(symbol: "pencil", label: "Edit \(alarm.title)") { editAlarm(alarm) }
                     .disabled(isScheduling || busyAlarmIDs.contains(alarm.id))
@@ -205,6 +258,7 @@ private struct AlarmPopoutWidgetView: View {
 
     private func editAlarm(_ alarm: DockAlarm) {
         editingAlarmID = alarm.id; alarmTitle = alarm.title; repeatWeekdays = Set(alarm.repeatWeekdays)
+        editorExpanded = true
         alarmTime = Calendar.current.date(bySettingHour: alarm.hour, minute: alarm.minute, second: 0, of: .now) ?? .now
         operationMessage = nil
     }

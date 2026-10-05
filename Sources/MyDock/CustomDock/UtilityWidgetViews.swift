@@ -84,6 +84,93 @@ struct WidgetRowIconButton: View {
     }
 }
 
+/// A family's setup in its popout: one final disclosure, collapsed by default, so the popout leads with
+/// the reading and its primary actions (Control Center shows the module, not its preferences).
+///
+/// Inside the widget settings sheet the same rows are the sheet's Content, so they show directly with no
+/// disclosure. The sheet is recognised by `widgetPopoutShowsHero == false`, which it sets for every family
+/// that uses this view (only tool-output heroes such as Unit Converter keep the hero there).
+struct WidgetPopoutSettingsDisclosure<Content: View>: View {
+    var title: String
+    var summary: String?
+    @Binding var isExpanded: Bool
+    @ViewBuilder var content: Content
+    @Environment(\.widgetPopoutShowsHero) private var inDockPopout
+    @DockAccessibilityStyle() private var accessibility
+
+    init(_ title: String = "Settings", summary: String? = nil, isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.summary = summary
+        _isExpanded = isExpanded
+        self.content = content()
+    }
+
+    var body: some View {
+        if inDockPopout {
+            VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+                GroupedSection {
+                    Button {
+                        DockDesign.Motion.perform(DockDesign.Motion.disclosure, reduceMotion: accessibility.reduceMotion) { isExpanded.toggle() }
+                    } label: {
+                        WidgetPopoutRow {
+                            HStack(spacing: 6) {
+                                Text(title).font(DockDesign.Grouped.titleFont)
+                                Spacer(minLength: 8)
+                                if let summary, !isExpanded {
+                                    Text(summary).font(DockDesign.Grouped.titleFont).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                                    .accessibilityHidden(true)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(title)
+                    .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+                    .accessibilityHint(isExpanded ? "Hides these settings" : "Shows these settings")
+                    .accessibilityAddTraits(.isButton)
+                }
+                if isExpanded { content }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) { content }
+        }
+    }
+}
+
+/// A short text action at the end of a grouped row ("Add"). Disabled, it reads as plain secondary text
+/// instead of a faint accent; under Increase Contrast it also draws a visible rounded edge, so the
+/// enabled and disabled states stay perceivable.
+struct WidgetRowTextButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { TextBody(configuration: configuration) }
+    /// Foreground for a state: accent when enabled, secondary (never faded) when disabled.
+    static func foreground(enabled: Bool) -> Color { enabled ? DockDesign.accent : Color.secondary }
+    /// Whether the edge shows: always under Increase Contrast.
+    static func showsEdge(contrast: ColorSchemeContrast) -> Bool { contrast == .increased }
+    private struct TextBody: View {
+        let configuration: ButtonStyle.Configuration
+        @Environment(\.isEnabled) private var isEnabled
+        @DockAccessibilityStyle() private var accessibility
+        var body: some View {
+            configuration.label
+                .font(DockDesign.Grouped.titleFont.weight(.medium))
+                .foregroundStyle(WidgetRowTextButtonStyle.foreground(enabled: isEnabled))
+                .padding(.horizontal, 9).padding(.vertical, 3)
+                .overlay {
+                    if WidgetRowTextButtonStyle.showsEdge(contrast: accessibility.contrast) {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(isEnabled ? DockDesign.accent : DockDesign.Outline.color(.increased),
+                                               lineWidth: DockDesign.Outline.controlWidth(.increased))
+                    }
+                }
+                .opacity(configuration.isPressed ? 0.6 : 1)
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+    }
+}
+
 /// A calm drop or empty area: one rounded surface in the grouped fill, a dashed accent edge while targeted.
 struct WidgetPopoutDropArea<Content: View>: View {
     var targeted = false
@@ -218,6 +305,12 @@ struct CalculatorWidgetProvider: DockWidgetProvider {
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView { AnyView(QuickCalculatorView()) }
 }
 
+/// Calculator copy: one short footer sentence; the detail lives in its tooltip.
+enum QuickCalculatorCopy {
+    static let footer = "Press Return to calculate."
+    static let footerHelp = "Percent divides by 100: 200 × 15% = 30. The expression and history clear when this popout closes."
+}
+
 struct QuickCalculatorView: View {
     @State private var expression = ""
     @State private var message: String?
@@ -261,7 +354,8 @@ struct QuickCalculatorView: View {
                     }
                 }
             }
-            WidgetPopoutCaption("Press Return to calculate. Percent divides by 100: 200 × 15% = 30. Clears when this popout closes.")
+            WidgetPopoutCaption(QuickCalculatorCopy.footer)
+                .help(QuickCalculatorCopy.footerHelp)
         }
         .onAppear { expressionFocused = true }
     }
@@ -368,7 +462,7 @@ struct QuickChecklistView: View {
                             .textFieldStyle(.plain).onSubmit(add)
                             .accessibilityLabel("New checklist task")
                         Button("Add", action: add)
-                            .buttonStyle(.borderless)
+                            .buttonStyle(WidgetRowTextButtonStyle())
                             .disabled(newEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || entries.count >= 100)
                             .accessibilityLabel("Add checklist task")
                     }
@@ -394,7 +488,8 @@ struct QuickChecklistView: View {
                 store.updateWidgetConfiguration(itemID: item.id, in: profileID) { removed.restore(into: &$0.checklistEntries, capacity: 100) }
             }
             .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
-            WidgetPopoutCaption(entries.count >= 100 ? "Checklist full · remove a task to add another." : "Saved locally with your profile. No account required.")
+            WidgetPopoutCaption(entries.count >= 100 ? "The checklist is full: remove a task to add another." : "Saved locally with your profile.")
+                .help("Quick Checklist keeps up to 100 tasks in this Dock. No account is required.")
         }
     }
     private func row(_ entry: QuickChecklistEntry) -> some View {
