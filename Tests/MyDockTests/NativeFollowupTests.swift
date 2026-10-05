@@ -328,7 +328,8 @@ struct NativeAlarmCalendarTests {
         #expect(CalendarEventOrdering.compactEvent(from: [ended, expiredAllDay], now: now) == nil)
         #expect(CalendarEventOrdering.compactEvent(from: [ended, upcoming, allDay], now: now)?.id == "upcoming")
         #expect(CalendarEventOrdering.compactEvent(from: [ended, upcoming, ongoing, allDay], now: now)?.id == "ongoing")
-        #expect(CalendarEventOrdering.compactEvent(from: [expiredAllDay, allDay], now: now)?.id == "all-day")
+        // An all-day event is never "next"; it has its own quiet line.
+        #expect(CalendarEventOrdering.compactEvent(from: [expiredAllDay, allDay], now: now) == nil)
     }
 
     @Test func ongoingStartBoundaryOutranksEarlierAllDayAndUpcomingSortsByStart() {

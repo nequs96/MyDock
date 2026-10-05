@@ -5,7 +5,7 @@ import Foundation
 /// snapshots instead of EventKit, so empty, ongoing and upcoming states render without Calendar permission and
 /// without touching the user's calendars. Never compiled into release builds.
 enum CalendarQAFixture: String, CaseIterable {
-    case empty, ongoing, upcoming
+    case empty, ongoing, upcoming, meetings
 
     static let environmentKey = "MYDOCK_CALENDAR_FIXTURE"
 
@@ -31,10 +31,11 @@ enum CalendarQAFixture: String, CaseIterable {
     var calendars: [CalendarListSnapshot] { [CalendarListSnapshot(id: "qa-calendar", title: "Work"), CalendarListSnapshot(id: "qa-home", title: "Home")] }
 
     func events(now: Date = Date()) -> [CalendarEventSnapshot] {
-        func event(_ id: String, _ title: String, start: TimeInterval, end: TimeInterval, home: Bool = false) -> CalendarEventSnapshot {
+        func event(_ id: String, _ title: String, start: TimeInterval, end: TimeInterval, home: Bool = false,
+                   allDay: Bool = false, meetingURL: URL? = nil, location: String? = nil) -> CalendarEventSnapshot {
             CalendarEventSnapshot(id: id, title: title, startDate: now.addingTimeInterval(start), endDate: now.addingTimeInterval(end),
-                                  isAllDay: false, calendarID: home ? "qa-home" : "qa-calendar", calendarTitle: home ? "Home" : "Work", meetingURL: nil,
-                                  calendarColor: home ? Self.homeColor : Self.workColor)
+                                  isAllDay: allDay, calendarID: home ? "qa-home" : "qa-calendar", calendarTitle: home ? "Home" : "Work", meetingURL: meetingURL,
+                                  calendarColor: home ? Self.homeColor : Self.workColor, location: location)
         }
         switch self {
         case .empty: return []
@@ -42,6 +43,10 @@ enum CalendarQAFixture: String, CaseIterable {
                                event("qa-later", "Dinner with Sam", start: 3 * 3600, end: 4 * 3600, home: true)]
         case .upcoming: return [event("qa-next", "Team standup", start: 45 * 60, end: 75 * 60),
                                 event("qa-after", "Lunch with Sam", start: 4 * 3600, end: 5 * 3600, home: true)]
+        case .meetings: return [event("qa-holiday", "Public holiday", start: -3 * 3600, end: 21 * 3600, home: true, allDay: true),
+                                event("qa-call", "Product sync", start: 12 * 60, end: 42 * 60,
+                                      meetingURL: URL(string: "https://example.zoom.us/j/123456789")),
+                                event("qa-office", "Design critique", start: 2 * 3600, end: 3 * 3600, location: "Studio 2")]
         }
     }
 }

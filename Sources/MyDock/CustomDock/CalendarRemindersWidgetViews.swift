@@ -37,10 +37,7 @@ enum CalendarFacePresentation {
         if event.startDate <= now { return "Now · until " + event.endDate.formatted(date: .omitted, time: .shortened) }
         let minutes = Int(ceil(event.startDate.timeIntervalSince(now) / 60))
         if minutes < 60 { return "In \(max(1, minutes)) min" }
-        let time = event.startDate.formatted(date: .omitted, time: .shortened)
-        if calendar.isDate(event.startDate, inSameDayAs: now) { return time }
-        if calendar.isDate(event.startDate, inSameDayAs: now.addingTimeInterval(86_400)) { return "Tomorrow " + time }
-        return event.startDate.formatted(.dateTime.weekday(.abbreviated)) + " " + time
+        return NextMeeting.dayAndTime(event.startDate, now: now, calendar: calendar)
     }
 
     /// The module's text when there is no event to show. Truthful: unavailable access is never shown as "no events".
@@ -142,6 +139,8 @@ struct CalendarDockFace: View {
     var showsDate = true
     var showsEvent = false
     var event: CalendarEventSnapshot?
+    /// The quiet all-day line, shown only when there is no timed event to show.
+    var allDayLine: String? = nil
     var emptyTitle = "No events"
     var emptyDetail = "Next 7 days"
     @Environment(\.dockWidgetContentWidth) private var width
@@ -182,9 +181,9 @@ struct CalendarDockFace: View {
         HStack(spacing: 6) {
             if case .calendar = barStyle { CalendarColorBar(style: barStyle, height: 28) }
             VStack(alignment: .leading, spacing: 1) {
-                Text(event?.title ?? emptyTitle).font(.system(size: 13, weight: .semibold))
+                Text(event?.title ?? quietTitle ?? emptyTitle).font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(event == nil ? .secondary : .primary).lineLimit(1)
-                Text(event.map { CalendarFacePresentation.compactStatus($0, now: date) } ?? emptyDetail)
+                Text(event.map { CalendarFacePresentation.compactStatus($0, now: date) } ?? (quietTitle == nil ? emptyDetail : "All day"))
                     .font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
                     .minimumScaleFactor(DockDesign.Module.minimumTextSize / 11)
             }
@@ -192,9 +191,11 @@ struct CalendarDockFace: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+    private var quietTitle: String? { event == nil ? allDayLine : nil }
     private var accessibilityValue: String {
         let day = date.formatted(date: .complete, time: .omitted)
         guard eventVisible else { return day }
+        if let quietTitle { return day + ", All day, " + quietTitle }
         return day + ", " + (event.map { "\($0.title), " + CalendarFacePresentation.compactStatus($0, now: date) } ?? emptyTitle)
     }
 }
@@ -220,6 +221,7 @@ private struct CalendarCompactWidgetView: View {
             let empty = CalendarFacePresentation.emptyState(errorMessage: errorMessage, accessAvailable: accessAvailable)
             CalendarDockFace(date: context.date, showsDate: parts.date, showsEvent: parts.event,
                              event: CalendarEventOrdering.compactEvent(from: events, now: context.date),
+                             allDayLine: NextMeeting.allDayLine(NextMeeting.allDayToday(from: events, now: context.date)),
                              emptyTitle: empty.title, emptyDetail: empty.detail)
                 .frame(width: contentWidth, height: 54)
         }
@@ -341,8 +343,14 @@ private struct CalendarPopoutWidgetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             TimelineView(.periodic(from: .now, by: 60)) { context in
-                WidgetPopoutHero(value: context.date.formatted(.dateTime.weekday(.wide).day()),
-                                 caption: context.date.formatted(.dateTime.month(.wide).year()))
+                // With a next event the hero reads "in 12 min" or "now"; otherwise it stays the date.
+                if configuration.calendarLayout != .date, errorMessage == nil, !isLoading,
+                   let next = NextMeeting.next(from: events, now: context.date) {
+                    WidgetPopoutHero(value: NextMeeting.heroValue(next, now: context.date), caption: next.title)
+                } else {
+                    WidgetPopoutHero(value: context.date.formatted(.dateTime.weekday(.wide).day()),
+                                     caption: context.date.formatted(.dateTime.month(.wide).year()))
+                }
             }
             if configuration.calendarLayout != .date { eventsSection }
             WidgetPopoutSettingsDisclosure(summary: configuration.calendarLayout.title, isExpanded: $settingsExpanded) {
@@ -400,14 +408,22 @@ private struct CalendarPopoutWidgetView: View {
                     let visibleEvents = configuration.calendarLayout == .nextEvent
                         ? CalendarEventOrdering.compactEvent(from: events, now: context.date).map { [$0] } ?? []
                         : events.filter { $0.endDate > context.date }.sorted { CalendarEventOrdering.precedes($0, $1, now: context.date) }
-                    if visibleEvents.isEmpty {
-                        GroupedSection {
-                            GroupedRow("No upcoming events in this reading", subtitle: "They refresh every few minutes.")
+                    // All-day events never count as "next"; in the next-event layout they get one quiet line.
+                    let allDayLine = configuration.calendarLayout == .nextEvent
+                        ? NextMeeting.allDayLine(NextMeeting.allDayToday(from: events, now: context.date)) : nil
+                    VStack(alignment: .leading, spacing: 6) {
+                        if visibleEvents.isEmpty {
+                            if allDayLine == nil {
+                                GroupedSection {
+                                    GroupedRow("No upcoming events in this reading", subtitle: "They refresh every few minutes.")
+                                }
+                            }
+                        } else if visibleEvents.count > 5 {
+                            DockScrollView { eventList(visibleEvents, now: context.date) }.frame(height: 300)
+                        } else {
+                            eventList(visibleEvents, now: context.date)
                         }
-                    } else if visibleEvents.count > 5 {
-                        DockScrollView { eventList(visibleEvents, now: context.date) }.frame(height: 300)
-                    } else {
-                        eventList(visibleEvents, now: context.date)
+                        if let allDayLine { WidgetPopoutCaption("All day · " + allDayLine) }
                     }
                 }
             }
@@ -435,15 +451,33 @@ private struct CalendarPopoutWidgetView: View {
                     Text(event.title).font(DockDesign.Grouped.titleFont.weight(.medium)).lineLimit(2)
                     Text(CalendarEventRowPresentation.detail(event, now: now))
                         .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
+                    if let location = NextMeeting.locationText(event) {
+                        Text(location).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
                 Spacer(minLength: 4)
-                if let url = event.meetingURL {
-                    Button("Join") { NSWorkspace.shared.open(url) }.buttonStyle(GalleryGlassButtonStyle())
+                // Join only for an event that carries a recognised meeting link; otherwise the event opens in Calendar.
+                switch CalendarEventAction.action(for: event) {
+                case .join(let url):
+                    Button("Join") { openMeeting(url) }.buttonStyle(GalleryGlassButtonStyle())
                         .accessibilityLabel("Join \(event.title)")
+                case .openInCalendar:
+                    WidgetRowIconButton(symbol: "calendar", label: "Open \(event.title) in Calendar") { openCalendarApp() }
                 }
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func openMeeting(_ url: URL) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func openCalendarApp() {
+        guard AppRuntimeEnvironment.allowsNativeEffects,
+              let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal") else { return }
+        NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
     }
 
     private var settingsSection: some View {
