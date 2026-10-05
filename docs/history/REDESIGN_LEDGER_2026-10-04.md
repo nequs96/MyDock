@@ -896,3 +896,35 @@ Both tests fail with the fix commented out.
 ### FX-04 launched
 
 `widget-visuals` agent, base `062b2a0`.
+
+### FX-05 — merged (branch commit `65442e6`), plus integration fix `80ecbe0`
+
+**Implementation:** the RD-10 families follow the review fixes. Each item below lists its source file:
+- **FacesBQA:** renders inside the real `WidgetPopout` host and the sheet (`FacesBQA.swift:164`).
+- **Type scale:** no `.caption2`, `.tertiary` or 10 pt text remains in its files. Footers are one line.
+- **Reading first:** AI provider readings now lead the popout (`AIUsageWidgetViews.swift:207`).
+- **Freshness:** duplicate family timestamps are removed.
+- **Stock setup:** the setup screen has no Refresh row.
+- **Stripe:** the account contradiction is fixed, with a truthful saved-account fallback (`StripeWidgetViews.swift:98`).
+- **System Activity:** the hero is centred, the stray "Updated 0:00" (a midnight QA fixture) is fixed, and memory text is larger.
+- **AI Activity faces:** limited to two lines via `ViewThatFits` (`:367`).
+- **Accessible dated charts:** Paddle and Shopify charts expose VoiceOver value lists with tested series helpers (Paddle `:157`, Shopify `:175`).
+- **Colour pickers:** the dead pickers are removed. Their persisted fields are untouched.
+- **Period tokens:** compact tokens in the business families.
+
+**Worker verification:**
+- `RedesignFacesBTests`: 14 passed.
+- 426 renders; the worker inspected all 108 shipping popouts.
+- The full suite stalled in the Codex sandbox, in LaunchServices and subprocess waits.
+
+**Integration:** a clean merge with FX-03. Unsandboxed `./TestMyDock.sh`: **629 tests in 79 suites** (`.build/redesign-fx05-test.log`).
+
+**Orchestrator review:**
+- Viewed `facesb-popout-ai-limits-ready-light` and `facesb-popout-stripe-ready-dark`. Both now lead with the reading, then grouped settings, then one footer.
+- **Integration fix `80ecbe0`:** the shared freshness line always labelled its manual refresh "Retry", even beside a green "Updated 1 minute ago". It now says "Retry" only for a stale or failed reading, and "Refresh" otherwise (`WidgetFreshnessView.swift`).
+
+**Open note:** the inherited Claude connection note in `AIAccountConnectionView` is unowned. It goes to FX-06 if it is in Settings, or stays as a follow-up otherwise.
+
+### FX-02 launched
+
+`dock-surface` agent, base `80ecbe0`.
