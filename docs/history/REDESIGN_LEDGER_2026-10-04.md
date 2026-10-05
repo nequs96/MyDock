@@ -991,3 +991,15 @@ Codex, effort medium, base `0ac58f6`. Launched with stdin closed.
 ### FX-07 launched
 
 `widget-gallery` agent, base `fa9971b`.
+
+### Session handoff — 5 October 2026 (user: "stop and document")
+
+The user asked the orchestrator to stop at the usage limit, wait for the running Codex worker, and write a full handoff. The handoff is [REDESIGN_HANDOFF_2026-10-05.md](REDESIGN_HANDOFF_2026-10-05.md).
+
+**FX-06** (Codex, medium) exited 0 with commit `b6c14d1` on `redesign/FX-06`. It is **not reviewed and not merged**. The worker reports:
+- 641 tests passed on its base;
+- 92 renders.
+
+**FX-07** (`widget-gallery`) was interrupted by the usage limit. Its partial work is saved as the uncompiled WIP commit `d226a3d` on `worktree-agent-a1de1985da0a04f99`. The handoff's §3.3 lists what it contains and what remains.
+
+The fork that drafted the handoff was also interrupted. The orchestrator completed the handoff: §3.1, §3.3, §4.1/4.2 updates, §8 order and §9 kickoff prompt. No merge or launch happened after `52dbf11`. The original brief `.claude/commands/redesign.md` is now committed, so a fresh checkout has it.
