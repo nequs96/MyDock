@@ -47,7 +47,8 @@ struct WidgetFreshnessView: View {
                         }
                         Text(status(query, state: state)).font(.system(size: 11)).foregroundStyle(.secondary)
                         Spacer()
-                        Button("Retry", action: refresh).controlSize(.small)
+                        // "Retry" only after a failed or stale reading; otherwise it is a plain refresh.
+                        Button(state == .stale ? "Retry" : "Refresh", action: refresh).controlSize(.small)
                             .disabled(state == .updating)
                     }
                     if let error = coordinator.errors[query] {
