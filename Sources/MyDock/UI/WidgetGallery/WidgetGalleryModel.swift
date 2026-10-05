@@ -158,7 +158,7 @@ enum WidgetGalleryModel {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         var result = SpacerKind.allCases.map { spacer in
             WidgetGalleryMoreEntry(id: "spacer:" + spacer.rawValue, title: spacer.title,
-                                   detail: "Give a group of items room to breathe.", symbol: "rectangle.split.2x1", item: .spacer(spacer))
+                                   detail: spacerDetail(spacer), symbol: "rectangle.split.2x1", item: .spacer(spacer))
         }
         let pickers = [("Choose Application…", "plus.app", "Add an app from another location."),
                        ("Folder…", "folder", "Keep a folder within reach."),
@@ -171,10 +171,120 @@ enum WidgetGalleryModel {
         return result.filter { trimmed.isEmpty || ($0.title + " " + $0.detail).localizedStandardContains(trimmed) }
     }
 
+    /// One short, distinct line per spacer size.
+    static func spacerDetail(_ spacer: SpacerKind) -> String {
+        switch spacer {
+        case .small: "A slim gap between neighbouring items."
+        case .regular: "A wide gap that splits the Dock into groups."
+        }
+    }
+
+    /// The configuration a new widget of `kind` is created with. Previews render from it, so a
+    /// sample looks like what gets added (Mono icons today, set by `DockItem.widget`).
+    static func creationConfiguration(for kind: String) -> WidgetConfiguration {
+        item(kind: kind, layout: nil).widgetConfiguration ?? WidgetConfiguration()
+    }
+
+    /// The detail pager caption: the size name and what that size shows, on one line.
+    static func pagerCaption(_ option: WidgetLayoutOption) -> String {
+        let detail = option.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !detail.isEmpty, detail.caseInsensitiveCompare(option.title) != .orderedSame else { return option.title }
+        return option.title + " · " + detail
+    }
+
     /// Grid columns for a content width: two to four, never narrower than `minimumTile`.
     static func columnCount(for width: CGFloat, minimumTile: CGFloat = 230, spacing: CGFloat = 16) -> Int {
         guard width.isFinite, width > 0 else { return 2 }
         let fitting = Int((width + spacing) / (minimumTile + spacing))
         return min(4, max(2, fitting))
+    }
+
+    /// The entry the arrow keys reach from `index` in a flat list laid out `columns` wide:
+    /// left/right step by one, up/down by a row, clamped to the list.
+    static func movedIndex(from index: Int, direction: WidgetGalleryMoveDirection, columns: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        let step: Int
+        switch direction {
+        case .left: step = -1
+        case .right: step = 1
+        case .up: step = -max(1, columns)
+        case .down: step = max(1, columns)
+        }
+        return min(count - 1, max(0, index + step))
+    }
+}
+
+enum WidgetGalleryMoveDirection: Equatable { case left, right, up, down }
+
+/// How a gallery sample is drawn: the per-widget presentation a newly added widget gets.
+struct WidgetGalleryPreviewStyle: Equatable {
+    var appearance: WidgetIconAppearance
+    var accent: WidgetAccent
+    var glassTint: WidgetGlassTint
+
+    init(configuration: WidgetConfiguration) {
+        appearance = configuration.iconAppearance
+        accent = configuration.widgetAccent ?? .auto
+        glassTint = configuration.glassTint ?? .none
+    }
+
+    /// The style of a widget exactly as the gallery creates it.
+    static func creation(kind: String) -> WidgetGalleryPreviewStyle {
+        WidgetGalleryPreviewStyle(configuration: WidgetGalleryModel.creationConfiguration(for: kind))
+    }
+}
+
+/// Keys the gallery acts on.
+enum WidgetGalleryKey: Equatable { case returnKey, space, escape }
+
+/// Where the keyboard is: a focused widget tile, the search field driving the highlighted
+/// result, or the open detail view.
+enum WidgetGalleryKeyContext: Equatable { case tile, searchResults, detail }
+
+enum WidgetGalleryKeyAction: Equatable {
+    case showSizes, addDefault, addSelectedSize, closeDetail, clearSearch, close, none
+}
+
+/// The gallery keymap, kept pure so both keyboard routes are testable.
+///
+/// - Focused widget tile: Return or Space shows sizes; Command-Return adds the default size;
+///   arrow keys move focus between tiles.
+/// - Search field: Up/Down move the highlight; Return (or Command-Return) adds the highlighted
+///   item's default size, as it always has; Tab moves focus onto the highlighted widget tile.
+/// - Detail: Return adds the selected size; Left/Right change size.
+/// - Escape: closes the detail first (focus returns to its tile), then clears the search,
+///   then closes the window.
+enum WidgetGalleryKeymap {
+    static func action(for key: WidgetGalleryKey, command: Bool = false, context: WidgetGalleryKeyContext,
+                       canAdd: Bool = true, hasQuery: Bool = false) -> WidgetGalleryKeyAction {
+        if key == .escape { return escape(detailOpen: context == .detail, hasQuery: hasQuery) }
+        switch context {
+        case .tile:
+            if key == .returnKey && command { return canAdd ? .addDefault : .none }
+            return .showSizes
+        case .searchResults:
+            guard key == .returnKey else { return .none }
+            return canAdd ? .addDefault : .none
+        case .detail:
+            guard key == .returnKey else { return .none }
+            return canAdd ? .addSelectedSize : .none
+        }
+    }
+
+    /// Escape closes the detail first, then clears the search, then closes.
+    static func escape(detailOpen: Bool, hasQuery: Bool) -> WidgetGalleryKeyAction {
+        detailOpen ? .closeDetail : hasQuery ? .clearSearch : .close
+    }
+
+    /// The VoiceOver hint of a widget tile, naming its keys.
+    static func tileHint(canAdd: Bool) -> String {
+        canAdd ? "Return or Space shows sizes. Command-Return adds the default size."
+               : "Return or Space shows sizes."
+    }
+
+    /// The tooltip of a widget tile: the mouse and keyboard routes together.
+    static func tileHelp(canAdd: Bool) -> String {
+        canAdd ? "Click or press Return to see sizes. Double-click or press Command-Return to add."
+               : "Click or press Return to see sizes."
     }
 }

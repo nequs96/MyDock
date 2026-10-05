@@ -33,6 +33,15 @@ extension PremiumVisualQA {
                 .environment(\.addLibraryPreview, state)
         }
 
+        var presetThumbnails: some View {
+            VStack(spacing: 8) {
+                ForEach(DockStarterPreset.allCases) { PresetLibraryTile(preset: $0) }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(DockDesign.page)
+        }
+
         let sizes: [(String, NSSize)] = [("920", NSSize(width: 920, height: 740)), ("700", NSSize(width: 700, height: 600))]
         for scheme in [ColorScheme.light, .dark] {
             let suffix = scheme == .dark ? "dark" : "light"
@@ -57,7 +66,12 @@ extension PremiumVisualQA {
                 }
                 try await render(library(everyday, category: "Widgets", state: AddLibraryPreviewState(detailFamily: "Battery")),
                                  name: "gallery-detail-added-battery-\(tag)", size: size, scheme: scheme, directory: directory)
+                // FX-07: keyboard focus ring on a hero tile, and on a grid tile beside the search highlight's wash.
+                try await render(library(everyday, category: "Widgets", state: AddLibraryPreviewState(focusedTile: "suggested:Weather")),
+                                 name: "gallery-focused-\(tag)", size: size, scheme: scheme, directory: directory)
             }
+            // FX-07: the text-free preset thumbnails (glyph-only module chips in a mini Dock).
+            try await render(presetThumbnails, name: "gallery-presets-\(suffix)", size: NSSize(width: 640, height: 560), scheme: scheme, directory: directory)
             for (variant, contrast, transparency) in [("reduce-transparency", ColorSchemeContrast.standard, true), ("increase-contrast", .increased, false)] {
                 let size = NSSize(width: 920, height: 740)
                 try await render(library(everyday, category: "Widgets", state: AddLibraryPreviewState(recentlyAdded: ["widget:Calendar"])),
@@ -68,6 +82,11 @@ extension PremiumVisualQA {
                                  contrast: contrast, reduceTransparency: transparency)
                 try await render(library(withApp, category: "Applications"), name: "gallery-apps-\(variant)-\(suffix)", size: size, scheme: scheme,
                                  directory: directory, contrast: contrast, reduceTransparency: transparency)
+                try await render(library(everyday, category: "Widgets", state: AddLibraryPreviewState(focusedTile: "suggested:Weather")),
+                                 name: "gallery-focused-\(variant)-\(suffix)", size: size, scheme: scheme, directory: directory,
+                                 contrast: contrast, reduceTransparency: transparency)
+                try await render(presetThumbnails, name: "gallery-presets-\(variant)-\(suffix)", size: NSSize(width: 640, height: 560),
+                                 scheme: scheme, directory: directory, contrast: contrast, reduceTransparency: transparency)
             }
         }
         try await render(WidgetGalleryView(add: { _, _ in }, onClose: {}), name: "gallery-debug-catalog", size: NSSize(width: 960, height: 680),
