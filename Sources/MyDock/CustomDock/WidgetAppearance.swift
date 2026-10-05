@@ -51,6 +51,9 @@ enum WidgetAppearanceOptions {
     /// Automatic, Mono, then every profile colour, in display order.
     static var accentChoices: [WidgetAccent] { [.auto, .mono] + DockProfileColor.allCases.map(WidgetAccent.profile) }
 
+    /// What Automatic does: neutral at rest, the family colour only while the widget is active.
+    static let autoAccentCaption = "Neutral; colour shows when active"
+
     static func accentTitle(_ accent: WidgetAccent) -> String {
         switch accent {
         case .auto: "Automatic"
@@ -134,7 +137,7 @@ struct WidgetAppearanceControls: View {
 
     var body: some View {
         GroupedSection("Appearance", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
-            GroupedRow("Accent") { accentSwatches }
+            GroupedRow("Accent", subtitle: accent == .auto ? WidgetAppearanceOptions.autoAccentCaption : nil) { accentSwatches }
             if WidgetAppearanceOptions.showsIconStyle(kind: kind) { iconStyleRow }
             GroupedRow("Label", subtitle: labelChoice == .followDock ? "Follows the Dock · " + (settings.showWidgetLabels ? "On" : "Off") : nil) {
                 Picker("Label", selection: Binding(get: { labelChoice }, set: { choice in
@@ -231,7 +234,7 @@ struct WidgetAppearanceControls: View {
 }
 
 /// One accent choice: the colour it resolves to for this family, with a ring when selected.
-/// Automatic carries a small "A" so it reads as a mode rather than a colour.
+/// Automatic shows the family colour it takes while active, with a small "A" so it reads as a mode rather than a colour.
 struct WidgetAccentSwatch: View {
     var kind: String
     var accent: WidgetAccent
@@ -241,7 +244,7 @@ struct WidgetAccentSwatch: View {
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         ZStack {
-            Circle().fill(WidgetPalette.resolved(kind: kind, accent: accent))
+            Circle().fill(WidgetPalette.resolved(kind: kind, accent: accent, active: true))
             if case .auto = accent {
                 Text("A").font(.system(size: diameter * 0.5, weight: .bold, design: .rounded)).foregroundStyle(.white)
                     .accessibilityHidden(true)

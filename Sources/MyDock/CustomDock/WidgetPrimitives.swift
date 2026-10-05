@@ -51,7 +51,7 @@ enum WidgetPalette {
     static let critical = Color(nsColor: .systemRed)
     static let positive = Color(nsColor: .systemGreen)
 
-    /// The family accent for a widget kind (the `.auto` accent).
+    /// The family accent for a widget kind: what `.auto` shows while active (see `resolved`).
     static func accent(_ kind: String) -> Color {
         if kind == "Weather" { return weather }
         switch WidgetRegistry.definition(named: kind)?.category {
@@ -63,10 +63,13 @@ enum WidgetPalette {
         }
     }
 
-    /// Resolves a per-widget accent choice: `.auto` → family accent, `.mono` → primary, `.profile` → profile colour.
-    static func resolved(kind: String, accent: WidgetAccent) -> Color {
+    /// Resolves a per-widget accent choice: `.mono` → primary, `.profile` → profile colour, and `.auto` → neutral
+    /// (primary) at rest, so a Dock reads monochrome; the family accent shows only while `active` (a running
+    /// timer, playing media, a toggled-on glyph) or where the user asked for colour (Color icon style, glass tint).
+    /// Semantic state colours (`warning`, `critical`, `positive`) never go through here and stay coloured.
+    static func resolved(kind: String, accent: WidgetAccent, active: Bool = false) -> Color {
         switch accent {
-        case .auto: Self.accent(kind)
+        case .auto: active ? Self.accent(kind) : Color.primary
         case .mono: Color.primary
         case .profile(let color): profile(color)
         }
@@ -134,7 +137,8 @@ struct WidgetIcon: View {
     @Environment(\.colorScheme) private var scheme
     @DockAccessibilityStyle() private var accessibility
     private var treatment: WidgetIconAppearance { appearance ?? inheritedAppearance }
-    private var tint: Color { WidgetPalette.resolved(kind: kind, accent: accentChoice) }
+    /// Auto is neutral at rest; an active glyph and the Color treatment (an explicit request for colour) take the family colour.
+    private var tint: Color { WidgetPalette.resolved(kind: kind, accent: accentChoice, active: filled) }
     private var iconSymbol: String {
         let name = symbol ?? WidgetRegistry.definition(named: kind)?.symbol ?? "square.grid.2x2"
         return treatment == .outline ? name.replacingOccurrences(of: ".fill", with: "") : name
@@ -161,7 +165,7 @@ struct WidgetIcon: View {
     }
     /// The fill of an active or Color-treatment circle.
     static func activeFill(kind: String, treatment: WidgetIconAppearance, accent: WidgetAccent) -> Color {
-        fillIsPrimary(treatment: treatment, accent: accent) ? Color.primary : WidgetPalette.resolved(kind: kind, accent: accent)
+        fillIsPrimary(treatment: treatment, accent: accent) ? Color.primary : WidgetPalette.resolved(kind: kind, accent: accent, active: true)
     }
 
     var body: some View {
@@ -259,7 +263,7 @@ struct WidgetContainer<Content: View>: View {
     private var glassTintColor: Color? {
         guard glassTint == .accent else { return nil }
         if case .mono = accent { return nil }
-        return WidgetPalette.resolved(kind: kind, accent: accent).opacity(0.55)
+        return WidgetPalette.resolved(kind: kind, accent: accent, active: true).opacity(0.55)
     }
 }
 
@@ -990,7 +994,7 @@ private struct TimerFace: View {
                 } else {
                     let total = Double(max(1, kind == "Focus Timer" ? c.focusDurationSeconds : c.countdownDurationSeconds))
                     ModuleRing(fraction: min(1, max(0, duration / total)),
-                               color: running ? WidgetPalette.resolved(kind: kind, accent: accent) : Color.secondary)
+                               color: running ? WidgetPalette.resolved(kind: kind, accent: accent, active: true) : Color.secondary)
                         .frame(width: WidgetModuleMetrics.ring, height: WidgetModuleMetrics.ring)
                 }
             }
