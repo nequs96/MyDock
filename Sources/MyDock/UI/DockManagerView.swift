@@ -792,7 +792,7 @@ struct DockManagerView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         TextField("Name", text: Binding(get: { resolvedPreset?.name ?? "" }, set: { resolvedPreset?.name = $0 }))
                             .textFieldStyle(DockTextFieldStyle())
-                        DockLayoutPreview(store: store, profile: profile)
+                        DockLayoutPreview(store: store, profile: profile, fitsByScale: true)
                         Text("Start with these installed apps. Replace or remove any item before creating your Dock.")
                             .font(.caption).foregroundStyle(.secondary)
                         if !presetResolutionNotes.isEmpty {

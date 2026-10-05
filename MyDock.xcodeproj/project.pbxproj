@@ -200,6 +200,7 @@
 		D0A15E65FF5C6F80804CCB1B /* WindowAccessibilityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB19E8FEA8B2BB9DBFAD714 /* WindowAccessibilityService.swift */; };
 		D1017152A6502BFE9D99A61C /* CollectionUndoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3C90F5D4626629139D515F /* CollectionUndoTests.swift */; };
 		D20244766A9FC478201602AC /* ProfileEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0601AC91180E955D288421C6 /* ProfileEditingTests.swift */; };
+		D263BF9F2DB5EF434CB04984 /* FX02Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97343CC64C6A39469219D700 /* FX02Tests.swift */; };
 		D3F6B13101791465E9798554 /* WidgetRefreshLimiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9719FA135C921569032EFD75 /* WidgetRefreshLimiter.swift */; };
 		D54EEB5D4539DB117C52A4D5 /* DockHoverEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = F47321576B3FFE6B64B02743 /* DockHoverEffect.swift */; };
 		D5515E908A51127AC4F15EBF /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B29E430F23BFAB12E20829E /* OnboardingView.swift */; };
@@ -411,6 +412,7 @@
 		96BD2A424B06C0839F15D21D /* InstalledAppCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstalledAppCatalogTests.swift; sourceTree = "<group>"; };
 		970F8998158070A27A35A717 /* ProfileAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileAppearance.swift; sourceTree = "<group>"; };
 		9719FA135C921569032EFD75 /* WidgetRefreshLimiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetRefreshLimiter.swift; sourceTree = "<group>"; };
+		97343CC64C6A39469219D700 /* FX02Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FX02Tests.swift; sourceTree = "<group>"; };
 		974BECC1D427C16C9C949FDD /* FolderContentsPopout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderContentsPopout.swift; sourceTree = "<group>"; };
 		97D23929423AA8E309734DA0 /* DockInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockInspector.swift; sourceTree = "<group>"; };
 		9AB2C025B8B27FE112E36E96 /* DockCanvasDragSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockCanvasDragSurface.swift; sourceTree = "<group>"; };
@@ -858,6 +860,7 @@
 				E7F36A53ED40B8A89B8D79DB /* DockAuditRegressionTests.swift */,
 				6B8FC47EB7D9EDF06D574C44 /* DockBadgePolicyTests.swift */,
 				DE911CCE3F17E817C08D58A6 /* DockUtilityExpansionTests.swift */,
+				97343CC64C6A39469219D700 /* FX02Tests.swift */,
 				6EED53686BFA903EDDF8906B /* FX03Tests.swift */,
 				8504B54DA5060896FB259377 /* GitHubCopilotBillingTests.swift */,
 				96BD2A424B06C0839F15D21D /* InstalledAppCatalogTests.swift */,
@@ -1250,6 +1253,7 @@
 				CDCDFF98C1C8B63CAFFC1594 /* DockAuditRegressionTests.swift in Sources */,
 				1B8A1AC01115C0E2E289BD93 /* DockBadgePolicyTests.swift in Sources */,
 				F86485F16DE127145CD04F56 /* DockUtilityExpansionTests.swift in Sources */,
+				D263BF9F2DB5EF434CB04984 /* FX02Tests.swift in Sources */,
 				5070FD228E9A40B0EE437CED /* FX03Tests.swift in Sources */,
 				E567852E766478D0ECDFF267 /* GitHubCopilotBillingTests.swift in Sources */,
 				60E77179EAC671B2821C7C36 /* InstalledAppCatalogTests.swift in Sources */,
