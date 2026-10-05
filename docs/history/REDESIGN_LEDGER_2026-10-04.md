@@ -838,3 +838,10 @@ Both tests fail with the fix commented out.
 - FX-05 (Codex) runs from `090ff19`.
 - FX-03 (`widget-visuals`) runs from `b71840c`.
 - Queued: FX-02, FX-06, FX-07, then FX-04 after FX-03.
+
+### Interruptions and FX-05 relaunch — 5 October 2026
+
+- **FX-03** was interrupted by an API session limit while working on the Sticky Note face. It was resumed from its transcript; its uncommitted edits were intact.
+- **FX-05's first Codex run never started work.** `codex exec` printed "Reading additional input from stdin..." and then waited on an open stdin for about 4 h. The worktree had no changes.
+  - The orchestrator stopped its own stuck process (exit 144) and relaunched with `< /dev/null`. The model then started normally.
+  - Every later `codex exec` launch closes stdin. Earlier runs only got past this by chance.
