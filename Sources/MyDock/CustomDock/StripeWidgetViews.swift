@@ -20,7 +20,7 @@ struct StripeCompactView: View {
             amount: values.map { StripeMetricFormatter.amount(for: configuration.stripeMetric, values: $0) },
             currency: configuration.stripeMetric == .payingSubscribers ? nil : configuration.stripeCurrency,
             fullValue: values.map { StripeMetricFormatter.text(for: configuration.stripeMetric, values: $0) },
-            context: configuration.stripePeriod.title,
+            context: configuration.stripePeriod.faceToken,
             emptyValue: configuration.stripeSnapshot != nil || !configuration.stripeAccountID.isEmpty ? "No data" : "Connect")
     }
 }
@@ -29,6 +29,11 @@ private struct StripePopoutView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    #if DEBUG
+    @Environment(\.dockSnapshotRendering) private var snapshotRendering
+    #else
+    private var snapshotRendering: Bool { false }
+    #endif
     @ObservedObject private var setupDrafts = WidgetSetupDraftStore.shared
     @State private var isRefreshing = false
     @State private var refreshRequestID = UUID()
@@ -43,88 +48,29 @@ private struct StripePopoutView: View {
     private var setupDraft: StripeConnectionDraft { setupDrafts.stripeDraft(for: item.id) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            GroupedSection {
-                GroupedRow("Account name", symbol: "pencil") {
-                    TextField("Account name", text: displayNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
-                }
-                GroupedRow("Refresh", symbol: "arrow.clockwise") {
-                    Button("Refresh") { Task { await refresh() } }.disabled(isRefreshing)
-                    if isRefreshing { ProgressView().controlSize(.small) }
-                }
-            }
-
-            if let snapshot {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(snapshot.accountName).font(.subheadline.weight(.medium)).lineLimit(1)
-                    Text("Restricted, read-only connection").font(.caption2).foregroundStyle(.tertiary)
-                }
-                .help("Account name is local to MyDock. The API key determines the Stripe account.")
-            } else {
-                Label("Connect a restricted Stripe key", systemImage: "key.horizontal")
-                    .font(.callout.weight(.medium))
-                Text("Add an rk_ key in Settings → Integrations. Use read-only access for Account, Balance, Balance Transactions, and Subscriptions.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-
+        VStack(alignment: .leading, spacing: 16) {
             if let currencyMetrics {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(StripeMetricFormatter.text(for: configuration.stripeMetric, values: currencyMetrics))
-                        .font(DockDesign.Module.valueLarge)
-                    HStack(spacing: 6) {
-                        Text(configuration.stripeMetric.title)
-                        Text("·")
-                        Text(configuration.stripeCurrency)
-                        if [.revenue, .netAfterFees].contains(configuration.stripeMetric) {
-                            Text("·")
-                            Text((snapshot?.period ?? configuration.stripePeriod).title)
-                        }
-                    }
-                    .font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 3)
-            } else if snapshot != nil {
-                Text("No \(configuration.stripeCurrency) data is available. Choose a currency reported by this account in the Currency menu.")
-                    .font(.caption).foregroundStyle(.secondary)
+                WidgetPopoutHero(value: StripeMetricFormatter.text(for: configuration.stripeMetric, values: currencyMetrics),
+                    caption: "\(configuration.stripeMetric.title) · \(configuration.stripeMetric.popoutUnit(currency: configuration.stripeCurrency)) · \(snapshot?.period.title ?? configuration.stripePeriod.title)")
+            } else {
+                WidgetPopoutHero(value: snapshot == nil ? "Connect Stripe" : "No currency data",
+                    caption: snapshot == nil ? "Use a restricted, read-only key." : "Choose a currency reported by this account.")
             }
-
-            controls
-
-            connectionControls
-
-            if let snapshot {
-                HStack(spacing: 5) {
-                    Image(systemName: isStale ? "clock.badge.exclamationmark" : "checkmark.circle")
-                    Text(isStale ? "Showing last successful values" : "Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
-                    Text("·")
-                    Text(TimeZone.autoupdatingCurrent.identifier)
-                }
-                .font(.caption2).foregroundStyle(isStale ? Color.orange : Color.gray)
-                if snapshot.unsupportedSubscriptionItems > 0 {
-                    Text("Skipped \(snapshot.unsupportedSubscriptionItems) complex subscription item(s) from MRR/ARR.")
-                        .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let count = snapshot?.unsupportedSubscriptionItems, count > 0 {
+                GroupedSection {
+                    GroupedRow("Subscription estimate", subtitle: "\(count) complex items excluded", symbol: "info.circle")
                 }
             }
             if let errorMessage {
-                Label(snapshot == nil ? errorMessage : "Refresh failed. Showing saved data. \(errorMessage)",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            if let snapshot, snapshot.period != configuration.stripePeriod,
-               [.revenue, .netAfterFees].contains(configuration.stripeMetric) {
-                Text("Last successful period: \(snapshot.period.title) · selected: \(configuration.stripePeriod.title)")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            DataSourceProvenanceView(provenance: .stripe(snapshot: snapshot, localName: configuration.stripeDisplayName,
-                                                         metric: configuration.stripeMetric, error: errorMessage))
-            Text("Revenue is payment activity posted to the Stripe balance, less refunds and payment reversals, before fees. It includes collected tax and excludes payouts, transfers, and disputes. Net uses Stripe's transaction net after fees. Currencies are never converted.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
-            Text("MRR/ARR estimate active and past-due fixed recurring prices; trials and metered, tiered, discounted, or tax-adjusted items are excluded.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            if snapshot == nil { connectionControls }
+            controls
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: "\(configuration.stripeAccountID)|\(configuration.stripePeriod.rawValue)|\(configuration.stripeDisplayName)") {
-            guard !configuration.stripeAccountID.isEmpty else { return }
+            guard !snapshotRendering, !configuration.stripeAccountID.isEmpty else { return }
             await refresh()
         }
         .onAppear(perform: reloadConnections)
@@ -139,7 +85,10 @@ private struct StripePopoutView: View {
     }
 
     private var controls: some View {
-        GroupedSection("Display") {
+        GroupedSection("Settings", footer: provenanceFooter) {
+            GroupedRow("Account name", symbol: "pencil") {
+                TextField("Account name", text: displayNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+            }
             GroupedRow("Metric") {
                 Picker("Metric", selection: metricBinding) {
                     ForEach(StripeMetric.allCases) { Text($0.title).tag($0) }
@@ -148,7 +97,10 @@ private struct StripePopoutView: View {
             }
             GroupedRow("Account") {
                 Picker("Account", selection: accountBinding) {
-                    Text("Not connected").tag("")
+                    Text(snapshot == nil ? "Not connected" : "Saved reading only").tag("")
+                    if !configuration.stripeAccountID.isEmpty, !connections.contains(where: { $0.id == configuration.stripeAccountID }) {
+                        Text(configuration.stripeDisplayName + " (saved)").tag(configuration.stripeAccountID)
+                    }
                     ForEach(connections) { account in Text(account.name).tag(account.id) }
                 }
                 .labelsHidden()
@@ -167,37 +119,31 @@ private struct StripePopoutView: View {
                 .labelsHidden()
                 .disabled([.revenue, .netAfterFees].contains(configuration.stripeMetric) == false)
             }
-            GroupedRow("Color") {
-                Picker("Color", selection: colorBinding) {
-                    ForEach(DockProfileColor.allCases) { color in
-                        Text(color.title).tag(color.rawValue)
-                    }
-                }
-                .labelsHidden()
+
+            if snapshot != nil {
+                DisclosureGroup("Connection") { connectionControls }
+                    .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+                    .padding(.vertical, DockDesign.Grouped.rowVerticalPadding)
             }
         }
-        .font(.caption)
+        .help(metricExplanation)
     }
+
+    private var provenanceFooter: String { "Stripe reports each currency without conversion." }
+    private var metricExplanation: String { "Revenue is payment activity posted to the Stripe balance, less refunds and payment reversals, before fees. It includes collected tax and excludes payouts, transfers, and disputes. Net uses Stripe's transaction net after fees. Currencies are never converted. MRR/ARR estimate active and past-due fixed recurring prices; trials and metered, tiered, discounted, or tax-adjusted items are excluded." }
 
     private var connectionControls: some View {
         VStack(alignment: .leading, spacing: 7) {
-            GroupedSection("Connect a Stripe account") {
+            GroupedSection("Connection") {
                 GroupedRow("Account name") {
                     TextField("Account name", text: connectionNameBinding)
-                        .textFieldStyle(DockTextFieldStyle())
+                        .textFieldStyle(.plain)
                         .disabled(isConnecting)
                 }
-                GroupedRow("Account color") {
-                    Picker("Account color", selection: connectionColorBinding) {
-                        ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
-                    }
-                    .labelsHidden()
 
-                    .disabled(isConnecting)
-                }
                 GroupedRow("Restricted key") {
                     SecureField("Restricted key (rk_live_… or rk_test_…)", text: restrictedKeyBinding)
-                        .textFieldStyle(DockTextFieldStyle())
+                        .textFieldStyle(.plain)
                         .disabled(isConnecting)
                 }
                 GroupedRow("Connect", role: .button) { Task { await connect() } }
@@ -212,11 +158,8 @@ private struct StripePopoutView: View {
                     GroupedRow("Permissions") { Link("Key permissions", destination: url) }
                 }
             }
-            Text("Grant read-only Account, Balance, Balance Transactions, and Subscriptions access. MyDock never requests write access.")
-                .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Text("An unfinished form stays in memory for this widget until connected or cleared; its key is never written to profile data or backups.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
+        .help("Grant read-only Account, Balance, Balance Transactions, and Subscriptions access. MyDock never requests write access. An unfinished form stays in memory for this widget until connected or cleared; its key is never written to profile data or backups." )
     }
 
     private var connectionNameBinding: Binding<String> {
@@ -231,20 +174,9 @@ private struct StripePopoutView: View {
         })
     }
 
-    private var connectionColorBinding: Binding<String> {
-        Binding(get: { setupDraft.color }, set: { value in
-            setupDrafts.updateStripeDraft(for: item.id) { $0.color = value }
-        })
-    }
-
     private var currencyOptions: [String] {
         let options = snapshot?.currencyCodes ?? []
         return options.contains(configuration.stripeCurrency) ? options : [configuration.stripeCurrency] + options
-    }
-
-    private var isStale: Bool {
-        guard let snapshot else { return false }
-        return Date.now.timeIntervalSince(snapshot.fetchedAt) > 300 || snapshot.period != configuration.stripePeriod
     }
 
     private var displayNameBinding: Binding<String> {
@@ -255,6 +187,7 @@ private struct StripePopoutView: View {
 
     private var accountBinding: Binding<String> {
         Binding(get: { configuration.stripeAccountID }, set: { accountID in
+            guard accountID != configuration.stripeAccountID else { return }
             guard let account = connections.first(where: { $0.id == accountID }) else {
                 update { $0.stripeAccountID = ""; $0.stripeSnapshot = nil }
                 return
@@ -282,16 +215,6 @@ private struct StripePopoutView: View {
         Binding(get: { configuration.stripePeriod }, set: { value in update { $0.stripePeriod = value } })
     }
 
-    private var colorBinding: Binding<String> {
-        Binding(get: { configuration.stripeColor }, set: { value in
-            update { $0.stripeColor = value }
-            if let account = connections.first(where: { $0.id == configuration.stripeAccountID }) {
-                StripeConnectionDirectory.update(StripeConnectedAccount(id: account.id, name: account.name, color: value))
-                reloadConnections()
-            }
-        })
-    }
-
     private func refresh(accountID requestedAccountID: String? = nil) async {
         let requestID = UUID()
         refreshRequestID = requestID
@@ -301,9 +224,6 @@ private struct StripePopoutView: View {
         currentItem.widgetConfiguration = configuration
         await store.widgetData.refresh(item: currentItem, profileID: profileID)
         guard refreshRequestID == requestID, !Task.isCancelled else { return }
-        if let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: configuration) {
-            errorMessage = store.widgetData.errors[query]
-        }
     }
 
     private func connect() async {
@@ -397,10 +317,6 @@ private enum StripeMetricFormatter {
     }
 }
 
-private func color(for name: String) -> Color {
-    (DockProfileColor(rawValue: name) ?? .purple).displayColor
-}
-
 /// Compact financial values retain a full currency/count description for VoiceOver and help.
 enum FacesBFinancialFormatting {
     static func compact(_ amount: Decimal, currency: String?, narrow: Bool, locale: Locale = .current) -> String {
@@ -443,4 +359,19 @@ struct FacesBBusinessDockFace: View {
             .accessibilityValue(fullValue.map { "\(metric) \($0), \(context)" } ?? emptyValue)
             .help(fullValue.map { "\(title) · \(metric) · \($0) · \(context)" } ?? "Open to connect or review saved data")
     }
+}
+
+extension StripePeriod {
+    var faceToken: String {
+        switch self {
+        case .today: "Today"
+        case .sevenDays: "7d"
+        case .thirtyDays: "30d"
+        case .ninetyDays: "90d"
+        }
+    }
+}
+
+extension StripeMetric {
+    func popoutUnit(currency: String) -> String { self == .payingSubscribers ? "subscribers" : currency }
 }

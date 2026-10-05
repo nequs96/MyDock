@@ -56,6 +56,11 @@ private struct StockPopoutView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    #if DEBUG
+    @Environment(\.dockSnapshotRendering) private var snapshotRendering
+    #else
+    private var snapshotRendering: Bool { false }
+    #endif
     @State private var searchText = ""
     @State private var searchResults: [MarketSymbol] = []
     @State private var isSearching = false
@@ -74,64 +79,24 @@ private struct StockPopoutView: View {
     private var snapshot: StockMarketSnapshot? { configuration.stockSnapshot }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            GroupedSection {
-                GroupedRow("Search") {
-                    HStack {
-                        TextField("Search ticker or company", text: $searchText)
-                            .textFieldStyle(DockTextFieldStyle())
-                            .onSubmit { Task { await search() } }
-                        Button { Task { await search() } } label: {
-                            if isSearching { ProgressView().controlSize(.small) }
-                            else { Image(systemName: "magnifyingglass") }
-                        }
-                        .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
-                        .help("Search market symbols")
-                    }
-                }
-                GroupedRow("Refresh", role: .button) { Task { await refresh() } }
-                    .disabled(configuration.stockSymbol.isEmpty || isRefreshing)
-            }
-            if !searchResults.isEmpty { resultsList }
-            if !configuration.stockSymbol.isEmpty {
-                GroupedSection {
-                    GroupedRow("Display name") {
-                        VStack(alignment: .leading, spacing: 2) {
-                            TextField("Display name", text: stockNameBinding)
-                                .font(.subheadline.weight(.semibold)).textFieldStyle(.plain).lineLimit(1)
-                            Text(configuration.stockSymbol).font(.caption).foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Spacer()
-                        Button("Yahoo Finance", systemImage: "arrow.up.right.square") { openFinance(configuration.stockSymbol) }
-                            .labelStyle(.iconOnly)
-                            .help("Open \(configuration.stockSymbol) on Yahoo Finance")
-                        if isRefreshing { ProgressView().controlSize(.small) }
-                    }
-                }
-                chartContent
-                controls
-                if let snapshot {
-                    Text("End-of-day close: \(snapshot.latest?.date.formatted(date: .abbreviated, time: .omitted) ?? "Unavailable") · fetched \(snapshot.fetchedAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                }
+        VStack(alignment: .leading, spacing: 16) {
+            if configuration.stockSymbol.isEmpty {
+                WidgetPopoutHero(value: "Choose a ticker", caption: "Search by ticker or company name.")
             } else {
-                VStack(spacing: 7) {
-                    Label("Choose a ticker", systemImage: "chart.line.uptrend.xyaxis").font(.callout.weight(.medium))
-                    Text("Search by ticker or company name to add a stock.").font(.caption).foregroundStyle(.secondary)
+                chartContent
+                GroupedSection {
+                    GroupedRow("Yahoo Finance", role: .button) { openFinance(configuration.stockSymbol) }
                 }
-                .frame(maxWidth: .infinity, minHeight: 110)
             }
             if let errorMessage {
-                Label(snapshot == nil ? errorMessage : "Showing saved data. \(errorMessage)", systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            Text("Market data by Alpha Vantage. Quotes are end of day on the standard plan; request limits depend on your plan.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            controls
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .task(id: "\(configuration.stockSymbol)|\(configuration.stockCurrency)|\(configuration.stockRefreshIntervalMinutes)") {
-            guard !configuration.stockSymbol.isEmpty else { return }
+            guard !snapshotRendering, !configuration.stockSymbol.isEmpty else { return }
             await refresh()
         }
         .onChange(of: "\(configuration.stockSymbol)|\(configuration.stockCurrency)") { _ in
@@ -171,10 +136,10 @@ private struct StockPopoutView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(result.symbol).font(.callout.weight(.semibold))
-                                Text(result.name).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Text(result.name).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer()
-                            Text(result.region).font(.caption2).foregroundStyle(.tertiary)
+                            Text(result.region).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                             Image(systemName: "plus.circle").foregroundStyle(.tint)
                         }
                         .contentShape(Rectangle()).padding(.vertical, 7)
@@ -197,7 +162,7 @@ private struct StockPopoutView: View {
                         .font(DockDesign.Module.valueLarge)
                     if let change = snapshot.change, let percent = snapshot.changePercent {
                         Text("\(change >= 0 ? "+" : "")\(change.formatted(.number.precision(.fractionLength(2)))) (\(String(format: "%+.2f%%", percent)))")
-                            .font(.caption.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
+                            .font(DockDesign.Grouped.subtitleFont.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
                     }
                 }
                 let visiblePoints = Array(snapshot.points.suffix(configuration.stockRange.pointCount))
@@ -210,9 +175,9 @@ private struct StockPopoutView: View {
                     Spacer()
                     Text(latest.date.formatted(date: .abbreviated, time: .omitted))
                 }
-                .font(.caption2).foregroundStyle(.tertiary)
+                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                 if configuration.stockShowsVolume {
-                    Text("Volume \(latest.volume.formatted())").font(.caption).foregroundStyle(.secondary)
+                    Text("Volume \(latest.volume.formatted())").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                 }
             }
         } else if isRefreshing {
@@ -224,20 +189,43 @@ private struct StockPopoutView: View {
     }
 
     private var controls: some View {
-        GroupedSection("Chart", footer: "D = trading sessions. Up to 100 daily closes; percentage change compares the latest two sessions.") {
-            GroupedRow("Range", symbol: "chart.xyaxis.line") {
-                Picker("Range", selection: rangeBinding) {
-                    ForEach(StockChartRange.allCases) { Text($0.title).tag($0) }
-                }.labelsHidden()
+        GroupedSection("Settings", footer: "End-of-day quotes from Alpha Vantage.") {
+            GroupedRow("Search") {
+                HStack(spacing: 8) {
+                    TextField("Ticker or company", text: $searchText).textFieldStyle(.plain)
+                        .onSubmit { Task { await search() } }
+                    Button { Task { await search() } } label: {
+                        if isSearching { ProgressView().controlSize(.small) }
+                        else { Image(systemName: "magnifyingglass") }
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+                    .help("Search market symbols").accessibilityLabel("Search market symbols")
+                }
             }
-            GroupedRow("Refresh", symbol: "arrow.clockwise") {
-                Picker("Refresh", selection: refreshIntervalBinding) {
-                    Text("1 hour").tag(60); Text("3 hours").tag(180); Text("6 hours").tag(360)
-                    Text("12 hours").tag(720); Text("24 hours").tag(1_440)
-                }.labelsHidden()
+            if !configuration.stockSymbol.isEmpty {
+                GroupedRow("Display name", subtitle: configuration.stockSymbol) {
+                    TextField("Display name", text: stockNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                }
             }
-            GroupedRow("Volume", symbol: "chart.bar", isOn: volumeBinding)
+            if !searchResults.isEmpty { resultsList }
+
+            if !configuration.stockSymbol.isEmpty {
+                GroupedRow("Range", symbol: "chart.xyaxis.line") {
+                    Picker("Range", selection: rangeBinding) {
+                        ForEach(StockChartRange.allCases) { Text($0.title).tag($0) }
+                    }.labelsHidden()
+                }
+                GroupedRow("Update interval", symbol: "arrow.clockwise") {
+                    Picker("Update interval", selection: refreshIntervalBinding) {
+                        Text("1 hour").tag(60); Text("3 hours").tag(180); Text("6 hours").tag(360)
+                        Text("12 hours").tag(720); Text("24 hours").tag(1_440)
+                    }.labelsHidden()
+                }
+                GroupedRow("Volume", symbol: "chart.bar", isOn: volumeBinding)
+            }
         }
+        .help("Ranges count trading sessions, up to 100 daily closes; change compares the latest two sessions. Standard-plan quotes are end of day, and request limits depend on your Alpha Vantage plan.")
     }
 
     private var rangeBinding: Binding<StockChartRange> {
@@ -280,9 +268,6 @@ private struct StockPopoutView: View {
         currentItem.widgetConfiguration = configuration
         await store.widgetData.refresh(item: currentItem, profileID: profileID)
         guard refreshRequestID == requestID, !Task.isCancelled else { return }
-        if let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: configuration) {
-            errorMessage = store.widgetData.errors[query]
-        }
     }
 
     private func requiredAPIKey() throws -> String {
@@ -310,6 +295,11 @@ private struct WatchlistPopoutView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    #if DEBUG
+    @Environment(\.dockSnapshotRendering) private var snapshotRendering
+    #else
+    private var snapshotRendering: Bool { false }
+    #endif
     @State private var searchText = ""
     @State private var searchResults: [MarketSymbol] = []
     @State private var isSearching = false
@@ -329,44 +319,22 @@ private struct WatchlistPopoutView: View {
     private var interval: Int { configuration.stockRefreshIntervalMinutes }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            GroupedSection {
-                GroupedRow("Search") {
-                    HStack {
-                        TextField("Search ticker or company", text: $searchText).textFieldStyle(DockTextFieldStyle())
-                            .onSubmit { Task { await search() } }
-                        Button { Task { await search() } } label: {
-                            if isSearching { ProgressView().controlSize(.small) }
-                            else { Image(systemName: "magnifyingglass") }
-                        }
-                        .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
-                    }
-                }
-                GroupedRow("Refresh", role: .button) { Task { await refreshSelected() } }
-                    .disabled(selected == nil || isRefreshing)
-            }
-            if !searchResults.isEmpty { searchResultsList }
+        VStack(alignment: .leading, spacing: 16) {
             if configuration.watchlistStocks.isEmpty {
-                VStack(spacing: 7) {
-                    Label("Your watchlist is empty", systemImage: "chart.xyaxis.line").font(.callout.weight(.medium))
-                    Text("Search for a ticker to add it.").font(.caption).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 100)
+                WidgetPopoutHero(value: "Your watchlist is empty", caption: "Search for a ticker to add it.")
             } else {
                 watchlistTabs
                 if let selected { selectedChart(selected) }
             }
-            controls
             if let errorMessage {
-                Label(selected?.snapshot == nil ? errorMessage : "Showing saved data. \(errorMessage)", systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            Text("End-of-day quotes by Alpha Vantage. Request limits depend on your plan.")
-                .font(.caption2).foregroundStyle(.tertiary)
+            controls
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .task(id: "\(configuration.watchlistSelectedSymbol)|\(selected?.currency ?? "")|\(interval)") {
-            guard !configuration.watchlistSelectedSymbol.isEmpty else { return }
+            guard !snapshotRendering, !configuration.watchlistSelectedSymbol.isEmpty else { return }
             await refreshSelected()
         }
         .onChange(of: "\(configuration.watchlistSelectedSymbol)|\(selected?.currency ?? "")") { _ in
@@ -395,7 +363,7 @@ private struct WatchlistPopoutView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(result.symbol).font(.callout.weight(.semibold))
-                                Text(result.name).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Text(result.name).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer()
                             Image(systemName: configuration.watchlistStocks.contains(where: { $0.symbol == result.symbol }) ? "checkmark.circle.fill" : "plus.circle")
@@ -419,16 +387,12 @@ private struct WatchlistPopoutView: View {
                     Button { update { $0.watchlistSelectedSymbol = stock.symbol } } label: {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(stock.symbol).font(.callout.weight(.semibold)).lineLimit(1)
-                            Text(stock.displayName).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            Text(stock.displayName).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
                             if let snapshot = stock.snapshot, let latest = snapshot.latest {
                                 Text(latest.close.formatted(.currency(code: snapshot.currency)))
-                                    .font(.caption2.monospacedDigit()).lineLimit(1)
-                                TimelineView(.periodic(from: .now, by: 60)) { context in
-                                    Text(WidgetTimingPresentation.readingStatus(fetchedAt: snapshot.fetchedAt, now: context.date, maximumAge: Double(interval) * 120))
-                                        .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
-                                }
+                                    .font(DockDesign.Grouped.subtitleFont.monospacedDigit()).lineLimit(1)
                             } else {
-                                Text("No quote").font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                                Text("No quote").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
                         .frame(width: 112, alignment: .leading)
@@ -466,7 +430,7 @@ private struct WatchlistPopoutView: View {
                 TextField("Display name", text: displayNameBinding(for: stock))
                     .font(.subheadline.weight(.semibold)).textFieldStyle(.plain)
                     .accessibilityLabel("Display name for \(stock.symbol)")
-                Text(stock.symbol).font(.caption).foregroundStyle(.secondary)
+                Text(stock.symbol).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 Button { move(stock.symbol, by: -1) } label: { Image(systemName: "arrow.left") }
                     .buttonStyle(.plain).disabled(configuration.watchlistStocks.first?.symbol == stock.symbol)
@@ -482,7 +446,7 @@ private struct WatchlistPopoutView: View {
                     HStack {
                         Text(latest.close.formatted(.currency(code: snapshot.currency))).font(DockDesign.Module.valueLarge)
                         if let change = snapshot.changePercent {
-                            Text(String(format: "%+.2f%%", change)).font(.caption.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
+                            Text(String(format: "%+.2f%%", change)).font(DockDesign.Grouped.subtitleFont.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
                         }
                         Spacer()
                     }
@@ -492,35 +456,51 @@ private struct WatchlistPopoutView: View {
                                     currency: snapshot.currency)
                         .frame(height: 72)
                     Text("\(visiblePoints.count) trading sessions · \(visiblePoints.first?.date.formatted(date: .abbreviated, time: .omitted) ?? "")–\(latest.date.formatted(date: .abbreviated, time: .omitted))")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    Text("Change compares the latest two sessions; up to 100 daily closes are available.")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    if configuration.stockShowsVolume { Text("Volume \(latest.volume.formatted())").font(.caption2).foregroundStyle(.secondary) }
+                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                    if configuration.stockShowsVolume { Text("Volume \(latest.volume.formatted())").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary) }
                 }
             } else if isRefreshing {
                 ProgressView("Loading \(stock.symbol)…").frame(maxWidth: .infinity, minHeight: 75)
             } else {
                 Label("No saved quote for \(stock.symbol)", systemImage: "chart.xyaxis.line")
-                    .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 75)
+                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 75)
             }
         }
     }
 
     private var controls: some View {
-        GroupedSection("Chart", footer: "D = trading sessions. Up to 100 daily closes; percentage change compares the latest two sessions.") {
-            GroupedRow("Range", symbol: "chart.xyaxis.line") {
-                Picker("Range", selection: Binding(get: { configuration.stockRange }, set: { value in update { $0.stockRange = value } })) {
-                    ForEach(StockChartRange.allCases) { Text($0.title).tag($0) }
-                }.labelsHidden()
+        GroupedSection("Settings", footer: "End-of-day quotes from Alpha Vantage.") {
+            GroupedRow("Search") {
+                HStack(spacing: 8) {
+                    TextField("Ticker or company", text: $searchText).textFieldStyle(.plain)
+                        .onSubmit { Task { await search() } }
+                    Button { Task { await search() } } label: {
+                        if isSearching { ProgressView().controlSize(.small) }
+                        else { Image(systemName: "magnifyingglass") }
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+                    .help("Search market symbols").accessibilityLabel("Search market symbols")
+                }
             }
-            GroupedRow("Refresh", symbol: "arrow.clockwise") {
-                Picker("Refresh", selection: Binding(get: { interval }, set: { value in update { $0.stockRefreshIntervalMinutes = value } })) {
-                    Text("1 hour").tag(60); Text("3 hours").tag(180); Text("6 hours").tag(360)
-                    Text("12 hours").tag(720); Text("24 hours").tag(1_440)
-                }.labelsHidden()
+            if !searchResults.isEmpty { searchResultsList }
+
+            if !configuration.watchlistStocks.isEmpty {
+                GroupedRow("Range", symbol: "chart.xyaxis.line") {
+                    Picker("Range", selection: Binding(get: { configuration.stockRange }, set: { value in update { $0.stockRange = value } })) {
+                        ForEach(StockChartRange.allCases) { Text($0.title).tag($0) }
+                    }.labelsHidden()
+                }
+                GroupedRow("Update interval", symbol: "arrow.clockwise") {
+                    Picker("Update interval", selection: Binding(get: { interval }, set: { value in update { $0.stockRefreshIntervalMinutes = value } })) {
+                        Text("1 hour").tag(60); Text("3 hours").tag(180); Text("6 hours").tag(360)
+                        Text("12 hours").tag(720); Text("24 hours").tag(1_440)
+                    }.labelsHidden()
+                }
+                GroupedRow("Volume", symbol: "chart.bar", isOn: Binding(get: { configuration.stockShowsVolume }, set: { value in update { $0.stockShowsVolume = value } }))
             }
-            GroupedRow("Volume", symbol: "chart.bar", isOn: Binding(get: { configuration.stockShowsVolume }, set: { value in update { $0.stockShowsVolume = value } }))
         }
+        .help("Ranges count trading sessions, up to 100 daily closes; change compares the latest two sessions. Standard-plan quotes are end of day, and request limits depend on your Alpha Vantage plan.")
     }
 
     private func search() async {
@@ -553,9 +533,6 @@ private struct WatchlistPopoutView: View {
         currentItem.widgetConfiguration = configuration
         await store.widgetData.refresh(item: currentItem, profileID: profileID)
         guard refreshRequestID == requestID, !Task.isCancelled else { return }
-        if let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: configuration) {
-            errorMessage = store.widgetData.errors[query]
-        }
     }
 
     private func add(_ result: MarketSymbol) {
