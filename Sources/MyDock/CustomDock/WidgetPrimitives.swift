@@ -68,9 +68,13 @@ enum WidgetPalette {
         switch accent {
         case .auto: Self.accent(kind)
         case .mono: Color.primary
-        case .profile(let color): color.displayColor
+        case .profile(let color): profile(color)
         }
     }
+
+    /// A profile colour in the widget palette: the desaturated profile family that accent swatches,
+    /// App Folder colours and `.profile` accents share (never the saturated system colours).
+    static func profile(_ color: DockProfileColor) -> Color { color.displayColor }
 
     private static func family(_ family: Family) -> Color {
         let rgb = family.rgb
@@ -275,8 +279,29 @@ enum WidgetModuleMetrics {
     }
 }
 
+/// Compact period tokens for module labels, as AI Limits writes its windows: "Today", "7d", "30d".
+/// Anything that is not a known period title passes through unchanged.
+enum WidgetPeriodToken {
+    static func compact(_ title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower == "today" { return "Today" }
+        if lower == "month to date" || lower == "this month" { return "Month" }
+        var words = lower.split(separator: " ").map(String.init)
+        if words.first == "last" || words.first == "past" { words.removeFirst() }
+        guard words.count == 2, let count = Int(words[0]), count > 0 else { return trimmed }
+        switch words[1] {
+        case "day", "days": return "\(count)d"
+        case "hour", "hours": return "\(count)h"
+        case "week", "weeks": return "\(count)w"
+        default: return trimmed
+        }
+    }
+}
+
 /// The short label line: an optional family glyph, a label and an optional trailing reading.
-/// Hidden when the widget's labels are off.
+/// Hidden when the widget's labels are off. A trailing reading that does not fit is dropped
+/// whole rather than truncated; period titles shorten to their tokens ("30 days" → "30d").
 struct ModuleLabel: View {
     var kind: String
     var text: String
@@ -288,19 +313,27 @@ struct ModuleLabel: View {
     @Environment(\.dockWidgetContentWidth) private var width
     var body: some View {
         if showsLabel {
-            HStack(spacing: 4) {
-                if showsGlyph && !WidgetModuleMetrics.isNarrow(width) {
-                    WidgetIcon(kind: kind, symbol: symbol, size: WidgetModuleMetrics.labelGlyph, enclosed: false)
+            if let trailing {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) {
+                        lead
+                        Spacer(minLength: 4)
+                        Text(WidgetPeriodToken.compact(trailing)).font(DockDesign.Module.label).foregroundStyle(trailingColor)
+                            .lineLimit(1).fixedSize()
+                    }
+                    HStack(spacing: 4) { lead }
                 }
-                Text(text).font(DockDesign.Module.label).foregroundStyle(.secondary)
-                    .lineLimit(1).minimumScaleFactor(DockDesign.Module.minimumTextSize / 11).layoutPriority(1)
-                if let trailing {
-                    Spacer(minLength: 4)
-                    Text(trailing).font(DockDesign.Module.label).foregroundStyle(trailingColor)
-                        .lineLimit(1).minimumScaleFactor(DockDesign.Module.minimumTextSize / 11)
-                }
+            } else {
+                HStack(spacing: 4) { lead }
             }
         }
+    }
+    @ViewBuilder private var lead: some View {
+        if showsGlyph && !WidgetModuleMetrics.isNarrow(width) {
+            WidgetIcon(kind: kind, symbol: symbol, size: WidgetModuleMetrics.labelGlyph, enclosed: false)
+        }
+        Text(text).font(DockDesign.Module.label).foregroundStyle(.secondary)
+            .lineLimit(1).minimumScaleFactor(DockDesign.Module.minimumTextSize / 11).layoutPriority(1)
     }
 }
 
@@ -329,7 +362,8 @@ struct ModuleValue: View {
     }
 }
 
-/// Label above value. When labels are off the value centres.
+/// Label above value. When labels are off the value centres; a stack that shares its row with a
+/// glyph, ring or chart (`keepsLeading`) then stops filling the row, so the group centres together.
 struct ModuleStack: View {
     var kind: String
     var label: String
@@ -346,14 +380,27 @@ struct ModuleStack: View {
     @Environment(\.widgetShowsLabel) private var showsLabel
     @Environment(\.dockWidgetContentWidth) private var width
     private var narrow: Bool { WidgetModuleMetrics.isNarrow(width) }
-    private var alignment: HorizontalAlignment { narrow || (!showsLabel && !keepsLeading) ? .center : .leading }
+    private var alignment: HorizontalAlignment { ModuleAlignmentPolicy.alignment(narrow: narrow, showsLabel: showsLabel, keepsLeading: keepsLeading) }
+    private var fillsRow: Bool { ModuleAlignmentPolicy.fillsRow(narrow: narrow, showsLabel: showsLabel, keepsLeading: keepsLeading) }
     var body: some View {
         VStack(alignment: alignment, spacing: DockDesign.Module.lineSpacing - 1) {
             ModuleLabel(kind: kind, text: label, symbol: symbol, showsGlyph: showsGlyph && !narrow,
                         trailing: narrow ? nil : trailing, trailingColor: trailingColor)
             ModuleValue(value: value, unit: narrow ? "" : unit, size: narrow && size == .large ? .medium : size, color: valueColor)
         }
-        .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
+        .frame(maxWidth: fillsRow ? .infinity : nil, alignment: Alignment(horizontal: alignment, vertical: .center))
+    }
+}
+
+/// How a module's value aligns: label over value on the leading edge; centred when there is no
+/// label or the module is narrow. Every face follows this, so labels-off rows line up the same way.
+enum ModuleAlignmentPolicy {
+    static func alignment(narrow: Bool, showsLabel: Bool, keepsLeading: Bool) -> HorizontalAlignment {
+        narrow || !showsLabel ? .center : .leading
+    }
+    /// A stack sharing its row with a glyph or chart keeps to its own width when centred.
+    static func fillsRow(narrow: Bool, showsLabel: Bool, keepsLeading: Bool) -> Bool {
+        narrow || showsLabel || !keepsLeading
     }
 }
 
@@ -478,13 +525,23 @@ struct SystemTelemetryDockFace: View {
                     }
                 }
             } else {
-                // Compact: the reading, then its short label beside the live history.
-                VStack(alignment: .leading, spacing: 2) {
-                    ModuleValue(value: value, color: stateColor)
-                    HStack(spacing: 5) {
-                        if showsLabel { Text("CPU").font(DockDesign.Module.label).foregroundStyle(.secondary).fixedSize() }
+                // Compact: label over value like every module; the live history shares the label line.
+                // Without a label the reading centres over its history.
+                if showsLabel {
+                    VStack(alignment: .leading, spacing: DockDesign.Module.lineSpacing - 1) {
+                        HStack(spacing: 5) {
+                            Text("CPU").font(DockDesign.Module.label).foregroundStyle(.secondary).fixedSize()
+                            sparkline.frame(height: 11)
+                        }
+                        ModuleValue(value: value, color: stateColor)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    VStack(alignment: .center, spacing: 2) {
+                        ModuleValue(value: value, color: stateColor)
                         sparkline.frame(height: 11)
                     }
+                    .frame(maxWidth: .infinity)
                 }
             }
         }.moduleInsets()
@@ -528,6 +585,7 @@ struct NetworkDockFace: View {
     @Environment(\.widgetLayout) private var layout
     @Environment(\.dockWidgetContentWidth) private var width
     @Environment(\.widgetAccent) private var accent
+    @Environment(\.widgetShowsLabel) private var showsLabel
     private let kind = "Network Activity"
     var body: some View {
         Group {
@@ -545,7 +603,7 @@ struct NetworkDockFace: View {
                     if layout == .trend {
                         MicroSparkline(values: history, color: WidgetPalette.resolved(kind: kind, accent: accent)).frame(height: 26)
                     }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxWidth: .infinity, alignment: showsLabel || layout == .trend ? .leading : .center)
             }
         }.moduleInsets()
     }
@@ -561,6 +619,17 @@ struct NetworkDockFace: View {
     }
 }
 
+/// Locale-aware byte counts short enough for a module: three significant digits ("121 GB", "9,4 GB").
+enum DiskSpaceFaceText {
+    static func compact(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.isAdaptive = false
+        formatter.allowsNonnumericFormatting = false
+        return formatter.string(fromByteCount: max(0, bytes))
+    }
+}
+
 struct DiskDockFace: View {
     @Environment(\.dockWidgetContentWidth) private var width
     var snapshot: DiskSpaceSnapshot?
@@ -570,14 +639,16 @@ struct DiskDockFace: View {
     private var ringColor: Color {
         (snapshot?.usedFraction ?? 0) > 0.9 ? WidgetPalette.warning : WidgetPalette.resolved(kind: kind, accent: accent)
     }
+    /// Faces use three significant digits ("121 GB"); the popout keeps the precise figure.
+    private var freeText: String { snapshot.map { DiskSpaceFaceText.compact($0.availableBytes) } ?? "—" }
     var body: some View {
         Group {
             if WidgetModuleMetrics.isNarrow(width) {
-                ModuleStack(kind: kind, label: "Free", value: snapshot?.availableText ?? "—", size: .small)
+                ModuleStack(kind: kind, label: "Free", value: freeText, size: .small)
             } else {
                 HStack(spacing: 8) {
-                    ModuleStack(kind: kind, label: layout == .wide ? snapshot.map { "Disk · " + $0.totalText } ?? "Disk" : "Disk",
-                                value: snapshot?.availableText ?? "—", unit: layout == .wide ? "free" : "",
+                    ModuleStack(kind: kind, label: layout == .wide ? snapshot.map { "Disk · " + DiskSpaceFaceText.compact($0.totalBytes) } ?? "Disk" : "Disk",
+                                value: freeText, unit: layout == .wide ? "free" : "",
                                 size: layout == .wide ? .large : .medium, keepsLeading: true)
                     if let snapshot {
                         ModuleRing(fraction: snapshot.usedFraction, color: ringColor)
@@ -797,30 +868,52 @@ private struct ClockFace: View {
     }
 }
 
+/// The note as a face shows it: one flowing line of text (line breaks become spaces), and the
+/// first word for narrow side-Dock modules.
+enum StickyNoteFaceText {
+    static let placeholder = "Write a note…"
+    static func flowing(_ text: String) -> String {
+        let words = text.prefix(500).split(whereSeparator: \.isWhitespace)
+        return words.isEmpty ? placeholder : words.joined(separator: " ")
+    }
+    static func firstWord(_ text: String) -> String? {
+        text.prefix(500).split(whereSeparator: \.isWhitespace).first.map(String.init)
+    }
+}
+
 private struct StickyNoteFace: View {
     var text: String
     @Environment(\.dockWidgetContentWidth) private var width
+    private var isEmpty: Bool { StickyNoteFaceText.firstWord(text) == nil }
     var body: some View {
-        let note = text.isEmpty ? "Write a note…" : String(text.prefix(500))
-        let lines = note.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true).map(String.init)
-        VStack(alignment: .leading, spacing: 1) {
+        Group {
             if WidgetModuleMetrics.isNarrow(width) {
-                // Narrow: the note glyph and the opening words, never broken mid-word.
-                VStack(spacing: 2) {
-                    WidgetIcon(kind: "Sticky Note", size: 28, enclosed: true)
-                    Text(lines.first ?? note).font(.system(size: DockDesign.Module.minimumTextSize, weight: .medium))
-                        .foregroundStyle(.secondary).lineLimit(1)
-                }.frame(maxWidth: .infinity)
-            } else {
-                Text(lines.first ?? note).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                    .foregroundStyle(text.isEmpty ? .secondary : .primary)
-                if lines.count > 1 {
-                    Text(lines[1]).font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(2)
+                // Narrow: the note glyph with the first word when it fits whole, else the glyph alone.
+                ViewThatFits(in: .horizontal) {
+                    VStack(spacing: 2) {
+                        WidgetIcon(kind: "Sticky Note", size: 28, enclosed: true)
+                        if let word = StickyNoteFaceText.firstWord(text) {
+                            Text(word).font(.system(size: DockDesign.Module.minimumTextSize, weight: .medium))
+                                .foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                        }
+                    }
+                    WidgetIcon(kind: "Sticky Note", size: 32, enclosed: true)
                 }
+                .frame(maxWidth: .infinity)
+            } else {
+                // One flowing text over at most two lines, wrapped at word boundaries.
+                Text(StickyNoteFaceText.flowing(text))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(isEmpty ? .secondary : .primary)
+                    .lineLimit(2).minimumScaleFactor(DockDesign.Module.minimumTextSize / 12)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .moduleInsets()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Sticky Note")
+        .accessibilityValue(isEmpty ? "Empty" : String(text.prefix(500)))
     }
 }
 
@@ -974,24 +1067,56 @@ struct MediaDockFace: View {
     @Environment(\.widgetAccent) private var accent
     private let kind = "Now Playing"
     var body: some View {
-        HStack(spacing: 9) {
-            art
-            if !WidgetModuleMetrics.isNarrow(width) {
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 4) {
-                        if isPlaying && artwork != nil {
-                            WidgetIcon(kind: kind, symbol: "waveform", size: 12, appearance: .soft, enclosed: false)
+        Group {
+            if WidgetModuleMetrics.isNarrow(width) {
+                art
+            } else {
+                // No marquee: a title that fits keeps its secondary line; a longer one wraps over two
+                // lines at word boundaries beside the artwork, and when even its longest word cannot
+                // sit beside the artwork, the title takes the whole module.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 9) {
+                        art
+                        VStack(alignment: .leading, spacing: 1) {
+                            titleRow(Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1))
+                            if let secondary {
+                                // Only the title decides the fit; the secondary line may shorten.
+                                Text(secondary).font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
+                                    .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
+                            }
                         }
-                        Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    if layout == .wide, let artist, !artist.isEmpty {
-                        Text(artist).font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
-                    } else if showsLabel {
-                        Text(isPlaying ? "Playing" : "Paused").font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 9) { art; titleRow(wrappedTitle) }
+                    titleRow(wrappedTitle)
+                }
             }
         }.moduleInsets()
+    }
+    /// The title over at most two lines. Its ideal width is its longest word, so it is only chosen
+    /// where no word has to break.
+    private var wrappedTitle: some View {
+        let font = Font.system(size: 12, weight: .semibold)
+        let words: [Substring] = title.split(whereSeparator: { $0.isWhitespace })
+        let longest = words.max { $0.count < $1.count }.map(String.init) ?? title
+        return ZStack(alignment: .leading) {
+            Text(longest).font(font).lineLimit(1).fixedSize().hidden()
+            Text(title).font(font).lineLimit(2)
+                .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private var secondary: String? {
+        if layout == .wide, let artist, !artist.isEmpty { return artist }
+        return showsLabel ? (isPlaying ? "Playing" : "Paused") : nil
+    }
+    private func titleRow(_ text: some View) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            if isPlaying && artwork != nil {
+                WidgetIcon(kind: kind, symbol: "waveform", size: 12, appearance: .soft, enclosed: false)
+            }
+            text
+        }
     }
     @ViewBuilder private var art: some View {
         if let artwork {
@@ -1007,24 +1132,6 @@ struct MediaDockFace: View {
         }
     }
 }
-
-struct BusinessDockFace: View {
-    var kind: String
-    var title: String
-    var metric: String
-    var value: String?
-    var context: String
-    @Environment(\.widgetLayout) private var layout
-    var body: some View {
-        ModuleStack(kind: kind, label: value == nil ? kind : title, value: value ?? "Connect", size: value == nil ? .small : .large,
-                    trailing: layout == .standard && value != nil ? context : nil)
-            .moduleInsets()
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(title)
-            .accessibilityValue(value.map { "\(metric) \($0), \(context)" } ?? "Account required")
-    }
-}
-
 
 enum SavedCollectionUnit {
     static func text(kind: String, count: Int) -> String {
@@ -1070,20 +1177,5 @@ struct WorldClockDockFace: View {
             .moduleInsets()
             .help("Primary city: \(zone.identifier). " + WidgetTimingPresentation.dayRelation(offset: WorldClockCityCatalog.dayOffset(from: .current, to: zone, at: context.date), reference: "this Mac"))
         }
-    }
-}
-
-struct RemindersDockFace: View {
-    var count: Int?
-    var context: String
-    @Environment(\.widgetLayout) private var layout
-    var body: some View {
-        Group {
-            if let count {
-                ModuleStack(kind: "Reminders", label: layout == .wide ? context : "Tasks", value: "\(count)", unit: "to do")
-            } else {
-                ModuleStack(kind: "Reminders", label: "Reminders", value: "Set up", size: .small)
-            }
-        }.moduleInsets()
     }
 }

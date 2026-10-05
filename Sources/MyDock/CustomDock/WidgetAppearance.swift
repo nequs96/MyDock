@@ -2,7 +2,9 @@ import AppKit
 import SwiftUI
 
 enum WidgetDesign {
-    static let surface = Color(nsColor: .windowBackgroundColor)
+    /// The opaque popout surface (Reduce Transparency, and the popover stand-in in render QA): the
+    /// grouped page colour, so grouped sections read on it exactly as they do in the settings sheet.
+    static let surface = DockDesign.page
     static let inset = Color.primary.opacity(0.035)
 }
 
@@ -118,25 +120,20 @@ enum WidgetAppearanceWriter {
 }
 
 /// The grouped Appearance section: accent, icon style, label and glass tint, plus the two
-/// family-specific face choices. The settings sheet shows it below its size pager; the in-Dock
-/// popout's Customize panel shows it with a compact Size row because it has no pager.
+/// family-specific face choices. The settings sheet and the in-Dock popout's Customize panel
+/// (`WidgetCustomizePanel`) both show it below the same size pager, so there is one vocabulary.
 struct WidgetAppearanceControls: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
-    var showsSizeRow = false
     private var kind: String { item.widgetKind ?? item.title }
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var settings: AppSettings { store.effectiveSettings(profileID: profileID) }
-    private var layout: WidgetLayout {
-        WidgetPresentationCatalog.resolvedLayout(for: kind, configuration: configuration, compactDefault: settings.customDockWidgetStyle == .compact)
-    }
     private var accent: WidgetAccent { configuration.widgetAccent ?? .auto }
     private var labelChoice: WidgetLabelChoice { WidgetLabelChoice(stored: configuration.showsLabel) }
 
     var body: some View {
         GroupedSection("Appearance", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
-            if showsSizeRow && WidgetPresentationCatalog.options(for: kind).count > 1 { sizeRow }
             GroupedRow("Accent") { accentSwatches }
             if WidgetAppearanceOptions.showsIconStyle(kind: kind) { iconStyleRow }
             GroupedRow("Label", subtitle: labelChoice == .followDock ? "Follows the Dock · " + (settings.showWidgetLabels ? "On" : "Off") : nil) {
@@ -177,18 +174,6 @@ struct WidgetAppearanceControls: View {
                     .labelsHidden().fixedSize().accessibilityLabel("Trend secondary")
                 }
             }
-        }
-    }
-
-    private var sizeRow: some View {
-        GroupedRow("Size") {
-            Picker("Size", selection: Binding(get: { layout }, set: { value in
-                WidgetAppearanceWriter.setLayout(value, itemID: item.id, profileID: profileID, store: store)
-            })) {
-                ForEach(WidgetPresentationCatalog.options(for: kind)) { Text($0.title).tag($0.layout) }
-            }
-            .pickerStyle(.segmented).labelsHidden().fixedSize()
-            .accessibilityLabel("Size")
         }
     }
 

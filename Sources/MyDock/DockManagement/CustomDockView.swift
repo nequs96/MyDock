@@ -812,21 +812,27 @@ struct CustomDockView: View {
         }
         .popover(isPresented: Binding(get: { popouts.anchorID == item.id }, set: { if !$0 { popouts.dismiss() } }), arrowEdge: popoutArrowEdge) {
             if let activeItem = popoutItem(for: popouts.activeID) {
-                VStack(alignment: .leading, spacing: 10) {
-                    if openPopoutTabs.count > 1 { popoutTabBar }
+                VStack(alignment: .leading, spacing: 0) {
+                    if openPopoutTabs.count > 1 {
+                        popoutTabBar
+                            .padding(.horizontal, WidgetPopoutMetrics.padding)
+                            .padding(.top, WidgetPopoutMetrics.padding)
+                    }
                     DockScrollView(.vertical) {
                         if activeItem.type == .widget {
+                            // The shell carries its own insets and draws no card of its own.
                             WidgetPopout(store: store, item: activeItem, profileID: profile.id)
                                 .frame(minWidth: 250, minHeight: 150, alignment: .topLeading)
                         } else if activeItem.type == .folder, let folderURL = activeItem.url {
                             FolderContentsPopout(folderURL: folderURL, folderName: activeItem.displayName) { popouts.dismiss() }
+                                .padding(8)
                         }
                     }
                 }
                 // The popover window opens natively; its content springs in from the Dock side.
                 .modifier(DockPopoutAppearEffect(anchor: popoutAppearAnchor))
-                .padding(20)
-                .background(WidgetDesign.surface)
+                // One surface: the popover's own material (opaque under Reduce Transparency).
+                .modifier(WidgetPopoverSurface())
                 .preferredColorScheme(settings.customDockTheme == .system ? nil : settings.customDockTheme == .dark ? .dark : .light)
                 .frame(minWidth: 250, minHeight: 150, maxHeight: popoutMaxHeight, alignment: .topLeading)
                 .id(activeItem.id)

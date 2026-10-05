@@ -88,13 +88,22 @@ struct WidgetConfigurationSheet: View {
 
     private var sections: some View {
         VStack(alignment: .leading, spacing: WidgetSheetMetrics.sectionSpacing) {
-            WidgetSheetPreview(store: store, item: currentItem, profileID: profileID)
-            // Content: the family's own setup, exactly as its in-Dock popout draws it.
-            WidgetPopout(store: store, item: currentItem, profileID: profileID, showsCustomize: false, showsHeader: false, showsData: false)
+            WidgetLayoutPreviewPager(store: store, item: currentItem, profileID: profileID)
+            // Content: the family's own setup, exactly as its in-Dock popout draws it, without the
+            // hero the live preview above already shows.
+            if WidgetSheetHeroPolicy.showsContent(kind: kind, inSheet: true) {
+                WidgetPopout(store: store, item: currentItem, profileID: profileID, showsCustomize: false, showsHeader: false, showsData: false)
+                    .environment(\.widgetPopoutShowsHero, WidgetSheetHeroPolicy.showsHero(kind: kind, inSheet: true))
+            }
             WidgetAppearanceControls(store: store, item: currentItem, profileID: profileID)
             if !data.isEmpty { dataSection }
             GroupedSection(footer: removalError) {
-                GroupedRow("Remove Widget", role: .destructive) { confirmingRemoval = true }
+                if WidgetSheetRemoval.hasPendingRemoval(itemID: item.id) {
+                    // The removal is applied but not saved: retry the save, no second confirmation.
+                    GroupedRow("Retry Remove Widget", role: .destructive, action: removeWidget)
+                } else {
+                    GroupedRow("Remove Widget", role: .destructive) { confirmingRemoval = true }
+                }
             }
         }
     }
@@ -182,21 +191,75 @@ struct WidgetSheetDataSummary: Equatable {
 /// Removal from the sheet uses the Dock editor's own path: the profile's edit session is loaded,
 /// the item is removed from the draft, and the draft is saved (`ProfileStore.replaceProfile`, which
 /// also cancels the item's notifications and setup drafts). The change is undoable like an editor edit.
+///
+/// A failed save never leaves a half-done removal behind:
+/// - If the store was not changed (a merge or validation failure), the draft is rolled back to what it was.
+/// - If the store applied the removal but could not write it to disk, the removal stays pending
+///   (the item is already gone from the live Dock); calling `remove` again retries the save.
+/// Undo is registered only once the removal is saved.
 @MainActor
 enum WidgetSheetRemoval {
+    private struct Pending {
+        var profileID: UUID
+        var before: DockProfile
+        var after: DockProfile
+    }
+    /// Removals whose save failed after the store applied them, by item.
+    private static var pending: [UUID: Pending] = [:]
+
+    static func hasPendingRemoval(itemID: UUID) -> Bool { pending[itemID] != nil }
+
     @discardableResult
     static func remove(itemID: UUID, profileID: UUID, store: ProfileStore, undoManager: UndoManager? = nil) throws -> Bool {
         let edits = store.editSessions
+        if let retry = pending[itemID], retry.profileID == profileID {
+            return try retrySave(itemID: itemID, retry, store: store, undoManager: undoManager)
+        }
         guard let profile = store.state.profiles.first(where: { $0.id == profileID }) else { return false }
         edits.load(profile) // keeps a dirty draft, refreshes a clean one
-        guard var draft = edits.drafts[profileID], draft.profile.items.contains(where: { $0.id == itemID }) else { return false }
+        guard let original = edits.drafts[profileID], original.profile.items.contains(where: { $0.id == itemID }) else { return false }
+        var draft = original
         let before = draft.profile
         draft.update { $0.items.removeAll { $0.id == itemID } }
         let after = draft.profile
         edits.set(draft, for: profileID)
-        try edits.save(profileID)
+        do {
+            try edits.save(profileID)
+        } catch {
+            if storeContains(itemID, profileID: profileID, store: store) {
+                edits.set(original, for: profileID)
+            } else {
+                pending[itemID] = Pending(profileID: profileID, before: before, after: after)
+            }
+            throw error
+        }
         registerUndo(before, replacing: after, edits: edits, undoManager: undoManager)
         return true
+    }
+
+    private static func retrySave(itemID: UUID, _ retry: Pending, store: ProfileStore, undoManager: UndoManager?) throws -> Bool {
+        let edits = store.editSessions
+        guard store.state.profiles.contains(where: { $0.id == retry.profileID }) else {
+            pending[itemID] = nil
+            return false
+        }
+        if edits.drafts[retry.profileID]?.isDirty == true {
+            try edits.save(retry.profileID)
+        } else if store.hasUnpersistedChanges {
+            // The draft was saved or discarded elsewhere; only the store's write is still owed.
+            store.flush()
+            if store.hasUnpersistedChanges {
+                throw EditSessionSaveError.failed(store.persistenceError ?? "The profile could not be saved.")
+            }
+        }
+        pending[itemID] = nil
+        guard !storeContains(itemID, profileID: retry.profileID, store: store) else { return false }
+        registerUndo(retry.before, replacing: retry.after, edits: edits, undoManager: undoManager)
+        return true
+    }
+
+    private static func storeContains(_ itemID: UUID, profileID: UUID, store: ProfileStore) -> Bool {
+        store.state.profiles.first { $0.id == profileID }?.items.contains { $0.id == itemID } ?? false
     }
 
     private static func registerUndo(_ before: DockProfile, replacing after: DockProfile,
@@ -217,16 +280,19 @@ enum WidgetSheetRemoval {
 /// The large live preview: the real `WidgetCompactView` at each of the family's layouts, scaled up
 /// on a strip drawn like this profile's Dock (material, tint, edge, corner radius, theme, module
 /// radius and widget surface) over a soft sample wallpaper. Paging writes the saved layout.
-private struct WidgetSheetPreview: View {
+/// Shared by the settings sheet and the in-Dock popout's Customize panel.
+struct WidgetLayoutPreviewPager: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
     @ObservedObject private var systemAppearance = DockSystemAppearance.shared
     @DockAccessibilityStyle() private var accessibility
-    @State private var panelWidth: CGFloat = WidgetSheetMetrics.width - 2 * WidgetSheetMetrics.inset
+    @State private var panelWidth: CGFloat
 
-    init(store: ProfileStore, item: DockItem, profileID: UUID) {
+    init(store: ProfileStore, item: DockItem, profileID: UUID,
+         width: CGFloat = WidgetSheetMetrics.width - 2 * WidgetSheetMetrics.inset) {
         self.store = store; self.item = item; self.profileID = profileID
+        _panelWidth = State(initialValue: width)
     }
 
     private var kind: String { item.widgetKind ?? item.title }
@@ -313,6 +379,20 @@ private struct WidgetSheetPreview: View {
         .environment(\.colorScheme, dockScheme)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// The in-Dock popout's Customize panel: the sheet's own size pager and Appearance section, so
+/// a widget is customised with one vocabulary wherever it is edited.
+struct WidgetCustomizePanel: View {
+    @ObservedObject var store: ProfileStore
+    var item: DockItem
+    var profileID: UUID
+    var body: some View {
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+            WidgetLayoutPreviewPager(store: store, item: item, profileID: profileID, width: WidgetPopoutMetrics.contentWidth)
+            WidgetAppearanceControls(store: store, item: item, profileID: profileID)
+        }
     }
 }
 
