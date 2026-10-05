@@ -201,7 +201,9 @@ struct WidgetContainer<Content: View>: View {
         case .tile:
             WidgetTileSurface(width: width) { content }
         case .glass:
-            GlassModule(width: width, height: 54, radius: moduleRadius, style: .regular, tint: glassTintColor) { content }
+            // Interactive glass: the native specular highlight follows the pointer (macOS 26).
+            GlassModule(width: width, height: 54, radius: moduleRadius, style: .regular, tint: glassTintColor,
+                        interactive: true) { content }
         case .plain:
             WidgetPlainSurface(width: width, radius: moduleRadius) { content }
         }

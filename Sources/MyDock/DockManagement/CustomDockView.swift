@@ -94,7 +94,10 @@ struct CustomDockView: View {
     #if DEBUG
     @Environment(\.dockPreviewRunningBundleIdentifiers) private var previewRunningBundleIdentifiers
     @Environment(\.dockPreviewBadges) private var previewBadges
+    @Environment(\.dockPreviewActivePopoutAnchor) private var previewActivePopoutAnchor
     #endif
+    /// Items just dropped into a new place; they settle back to full size on `Motion.morph`.
+    @State private var settlingItemIDs: Set<UUID> = []
     @ObservedObject private var windowMonitor = WindowAccessibilityMonitor.shared
     @ObservedObject private var nowPlayingMonitor = NowPlayingMonitor.shared
     @ObservedObject private var dockBadgeMonitor = DockBadgeMonitor.shared
@@ -352,8 +355,8 @@ struct CustomDockView: View {
         .background {
             DockMaterialSurface(settings: settings, color: profileColor)
         }
-        .animation(accessibility.reduceMotion || !settings.dockAnimationsEnabled ? nil : DockDesign.Motion.transform, value: profile.id)
-        .animation(accessibility.reduceMotion || !settings.dockAnimationsEnabled ? nil : DockDesign.Motion.reorder, value: profile.items.map(\.id))
+        .animation(DockMotionPolicy.profileTransformAnimation(reduceMotion: reducesMotion, animationsEnabled: settings.dockAnimationsEnabled), value: profile.id)
+        .animation(DockMotionPolicy.reorderAnimation(reduceMotion: reducesMotion, animationsEnabled: settings.dockAnimationsEnabled), value: profile.items.map(\.id))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environment(\.colorScheme, settings.customDockTheme == .dark ? .dark : settings.customDockTheme == .light ? .light : settings.customDockMaterial == .dark ? .dark : systemAppearance.scheme)
         .contextMenu {
@@ -485,8 +488,30 @@ struct CustomDockView: View {
 
     /// One glass container around the items on macOS 26 so glass widget modules blend
     /// and morph with each other. Reduce Transparency and non-glass materials skip it.
+    /// The Dock surface stays outside it: see `DockGlassComposition`.
     private var usesGlassGroup: Bool {
-        [.liquidGlass, .liquidGlassClear].contains(settings.customDockMaterial) && !accessibilityStyle.reduceTransparency
+        DockGlassComposition.scope(material: settings.customDockMaterial,
+                                   reduceTransparency: accessibilityStyle.reduceTransparency) == .itemStack
+    }
+
+    /// The system setting and the render-only accessibility preview both stop Dock motion.
+    private var reducesMotion: Bool { accessibility.reduceMotion || accessibilityStyle.reduceMotion }
+
+    /// The module a popout hangs from: the live anchor, or a render-only fixture in previews.
+    private func isActivePopoutAnchor(_ item: DockItem) -> Bool {
+        #if DEBUG
+        if isPreview, let previewActivePopoutAnchor { return previewActivePopoutAnchor == item.id }
+        #endif
+        return !isPreview && popouts.anchorID == item.id
+    }
+
+    /// Dropped items dip slightly and settle on `Motion.morph`; nothing moves under Reduce Motion.
+    private func settle(_ itemIDs: Set<UUID>) {
+        guard !itemIDs.isEmpty,
+              let animation = DockMotionPolicy.settleAnimation(reduceMotion: reducesMotion,
+                                                               animationsEnabled: settings.dockAnimationsEnabled) else { return }
+        settlingItemIDs = itemIDs
+        DispatchQueue.main.async { withAnimation(animation) { settlingItemIDs = [] } }
     }
 
     /// Pinned apps whose installed copy is running. Unpinned runtime entries are running by construction.
@@ -639,6 +664,8 @@ struct CustomDockView: View {
             .modifier(DockPopoutGlassAnchor(id: [.widget, .folder].contains(item.type) ? item.id.uuidString : nil,
                                             namespace: popoutGlass))
             .background(popouts.tabIDs.contains(item.id) ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 13 * size))
+            // Pressed/active while its popout is open; render-only, so hit areas are unchanged.
+            .modifier(DockPopoutAnchorState(isActive: isActivePopoutAnchor(item)))
             .overlay(alignment: .bottomTrailing) {
                 if AppLauncher.isMissingTarget(item) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -661,6 +688,8 @@ struct CustomDockView: View {
             ? "Saved location unavailable. Re-add the item from its current location."
             : "")
         .scaleEffect(magnification(center: center, isWidget: item.type == .widget), anchor: magnificationAnchor)
+        .scaleEffect(DockMotionPolicy.settleScale(isSettling: settlingItemIDs.contains(item.id), reduceMotion: reducesMotion),
+                     anchor: magnificationAnchor)
         // After magnification: the dot stays at the screen-edge side while the icon grows.
         .overlay(alignment: runningIndicatorAlignment) {
             // Inside the tile's 3 pt inset and the icon canvas margin: clear of the artwork and
@@ -794,6 +823,8 @@ struct CustomDockView: View {
                         }
                     }
                 }
+                // The popover window opens natively; its content springs in from the Dock side.
+                .modifier(DockPopoutAppearEffect(anchor: popoutAppearAnchor))
                 .padding(20)
                 .background(WidgetDesign.surface)
                 .preferredColorScheme(settings.customDockTheme == .system ? nil : settings.customDockTheme == .dark ? .dark : .light)
@@ -911,6 +942,7 @@ struct CustomDockView: View {
         if !running.isEmpty {
             guard !unpin, running.count == value.itemIDs.count else { return false }
             for app in running { store.insert(app.item, before: targetID, in: profile.id) }
+            settle(Set(running.map(\.item.id)))
             return true
         }
         if unpin {
@@ -919,6 +951,7 @@ struct CustomDockView: View {
             store.removeItems(Set(apps.map(\.id)), from: profile.id)
         } else {
             store.moveItems(Set(value.itemIDs), before: targetID, in: profile.id)
+            settle(Set(value.itemIDs))
         }
         return true
     }
@@ -940,6 +973,15 @@ struct CustomDockView: View {
     }
 
     private var popoutArrowEdge: Edge {
+        switch settings.customDockPosition {
+        case .bottom: .bottom
+        case .left: .leading
+        case .right: .trailing
+        }
+    }
+
+    /// Popout content grows from the edge that faces the Dock.
+    private var popoutAppearAnchor: UnitPoint {
         switch settings.customDockPosition {
         case .bottom: .bottom
         case .left: .leading
@@ -1109,6 +1151,49 @@ private struct DockItemStackPresentation: ViewModifier {
     }
 }
 
+/// Popout content opens from 96% with a fade on `Motion.appear`; instant under Reduce Motion.
+/// The popover itself is an NSPopover window, so a true glass morph from the module is not
+/// possible; `progress` pins a frame (0…1) for render exports.
+struct DockPopoutAppearEffect: ViewModifier {
+    var anchor: UnitPoint
+    var progress: Double?
+    @State private var appeared = false
+    @DockAccessibilityStyle() private var accessibility
+
+    init(anchor: UnitPoint, progress: Double? = nil) {
+        self.anchor = anchor
+        self.progress = progress
+    }
+
+    func body(content: Content) -> some View {
+        let reduceMotion = accessibility.reduceMotion
+        let frame = progress ?? (appeared ? 1 : 0)
+        content
+            .scaleEffect(DockMotionPolicy.popoutContentScale(progress: frame, reduceMotion: reduceMotion), anchor: anchor)
+            .opacity(DockMotionPolicy.popoutContentOpacity(progress: frame, reduceMotion: reduceMotion))
+            .onAppear {
+                guard progress == nil, !appeared else { return }
+                DockDesign.Motion.perform(DockDesign.Motion.appear, reduceMotion: reduceMotion) { appeared = true }
+            }
+    }
+}
+
+/// The module under an open popout reads as pressed: a slight scale-down and brightening on the
+/// hover spring. Reduce Motion keeps only the (instant) brightening.
+struct DockPopoutAnchorState: ViewModifier {
+    var isActive: Bool
+    @DockAccessibilityStyle() private var accessibility
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        let reduceMotion = accessibility.reduceMotion
+        content
+            .scaleEffect(DockMotionPolicy.anchorScale(isActive: isActive, reduceMotion: reduceMotion))
+            .brightness(DockMotionPolicy.anchorBrightness(isActive: isActive, dark: scheme == .dark))
+            .animation(DockMotionPolicy.anchorAnimation(reduceMotion: reduceMotion), value: isActive)
+    }
+}
+
 /// Wiring for popout morphs: the anchor's glass gets a stable identity in the Dock namespace.
 private struct DockPopoutGlassAnchor: ViewModifier {
     var id: String?
@@ -1161,6 +1246,7 @@ struct DockBadgeView: View {
 #if DEBUG
 private struct DockPreviewRunningBundleIdentifiersKey: EnvironmentKey { static let defaultValue: Set<String>? = nil }
 private struct DockPreviewBadgesKey: EnvironmentKey { static let defaultValue: [String: String]? = nil }
+private struct DockPreviewActivePopoutAnchorKey: EnvironmentKey { static let defaultValue: UUID? = nil }
 extension EnvironmentValues {
     /// Render-only: running apps for sample previews, which never read the live process list.
     var dockPreviewRunningBundleIdentifiers: Set<String>? {
@@ -1169,6 +1255,10 @@ extension EnvironmentValues {
     /// Render-only: badge text by bundle identifier for sample previews.
     var dockPreviewBadges: [String: String]? {
         get { self[DockPreviewBadgesKey.self] } set { self[DockPreviewBadgesKey.self] = newValue }
+    }
+    /// Render-only: the item drawn in its open-popout (active anchor) state in sample previews.
+    var dockPreviewActivePopoutAnchor: UUID? {
+        get { self[DockPreviewActivePopoutAnchorKey.self] } set { self[DockPreviewActivePopoutAnchorKey.self] = newValue }
     }
 }
 #endif
