@@ -20,6 +20,10 @@ struct MyDockApp: App {
                     Button("Manage Docks…") { appDelegate.showManagerFromAppMenu() }
                         .keyboardShortcut("d", modifiers: [.command, .shift])
                 }
+                CommandGroup(replacing: .help) {
+                    Button("Keyboard Shortcuts") { appDelegate.showKeyboardShortcutsFromMenu() }
+                    Button("What's New in \(Product.name)") { appDelegate.showWhatsNewFromMenu() }
+                }
             }
     }
 }
@@ -171,6 +175,8 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         }
         if !store.state.settings.onboardingComplete {
             showOnboarding()
+        } else if WhatsNew.shouldShow(settings: store.state.settings) {
+            showWhatsNew()
         }
         Task { @MainActor in
             do { try await NativeDockController.shared.recoverInterruptedTransaction() }
@@ -354,9 +360,10 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             }
         }
         if !menu.items.isEmpty { menu.addItem(.separator()) }
-        menu.addItem(NSMenuItem(title: "Manage Docks…", action: #selector(openManager(_:)), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Manage Docks…", action: #selector(openManager(_:)), keyEquivalent: "d"))
+        menu.items.last?.keyEquivalentModifierMask = [.command, .shift]
         menu.items.last?.target = self
-        menu.addItem(NSMenuItem(title: "Settings…", action: #selector(openSettings(_:)), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Settings…", action: #selector(openSettings(_:)), keyEquivalent: ","))
         menu.items.last?.target = self
         menu.addItem(NSMenuItem(title: "About \(Product.name)", action: #selector(openAbout(_:)), keyEquivalent: ""))
         menu.items.last?.target = self
@@ -406,6 +413,21 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     func showSettingsFromAppMenu() { openSettings(nil) }
     func showManagerFromAppMenu() { showManager(nil) }
     func showAboutFromAppMenu() { openAbout(nil) }
+    func showKeyboardShortcutsFromMenu() {
+        showWindow(id: "shortcuts", title: "Keyboard Shortcuts",
+                   root: KeyboardShortcutsView(onDone: { [weak self] in self?.windows["shortcuts"]?.close() }),
+                   size: NSSize(width: 460, height: 560))
+    }
+    func showWhatsNewFromMenu() { showWhatsNew() }
+    private func showWhatsNew() {
+        // Marked as seen when shown, so closing the window never brings it back for this version.
+        if store.state.settings.lastSeenWhatsNewVersion != Product.marketingVersion {
+            store.updateSettings { $0.lastSeenWhatsNewVersion = Product.marketingVersion }
+        }
+        showWindow(id: "whatsnew", title: "What's New in \(Product.name)",
+                   root: WhatsNewView(onContinue: { [weak self] in self?.windows["whatsnew"]?.close() }),
+                   size: NSSize(width: 460, height: 520))
+    }
     @objc private func openAbout(_ sender: Any?) {
         showWindow(id: "about", title: "About \(Product.name)", root: AboutView(onReplaySetup: { [weak self] in self?.showOnboarding() }), size: NSSize(width: 420, height: 360))
     }

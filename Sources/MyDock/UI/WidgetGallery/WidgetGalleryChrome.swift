@@ -326,16 +326,30 @@ struct GalleryEmptyState<Actions: View>: View {
     var title: String
     var detail: String
     var symbol = "magnifyingglass"
+    /// Smaller glyph and padding for empty states inside a fixed-height area.
+    var compact = false
     @ViewBuilder var actions: Actions
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: symbol).font(.system(size: 30, weight: .light)).foregroundStyle(.tertiary)
+            Image(systemName: symbol).font(.system(size: compact ? 24 : 30, weight: .light)).foregroundStyle(.tertiary)
                 .padding(.bottom, 4).accessibilityHidden(true)
             Text(title).font(.system(size: 15, weight: .semibold))
             Text(detail).font(.system(size: 13)).foregroundStyle(.secondary).multilineTextAlignment(.center)
             actions.padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 64)
+        .padding(.vertical, compact ? 12 : 64)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+extension GalleryEmptyState where Actions == EmptyView {
+    /// Empty state without an action.
+    init(title: String, detail: String, symbol: String = "magnifyingglass", compact: Bool = false) {
+        self.title = title
+        self.detail = detail
+        self.symbol = symbol
+        self.compact = compact
+        self.actions = EmptyView()
     }
 }

@@ -101,7 +101,7 @@ struct CommandLibrary: View {
                 ScrollView {
                     LazyVStack(spacing: 2) {
                         if entries.isEmpty {
-                            Text(profile.kind == .custom ? "No matches. Try an app or widget name." : "No matches. Try an app name or spacer.").foregroundStyle(.secondary).padding(32)
+                            GalleryEmptyState(title: "No Matches", detail: profile.kind == .custom ? "Try an app or widget name." : "Try an app name or spacer.", compact: true)
                         }
                         ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                             Button(action: entry.action) {
