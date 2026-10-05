@@ -75,7 +75,7 @@ struct WidgetCardPreview: View {
     }
     private var sampleItem: DockItem {
         var item = DockItem.widget(kind)
-        if kind == "Sticky Note" { item.widgetConfiguration?.noteText = "Make something great.\nTake a little break." }
+        if kind == "Sticky Note" { item.widgetConfiguration?.noteText = "Call Mia about the trip" }
         if kind == "File Shelf" { item.widgetConfiguration?.shelfFiles = [ShelfFile(url: URL(fileURLWithPath: "/Sample/Presentation.pdf")), ShelfFile(url: URL(fileURLWithPath: "/Sample/Photo.jpg"))] }
         if kind == "Text Snippets" { item.widgetConfiguration?.textSnippets = [TextSnippet(title: "Email reply", text: "Thanks for getting in touch."), TextSnippet(title: "Delivery address", text: "123 Example Street")] }
         if kind == "Quick Links" { item.widgetConfiguration?.quickLinks = [QuickLink(title: "Project workspace", url: URL(string: "https://example.com")!)] }

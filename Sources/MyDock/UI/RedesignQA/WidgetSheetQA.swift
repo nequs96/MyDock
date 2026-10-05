@@ -9,7 +9,8 @@ import SwiftUI
 ///   Coverage is checked with `WidgetQAMatrix` over those families.
 /// - One family on each widget surface (the Glass tint row appears only for glass).
 /// - Reduce Transparency and Increase Contrast through `dockAccessibilityPreview`, never system settings.
-/// - In-Dock popouts as `CustomDockView` hosts them (20 pt padding on the window surface, scrolling).
+/// - In-Dock popouts as `CustomDockView` hosts them (the popover is the one surface, scrolling), plus the
+///   Trash sheet and Countdown under Reduce Transparency and Increase Contrast (FX-03).
 /// - A long sheet at the default 640 pt cap.
 ///
 /// Calendar uses the DEBUG production fixture and Battery a fixed reading, so nothing reads EventKit or IOKit.
@@ -70,7 +71,21 @@ extension PremiumVisualQA {
                                  scheme: scheme, directory: directory)
             }
             try await render(WidgetSheetQAPopoverHost { WidgetPopout(store: store, item: item("Clock"), profileID: id).customizeExpandedForQA() },
-                             name: "widgetpopout-clock-customize-\(suffix)", size: NSSize(width: 492, height: 620), scheme: scheme, directory: directory)
+                             name: "widgetpopout-clock-customize-\(suffix)", size: NSSize(width: 492, height: 960), scheme: scheme, directory: directory)
+            // FX-03: the Trash sheet (no repeated hero), and Start contrast under Increase Contrast.
+            TrashQAFixture.override = (count: 12, errorMessage: nil)
+            let trash = DockItem.widget("Trash")
+            store.add(trash, to: id)
+            try await render(WidgetSheetQAHost { WidgetConfigurationSheet(store: store, item: trash, profileID: id, maximumHeight: WidgetSheetQA.fullHeight) },
+                             name: "widgetsheet-trash-\(suffix)", size: size, scheme: scheme, directory: directory)
+            store.removeItem(trash.id, from: id)
+            TrashQAFixture.override = nil
+            for (variant, contrast, transparency) in [("reduce-transparency", ColorSchemeContrast.standard, true), ("increase-contrast", .increased, false)] {
+                try await render(WidgetSheetQAPopoverHost { WidgetPopout(store: store, item: item("Countdown"), profileID: id) },
+                                 name: "widgetpopout-countdown-\(suffix)-\(variant)",
+                                 size: NSSize(width: WidgetPopoutMetrics.contentWidth + 2 * WidgetPopoutMetrics.padding + 40, height: WidgetSheetQA.popoutHeight("Countdown")),
+                                 scheme: scheme, directory: directory, contrast: contrast, reduceTransparency: transparency)
+            }
         }
         // First-run states of the families that have one (light).
         store.updateSettings { $0.customDockTheme = .light }
@@ -140,19 +155,25 @@ private struct WidgetSheetQAHost<Content: View>: View {
     }
 }
 
-/// The popover content exactly as `CustomDockView` hosts a widget popout.
+/// The popover content exactly as `CustomDockView` hosts a widget popout (no padding, no slab, the
+/// shell draws no card), on a stand-in for the NSPopover window. Offscreen captures cannot draw the
+/// popover's native material, so the stand-in is its opaque Reduce Transparency fill, over a wallpaper.
 private struct WidgetSheetQAPopoverHost<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             DockScrollView(.vertical) {
                 content.frame(minWidth: 250, minHeight: 150, alignment: .topLeading)
             }
         }
+        .modifier(WidgetPopoverSurface())
+        .fixedSize()
+        .background(WidgetDesign.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.22), radius: 14, y: 6)
         .padding(20)
-        .background(WidgetDesign.surface)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(WidgetDesign.surface)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(DockStyleQA.wallpaper)
     }
 }
 #endif

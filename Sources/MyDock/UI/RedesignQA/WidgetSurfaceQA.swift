@@ -47,6 +47,16 @@ extension PremiumVisualQA {
                     }.environment(\.dockWidgetSurface, surface)
                 }
             }, name: "widgetsurface-labels-\(schemeName)", size: NSSize(width: 1180, height: 600), scheme: scheme, directory: directory)
+            // FX-03: long readings that used to truncate (Disk, Now Playing, Sticky Note, business periods).
+            try await render(WidgetSurfaceQAPage(title: "Long readings · \(schemeName)") {
+                ForEach([true, false], id: \.self) { labels in
+                    VStack(alignment: .leading, spacing: 6) {
+                        WidgetSurfaceQACaption(text: labels ? "labels on" : "labels off")
+                        WidgetSurfaceQALongReadings().environment(\.widgetShowsLabel, labels)
+                    }
+                }
+            }.environment(\.dockWidgetSurface, .glass),
+            name: "widgetsurface-long-readings-\(schemeName)", size: NSSize(width: 1380, height: 300), scheme: scheme, directory: directory)
             try await renderSampleVersusLive(store: store, scheme: scheme, schemeName: schemeName, directory: directory)
         }
         // Layout coverage only; setup states are covered by MYDOCK_WIDGET_QA.
@@ -123,7 +133,7 @@ enum WidgetSurfaceQA {
         stock.widgetConfiguration?.stockSnapshot = snapshot
         stock.widgetConfiguration?.widgetLayout = .trend
         var note = DockItem.widget("Sticky Note")
-        note.widgetConfiguration?.noteText = "Make something great.\nTake a little break."
+        note.widgetConfiguration?.noteText = "Call Mia about the trip"
         return [clock, weather, checklist, stock, note, .widget("Calculator")]
     }
 }
@@ -218,6 +228,36 @@ private struct WidgetSurfaceQASampleDock: View {
             ForEach(kinds, id: \.self) { kind in
                 let layout = WidgetPresentationCatalog.defaultLayout(for: kind)
                 WidgetCardPreview(kind: kind, width: CGFloat(WidgetPresentationCatalog.width(for: kind, layout: layout)), layout: layout)
+            }
+        }
+    }
+}
+
+/// Faces fed long, real-world values: a fractional free-space figure, a long track title, a long
+/// note and every business period title.
+private struct WidgetSurfaceQALongReadings: View {
+    private func module<Face: View>(_ kind: String, _ layout: WidgetLayout, @ViewBuilder _ face: () -> Face) -> some View {
+        let width = CGFloat(WidgetPresentationCatalog.width(for: kind, layout: layout))
+        return WidgetContainer(width: width, kind: kind) { face() }
+            .environment(\.dockWidgetContentWidth, width).environment(\.widgetLayout, layout)
+    }
+    private var note: DockItem {
+        var item = DockItem.widget("Sticky Note")
+        item.widgetConfiguration?.noteText = "Remember to send the quarterly report\nand book the venue for Friday"
+        return item
+    }
+    var body: some View {
+        WidgetSurfaceQADockStrip {
+            module("Disk Space", .compact) { DiskDockFace(snapshot: .init(name: "Startup disk", totalBytes: 994_662_584_320, availableBytes: 120_620_000_000)) }
+            module("Disk Space", .wide) { DiskDockFace(snapshot: .init(name: "Startup disk", totalBytes: 994_662_584_320, availableBytes: 120_620_000_000)) }
+            module("Now Playing", .compact) { MediaDockFace(title: "Everybody Wants to Rule the World", artist: "Tears for Fears", artwork: nil, isPlaying: true) }
+            module("Now Playing", .compact) { MediaDockFace(title: "Dreams", artist: "Fleetwood Mac", artwork: nil, isPlaying: false) }
+            module("Sticky Note", .standard) { LocalWidgetDockFace(item: note) }
+            ForEach(["Today", "7 days", "Last 30 days", "Month to date"], id: \.self) { period in
+                module("Paddle", .standard) {
+                    FacesBBusinessDockFace(kind: "Paddle", title: "Paddle", metric: "Revenue", amount: 12_400, currency: "USD",
+                                           fullValue: "$12,400.00", context: period)
+                }
             }
         }
     }

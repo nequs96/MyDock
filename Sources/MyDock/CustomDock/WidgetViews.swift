@@ -137,12 +137,14 @@ struct WidgetPopout: View {
         .onExitCommand { dismiss() }
     }
 
-    /// In the Dock: a glass module with the family's name and freshness, then its content.
+    /// In the Dock: the family's name and freshness, then its content. The shell draws no surface of
+    /// its own: the popover's native material is the one surface (see `WidgetPopoverSurface`), so the
+    /// popout reads as a single calm sheet of glass instead of a card inside a slab.
     private var shell: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             header
             if showsAppearance {
-                WidgetAppearanceControls(store: store, item: currentItem, profileID: profileID, showsSizeRow: true)
+                WidgetCustomizePanel(store: store, item: currentItem, profileID: profileID)
             }
             persistenceNotice
             familyContent
@@ -154,10 +156,11 @@ struct WidgetPopout: View {
         // so without this a hosting view that sizes its window from the shell's min/max height
         // ratchets the window down a point per pass and AppKit aborts the layout loop.
         .fixedSize(horizontal: false, vertical: true)
-        .dockGlass(.regular, in: RoundedRectangle(cornerRadius: WidgetPopoutMetrics.radius, style: .continuous))
     }
 
     /// Inside the settings sheet: content only; the sheet draws the header, surface and Data.
+    /// The sheet's live preview already shows the reading, so the family's hero is suppressed
+    /// (`widgetPopoutShowsHero`, set by the sheet) unless the hero is a tool's own output.
     private var embedded: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             persistenceNotice
@@ -239,12 +242,64 @@ enum WidgetPopoutMetrics {
 
 // MARK: - Popout vocabulary for families
 
+/// The Dock popover's content surface. The NSPopover's own material (Liquid Glass on macOS 26, the
+/// vibrant popover material before it) is the popout's one surface: the host adds no padding or
+/// opaque slab and the shell no card. Under Reduce Transparency the system makes the popover opaque;
+/// the content area is also filled with the opaque window colour so it never shows through.
+struct WidgetPopoverSurface: ViewModifier {
+    @DockAccessibilityStyle() private var accessibility
+    func body(content: Content) -> some View {
+        content.background {
+            if accessibility.reduceTransparency { WidgetDesign.surface.ignoresSafeArea() }
+        }
+    }
+}
+
+private struct WidgetPopoutShowsHeroKey: EnvironmentKey { static let defaultValue = true }
+extension EnvironmentValues {
+    /// False inside the widget settings sheet, whose live preview already shows the reading.
+    var widgetPopoutShowsHero: Bool {
+        get { self[WidgetPopoutShowsHeroKey.self] }
+        set { self[WidgetPopoutShowsHeroKey.self] = newValue }
+    }
+}
+
+/// Whether the settings sheet repeats a family's popout hero under its live preview.
+enum WidgetSheetHeroPolicy {
+    /// Heroes that are a tool's output rather than the reading the Dock face shows.
+    static let toolOutputHeroes: Set<String> = ["Unit Converter"]
+    /// Families whose popout content is only their hero: the sheet shows no Content for them.
+    static let heroOnlyContent: Set<String> = ["Clock"]
+
+    static func showsHero(kind: String, inSheet: Bool) -> Bool {
+        !inSheet || toolOutputHeroes.contains(kind)
+    }
+    static func showsContent(kind: String, inSheet: Bool) -> Bool {
+        showsHero(kind: kind, inSheet: inSheet) || !heroOnlyContent.contains(kind)
+    }
+}
+
+/// Wraps a family's hero together with its decoration (a glyph above it, a card behind it) so the
+/// whole group disappears where `widgetPopoutShowsHero` is false.
+struct WidgetPopoutHeroGroup<Content: View>: View {
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
+    @ViewBuilder var content: Content
+    var body: some View {
+        if showsHero { content }
+    }
+}
+
 /// The one large value of a popout (a time, a count) with at most one secondary line, centred.
+/// Hidden inside the settings sheet (`widgetPopoutShowsHero`).
 struct WidgetPopoutHero: View {
     var value: String
     var caption: String?
     var valueColor: Color = .primary
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
     var body: some View {
+        if showsHero { hero }
+    }
+    private var hero: some View {
         VStack(spacing: 3) {
             Text(value)
                 .font(.system(size: 40, weight: .semibold).monospacedDigit())
@@ -262,26 +317,74 @@ struct WidgetPopoutHero: View {
     }
 }
 
+/// The role of a round timer control: grey secondary, green Start, orange Pause.
+enum WidgetRoundButtonRole: Equatable {
+    case neutral, start, pause
+}
+
+/// Colours of the tinted round controls, chosen for at least 4.5:1 text contrast.
+/// Light: white text on a solid, deepened tint. Dark: bright tint text on a solid, dark tint
+/// (the iOS Clock pattern). Increase Contrast deepens the fill (light) or brightens the text (dark).
+enum WidgetRoundButtonPalette {
+    struct RGB: Equatable {
+        var red: Double, green: Double, blue: Double
+        var color: Color { Color(.sRGB, red: red, green: green, blue: blue, opacity: 1) }
+        /// WCAG relative luminance.
+        var luminance: Double {
+            func linear(_ c: Double) -> Double { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+            return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+        }
+    }
+    static let white = RGB(red: 1, green: 1, blue: 1)
+
+    /// nil for the neutral role, which uses primary text on a faint primary fill.
+    static func colors(_ role: WidgetRoundButtonRole, dark: Bool, increasedContrast: Bool) -> (foreground: RGB, fill: RGB)? {
+        switch (role, dark) {
+        case (.neutral, _): return nil
+        case (.start, false):
+            return (white, increasedContrast ? RGB(red: 0.09, green: 0.40, blue: 0.17) : RGB(red: 0.12, green: 0.48, blue: 0.22))
+        case (.pause, false):
+            return (white, increasedContrast ? RGB(red: 0.54, green: 0.26, blue: 0.00) : RGB(red: 0.66, green: 0.33, blue: 0.00))
+        case (.start, true):
+            return (increasedContrast ? RGB(red: 0.45, green: 0.95, blue: 0.55) : RGB(red: 0.30, green: 0.85, blue: 0.40),
+                    RGB(red: 0.10, green: 0.30, blue: 0.12))
+        case (.pause, true):
+            return (increasedContrast ? RGB(red: 1.00, green: 0.75, blue: 0.40) : RGB(red: 1.00, green: 0.66, blue: 0.25),
+                    RGB(red: 0.32, green: 0.17, blue: 0.02))
+        }
+    }
+
+    /// WCAG contrast ratio between two opaque colours.
+    static func contrast(_ a: RGB, _ b: RGB) -> Double {
+        let (high, low) = (max(a.luminance, b.luminance), min(a.luminance, b.luminance))
+        return (high + 0.05) / (low + 0.05)
+    }
+}
+
 /// Round timer controls in the iOS Clock style: a tinted primary action and a grey secondary one.
 struct WidgetRoundButtonStyle: ButtonStyle {
-    var tint: Color? = nil
+    var role: WidgetRoundButtonRole = .neutral
     var diameter: CGFloat = 62
-    func makeBody(configuration: Configuration) -> some View { RoundBody(configuration: configuration, tint: tint, diameter: diameter) }
+    func makeBody(configuration: Configuration) -> some View { RoundBody(configuration: configuration, role: role, diameter: diameter) }
     private struct RoundBody: View {
         let configuration: ButtonStyle.Configuration
-        var tint: Color?
+        var role: WidgetRoundButtonRole
         var diameter: CGFloat
         @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.colorScheme) private var scheme
         @DockAccessibilityStyle() private var accessibility
         @State private var hovered = false
+        private var colors: (foreground: WidgetRoundButtonPalette.RGB, fill: WidgetRoundButtonPalette.RGB)? {
+            WidgetRoundButtonPalette.colors(role, dark: scheme == .dark, increasedContrast: accessibility.contrast == .increased)
+        }
         var body: some View {
             configuration.label
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(tint ?? Color.primary)
+                .foregroundStyle(colors?.foreground.color ?? Color.primary)
                 .lineLimit(1).minimumScaleFactor(0.8)
                 .padding(.horizontal, 6)
                 .frame(width: diameter, height: diameter)
-                .background(Circle().fill((tint ?? Color.primary).opacity(tint == nil ? 0.08 : 0.18)))
+                .background(Circle().fill(colors?.fill.color ?? Color.primary.opacity(accessibility.contrast == .increased ? 0.14 : 0.08)))
                 .overlay(Circle().fill(Color.primary.opacity(configuration.isPressed ? 0.10 : hovered ? 0.04 : 0)))
                 .overlay {
                     if accessibility.contrast == .increased {
@@ -341,15 +444,7 @@ struct WidgetStepperRow: View {
 
 private struct ClockWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(TimelineView(.periodic(from: .now, by: 30)) { context in
-            VStack(spacing: 4) {
-                Text(LocalClockFormatter.time(for: context.date))
-                    .font(.system(size: 14, weight: .medium).monospacedDigit())
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                Text(context.date.formatted(.dateTime.weekday(.abbreviated).day()))
-                    .font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
-            }.frame(width: 54, height: 54)
-        })
+        AnyView(LocalWidgetDockFace(item: item))
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
@@ -361,7 +456,7 @@ private struct ClockWidgetProvider: DockWidgetProvider {
 
 private struct FocusTimerWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(FocusTimerCompactView(store: store, item: item, profileID: profileID))
+        AnyView(LocalWidgetDockFace(item: item))
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
@@ -381,7 +476,7 @@ private struct WorldClockWidgetProvider: DockWidgetProvider {
 
 private struct StopwatchWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(StopwatchCompactView(item: item))
+        AnyView(LocalWidgetDockFace(item: item))
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
@@ -391,7 +486,7 @@ private struct StopwatchWidgetProvider: DockWidgetProvider {
 
 private struct CountdownWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(CountdownCompactView(store: store, item: item, profileID: profileID))
+        AnyView(LocalWidgetDockFace(item: item))
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
@@ -401,7 +496,7 @@ private struct CountdownWidgetProvider: DockWidgetProvider {
 
 private struct TimeProgressWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(TimeProgressCompactView(item: item))
+        AnyView(LocalWidgetDockFace(item: item))
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
@@ -411,7 +506,7 @@ private struct TimeProgressWidgetProvider: DockWidgetProvider {
 
 private struct HydrationWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(HydrationCompactView(item: item))
+        AnyView(LocalWidgetDockFace(item: item))
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
@@ -431,7 +526,7 @@ private struct BatteryWidgetProvider: DockWidgetProvider {
 
 private struct AppFolderWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(AppFolderCompactView(item: item))
+        AnyView(LocalWidgetDockFace(item: item))
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
@@ -441,27 +536,12 @@ private struct AppFolderWidgetProvider: DockWidgetProvider {
 
 private struct ShortcutsWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(ShortcutsCompactView(item: item))
+        AnyView(LocalWidgetDockFace(item: item))
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
         AnyView(ShortcutsPopoutView(store: store, item: item, profileID: profileID,
                                     runner: ShortcutExecutionService.shared))
-    }
-}
-
-private struct ShortcutsCompactView: View {
-    var item: DockItem
-    private var selectedName: String { item.widgetConfiguration?.selectedShortcutName ?? "" }
-
-    var body: some View {
-        VStack(spacing: 3) {
-            Image(systemName: "command.square.fill").font(.system(size: 24)).foregroundStyle(.tint)
-            Text(selectedName.isEmpty ? "Shortcuts" : selectedName)
-                .font(.system(size: 8, weight: .medium)).lineLimit(1).frame(maxWidth: 52)
-        }
-        .frame(width: 54, height: 54)
-        .help(selectedName.isEmpty ? "Choose a shortcut" : selectedName)
     }
 }
 
@@ -544,43 +624,6 @@ private struct ShortcutsPopoutView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
-    }
-}
-
-private struct AppFolderCompactView: View {
-    var item: DockItem
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(appFolderTint(configuration.appFolderColor).opacity(0.3))
-            if !configuration.appFolderLetter.isEmpty {
-                Text(configuration.appFolderLetter)
-                    .font(.system(size: 23, weight: .bold, design: .rounded))
-                    .foregroundStyle(appFolderTint(configuration.appFolderColor))
-                    .lineLimit(1).minimumScaleFactor(0.6)
-            } else if configuration.appFolderApplications.isEmpty {
-                Image(systemName: "square.grid.2x2.fill").font(.system(size: 24)).foregroundStyle(appFolderTint(configuration.appFolderColor))
-            } else {
-                LazyVGrid(columns: [GridItem(.fixed(17)), GridItem(.fixed(17))], spacing: 2) {
-                    ForEach(configuration.appFolderApplications.prefix(4)) { application in
-                        Image(nsImage: NSWorkspace.shared.icon(forFile: application.url.path))
-                            .resizable().scaledToFit().frame(width: 17, height: 17)
-                    }
-                }
-                .padding(4)
-            }
-        }
-        .frame(width: 46, height: 46)
-        .overlay(alignment: .bottomTrailing) {
-            if configuration.appFolderApplications.contains(where: { !$0.hasExistingBundlePath }) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 9)).foregroundStyle(.orange)
-                    .accessibilityHidden(true)
-            }
-        }
-        .help(configuration.appFolderName)
     }
 }
 
@@ -771,21 +814,14 @@ private struct AppFolderPopoutView: View {
     }
 }
 
+/// App Folder colours come from the widget palette (the profile accent family), like accent swatches.
 private func appFolderTint(_ name: String) -> Color {
-    switch DockProfileColor(rawValue: name) ?? .blue {
-    case .blue: .blue
-    case .purple: .purple
-    case .teal: .teal
-    case .green: .green
-    case .orange: .orange
-    case .pink: .pink
-    case .red: .red
-    }
+    WidgetPalette.profile(DockProfileColor(rawValue: name) ?? .blue)
 }
 
 private struct StickyNoteWidgetProvider: DockWidgetProvider {
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(Image(systemName: "note.text").font(.system(size: 28)).foregroundStyle(.primary))
+        AnyView(LocalWidgetDockFace(item: item))
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
@@ -943,25 +979,6 @@ private struct WorldClockPopoutView: View {
     }
 }
 
-private struct StopwatchCompactView: View {
-    var item: DockItem
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-
-    var body: some View {
-        Group {
-            if configuration.stopwatchStartedAt != nil {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(stopwatchText(configuration.stopwatchElapsed(at: context.date)))
-                }
-            } else {
-                Text(stopwatchText(configuration.stopwatchElapsed()))
-            }
-        }
-        .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
-        .lineLimit(1).minimumScaleFactor(0.7)
-    }
-}
-
 private struct StopwatchPopoutView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
@@ -993,23 +1010,10 @@ private struct StopwatchPopoutView: View {
                         else { value.pauseStopwatch() }
                     }
                 }
-                .buttonStyle(WidgetRoundButtonStyle(tint: running ? .orange : .green))
+                .buttonStyle(WidgetRoundButtonStyle(role: running ? .pause : .start))
             }
             .padding(.horizontal, 24)
         }
-    }
-}
-
-private struct CountdownCompactView: View {
-    @ObservedObject var store: ProfileStore
-    var item: DockItem
-    var profileID: UUID
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-
-    var body: some View {
-        CountdownValueText(configuration: configuration, compact: true)
-        .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
-        .lineLimit(1).minimumScaleFactor(0.7)
     }
 }
 
@@ -1024,11 +1028,13 @@ private struct CountdownPopoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
-            CountdownValueText(configuration: configuration, compact: false)
-                .font(.system(size: 40, weight: .semibold).monospacedDigit())
-                .lineLimit(1).minimumScaleFactor(0.5)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, 6)
+            WidgetPopoutHeroGroup {
+                CountdownValueText(configuration: configuration, compact: false)
+                    .font(.system(size: 40, weight: .semibold).monospacedDigit())
+                    .lineLimit(1).minimumScaleFactor(0.5)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 6)
+            }
             Picker("Count down to", selection: modeBinding) {
                 ForEach(CountdownMode.allCases) { mode in
                     Text(mode.title).tag(mode)
@@ -1110,7 +1116,7 @@ private struct CountdownPopoutView: View {
                         notificationMessage = nil
                     }
                 }
-                .buttonStyle(WidgetRoundButtonStyle(tint: configuration.countdownStartedAt == nil ? .green : .orange))
+                .buttonStyle(WidgetRoundButtonStyle(role: configuration.countdownStartedAt == nil ? .start : .pause))
                 .disabled(configuration.countdownStartedAt != nil && configuration.countdownRemaining() <= 0)
             }
             .padding(.horizontal, 24)
@@ -1244,22 +1250,6 @@ private struct CountdownValueText: View {
     }
 }
 
-private struct TimeProgressCompactView: View {
-    var item: DockItem
-    private var period: TimeProgressPeriod { item.widgetConfiguration?.timeProgressPeriod ?? .day }
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            let progress = TimeProgressCalculator.fraction(for: period, at: context.date)
-            VStack(spacing: 2) {
-                Text("\(Int(progress * 100))%")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
-                Text(period.title).font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary)
-            }
-        }
-    }
-}
-
 private struct TimeProgressPopoutView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
@@ -1268,14 +1258,16 @@ private struct TimeProgressPopoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
-            TimelineView(.periodic(from: .now, by: 60)) { context in
-                let progress = TimeProgressCalculator.fraction(for: configuration.timeProgressPeriod, at: context.date)
-                VStack(spacing: 10) {
-                    WidgetPopoutHero(value: "\(Int(progress * 100))%", caption: "through this \(configuration.timeProgressPeriod.rawValue)")
-                    UsageBar(fraction: progress, color: WidgetPalette.accent("Time Progress"))
-                        .frame(height: 6)
-                        .padding(.horizontal, 24)
-                        .accessibilityHidden(true)
+            WidgetPopoutHeroGroup {
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    let progress = TimeProgressCalculator.fraction(for: configuration.timeProgressPeriod, at: context.date)
+                    VStack(spacing: 10) {
+                        WidgetPopoutHero(value: "\(Int(progress * 100))%", caption: "through this \(configuration.timeProgressPeriod.rawValue)")
+                        UsageBar(fraction: progress, color: WidgetPalette.accent("Time Progress"))
+                            .frame(height: 6)
+                            .padding(.horizontal, 24)
+                            .accessibilityHidden(true)
+                    }
                 }
             }
             GroupedSection {
@@ -1307,19 +1299,6 @@ enum HydrationHistoryPolicy {
 
     static func visibleDays<Day>(_ days: [Day], showingOlder: Bool) -> [Day] {
         showingOlder ? days : Array(days.prefix(recentDayCount))
-    }
-}
-
-private struct HydrationCompactView: View {
-    var item: DockItem
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            let entries = (item.widgetConfiguration ?? WidgetConfiguration()).hydrationEntriesToday(at: context.date)
-            VStack(spacing: 1) {
-                Image(systemName: "drop.fill").font(.system(size: 17)).foregroundStyle(.blue)
-                Text("\(entries.count)").font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
-            }.accessibilityLabel("\(entries.count) drinks today")
-        }
     }
 }
 
@@ -1610,30 +1589,6 @@ private func batterySymbol(_ percentage: Int, charging: Bool) -> String {
     }
 }
 
-private struct FocusTimerCompactView: View {
-    @ObservedObject var store: ProfileStore
-    var item: DockItem
-    var profileID: UUID
-
-    private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-
-    var body: some View {
-        Group {
-            if configuration.focusStartedAt != nil, configuration.focusRemaining() > 0 {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(timerText(configuration.focusRemaining(at: context.date)))
-                        .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
-                        .lineLimit(1).minimumScaleFactor(0.7)
-                }
-            } else {
-                Text(timerText(configuration.focusRemaining()))
-                    .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
-                    .lineLimit(1).minimumScaleFactor(0.7)
-            }
-        }
-    }
-}
-
 private struct FocusTimerPopoutView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
@@ -1656,7 +1611,7 @@ private struct FocusTimerPopoutView: View {
                         else { value.pauseFocusTimer() }
                     }
                 }
-                .buttonStyle(WidgetRoundButtonStyle(tint: configuration.focusStartedAt == nil ? .green : .orange))
+                .buttonStyle(WidgetRoundButtonStyle(role: configuration.focusStartedAt == nil ? .start : .pause))
                 .disabled(configuration.focusStartedAt != nil && configuration.focusRemaining() <= 0)
             }
             .padding(.horizontal, 24)
