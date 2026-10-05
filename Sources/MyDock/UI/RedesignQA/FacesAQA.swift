@@ -65,7 +65,7 @@ extension PremiumVisualQA {
                 matrix.record(kind, .setup)
             }
             // 3. Samples beside live faces.
-            try await render(FacesAQAPage(title: "Faces A · sample (left) and live (right) · \(schemeName)") {
+            try await render(FacesAQAPage(title: "Faces A · sample (left, creation appearance) and live (right) · \(schemeName)") {
                 FacesAQASamplesVersusLive(store: store, items: items, profileID: id, settings: base)
             }, name: "facesa-sample-vs-live-\(schemeName)", size: NSSize(width: 1000, height: 640), scheme: scheme, directory: directory)
             // 4. Accessibility.

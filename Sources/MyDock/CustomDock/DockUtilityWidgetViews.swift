@@ -605,6 +605,13 @@ struct UnitConverterWidgetProvider: DockWidgetProvider {
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView { AnyView(UnitConverterView()) }
 }
 
+/// The converter hero's one secondary line: where the value comes from, never the result again.
+enum UnitConverterPresentation {
+    static func caption(input: String, from symbol: String, hasResult: Bool) -> String {
+        hasResult ? "from \(input.trimmingCharacters(in: .whitespacesAndNewlines)) \(symbol)" : "Enter a finite number to convert."
+    }
+}
+
 struct UnitConverterView: View {
     @State private var category: ConversionCategory = .length
     @State private var input = "1"
@@ -624,7 +631,7 @@ struct UnitConverterView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             WidgetPopoutHero(value: result == nil ? "—" : "\(resultText) \(to.symbol)",
-                             caption: result == nil ? "Enter a finite number to convert." : "\(input) \(from.symbol) = \(resultText) \(to.symbol)",
+                             caption: UnitConverterPresentation.caption(input: input, from: from.symbol, hasResult: result != nil),
                              valueColor: result == nil ? .secondary : .primary)
             VStack(alignment: .leading, spacing: 6) {
                 WidgetPopoutSectionHeader("Convert") {

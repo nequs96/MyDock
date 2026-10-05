@@ -38,11 +38,18 @@ struct WidgetCardPreview: View {
     var width: CGFloat = 144
     var displayScale: CGFloat = 1
     var layout: WidgetLayout? = nil
-    var appearance: WidgetIconAppearance = .soft
+    /// nil: the appearance a new widget of this kind is created with (`creationAppearance`), so samples
+    /// in onboarding, the command library and QA show what gets added.
+    var appearance: WidgetIconAppearance? = nil
+    /// A scale applied around this preview (the settings sheet's pager), compounded with `displayScale`.
+    @Environment(\.widgetPreviewScale) private var outerScale
     private var selected: WidgetLayout { layout ?? WidgetPresentationCatalog.defaultLayout(for: kind) }
+    private var resolvedAppearance: WidgetIconAppearance { appearance ?? Self.creationAppearance(kind: kind) }
     var body: some View {
         WidgetContainer(width: width, kind: kind) { sample }
-            .environment(\.dockWidgetContentWidth, width).environment(\.widgetLayout, selected).environment(\.widgetIconAppearance, appearance)
+            .environment(\.dockWidgetContentWidth, width).environment(\.widgetLayout, selected).environment(\.widgetIconAppearance, resolvedAppearance)
+            // Laid out at Dock size, then scaled: the face is flattened at the final density (crisp text).
+            .environment(\.widgetPreviewScale, outerScale * displayScale)
             .scaleEffect(displayScale).frame(width: width * displayScale, height: 54 * displayScale)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Self.accessibilityLabel(kind: kind))
@@ -99,6 +106,11 @@ struct WidgetCardPreview: View {
 extension WidgetCardPreview {
     /// VoiceOver label for every sample: "<Family>, sample preview".
     static func accessibilityLabel(kind: String) -> String { "\(kind), sample preview" }
+
+    /// The icon appearance a new widget of this kind starts with: its creation configuration's.
+    static func creationAppearance(kind: String) -> WidgetIconAppearance {
+        DockItem.widget(kind).widgetConfiguration?.iconAppearance ?? WidgetConfiguration().iconAppearance
+    }
 }
 
 extension WidgetCardPreview {

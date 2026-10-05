@@ -15,6 +15,8 @@ struct WidgetConfigurationSheet: View {
     @State private var editorDemand = RefreshDemandHolder(kind: .editor)
     @State private var confirmingRemoval = false
     @State private var removalError: String?
+    /// A self-loading family's reading state (Calendar, Reminders, Weather, Disk Space), for the Data row.
+    @State private var familyRefresh: WidgetPopoutRefresh?
 
     init(store: ProfileStore, item: DockItem, profileID: UUID, maximumHeight: CGFloat = 640) {
         self.store = store; self.item = item; self.profileID = profileID; self.maximumHeight = maximumHeight
@@ -94,9 +96,11 @@ struct WidgetConfigurationSheet: View {
             if WidgetSheetHeroPolicy.showsContent(kind: kind, inSheet: true) {
                 WidgetPopout(store: store, item: currentItem, profileID: profileID, showsCustomize: false, showsHeader: false, showsData: false)
                     .environment(\.widgetPopoutShowsHero, WidgetSheetHeroPolicy.showsHero(kind: kind, inSheet: true))
+                    .environment(\.widgetPopoutContext, .sheet)
+                    .onPreferenceChange(WidgetPopoutRefreshKey.self) { familyRefresh = $0 }
             }
             WidgetAppearanceControls(store: store, item: currentItem, profileID: profileID)
-            if !data.isEmpty { dataSection }
+            if !data.isEmpty || familyRefresh != nil { dataSection }
             GroupedSection(footer: removalError) {
                 if WidgetSheetRemoval.hasPendingRemoval(itemID: item.id) {
                     // The removal is applied but not saved: retry the save, no second confirmation.
@@ -117,10 +121,14 @@ struct WidgetConfigurationSheet: View {
                 WidgetFreshnessView(coordinator: store.widgetData, item: currentItem) {
                     Task { await store.widgetData.refresh(item: currentItem, profileID: profileID) }
                 }
-                .buttonStyle(.borderless)
                 .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
                 .padding(.vertical, DockDesign.Grouped.rowVerticalPadding + 2)
                 .frame(maxWidth: .infinity, minHeight: DockDesign.Grouped.rowMinHeight, alignment: .leading)
+            } else if let familyRefresh {
+                WidgetFamilyFreshnessView(refresh: familyRefresh)
+                    .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+                    .padding(.vertical, DockDesign.Grouped.rowVerticalPadding + 2)
+                    .frame(maxWidth: .infinity, minHeight: DockDesign.Grouped.rowMinHeight, alignment: .leading)
             }
             if let note = data.accessNote {
                 GroupedRow("Access", subtitle: note)
@@ -325,20 +333,24 @@ struct WidgetLayoutPreviewPager: View {
         })
     }
 
-    private func caption(_ page: WidgetLayout) -> String {
-        options.first { $0.layout == page }?.title ?? page.title
+    private func caption(_ page: WidgetLayout, sample: Bool) -> String {
+        WidgetSheetPreviewFallback.caption(options.first { $0.layout == page }?.title ?? page.title, sample: sample)
     }
 
-    private var pager: some View {
+    private func pager(sample: Bool) -> some View {
         SizePager(options.map(\.layout), selection: selection, accessibilityLabel: "\(item.displayName) size",
-                  caption: caption) { page in
-            strip(page)
+                  caption: { caption($0, sample: sample) }) { page in
+            strip(page, sample: sample)
         }
     }
 
     var body: some View {
         VStack(spacing: 8) {
-            pager
+            // Until a warming family's first real reading arrives, the preview shows its sample face,
+            // labelled "Sample", instead of dashes. The live face stays mounted so sampling starts.
+            WidgetPreviewReadingReader(kind: kind) { hasReading in
+                pager(sample: WidgetSheetPreviewFallback.usesSample(kind: kind, hasReading: hasReading))
+            }
             .padding(.horizontal, WidgetSheetMetrics.previewHorizontalPadding)
             .padding(.top, 26).padding(.bottom, 14)
             .frame(maxWidth: .infinity)
@@ -364,21 +376,83 @@ struct WidgetLayoutPreviewPager: View {
         }
     }
 
-    @ViewBuilder private func strip(_ page: WidgetLayout) -> some View {
+    @ViewBuilder private func strip(_ page: WidgetLayout, sample: Bool) -> some View {
         let width = CGFloat(WidgetPresentationCatalog.width(for: kind, layout: page))
         let stripRadius = CGFloat(settings.customDockCornerRadius) / dockScale * scale
         let surface = settings.with(cornerRadius: stripRadius)
         DockGlassGroup(spacing: 0) {
-            WidgetCompactView(store: store, item: item, profileID: profileID, presentationSettings: settings.with(position: .bottom), layoutOverride: page)
-                .environment(\.dockModuleRadius, DockSurfaceMetrics.moduleRadius(settings: settings, scale: dockScale))
-                .scaleEffect(scale)
-                .frame(width: width * scale, height: 54 * scale)
+            ZStack {
+                WidgetCompactView(store: store, item: item, profileID: profileID, presentationSettings: settings.with(position: .bottom), layoutOverride: page)
+                    .opacity(sample ? 0 : 1)
+                if sample {
+                    WidgetCompactView(store: store, item: item, profileID: profileID, sampleMode: true,
+                                      presentationSettings: settings.with(position: .bottom), layoutOverride: page)
+                }
+            }
+            .environment(\.dockModuleRadius, DockSurfaceMetrics.moduleRadius(settings: settings, scale: dockScale))
+            // Laid out at Dock size, then scaled: the face is flattened at the final density (crisp text).
+            .environment(\.widgetPreviewScale, scale)
+            .scaleEffect(scale)
+            .frame(width: width * scale, height: 54 * scale)
         }
         .padding(dockPadding * scale)
         .background(DockMaterialSurface(settings: surface, color: profileColor))
         .environment(\.colorScheme, dockScheme)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// The sheet preview's fallback while a family warms up: System Activity and Network Activity need a
+/// second sample before their first reading, so their live faces would show dashes for a moment.
+enum WidgetSheetPreviewFallback {
+    static let warmingFamilies: Set<String> = ["System Activity", "Network Activity"]
+
+    static func usesSample(kind: String, hasReading: Bool) -> Bool {
+        warmingFamilies.contains(kind) && !hasReading
+    }
+    /// The pager caption says so truthfully.
+    static func caption(_ title: String, sample: Bool) -> String { sample ? title + " · Sample" : title }
+}
+
+/// Reads whether a warming family's live monitor has its first reading; other families always have one.
+private struct WidgetPreviewReadingReader<Content: View>: View {
+    var kind: String
+    @ViewBuilder var content: (Bool) -> Content
+    var body: some View {
+        switch kind {
+        case "System Activity": SystemReading(content: content)
+        case "Network Activity": NetworkReading(content: content)
+        default: content(true)
+        }
+    }
+    private struct SystemReading: View {
+        var content: (Bool) -> Content
+        @ObservedObject private var monitor = SystemActivityMonitor.shared
+        #if DEBUG
+        @Environment(\.facesBSystemReadings) private var fixture
+        #endif
+        private var hasReading: Bool {
+            #if DEBUG
+            if fixture != nil { return true }
+            #endif
+            return monitor.cpuPercentage != nil
+        }
+        var body: some View { content(hasReading) }
+    }
+    private struct NetworkReading: View {
+        var content: (Bool) -> Content
+        @ObservedObject private var monitor = NetworkActivityMonitor.shared
+        #if DEBUG
+        @Environment(\.facesBNetworkReadings) private var fixture
+        #endif
+        private var hasReading: Bool {
+            #if DEBUG
+            if fixture != nil { return true }
+            #endif
+            return monitor.aggregateDownloadRate != nil
+        }
+        var body: some View { content(hasReading) }
     }
 }
 

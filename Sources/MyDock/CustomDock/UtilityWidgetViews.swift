@@ -88,15 +88,17 @@ struct WidgetRowIconButton: View {
 /// the reading and its primary actions (Control Center shows the module, not its preferences).
 ///
 /// Inside the widget settings sheet the same rows are the sheet's Content, so they show directly with no
-/// disclosure. The sheet is recognised by `widgetPopoutShowsHero == false`, which it sets for every family
-/// that uses this view (only tool-output heroes such as Unit Converter keep the hero there).
+/// disclosure. The context comes from `widgetPopoutContext` (the shell sets `.dock`, the sheet `.sheet`);
+/// hosts that set none fall back to `widgetPopoutShowsHero == false` meaning the sheet.
 struct WidgetPopoutSettingsDisclosure<Content: View>: View {
     var title: String
     var summary: String?
     @Binding var isExpanded: Bool
     @ViewBuilder var content: Content
-    @Environment(\.widgetPopoutShowsHero) private var inDockPopout
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
+    @Environment(\.widgetPopoutContext) private var context
     @DockAccessibilityStyle() private var accessibility
+    private var inDockPopout: Bool { WidgetPopoutContext.resolve(explicit: context, showsHero: showsHero) == .dock }
 
     init(_ title: String = "Settings", summary: String? = nil, isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content) {
         self.title = title
@@ -261,8 +263,7 @@ struct DiskSpacePopoutContent: View {
                 }
             }
             VStack(alignment: .leading, spacing: 6) {
-                WidgetPopoutSectionHeader("Startup Disk") { Button("Refresh", action: refresh) }
-                GroupedSection(footer: footer, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                GroupedSection("Startup Disk", footer: footer, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
                     if let snapshot {
                         GroupedRow("Used", value: "\(Int((snapshot.usedFraction * 100).rounded()))%")
                         GroupedRow("Capacity", value: snapshot.totalText)
@@ -272,11 +273,12 @@ struct DiskSpacePopoutContent: View {
                 }
             }
         }
+        // Freshness and the one refresh control live in the popout header (or the sheet's Data row).
+        .widgetPopoutRefresh(WidgetPopoutRefresh(updatedAt: sampledAt, isRefreshing: false, failed: refreshFailed,
+                                                 maximumAge: 120, action: refresh))
     }
     private var footer: String {
-        let cadence = refreshFailed ? "Refresh failed. The last successful reading is kept." : "Samples the volume with your home folder every minute while open."
-        guard let sampledAt else { return cadence }
-        return WidgetTimingPresentation.readingStatus(fetchedAt: sampledAt, now: .now, maximumAge: 120) + ". " + cadence
+        refreshFailed ? "Refresh failed. The last reading is kept." : "Samples your home folder’s volume every minute."
     }
 }
 

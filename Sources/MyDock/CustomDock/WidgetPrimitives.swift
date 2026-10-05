@@ -142,17 +142,27 @@ struct WidgetIcon: View {
     private var isEnclosed: Bool { enclosed ?? (size >= 18 && (treatment == .soft || treatment == .accent)) }
     private var filled: Bool { active || treatment == .accent }
     private var contrast: Bool { accessibility.contrast == .increased }
-    /// Glyph colour on a filled circle; a mono accent fills with primary, so invert.
+    /// Glyph colour on a filled circle; a primary fill (mono accent or Mono treatment) inverts.
     private var onFill: Color {
-        if case .mono = accentChoice { return scheme == .dark ? .black : .white }
-        return .white
+        Self.fillIsPrimary(treatment: treatment, accent: accentChoice) ? (scheme == .dark ? .black : .white) : .white
     }
     private var circleFill: Color {
-        if filled { return tint }
+        if filled { return Self.activeFill(kind: kind, treatment: treatment, accent: accentChoice) }
         if treatment == .soft { return tint.opacity(contrast ? 0.30 : 0.16) }
         return Color.primary.opacity(contrast ? 0.20 : 0.09)
     }
     private var weight: Font.Weight { treatment == .outline ? .light : isEnclosed ? .semibold : .medium }
+
+    /// Whether a filled (active) circle uses the primary colour: a mono accent, or the Mono treatment,
+    /// which stays monochrome in every state (Control Center's white active toggle).
+    static func fillIsPrimary(treatment: WidgetIconAppearance, accent: WidgetAccent) -> Bool {
+        if case .mono = accent { return true }
+        return treatment == .mono
+    }
+    /// The fill of an active or Color-treatment circle.
+    static func activeFill(kind: String, treatment: WidgetIconAppearance, accent: WidgetAccent) -> Color {
+        fillIsPrimary(treatment: treatment, accent: accent) ? Color.primary : WidgetPalette.resolved(kind: kind, accent: accent)
+    }
 
     var body: some View {
         Group {
@@ -190,6 +200,26 @@ struct WidgetToggleGlyph: View {
 
 // MARK: - Container
 
+private struct WidgetPreviewScaleKey: EnvironmentKey { static let defaultValue: CGFloat = 1 }
+extension EnvironmentValues {
+    /// The scale a preview applies to a widget after laying it out at its Dock size (gallery, settings
+    /// sheet, Customize). 1 in the Dock.
+    var widgetPreviewScale: CGFloat {
+        get { self[WidgetPreviewScaleKey.self] }
+        set { self[WidgetPreviewScaleKey.self] = newValue }
+    }
+}
+
+/// How a scaled preview keeps its face sharp: the face is flattened at display scale × preview scale.
+enum WidgetPreviewRaster {
+    /// The rasterisation scale for a preview, or nil to draw the face directly (the Dock, unscaled previews).
+    static func scale(preview: CGFloat, display: CGFloat) -> CGFloat? {
+        guard preview.isFinite, preview > 0, abs(preview - 1) > 0.001 else { return nil }
+        let base = display.isFinite && display > 0 ? display : 2
+        return base * preview
+    }
+}
+
 /// The widget module. A thin switch over the Dock's widget surface:
 /// `.tile` is today's tile exactly; `.glass` is a GlassModule; `.plain` sits on the Dock glass.
 struct WidgetContainer<Content: View>: View {
@@ -200,16 +230,30 @@ struct WidgetContainer<Content: View>: View {
     @Environment(\.dockModuleRadius) private var moduleRadius
     @Environment(\.widgetAccent) private var accent
     @Environment(\.widgetGlassTint) private var glassTint
+    @Environment(\.widgetPreviewScale) private var previewScale
+    @Environment(\.displayScale) private var displayScale
     var body: some View {
         switch surface {
         case .tile:
-            WidgetTileSurface(width: width) { content }
+            WidgetTileSurface(width: width) { face }
         case .glass:
             // Interactive glass: the native specular highlight follows the pointer (macOS 26).
             GlassModule(width: width, height: 54, radius: moduleRadius, style: .regular, tint: glassTintColor,
-                        interactive: true) { content }
+                        interactive: true) { face }
         case .plain:
-            WidgetPlainSurface(width: width, radius: moduleRadius) { content }
+            WidgetPlainSurface(width: width, radius: moduleRadius) { face }
+        }
+    }
+    /// In the Dock the face draws as vectors at 1×. A preview that is scaled up afterwards
+    /// (`widgetPreviewScale`) flattens the face at the final pixel density instead, so its text stays crisp
+    /// rather than an upscaled 1× bitmap. Only the face is flattened: the surface (glass, material) is not.
+    @ViewBuilder private var face: some View {
+        if let rasterScale = WidgetPreviewRaster.scale(preview: previewScale, display: displayScale) {
+            content
+                .drawingGroup(opaque: false, colorMode: .extendedLinear)
+                .environment(\.displayScale, rasterScale)
+        } else {
+            content
         }
     }
     private var glassTintColor: Color? {

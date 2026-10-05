@@ -135,6 +135,8 @@ private struct AlarmPopoutWidgetView: View {
     /// The New Alarm form sits behind a final disclosure; it opens for editing and when there is no alarm yet.
     @State private var editorExpanded = false
     @Environment(\.widgetPopoutShowsHero) private var showsHero
+    @Environment(\.widgetPopoutContext) private var context
+    private var inSheet: Bool { WidgetPopoutContext.resolve(explicit: context, showsHero: showsHero) == .sheet }
 
     private var alarms: [DockAlarm] { store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id }?.widgetConfiguration?.alarms ?? [] }
 
@@ -179,7 +181,7 @@ private struct AlarmPopoutWidgetView: View {
     private var editor: some View {
         VStack(alignment: .leading, spacing: 10) {
             // In the Dock popout the disclosure names the form; in the settings sheet the section does.
-            GroupedSection(showsHero ? nil : (editingAlarmID == nil ? "New Alarm" : "Edit Alarm"),
+            GroupedSection(inSheet ? (editingAlarmID == nil ? "New Alarm" : "Edit Alarm") : nil,
                            footer: AlarmCopy.editorFooter,
                            separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
                 GroupedRow("Time") {
