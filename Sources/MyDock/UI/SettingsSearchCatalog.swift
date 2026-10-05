@@ -29,7 +29,7 @@ enum SettingsSearchCatalog {
         .init(title: "Floating inset", section: "Floating inset", page: .appearance, keywords: "layout screen gap 24"),
         .init(title: "Auto tint", section: "Auto tint", page: .appearance, keywords: "automatic profile color strength"),
         .init(title: "Tint strength", section: "Tint strength", page: .appearance, keywords: "glass color zero"),
-        .init(title: "Glass finish", section: "Glass", page: .appearance, keywords: "clear frosted material"),
+        .init(title: "Finish", section: "Finish", page: .appearance, keywords: "glass finish clear frosted material appearance"),
         .init(title: "Glass opacity", section: "Glass opacity", page: .appearance, keywords: "transparent opaque"),
         .init(title: "Clear", section: "Style Clear", page: .appearance, keywords: "quick style swatch preset"),
         .init(title: "Glass", section: "Style Glass", page: .appearance, keywords: "quick style swatch preset"),

@@ -14,9 +14,10 @@ extension SettingsView {
         AppLifecycleSettingsView()
         RecoveryCenterView(store: store, history: store.history)
         GroupedSection("Saved Docks", footer: includePersonalBackupData
-            ? "Includes notes, lists, snippets, shelf files, history, timers, alarms and selections; keep private; credentials, permissions and provider caches are excluded."
-            : "Layout keeps app, file, folder and link locations; notes, lists, snippets, history, timers, alarms, calendar selections, connections and provider caches are removed.") {
+            ? "Personal backups include private widget data."
+            : "Layout backups exclude personal widget data.") {
             GroupedRow("Include personal widget data", isOn: $includePersonalBackupData)
+                .help("Personal backups include notes, lists, snippets, shelf files, history, timers, alarms and selections. Layout backups keep app, file, folder and link locations. Credentials, permissions and provider caches are always excluded; layout backups also exclude connections and personal data.")
             GroupedRow("Back Up…", role: .button) { exportBackup() }
             GroupedRow("Restore…", role: .button) { importBackup() }
             if let backupMessage { Text(backupMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }
@@ -24,15 +25,18 @@ extension SettingsView {
             GroupedRow("Custom Dock profiles", value: "\(store.customProfiles.count)")
         }.id("Saved Docks")
         PrivacyHelpSection()
-        DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
-        GroupedSection("Diagnostics", footer: "Review versions, counts, appearance, save status and event codes; names, paths, URLs, personal content, credentials and images are excluded.") {
-            GroupedRow("Export Diagnostics…", role: .button) { exportDiagnostics() }
-            if let diagnosticsMessage {
-                Text(diagnosticsMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+        GroupedSection("Advanced", footer: "Review a redacted report before exporting.") {
+            SettingsExpansionRow(title: "Diagnostics", isExpanded: $advancedExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    GroupedRow("Export Diagnostics…", role: .button) { exportDiagnostics() }
+                        .help("Includes versions, counts, appearance, save status and event codes. Names, paths, URLs, personal content, credentials and images are excluded.")
+                    if let diagnosticsMessage {
+                        Text(diagnosticsMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                }
             }
         }.id("Diagnostics")
-        }
         }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
     }
     }

@@ -11,7 +11,7 @@ extension SettingsView {
     DockScrollView {
         VStack(alignment: .leading, spacing: 20) {
         SettingsPageHeader(page: selectedPage)
-        GroupedSection("Custom Dock behavior", footer: "The screen edge stays active without a handle; overlap detection uses window positions without screen capture.") {
+        GroupedSection("Custom Dock behavior", footer: "The screen edge stays active without a handle.") {
             GroupedRow("Use as desktop widget (behind windows)", isOn: Binding(get: { store.state.settings.customDockDesktopMode }, set: { value in store.updateSettings { $0.customDockDesktopMode = value } }))
             GroupedRow("Automatically hide", isOn: Binding(get: { store.state.settings.automaticallyHideCustomDock }, set: { value in store.updateSettings { $0.automaticallyHideCustomDock = value } }))
                 .disabled(store.state.settings.customDockDesktopMode)
@@ -25,8 +25,8 @@ extension SettingsView {
                 Text("Stays behind windows, including fullscreen apps; auto-hide is paused.")
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
             }
-        }.id("Custom Dock behavior")
-        GroupedSection("Apps and windows", footer: "macOS 14+: previews stay local for 24 hours and are deleted when disabled; duplicates or unavailable previews use app icons.") {
+        }.id("Custom Dock behavior").help("The screen edge stays active without a handle; overlap detection uses window positions without screen capture.")
+        GroupedSection("Apps and windows", footer: "Window previews stay on this Mac.") {
             GroupedRow("Show running apps", isOn: Binding(get: { store.state.settings.showRunningApps }, set: { value in store.updateSettings { $0.showRunningApps = value } }))
             GroupedRow("Show minimized windows", isOn: Binding(get: { store.state.settings.showMinimizedWindows }, set: { value in store.updateSettings { $0.showMinimizedWindows = value } }))
                 .onChange(of: store.state.settings.showMinimizedWindows) { enabled in
@@ -46,8 +46,8 @@ extension SettingsView {
             if let windowPreviewMessage {
                 Text(windowPreviewMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
             }
-        }.id("Apps and windows")
-        GroupedSection("Dock items", footer: DockBadgeReader.isSupported ? "Reads available Apple Dock badge labels through Accessibility; notification contents stay private." : "App badge labels require macOS 14 or later.") {
+        }.id("Apps and windows").help("macOS 14+: previews stay local for 24 hours and are deleted when disabled; duplicates or unavailable previews use app icons.")
+        GroupedSection("Dock items", footer: DockBadgeReader.isSupported ? "Notification contents stay private." : "App badge labels require macOS 14 or later.") {
             GroupedRow("Show Trash", isOn: Binding(get: { store.state.settings.showTrash }, set: { value in store.updateSettings { $0.showTrash = value } }))
             GroupedRow("Show app badges", isOn: Binding(get: { store.state.settings.showAppBadges }, set: { value in store.updateSettings { $0.showAppBadges = value } }))
                 .disabled(!DockBadgeReader.isSupported)
@@ -66,7 +66,7 @@ extension SettingsView {
                         .controlSize(.small)
                 }
             }
-        }.id("Dock items")
+        }.id("Dock items").help("Reads available Apple Dock badge labels through Accessibility; notification contents stay private.")
         GroupedSection("Interaction") {
             GroupedRow("Click focused app to minimize", isOn: Binding(get: { store.state.settings.clickFocusedAppToMinimize }, set: { value in store.updateSettings { $0.clickFocusedAppToMinimize = value } }))
                 .onChange(of: store.state.settings.clickFocusedAppToMinimize) { enabled in

@@ -9,38 +9,34 @@ struct RecoveryCenterView: View {
     @State private var confirmingClear = false
 
     var body: some View {
-        DockSettingSection(title: "Recovery & history") {
-            Text("Previous profile layouts are kept locally for 14 days, up to 25 entries and 8 MB. Credentials, connected account references, cached usage, hydration history, and running sessions are removed. Restoring creates a new profile.")
-                .font(.caption).foregroundStyle(.secondary)
-            Toggle("Include private text for this session", isOn: $history.includeNotes)
-            Text("Includes Sticky Note text, Quick Checklist tasks, and Text Snippets in new history entries until MyDock quits. File Shelf references and Quick Links are always omitted. Turning this off does not remove text from existing history entries.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            if let error = history.errorMessage { Text(error).font(.caption).foregroundStyle(.orange) }
-            if history.entries.isEmpty { Text("No previous layouts yet.").foregroundStyle(.secondary) }
+        GroupedSection("Recovery & history", footer: "Restoring creates a new profile.") {
+            GroupedRow("Include private text for this session", isOn: $history.includeNotes)
+                .help("Includes Sticky Note text, Quick Checklist tasks, and Text Snippets in new history entries until MyDock quits. File Shelf references and Quick Links are always omitted. Turning this off does not remove text from existing history entries.")
+            if let error = history.errorMessage { GroupedRow(error).foregroundStyle(.orange) }
+            if history.entries.isEmpty { GroupedRow("No previous layouts yet.") }
             ForEach(history.entries) { entry in
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(entry.profile.name).font(.callout.weight(.semibold))
-                        Text("\(entry.reason) · \(entry.recordedAt.formatted(date: .abbreviated, time: .shortened)) · \(entry.profile.items.count) items")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
+                GroupedRow(entry.profile.name, subtitle: "\(entry.reason) · \(entry.recordedAt.formatted(date: .abbreviated, time: .shortened)) · \(entry.profile.items.count) items") {
+                    HStack {
                     Button("Inspect") { selected = entry }
                     Button("Restore as New") { restore(entry) }
+                    }
                 }
             }
-            Button("Clear History…", role: .destructive) { confirmingClear = true }.disabled(history.entries.isEmpty)
-            if let message { Text(message).font(.caption).textSelection(.enabled) }
+            GroupedRow("Clear History…", role: .destructive) { confirmingClear = true }.disabled(history.entries.isEmpty)
+            if let message { GroupedRow(message).textSelection(.enabled) }
         }
+        .id("Recovery & history")
+        .help("Previous profile layouts are kept locally for 14 days, up to 25 entries and 8 MB. Credentials, connected account references, cached usage, hydration history, and running sessions are removed.")
         .confirmationDialog("Clear local profile history?", isPresented: $confirmingClear) {
             Button("Clear History", role: .destructive) { history.clear() }
         }
         .sheet(item: $selected) { entry in
             VStack(alignment: .leading, spacing: 14) {
-                Text(entry.profile.name).font(.title2)
+                HStack { Spacer(); Button("Done") { selected = nil }.buttonStyle(GalleryGlassButtonStyle()).keyboardShortcut(.cancelAction) }
+                    .overlay { Text(entry.profile.name).font(DockDesign.sectionTitle).allowsHitTesting(false) }
                 if entry.profile.kind == .custom { DockLayoutPreview(store: store, profile: entry.profile) }
                 DockScrollView { VStack(alignment: .leading) { ForEach(entry.profile.items) { Text($0.displayName) } } }.frame(maxHeight: 250)
-                HStack { Button("Close") { selected = nil }; Spacer(); Button("Restore as New") { restore(entry); selected = nil } }
+                HStack { Spacer(); Button("Restore as New") { restore(entry); selected = nil } }
             }.padding(24).frame(width: 600).background(DockDesign.page).buttonStyle(DockButtonStyle())
         }
     }

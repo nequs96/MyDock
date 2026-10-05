@@ -5,6 +5,7 @@ struct AIAccountConnectionView: View {
     var provider: AIProvider
     var allowsAccountActions: Bool
     var showsLimitsSetup = false
+    var settingsPresentation = false
     var refresh: () async -> Void = {}
     @State private var status: AIAccountStatus?
     @State private var checking = false
@@ -14,6 +15,10 @@ struct AIAccountConnectionView: View {
     private var directory: URL { status?.configurationDirectory ?? AIAccountService.claudeDirectory() }
 
     var body: some View {
+        Group {
+        if settingsPresentation {
+            settingsAccount
+        } else {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Image(systemName: provider == .codex ? "terminal" : "sparkle")
@@ -28,7 +33,25 @@ struct AIAccountConnectionView: View {
                 if checking { ProgressView().controlSize(.small) }
                 else if status?.state == .signedIn { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
             }
-            HStack(spacing: 8) {
+            accountActions
+            if provider == .claude, showsLimitsSetup {
+                Text(limitsEnabled ? "Limits sync automatically while you use Claude Code. Requires Claude Code 2.1.251 or later."
+                     : "Enable Limits adds usage sync to Claude Code’s status line and keeps your current terminal display. A backup of its settings is saved.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if let message { Text(message).font(DockDesign.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+        }
+        .padding(12).modifier(AppSurface())
+        }
+        }
+        .task(id: provider) { await findAccount(refreshData: false) }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await findAccount(refreshData: true) }
+        }
+    }
+
+    private var accountActions: some View {
+        HStack(spacing: 8) {
                 Button(status?.state == .notInstalled ? "Get \(provider == .claude ? "Claude Code" : "Codex")" : "Sign In…") {
                     do { try AIAccountService.signIn(provider); message = "Finish signing in in Terminal, then return here." }
                     catch { message = "Could not open sign-in. Open \(provider.title) and sign in, then choose Find Account." }
@@ -48,17 +71,22 @@ struct AIAccountConnectionView: View {
                     }.disabled(!allowsAccountActions)
                 }
             }.controlSize(.small)
-            if provider == .claude, showsLimitsSetup {
-                Text(limitsEnabled ? "Limits sync automatically while you use Claude Code. Requires Claude Code 2.1.251 or later."
-                     : "Enable Limits adds usage sync to Claude Code’s status line and keeps your current terminal display. A backup of its settings is saved.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var settingsAccount: some View {
+        GroupedSection(provider == .claude ? "Claude Code" : "Codex", footer: "Sign in with the provider to add an account.") {
+            GroupedRow(provider == .claude ? "Claude Code" : "Codex",
+                       subtitle: checking ? "Looking for an account on this Mac…" : status?.message ?? "Find an account already signed in on this Mac",
+                       symbol: provider == .codex ? "terminal" : "sparkle", color: .gray) {
+                if checking { ProgressView().controlSize(.small) }
+                else if status?.state == .signedIn { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
             }
-            if let message { Text(message).font(DockDesign.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-        }
-        .padding(12).modifier(AppSurface())
-        .task(id: provider) { await findAccount(refreshData: false) }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await findAccount(refreshData: true) }
+            accountActions.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            if provider == .claude, showsLimitsSetup {
+                GroupedRow(limitsEnabled ? "Limits sync while you use Claude Code." : "Enable Limits to sync usage.")
+                    .help(limitsEnabled ? "Requires Claude Code 2.1.251 or later." : "Adds usage sync to Claude Code’s status line, keeps your terminal display and saves a settings backup.")
+            }
+            if let message { GroupedRow(message).textSelection(.enabled) }
         }
     }
 

@@ -8,7 +8,8 @@ struct PersonalPresetPicker: View {
     @State private var message: String?
 
     var body: some View {
-        GroupedSection("Personal presets", footer: message ?? library.errorMessage) {
+        GroupedSection("Personal presets") {
+            if let message = message ?? library.errorMessage { GroupedRow(message).textSelection(.enabled) }
             GroupedRow("Import…", role: .button) { importPreset() }
             if library.entries.isEmpty {
                 GroupedRow("Save or import a Dock preset to keep it here.")
@@ -21,6 +22,7 @@ struct PersonalPresetPicker: View {
                         Button("Export…") { exportPreset(entry.id) }
                             .accessibilityLabel("Export preset \(entry.profile.name)")
                         Button("Remove", role: .destructive) { library.remove(entry.id) }
+                            .buttonStyle(.plain).foregroundStyle(Color(nsColor: .systemRed)).padding(.horizontal, 8)
                             .accessibilityLabel("Remove preset \(entry.profile.name)")
                     }
                 }

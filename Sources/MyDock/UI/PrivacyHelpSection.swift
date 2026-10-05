@@ -2,13 +2,15 @@ import SwiftUI
 
 /// Short privacy and limitations help shown on the General and Integrations pages.
 struct PrivacyHelpSection: View {
+    @State private var privacyExpanded = false
+    @State private var limitationsExpanded = false
     var body: some View {
-        DockSettingSection(title: PrivacyHelpCopy.privacyTitle) {
-            DisclosureGroup("What is stored and what is not") {
-                bullets(PrivacyHelpCopy.privacyPoints).padding(.top, 8)
+        GroupedSection(PrivacyHelpCopy.privacyTitle) {
+            SettingsExpansionRow(title: "What is stored and what is not", isExpanded: $privacyExpanded) {
+                bullets(PrivacyHelpCopy.privacyPoints)
             }
-            DisclosureGroup(PrivacyHelpCopy.limitationsTitle) {
-                bullets(PrivacyHelpCopy.limitationPoints).padding(.top, 8)
+            SettingsExpansionRow(title: PrivacyHelpCopy.limitationsTitle, isExpanded: $limitationsExpanded) {
+                bullets(PrivacyHelpCopy.limitationPoints)
             }
         }
     }
