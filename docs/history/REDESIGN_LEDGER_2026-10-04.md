@@ -810,3 +810,31 @@ Fixes:
 - T7: shorter detail copy.
 
 **Deferred, recorded:** T2 (accent semantics: product decision) and T5 (sheet preview strip).
+
+### FX-01 — merged (branch commit `808ecb5`) plus project regeneration `b71840c`
+
+**Root cause.** It was not text wrapping, as hypothesised: it was the popout shell. `WidgetPopout` fixed its width with `.frame(width:)` but left its height compressible. Family content scales to fit: `WidgetPopoutHero` uses `minimumScaleFactor(0.5)`. As a result:
+- The hosting view reported a window content minimum height below its maximum (Trash: 373…396).
+- The fractional measured height (from a 0.5 pt separator) rounded the window down 1 pt per pass until AppKit threw `NSGenericException`: "…more Update Constraints in Window passes than there are views in the window." The worker observed this reason by temporarily swizzling `_crashOnException:`.
+
+**Scope.**
+- Almost every popout had min < max. Unit Converter crashed the same way once Trash was bypassed.
+- The live popover wraps the shell in a real `ScrollView`, which hands the shell its natural height. The worker reasoned from code that the live path is not exposed. This is not natively verified.
+
+**Fix.** `.fixedSize(horizontal: false, vertical: true)` on the shell at `WidgetViews.swift:~152`, with an explanatory comment.
+
+**Test.** `PopoutLayoutLoopTests` (2 tests):
+- Trash, across every error shape;
+- every registry family: the popout is vertically rigid (min == max) and settles in a window at 460×680.
+
+Both tests fail with the fix commented out.
+
+**Verification.**
+- Worker: the WIDGET export now completes with 130 PNGs, exit 0. The FACESA, FACESB and WIDGETSHEET exports are unchanged apart from time-driven pixels.
+- Integration: `./TestMyDock.sh` **611 tests in 78 suites** (`.build/redesign-fx01-test.log`).
+
+### Fix wave launches
+
+- FX-05 (Codex) runs from `090ff19`.
+- FX-03 (`widget-visuals`) runs from `b71840c`.
+- Queued: FX-02, FX-06, FX-07, then FX-04 after FX-03.
