@@ -224,3 +224,14 @@ struct FX03Tests {
         #expect(roomy > 300)
     }
 }
+
+@Suite struct WidgetPopoutHeroStyleTests {
+    @Test func readingsStayLargeAndStatesBecomeCalmStatus() {
+        for reading in ["72%", "21°", "$2.4K", "12", "7:30", "121 GB"] {
+            #expect(WidgetPopoutHeroStyle.automatic(for: reading) == .reading)
+        }
+        for state in ["Connect Stripe", "Unavailable", "Warming up", "Choose a ticker", "Empty", "Off"] {
+            #expect(WidgetPopoutHeroStyle.automatic(for: state) == .status)
+        }
+    }
+}

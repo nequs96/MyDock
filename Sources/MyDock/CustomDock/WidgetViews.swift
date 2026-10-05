@@ -291,20 +291,40 @@ struct WidgetPopoutHeroGroup<Content: View>: View {
 
 /// The one large value of a popout (a time, a count) with at most one secondary line, centred.
 /// Hidden inside the settings sheet (`widgetPopoutShowsHero`).
+/// How a popout hero presents its value: a large reading, or a calm status sentence.
+enum WidgetPopoutHeroStyle: Equatable {
+    case reading, status
+    /// Readings carry digits ("72%", "21°", "$2.4K"). Words such as "Connect Stripe",
+    /// "Unavailable" or "Warming up" are states, not numbers, and must not shout at 40 pt.
+    static func automatic(for value: String) -> Self {
+        value.rangeOfCharacter(from: .decimalDigits) == nil ? .status : .reading
+    }
+}
+
 struct WidgetPopoutHero: View {
     var value: String
     var caption: String?
     var valueColor: Color = .primary
+    /// Optional glyph shown above a status (ignored for readings).
+    var symbol: String? = nil
     @Environment(\.widgetPopoutShowsHero) private var showsHero
     var body: some View {
         if showsHero { hero }
     }
+    private var style: WidgetPopoutHeroStyle { .automatic(for: value) }
     private var hero: some View {
         VStack(spacing: 3) {
+            if style == .status, let symbol {
+                Image(systemName: symbol).font(.system(size: 26, weight: .regular))
+                    .foregroundStyle(valueColor == .primary ? Color.secondary : valueColor)
+                    .padding(.bottom, 4).accessibilityHidden(true)
+            }
             Text(value)
-                .font(.system(size: 40, weight: .semibold).monospacedDigit())
+                .font(style == .reading ? .system(size: 40, weight: .semibold).monospacedDigit()
+                                        : .system(size: 17, weight: .semibold))
                 .foregroundStyle(valueColor)
-                .lineLimit(1).minimumScaleFactor(0.5)
+                .lineLimit(style == .reading ? 1 : 2).minimumScaleFactor(style == .reading ? 0.5 : 1)
+                .multilineTextAlignment(.center)
                 .contentTransition(.numericText())
             if let caption {
                 Text(caption).font(.system(size: 13)).foregroundStyle(.secondary)
