@@ -33,6 +33,10 @@ extension SettingsView {
                 .onChange(of: store.state.settings.showMinimizedWindows) { enabled in
                     if enabled { _ = WindowAccessibilityService.requestAccessPrompt() }
                 }
+            GroupedRow("Show window previews", subtitle: "Hover over an open app to see its windows.", isOn: Binding(get: { store.state.settings.showWindowPreviewsOnHover }, set: { value in store.updateSettings { $0.showWindowPreviewsOnHover = value } }))
+                .onChange(of: store.state.settings.showWindowPreviewsOnHover) { enabled in
+                    if enabled && !WindowAccessibilityService.isTrusted() { _ = WindowAccessibilityService.requestAccessPrompt() }
+                }
             GroupedRow("Cache window previews", isOn: Binding(get: { store.state.settings.showWindowPreviews }, set: { value in store.updateSettings { $0.showWindowPreviews = value } }))
                 .disabled(!store.state.settings.showMinimizedWindows || !supportsScreenCaptureFreeze)
                 .onChange(of: store.state.settings.showWindowPreviews) { enabled in

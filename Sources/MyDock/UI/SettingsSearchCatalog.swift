@@ -47,6 +47,7 @@ enum SettingsSearchCatalog {
         .init(title: "Running apps and minimized windows", section: "Apps and windows", page: .behavior, keywords: "applications restore"),
         .init(title: "Show recent apps", section: "Apps and windows", page: .behavior, keywords: "recent suggested used applications"),
         .init(title: "Window previews", section: "Apps and windows", page: .behavior, keywords: "screen recording cache capture"),
+        .init(title: "Show window previews", section: "Apps and windows", page: .behavior, keywords: "hover thumbnails windows open app switch"),
         .init(title: "Magnification", section: "Interaction", page: .behavior, keywords: "hover zoom animation motion"),
         .init(title: "Trash and app badges", section: "Dock items", page: .behavior, keywords: "notifications count"),
         .init(title: "Keyboard shortcuts", section: "Global profile shortcuts", page: .shortcuts, keywords: "hotkey global switch"),

@@ -703,6 +703,17 @@ struct CustomDockView: View {
                 }
             }
             .frame(width: tileWidth, height: 54 * size)
+            // PX-2: hover a running app for its windows. Hit-test transparent; opt-in.
+            .background {
+                if WindowPreviewEligibility.showsRegion(itemType: item.type, isRunning: isRunning, isPreview: isPreview,
+                                                        popoutOpen: popouts.anchorID != nil,
+                                                        enabled: store.state.settings.showWindowPreviewsOnHover) {
+                    DockWindowPreviewHoverRegion(key: item.id.uuidString, item: item, position: settings.customDockPosition,
+                        colorScheme: DockColorSchemePolicy.scheme(theme: settings.customDockTheme, material: settings.customDockMaterial,
+                                                                  system: systemAppearance.scheme),
+                        animationsEnabled: settings.dockAnimationsEnabled)
+                }
+            }
             // Popout anchors carry a glass identity so a popout can morph from its module (macOS 26).
             .modifier(DockPopoutGlassAnchor(id: [.widget, .folder].contains(item.type) ? item.id.uuidString : nil,
                                             namespace: popoutGlass))
