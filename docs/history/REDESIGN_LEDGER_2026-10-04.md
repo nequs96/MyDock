@@ -845,3 +845,54 @@ Both tests fail with the fix commented out.
 - **FX-05's first Codex run never started work.** `codex exec` printed "Reading additional input from stdin..." and then waited on an open stdin for about 4 h. The worktree had no changes.
   - The orchestrator stopped its own stuck process (exit 144) and relaunched with `< /dev/null`. The model then started normally.
   - Every later `codex exec` launch closes stdin. Earlier runs only got past this by chance.
+
+### FX-03 — merged `062b2a0` (branch commit `d8c233f`)
+
+**D1 decision (accepted):** the `NSPopover`'s own material is the single surface.
+- The shell no longer draws `dockGlass`, and the host adds no padding or opaque slab.
+- `WidgetPopoverSurface` fills opaque under Reduce Transparency.
+- Rationale: NSPopover always draws its material and arrow, so a glass card inside it always reads as card-in-slab. The native material gives macOS 26 Liquid Glass and system Reduce Transparency/Increase Contrast handling.
+- `WidgetDesign.surface` is now `DockDesign.page`. In production it is only used for the Reduce Transparency fill.
+
+**Codex #2 (Remove Widget):**
+- Draft rollback when the store was untouched.
+- A pending removal that retries when the write failed after the store applied it.
+- Undo is registered only after success.
+- The sheet shows the error and a "Retry Remove Widget" action, and does not dismiss.
+
+**D3:** Sticky Note is one flowing text, two lines, word-wrapped. The sample note is "Call Mia about the trip".
+
+**D6:** `WidgetPeriodToken` adds "Today", "7d", "30d" and "Month". `ModuleLabel` drops the trailing text via `ViewThatFits`.
+
+**D7:** role-based `WidgetRoundButtonStyle`, measured at about 5.3:1 and 7–7.6:1 under Increase Contrast.
+
+**D12:**
+- The `widgetPopoutShowsHero` flag and `WidgetSheetHeroPolicy` stop the hero repeating in the sheet. Clock has no Content section.
+- `WidgetPopoutHeroGroup` hides a hero together with its decoration.
+
+**D14:** `WidgetCustomizePanel` reuses the sheet's pager and Appearance controls. App Folder colours come from `WidgetPalette.profile`.
+
+**D15:**
+- Label over value in System Activity Compact.
+- `ModuleAlignmentPolicy` centres every face when labels are off.
+
+**Truncation:**
+- `DiskSpaceFaceText` uses three significant digits, locale-aware ("121 GB").
+- `MediaDockFace` never breaks a word.
+
+**Dead code removed:** `RemindersDockFace`, `BusinessDockFace` and seven provider compact views. All were verified as unreferenced.
+
+**D13:** already compliant.
+
+**Hand-offs:**
+- To FX-04: Weather and Trash hero decoration in the sheet.
+- To FX-02: MotionQA still emulates the old 20 pt host padding.
+
+**Verification:**
+- The worker ran 623 tests (FX03Tests has 12, including contrast ratios). Exports: WIDGET 130, WIDGETSHEET 62, WIDGETSURFACE 68, MOTION 25, SETTINGS 74.
+- The orchestrator viewed `motion-popout-end-light` (single surface) and `widgetpopout-countdown-light` (white Start on solid green).
+- Integration: `./TestMyDock.sh` **623 tests in 79 suites** (`.build/redesign-fx03-test.log`).
+
+### FX-04 launched
+
+`widget-visuals` agent, base `062b2a0`.
