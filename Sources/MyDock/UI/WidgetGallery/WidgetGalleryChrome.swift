@@ -6,6 +6,8 @@ enum WidgetGalleryMetrics {
     static let tileRadius: CGFloat = 22
     static let heroRadius: CGFloat = 26
     static let panelRadius: CGFloat = 30
+    /// Padding between a tile's backdrop edge and its illustration; captions start at the same inset.
+    static let tileInset: CGFloat = 18
     static let gridSpacing: CGFloat = 16
     static let sectionSpacing: CGFloat = 30
     static let pageInset: CGFloat = 24
