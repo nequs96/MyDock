@@ -30,6 +30,19 @@ enum NowPlayingPresentation {
         guard position.isFinite, duration.isFinite, duration > 0 else { return 0 }
         return min(1, max(0, position / duration))
     }
+
+    /// The seek glyph that shows the actual skip interval ("gobackward.15", "goforward.30"). SF Symbols
+    /// has numbered variants only for some intervals (5, 10, 15, 30, 45, 60…); any other interval, or a
+    /// system without the variant, falls back to the plain arrow.
+    static func seekSymbol(forward: Bool, seconds: Int, isAvailable: (String) -> Bool = symbolExists) -> String {
+        let base = forward ? "goforward" : "gobackward"
+        let numbered = "\(base).\(seconds)"
+        return isAvailable(numbered) ? numbered : base
+    }
+
+    static func symbolExists(_ name: String) -> Bool {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
+    }
 }
 
 private struct NowPlayingCompactWidgetView: View {
@@ -97,6 +110,8 @@ private struct NowPlayingPopoutWidgetView: View {
     @State private var showsTrackControls = true
     @State private var showsSeekControls = true
     @State private var subscriptionIDs: [NowPlayingSource: UUID] = [:]
+    /// Players and controls sit behind a final disclosure; it starts open only when no player is enabled.
+    @State private var settingsExpanded = false
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var preferredSource: NowPlayingSource { NowPlayingSource(rawValue: sourceSelection) ?? .appleMusic }
@@ -134,7 +149,7 @@ private struct NowPlayingPopoutWidgetView: View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             if enabledSources.isEmpty {
                 GroupedSection {
-                    GroupedRow("No players enabled", subtitle: "Enable Apple Music or Spotify below to show and control playback.",
+                    GroupedRow("No players enabled", subtitle: "Turn on Apple Music or Spotify in Settings below.",
                                symbol: "music.note", color: .gray)
                 }
             } else if let snapshot {
@@ -157,45 +172,49 @@ private struct NowPlayingPopoutWidgetView: View {
                 WidgetPopoutCaption(errorMessage, color: .orange)
             }
 
-            GroupedSection("Players", separatorInset: DockDesign.Grouped.separatorInset) {
-                ForEach(NowPlayingSource.allCases) { option in
-                    let running = runningSources.contains(option)
-                    GroupedRow(option.title, subtitle: running ? "Open" : "Closed",
-                               symbol: option == .appleMusic ? "music.note" : "headphones",
-                               color: running ? .green : .gray, isOn: enabledSourceBinding(for: option))
-                        .help("\(option.title) is \(running ? "open" : "closed")")
-                }
-                GroupedRow("Preferred when paused") {
-                    Picker("Preferred when paused", selection: $sourceSelection) {
-                        ForEach(NowPlayingSource.allCases.filter(enabledSources.contains)) { option in
-                            Text(option.title).tag(option.rawValue)
+            WidgetPopoutSettingsDisclosure(summary: enabledSources.isEmpty ? "No players" : nil, isExpanded: $settingsExpanded) {
+                GroupedSection("Players", separatorInset: DockDesign.Grouped.separatorInset) {
+                    ForEach(NowPlayingSource.allCases) { option in
+                        let running = runningSources.contains(option)
+                        GroupedRow(option.title, subtitle: running ? "Open" : "Closed",
+                                   symbol: option == .appleMusic ? "music.note" : "headphones",
+                                   color: running ? .green : .gray, isOn: enabledSourceBinding(for: option))
+                            .help("\(option.title) is \(running ? "open" : "closed")")
+                    }
+                    GroupedRow("Preferred when paused") {
+                        Picker("Preferred when paused", selection: $sourceSelection) {
+                            ForEach(NowPlayingSource.allCases.filter(enabledSources.contains)) { option in
+                                Text(option.title).tag(option.rawValue)
+                            }
                         }
+                        .labelsHidden().fixedSize()
+                        .disabled(enabledSources.count < 2)
+                        .accessibilityLabel("Preferred when paused")
                     }
-                    .labelsHidden().fixedSize()
-                    .disabled(enabledSources.count < 2)
-                    .accessibilityLabel("Preferred when paused")
                 }
-            }
 
-            GroupedSection("Controls",
-                           footer: hideWhenClosed ? "The tile reappears when any enabled player opens. If all players are closed, use Manage Docks to change this setting." : nil,
-                           separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
-                GroupedRow("Popover") {
-                    Picker("Popover controls", selection: $layoutSelection) {
-                        ForEach(NowPlayingLayout.allCases) { option in Text(option.title).tag(option.rawValue) }
+                GroupedSection("Controls",
+                               footer: hideWhenClosed ? "The tile returns when an enabled player opens." : nil,
+                               separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                    GroupedRow("Popover") {
+                        Picker("Popover controls", selection: $layoutSelection) {
+                            ForEach(NowPlayingLayout.allCases) { option in Text(option.title).tag(option.rawValue) }
+                        }
+                        .pickerStyle(.segmented).labelsHidden().fixedSize()
+                        .accessibilityLabel("Popover controls")
                     }
-                    .pickerStyle(.segmented).labelsHidden().fixedSize()
-                    .accessibilityLabel("Popover controls")
+                    GroupedRow("Show previous/next controls", isOn: $showsTrackControls)
+                    GroupedRow("Show seek controls", isOn: $showsSeekControls)
+                    if showsSeekControls {
+                        WidgetStepperRow(title: "Seek interval", value: "\(skipSeconds) sec", amount: $skipSeconds, range: 5...60, step: 5)
+                    }
+                    GroupedRow("Hide tile when all enabled players are closed", isOn: $hideWhenClosed)
+                        .help("If the tile is hidden because every enabled player is closed, change this in Manage Docks.")
                 }
-                GroupedRow("Show previous/next controls", isOn: $showsTrackControls)
-                GroupedRow("Show seek controls", isOn: $showsSeekControls)
-                if showsSeekControls {
-                    WidgetStepperRow(title: "Seek interval", value: "\(skipSeconds) sec", amount: $skipSeconds, range: 5...60, step: 5)
-                }
-                GroupedRow("Hide tile when all enabled players are closed", isOn: $hideWhenClosed)
             }
         }
         .onAppear {
+            if enabledSources.isEmpty { settingsExpanded = true }
             sourceSelection = configuration.nowPlayingSource.rawValue
             layoutSelection = configuration.nowPlayingLayout.rawValue
             skipSeconds = configuration.nowPlayingSkipSeconds
@@ -286,13 +305,12 @@ private struct NowPlayingPopoutWidgetView: View {
                     Text(snapshot.artist).font(.system(size: 13)).foregroundStyle(.secondary)
                         .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                         .help(snapshot.artist).accessibilityLabel("Artist: \(snapshot.artist)")
-                    if layout == .full, !snapshot.album.isEmpty {
-                        Text(snapshot.album).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .help(snapshot.album).accessibilityLabel("Album: \(snapshot.album)")
-                    }
-                    Text(source.title).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.tertiary)
-                        .accessibilityLabel("Playback source: \(source.title)")
+                    // One quiet line: the album (full layout) and the player.
+                    let showsAlbum = layout == .full && !snapshot.album.isEmpty
+                    Text(showsAlbum ? snapshot.album + " · " + source.title : source.title)
+                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
+                        .help(showsAlbum ? snapshot.album : source.title)
+                        .accessibilityLabel(showsAlbum ? "Album: \(snapshot.album), playback source: \(source.title)" : "Playback source: \(source.title)")
                 }
                 Spacer(minLength: 0)
             }
@@ -326,7 +344,7 @@ private struct NowPlayingPopoutWidgetView: View {
         HStack(spacing: 18) {
             if showsSeekControls {
                 Button { perform(.seekBackward(TimeInterval(skipSeconds))) } label: {
-                    Label("Back \(skipSeconds) seconds", systemImage: "gobackward")
+                    Label("Back \(skipSeconds) seconds", systemImage: NowPlayingPresentation.seekSymbol(forward: false, seconds: skipSeconds))
                 }
                 .buttonStyle(NowPlayingControlStyle())
                 .help("Seek backward \(skipSeconds) seconds")
@@ -347,7 +365,7 @@ private struct NowPlayingPopoutWidgetView: View {
             }
             if showsSeekControls {
                 Button { perform(.seekForward(TimeInterval(skipSeconds))) } label: {
-                    Label("Forward \(skipSeconds) seconds", systemImage: "goforward")
+                    Label("Forward \(skipSeconds) seconds", systemImage: NowPlayingPresentation.seekSymbol(forward: true, seconds: skipSeconds))
                 }
                 .buttonStyle(NowPlayingControlStyle())
                 .help("Seek forward \(skipSeconds) seconds")

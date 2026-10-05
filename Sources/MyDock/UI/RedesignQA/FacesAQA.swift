@@ -132,6 +132,11 @@ extension PremiumVisualQA {
         store.add(unsetWeather, to: id)
         unsetWeather = store.state.profiles.first { $0.id == id }!.items.first { $0.id == unsetWeather.id }!
         try await popout("Weather", "setup", item: unsetWeather, height: 620)
+        // Dusk: a place where the next hours cross sunset, so day and night glyphs sit side by side.
+        var dusk = DockItem.widget("Weather")
+        dusk.widgetConfiguration = FacesAQA.duskWeatherConfiguration(now: .now)
+        store.add(dusk, to: id)
+        try await popout("Weather", "dusk", item: store.state.profiles.first { $0.id == id }!.items.first { $0.id == dusk.id }!, height: 620)
         for kind in ["Alarm", "Quick Checklist", "Text Snippets", "Quick Links", "File Shelf", "Color Picker"] {
             let fresh = DockItem.widget(kind)
             store.add(fresh, to: id)
@@ -155,6 +160,37 @@ enum FacesAQA {
         case "Trash", "Disk Space": 520
         default: 720
         }
+    }
+
+    /// Forecast hours start on the hour, as the provider's do.
+    static func forecastHour(_ offset: Int, after now: Date) -> Date {
+        Date(timeIntervalSince1970: (now.timeIntervalSince1970 / 3600).rounded(.down) * 3600 + Double(offset) * 3600)
+    }
+
+    /// A Weather configuration at a longitude where the sun sets within the next six hours (derived with
+    /// `WeatherDaylight`, so the render shows the per-hour day/night glyphs whatever time it runs). Its hours
+    /// read in the place's own solar time zone.
+    static func duskWeatherConfiguration(now: Date) -> WidgetConfiguration {
+        let latitude = 40.0
+        let longitude = stride(from: -180.0, to: 180.0, by: 5.0).first { longitude in
+            WeatherDaylight.isDay(at: forecastHour(1, after: now), latitude: latitude, longitude: longitude)
+                && !WeatherDaylight.isDay(at: forecastHour(4, after: now), latitude: latitude, longitude: longitude)
+        } ?? 0
+        let zone = TimeZone(secondsFromGMT: Int((longitude / 15).rounded()) * 3600)?.identifier ?? "UTC"
+        var configuration = DockItem.widget("Weather").widgetConfiguration ?? WidgetConfiguration()
+        configuration.weatherLocation = WeatherLocation(id: "qa-dusk", name: "Dusk", administrativeArea: nil, country: nil,
+                                                        latitude: latitude, longitude: longitude, timeZoneIdentifier: zone)
+        configuration.weatherLayout = .hourlyForecast
+        configuration.weatherForecastHours = 6
+        var hourly: [WeatherHour] = []
+        for offset in 1...6 {
+            let code: Int = offset % 2 == 0 ? 0 : 2
+            hourly.append(WeatherHour(timestamp: forecastHour(offset, after: now), temperature: Double(18 - offset),
+                                      precipitationProbability: nil, weatherCode: code))
+        }
+        configuration.cachedWeatherForecast = WeatherForecast(temperature: 18, apparentTemperature: 17, relativeHumidity: 60, precipitation: 0, windSpeed: 6,
+            weatherCode: 1, isDay: true, fetchedAt: now, timeZoneIdentifier: zone, hourly: hourly)
+        return configuration
     }
 
     static var weatherLocation: WeatherLocation {
@@ -188,7 +224,7 @@ enum FacesAQA {
                 item.widgetConfiguration?.weatherLayout = .hourlyForecast
                 item.widgetConfiguration?.cachedWeatherForecast = WeatherForecast(temperature: 21, apparentTemperature: 20, relativeHumidity: 50, precipitation: 0, windSpeed: 8,
                     weatherCode: 2, isDay: true, fetchedAt: .now, timeZoneIdentifier: "Europe/Warsaw",
-                    hourly: (1...6).map { .init(timestamp: Date.now.addingTimeInterval(Double($0) * 3600), temperature: Double(21 + $0 % 3), precipitationProbability: $0 * 5, weatherCode: $0 > 3 ? 61 : 2) })
+                    hourly: (1...6).map { .init(timestamp: forecastHour($0, after: .now), temperature: Double(21 + $0 % 3), precipitationProbability: $0 * 5, weatherCode: $0 > 3 ? 61 : 2) })
             default: break
             }
             return item
@@ -372,16 +408,18 @@ private struct FacesAQASamplesVersusLive: View {
     }
 }
 
-/// The popover content exactly as `CustomDockView` hosts a widget popout (copied from RD-08's QA host).
+/// The popover content exactly as `CustomDockView` hosts a widget popout since FX-03: no padding, no slab,
+/// the shell draws no card. Offscreen captures cannot draw the popover's native material, so the stand-in
+/// is its opaque Reduce Transparency fill (as in `WidgetSheetQA`).
 private struct FacesAQAPopoverHost<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             DockScrollView(.vertical) {
                 content.frame(minWidth: 250, minHeight: 150, alignment: .topLeading)
             }
         }
-        .padding(20)
+        .modifier(WidgetPopoverSurface())
         .background(WidgetDesign.surface)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(WidgetDesign.surface)

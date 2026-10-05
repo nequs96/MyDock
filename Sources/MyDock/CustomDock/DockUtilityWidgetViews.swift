@@ -161,7 +161,8 @@ struct FileShelfView: View {
             .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
             if let message { WidgetPopoutCaption(message).accessibilityLabel(message) }
             if !AppRuntimeEnvironment.allowsNativeEffects { WidgetPopoutCaption(utilityIsolatedActionMessage) }
-            WidgetPopoutCaption("Saved as references, not copies. Copy files here, then paste in Finder with ⌘V. Removing an item leaves the original in place.")
+            WidgetPopoutCaption("Removing an item leaves the original file in place.")
+                .help("The shelf keeps references, not copies. Copy files here, then paste them in Finder with ⌘V.")
         }
     }
     private var fileList: some View {
@@ -300,7 +301,7 @@ struct TextSnippetsView: View {
                             .frame(height: 84)
                             .overlay(alignment: .topLeading) {
                                 if text.isEmpty {
-                                    Text("Snippet text").font(DockDesign.Grouped.titleFont).foregroundStyle(.tertiary)
+                                    Text("Snippet text").font(DockDesign.Grouped.titleFont).foregroundStyle(.secondary)
                                         .padding(.leading, 5).allowsHitTesting(false).accessibilityHidden(true)
                                 }
                             }
@@ -632,7 +633,7 @@ struct UnitConverterView: View {
                     } label: { Label("Swap", systemImage: "arrow.up.arrow.down") }
                         .accessibilityLabel("Swap conversion units")
                 }
-                GroupedSection(footer: "Rounded to 6 significant digits. " + (category == .data ? "kB / MB / GB are decimal. KiB / MiB / GiB are binary." : category == .volume ? "Gallon and cup use US measures." : "Updates as you type."),
+                GroupedSection(footer: category == .data ? "kB, MB and GB are decimal; KiB, MiB and GiB are binary." : category == .volume ? "Gallon and cup use US measures." : nil,
                                separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
                     GroupedRow("Category") {
                         Picker("Convert", selection: $category) { ForEach(ConversionCategory.allCases) { Text($0.title).tag($0) } }
@@ -652,6 +653,7 @@ struct UnitConverterView: View {
                             .labelsHidden().fixedSize().accessibilityLabel("To")
                     }
                 }
+                .help("Results update as you type and are rounded to 6 significant digits.")
             }
             HStack {
                 if !AppRuntimeEnvironment.allowsNativeEffects {
@@ -746,7 +748,7 @@ struct DockColorPickerView: View {
                     }.disabled(palette.contains(hex) || palette.count >= 24)
                 }
                 if palette.isEmpty {
-                    WidgetPopoutCaption("Save colors you use often. Right-click a saved color to copy or remove it.")
+                    WidgetPopoutCaption("Save colors you use often.")
                 } else {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 8), spacing: 10) {
                         ForEach(palette, id: \.self) { value in
@@ -769,7 +771,8 @@ struct DockColorPickerView: View {
                 }
             }
             if let message { WidgetPopoutCaption(message) }
-            WidgetPopoutCaption("Apply updates the preview. Save Color adds it to this widget’s palette.")
+            WidgetPopoutCaption("Right-click a saved color to copy or remove it.")
+                .help("Apply updates the preview. Save Color adds it to this widget’s palette.")
         }
         .onChange(of: color) { _ in hexDraft = hex; message = nil }
         .onAppear { if let first = palette.first { select(first) }; hexDraft = hex }

@@ -98,6 +98,8 @@ private struct WeatherPopoutWidgetView: View {
     @State private var layoutSelection = WeatherWidgetLayout.current.rawValue
     @State private var forecastHours = 3
     @State private var backgroundSelection = WeatherBackground.themed.rawValue
+    /// Location and options sit behind a final, collapsed disclosure once a city is set.
+    @State private var settingsExpanded = false
     @ObservedObject private var accessibility = AccessibilityDisplayState.shared
 
     private var configuration: WidgetConfiguration {
@@ -125,38 +127,18 @@ private struct WeatherPopoutWidgetView: View {
                 WidgetPopoutCaption(forecast == nil ? errorMessage : "Showing saved forecast. \(errorMessage)", color: .orange)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                WidgetPopoutSectionHeader("Location") {
-                    if location != nil {
-                        HStack(spacing: 6) {
-                            if isLoading { ProgressView().controlSize(.mini).accessibilityLabel("Loading forecast") }
-                            Button("Refresh") { refresh(force: true) }.disabled(isLoading)
-                        }
-                    }
-                }
-                GroupedSection(footer: forecast.map { "Updated \($0.fetchedAt.formatted(date: .omitted, time: .shortened)) · forecast times: \($0.timeZoneIdentifier)" },
-                               separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
-                    if let location, !setupDraft.isChangingLocation {
-                        GroupedRow(location.displayName) {
-                            Button("Change") {
-                                setupDrafts.updateWeatherDraft(for: item.id) {
-                                    $0.isChangingLocation = true
-                                    $0.searchText = ""
-                                    $0.searchResults = []
-                                }
-                            }
-                            .buttonStyle(.borderless)
-                        }
-                    }
-                    if location == nil || setupDraft.isChangingLocation {
-                        locationSearchSection
-                    }
+            // Without a city, choosing one is the primary action; afterwards it is setup like the options.
+            if location == nil {
+                locationSection
+                WidgetPopoutSettingsDisclosure(isExpanded: $settingsExpanded) { settingsSection }
+            } else {
+                WidgetPopoutSettingsDisclosure(summary: location?.name, isExpanded: $settingsExpanded) {
+                    locationSection
+                    settingsSection
                 }
             }
-
-            settingsSection
-
-            WidgetPopoutCaption("Weather and places: Open-Meteo · Geocoding data: GeoNames", color: Color.secondary.opacity(0.8))
+            // Attribution stays visible whether or not the settings are open.
+            WidgetPopoutCaption(WeatherCopy.attribution)
         }
         .onAppear {
             unitSelection = configuration.weatherUnit.rawValue
@@ -197,6 +179,38 @@ private struct WeatherPopoutWidgetView: View {
             isLoading = false
             isSearching = false
             isLocating = false
+        }
+    }
+
+    /// The city: its name with Change, or the search while choosing one.
+    private var locationSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            WidgetPopoutSectionHeader("Location") {
+                if location != nil {
+                    HStack(spacing: 6) {
+                        if isLoading { ProgressView().controlSize(.mini).accessibilityLabel("Loading forecast") }
+                        Button("Refresh") { refresh(force: true) }.disabled(isLoading)
+                    }
+                }
+            }
+            GroupedSection(footer: forecast.flatMap { WeatherCopy.timeZoneFooter(forecastTimeZone: $0.timeZoneIdentifier) },
+                           separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                if let location, !setupDraft.isChangingLocation {
+                    GroupedRow(location.displayName) {
+                        Button("Change") {
+                            setupDrafts.updateWeatherDraft(for: item.id) {
+                                $0.isChangingLocation = true
+                                $0.searchText = ""
+                                $0.searchResults = []
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+                if location == nil || setupDraft.isChangingLocation {
+                    locationSearchSection
+                }
+            }
         }
     }
 
@@ -255,7 +269,7 @@ private struct WeatherPopoutWidgetView: View {
     }
 
     private var settingsSection: some View {
-        GroupedSection("Options", footer: configuration.weatherLayout == .conditions ? "Units change °C / °F. Wind stays in km/h and precipitation in mm." : nil,
+        GroupedSection("Options", footer: configuration.weatherLayout == .conditions ? "Wind is in km/h and precipitation in mm." : nil,
                        separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
             GroupedRow("Show") {
                 Picker("Popover content", selection: $layoutSelection) {
@@ -289,8 +303,13 @@ private struct WeatherPopoutWidgetView: View {
         }
     }
 
-    /// The temperature as the one large value, the condition glyph above it and one caption line.
+    /// The temperature as the one large value, the condition glyph above it and one caption line, on the
+    /// condition card. Glyph, place and card are the hero's decoration: the settings sheet hides them together.
     private func currentSummary(_ forecast: WeatherForecast) -> some View {
+        WidgetPopoutHeroGroup { currentSummaryCard(forecast) }
+    }
+
+    private func currentSummaryCard(_ forecast: WeatherForecast) -> some View {
         VStack(spacing: 2) {
             Image(systemName: WeatherCode.symbol(forecast.weatherCode, isDay: forecast.isDay))
                 .font(.system(size: 30)).symbolRenderingMode(.hierarchical).foregroundStyle(.primary)
@@ -315,34 +334,46 @@ private struct WeatherPopoutWidgetView: View {
         }
     }
 
-    /// Upcoming hours in one grouped surface: no boxes per hour.
+    /// Upcoming hours in one grouped surface: no boxes per hour. The columns share the width when they
+    /// fit, and scroll only when they do not. Each hour's glyph is day or night for that hour.
     private func hourlyList(_ forecast: WeatherForecast) -> some View {
-        let hours = forecast.hourly.filter { $0.timestamp > .now }.prefix(configuration.weatherForecastHours)
+        let hours = Array(forecast.hourly.filter { $0.timestamp > .now }.prefix(configuration.weatherForecastHours))
         return GroupedSection("Next Hours") {
-            DockScrollView(.horizontal) {
+            ViewThatFits(in: .horizontal) {
                 HStack(spacing: 0) {
-                    ForEach(Array(hours)) { hour in
-                        VStack(spacing: 5) {
-                            Text(hour.timestamp.formattedTime(in: forecast.timeZoneIdentifier))
-                                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                            Image(systemName: WeatherCode.symbol(hour.weatherCode, isDay: true))
-                                .font(.system(size: 17)).symbolRenderingMode(.hierarchical).frame(height: 20)
-                                .accessibilityHidden(true)
-                            Text(WeatherDockTemperatureFormatter.text(hour.temperature, unit: configuration.weatherUnit))
-                                .font(.system(size: 15, weight: .semibold).monospacedDigit())
-                            if let chance = hour.precipitationProbability {
-                                Label("\(chance)%", systemImage: "drop.fill").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                            }
-                        }
-                        .frame(minWidth: 64)
-                        .padding(.vertical, 10)
-                        .accessibilityElement(children: .combine)
-                    }
+                    ForEach(hours) { hour in hourColumn(hour, forecast: forecast).frame(maxWidth: .infinity) }
                 }
                 .padding(.horizontal, 6)
+                DockScrollView(.horizontal) {
+                    HStack(spacing: 0) {
+                        ForEach(hours) { hour in hourColumn(hour, forecast: forecast) }
+                    }
+                    .padding(.horizontal, 6)
+                }
+                .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
         }
+    }
+
+    private func hourColumn(_ hour: WeatherHour, forecast: WeatherForecast) -> some View {
+        let isDay = WeatherDaylight.isDay(hour, forecast: forecast, location: location)
+        return VStack(spacing: 5) {
+            Text(WeatherHourLabel.text(for: hour.timestamp, timeZoneIdentifier: forecast.timeZoneIdentifier))
+                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                .lineLimit(1).fixedSize()
+            Image(systemName: WeatherCode.symbol(hour.weatherCode, isDay: isDay))
+                .font(.system(size: 17)).symbolRenderingMode(.hierarchical).frame(height: 20)
+                .accessibilityHidden(true)
+            Text(WeatherDockTemperatureFormatter.text(hour.temperature, unit: configuration.weatherUnit))
+                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+            if let chance = hour.precipitationProbability {
+                Label("\(chance)%", systemImage: "drop.fill").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+            }
+        }
+        .frame(minWidth: 64)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(WeatherCode.description(hour.weatherCode) + (isDay ? "" : ", night"))
     }
 
     private func weatherBackground(for code: Int) -> some ShapeStyle {
@@ -523,12 +554,75 @@ enum WeatherCode {
     }
 }
 
-extension Date {
-    func formattedTime(in timeZoneIdentifier: String) -> String {
+/// Weather copy: short footers; attribution stays visible.
+enum WeatherCopy {
+    static let attribution = "Weather and places: Open-Meteo · Geocoding data: GeoNames"
+
+    /// Said only when the forecast's hours are not in this Mac's time zone.
+    static func timeZoneFooter(forecastTimeZone: String, current: TimeZone = .current, now: Date = .now) -> String? {
+        guard let zone = TimeZone(identifier: forecastTimeZone),
+              zone.secondsFromGMT(for: now) != current.secondsFromGMT(for: now) else { return nil }
+        return "Hours are in \(forecastTimeZone) time."
+    }
+}
+
+/// An hour of the forecast labelled in the user's own hour format: "3 AM" with a 12-hour clock,
+/// "03:00" with a 24-hour clock. Never a bare "03".
+enum WeatherHourLabel {
+    static func text(for date: Date, timeZoneIdentifier: String, locale: Locale = .current) -> String {
         let formatter = DateFormatter()
-        formatter.locale = .current
+        formatter.locale = locale
         formatter.timeZone = TimeZone(identifier: timeZoneIdentifier) ?? .current
-        formatter.dateFormat = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current)
-        return formatter.string(from: self)
+        formatter.dateFormat = DateFormatter.dateFormat(fromTemplate: usesTwelveHourClock(locale) ? "j" : "jmm", options: 0, locale: locale)
+        return formatter.string(from: date)
+    }
+
+    /// Whether the locale's preferred hour pattern carries a day period (AM/PM).
+    static func usesTwelveHourClock(_ locale: Locale) -> Bool {
+        (DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: locale) ?? "").contains("a")
+    }
+}
+
+/// Whether a forecast hour falls in daylight at the forecast's place, so its glyph shows a sun or a moon.
+///
+/// Open-Meteo answers `is_day` for the current reading only (the cached hourly model has no day flag), so
+/// each hour is derived from the sun's elevation at the city's coordinates: day while the upper limb of the
+/// sun is above the horizon with standard refraction (−0.833°), the same sunrise/sunset definition the
+/// provider uses. This needs no extra request and no change to the cached forecast.
+enum WeatherDaylight {
+    static let horizon = -0.833
+
+    static func isDay(_ hour: WeatherHour, forecast: WeatherForecast, location: WeatherLocation?) -> Bool {
+        guard let location, location.latitude.isFinite, location.longitude.isFinite else { return forecast.isDay }
+        return isDay(at: hour.timestamp, latitude: location.latitude, longitude: location.longitude)
+    }
+
+    static func isDay(at date: Date, latitude: Double, longitude: Double) -> Bool {
+        solarElevation(at: date, latitude: latitude, longitude: longitude) > horizon
+    }
+
+    /// The sun's elevation in degrees (low-precision solar position, accurate to about 0.1° from 1950 to 2050).
+    static func solarElevation(at date: Date, latitude: Double, longitude: Double) -> Double {
+        let radians = Double.pi / 180
+        func normalized(_ degrees: Double) -> Double { let value = degrees.truncatingRemainder(dividingBy: 360); return value < 0 ? value + 360 : value }
+        let days = date.timeIntervalSince1970 / 86_400 + 2_440_587.5 - 2_451_545.0
+        let meanLongitude = normalized(280.460 + 0.9856474 * days)
+        let meanAnomaly = normalized(357.528 + 0.9856003 * days) * radians
+        let eclipticLongitude = (meanLongitude + 1.915 * sin(meanAnomaly) + 0.020 * sin(2 * meanAnomaly)) * radians
+        let obliquity = (23.439 - 0.0000004 * days) * radians
+        let declination = asin(sin(obliquity) * sin(eclipticLongitude))
+        let rightAscension = atan2(cos(obliquity) * sin(eclipticLongitude), cos(eclipticLongitude)) / radians
+        let siderealTime = normalized(280.46061837 + 360.98564736629 * days)
+        let hourAngle = (siderealTime + longitude - rightAscension) * radians
+        let latitudeRadians = latitude * radians
+        let elevation = asin(sin(latitudeRadians) * sin(declination) + cos(latitudeRadians) * cos(declination) * cos(hourAngle))
+        return elevation / radians
+    }
+}
+
+extension Date {
+    /// A forecast hour's label in the user's hour format (see `WeatherHourLabel`).
+    func formattedTime(in timeZoneIdentifier: String) -> String {
+        WeatherHourLabel.text(for: self, timeZoneIdentifier: timeZoneIdentifier)
     }
 }
