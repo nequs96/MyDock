@@ -238,8 +238,9 @@ struct PX5WorkspacePackageTests {
             #expect(!json.contains("PX5 Runtime Reading"))
             #expect(!json.contains("stripeSnapshot"))
         }
-        // Personal data and account assignments only travel when explicitly included.
+        // Personal data travels only when explicitly included; account assignments never travel.
         #expect(!layout.contains("acct_px5_private"))
+        #expect(!personal.contains("acct_px5_private"))
         #expect(!layout.contains("PX5 private note"))
         #expect(personal.contains("PX5 private note"))
     }

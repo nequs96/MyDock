@@ -73,7 +73,7 @@ enum KeyboardShortcutCatalog {
 
     static let groups: [ShortcutGroup] = [
         ShortcutGroup(title: "General", entries: [
-            Entry(title: "Search MyDock", keys: "\u{2318}K"),
+            Entry(title: "Search, in the Docks window", keys: "\u{2318}K"),
             Entry(title: "New Dock", keys: "\u{2318}N"),
             Entry(title: "Settings", keys: "\u{2318},"),
             Entry(title: "Manage Docks", keys: "\u{21E7}\u{2318}D"),

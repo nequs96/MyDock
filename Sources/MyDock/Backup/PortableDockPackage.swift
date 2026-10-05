@@ -118,7 +118,15 @@ enum PortableDockPackage {
     /// Personal widget data is included only when the user explicitly chooses it.
     /// Credentials, provider readings and permissions are never part of a profile export.
     static func exportedProfile(_ profile: DockProfile, includePersonalData: Bool) -> DockProfile {
-        includePersonalData ? profile : ProfileSanitizer.sanitize(profile)
+        guard includePersonalData else { return ProfileSanitizer.sanitize(profile) }
+        // Account and store IDs are Keychain lookup keys for this Mac; they never travel, even with personal data.
+        var copy = profile
+        for index in copy.items.indices {
+            guard var c = copy.items[index].widgetConfiguration else { continue }
+            c.stripeAccountID = ""; c.paddleAccountID = ""; c.shopifyStoreID = ""
+            copy.items[index].widgetConfiguration = c
+        }
+        return copy
     }
 
     static func makePackage(from profile: DockProfile, includePersonalData: Bool) throws -> Data {

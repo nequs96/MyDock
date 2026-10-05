@@ -72,7 +72,6 @@ final class DockWindowPreviewController {
     private var refreshTask: Task<Void, Never>?
     private var cache = WindowPreviewThumbnailCache<NSImage>()
     private var localMonitor: Any?
-    private var globalKeyMonitor: Any?
 
     /// The panel waits this long for discovery before showing a loading state.
     private static let revealFallback: Duration = .milliseconds(200)
@@ -413,16 +412,8 @@ final class DockWindowPreviewController {
             NSEvent.removeMonitor(localMonitor)
             self.localMonitor = nil
         }
-        // Escape while another app is frontmost. Only with Accessibility trust (which key
-        // monitoring requires), only while the panel is shown, and only the Escape key is read.
-        if isPanelVisible, globalKeyMonitor == nil, WindowAccessibilityService.isTrusted() {
-            globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                Task { @MainActor [weak self] in self?.handleGlobalKey(event) }
-            }
-        } else if !isPanelVisible, let globalKeyMonitor {
-            NSEvent.removeMonitor(globalKeyMonitor)
-            self.globalKeyMonitor = nil
-        }
+        // No system-wide key monitor: moving the pointer away already closes the panel, and a
+        // global key listener would observe typing in other apps.
     }
 
     private func handleLocalEvent(_ event: NSEvent) {
@@ -433,11 +424,6 @@ final class DockWindowPreviewController {
         // Clicks and scrolls inside the panel belong to it. Anywhere else (a tile click keeps its
         // normal action, a drag, a context menu, scrolling the Dock) closes the panel.
         if let panel, isPanelVisible, event.windowNumber == panel.windowNumber { return }
-        dismiss()
-    }
-
-    private func handleGlobalKey(_ event: NSEvent) {
-        guard isPanelVisible, event.type == .keyDown, event.keyCode == Self.escapeKeyCode else { return }
         dismiss()
     }
 

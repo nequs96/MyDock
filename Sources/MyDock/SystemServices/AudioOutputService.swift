@@ -483,12 +483,19 @@ struct CoreAudioOutputHardware: AudioOutputHardware {
     func setDefaultOutputDeviceID(_ deviceID: UInt32) throws {
         var device = AudioObjectID(deviceID)
         let size = UInt32(MemoryLayout<AudioObjectID>.size)
+        // Alerts follow the output only when they were already following it; a separate
+        // "Play sound effects through" choice in Sound settings is left alone.
+        let previous = try? defaultOutputDeviceID()
+        var systemAddress = Self.address(AudioObjectPropertySelector(kAudioHardwarePropertyDefaultSystemOutputDevice))
+        var systemDevice = AudioObjectID(0)
+        var systemSize = size
+        let alertsFollowOutput = AudioObjectGetPropertyData(Self.systemObject, &systemAddress, 0, nil, &systemSize, &systemDevice) == noErr
+            && previous == systemDevice
         var address = Self.address(AudioObjectPropertySelector(kAudioHardwarePropertyDefaultOutputDevice))
         let status = AudioObjectSetPropertyData(Self.systemObject, &address, 0, nil, size, &device)
         guard status == noErr else { throw AudioOutputError(status: status) }
-        // The Sound settings move alerts along with the output. A refusal here does not undo the switch.
-        var systemAddress = Self.address(AudioObjectPropertySelector(kAudioHardwarePropertyDefaultSystemOutputDevice))
-        _ = AudioObjectSetPropertyData(Self.systemObject, &systemAddress, 0, nil, size, &device)
+        // A refusal here does not undo the switch.
+        if alertsFollowOutput { _ = AudioObjectSetPropertyData(Self.systemObject, &systemAddress, 0, nil, size, &device) }
     }
 
     func isSettable(_ deviceID: UInt32, _ control: AudioControlAddress) -> Bool {
