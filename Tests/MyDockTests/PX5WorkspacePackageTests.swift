@@ -102,7 +102,9 @@ struct PX5WorkspacePackageTests {
 
         let restored = try #require(BackupManager.readArchive(BackupManager.makeArchive(from: [profile])).importedProfiles.first)
         #expect(restored.workspaceTargets.map(\.title) == profile.workspaceTargets.map(\.title))
-        #expect(Set(restored.workspace?.itemIDs ?? []).isDisjoint(with: profile.workspace?.itemIDs ?? []))
+        let restoredIDs: Set<UUID> = Set(restored.workspace?.itemIDs ?? [])
+        let originalIDs: [UUID] = profile.workspace?.itemIDs ?? []
+        #expect(restoredIDs.isDisjoint(with: originalIDs))
 
         let (store, directory) = temporaryStore()
         defer { try? FileManager.default.removeItem(at: directory) }

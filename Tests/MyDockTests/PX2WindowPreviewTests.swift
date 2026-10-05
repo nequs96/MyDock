@@ -205,7 +205,7 @@ import Testing
         let displayed = WindowPreviewListPolicy.displayed(windows)
         #expect(displayed.count == WindowPreviewPanelLayout.maximumWindows)
         #expect(displayed.prefix(10).allSatisfy { !$0.isMinimized })
-        #expect(displayed.suffix(2).allSatisfy(\.isMinimized))
+        #expect(displayed.suffix(2).allSatisfy { $0.isMinimized })
         #expect(displayed.first?.windowIndex == 1)
     }
 
