@@ -59,6 +59,10 @@ struct CalendarEventSnapshot: Identifiable, Hashable, Sendable {
     var meetingURL: URL?
     /// The event calendar's colour; nil when EventKit reports none. Runtime-only.
     var calendarColor: CalendarColorSnapshot? = nil
+    /// The event's location text exactly as EventKit reports it; nil when none. Runtime-only.
+    var location: String? = nil
+    /// True only when EventKit lists the current user as a participant who declined; nil when it reports no status (never guessed).
+    var declinedByCurrentUser: Bool? = nil
 
     var timeDescription: String {
         if isAllDay { return "All day" }
@@ -173,8 +177,10 @@ actor CalendarRemindersService {
                     isAllDay: event.isAllDay,
                     calendarID: event.calendar.calendarIdentifier,
                     calendarTitle: event.calendar.title,
-                    meetingURL: meetingURL(event),
-                    calendarColor: CalendarColorSnapshot(cgColor: event.calendar.cgColor)
+                    meetingURL: MeetingLinkDetector.link(url: event.url, location: event.location),
+                    calendarColor: CalendarColorSnapshot(cgColor: event.calendar.cgColor),
+                    location: event.location,
+                    declinedByCurrentUser: event.attendees?.first(where: { $0.isCurrentUser }).map { $0.participantStatus == .declined }
                 )
             }
         guard hasFullAccess(to: .event) else { throw CalendarRemindersServiceError.accessDenied }
@@ -273,39 +279,13 @@ actor CalendarRemindersService {
         let title = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return title.isEmpty ? fallback : title
     }
-
-    private func meetingURL(_ event: EKEvent) -> URL? {
-        var candidates = [event.url?.absoluteString, event.location, event.notes].compactMap { $0 }
-        let expression = try? NSRegularExpression(pattern: "https?://[^\\s<>\\\"']+", options: [.caseInsensitive])
-        var matches: [String] = []
-        if let expression {
-            for text in candidates {
-                let range = NSRange(text.startIndex..<text.endIndex, in: text)
-                matches.append(contentsOf: expression.matches(in: text, range: range).compactMap { match in
-                    guard let range = Range(match.range, in: text) else { return nil }
-                    return String(text[range]).trimmingCharacters(in: CharacterSet(charactersIn: ".,;)]}"))
-                })
-            }
-        }
-        candidates = matches
-        for candidate in candidates {
-            guard let url = URL(string: candidate), let host = url.host?.lowercased(), url.scheme == "https" else { continue }
-            if host == "zoom.us" || host.hasSuffix(".zoom.us")
-                || host == "meet.google.com"
-                || host == "teams.microsoft.com" || host == "teams.live.com" || host.hasSuffix(".teams.microsoft.com") {
-                return url
-            }
-        }
-        return nil
-    }
 }
 
 enum CalendarEventOrdering {
     /// Empty IDs mean all calendars; a nonempty scope never falls back to unrelated events.
     static func select(_ events: [CalendarEventSnapshot], calendarIDs: [String],
                        includeAllDay: Bool, now: Date = .now) -> [CalendarEventSnapshot] {
-        events.filter { $0.endDate > now && (includeAllDay || !$0.isAllDay)
-            && (calendarIDs.isEmpty || calendarIDs.contains($0.calendarID)) }
+        NextMeeting.relevant(events, calendarIDs: calendarIDs, now: now).filter { includeAllDay || !$0.isAllDay }
             .sorted { precedes($0, $1, now: now) }
             .prefix(60).map { $0 }
     }
@@ -319,7 +299,8 @@ enum CalendarEventOrdering {
         return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
     }
 
+    /// The next relevant timed event: ongoing beats upcoming, declined events are skipped, and all-day events are never "next".
     static func compactEvent(from events: [CalendarEventSnapshot], now: Date = .now) -> CalendarEventSnapshot? {
-        events.filter { $0.endDate > now }.sorted { precedes($0, $1, now: now) }.first
+        NextMeeting.next(from: events, now: now)
     }
 }

@@ -19,6 +19,8 @@ struct LibrarySearchField: NSViewRepresentable {
     var tab: (() -> Bool)? = nil
     /// The user started typing in the field.
     var didBeginEditing: (() -> Void)? = nil
+    /// Option-Return: the selected result's secondary action, when it has one.
+    var secondary: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextField {
@@ -58,6 +60,9 @@ struct LibrarySearchField: NSViewRepresentable {
             case #selector(NSResponder.moveDown(_:)): parent.move(1)
             case #selector(NSResponder.moveUp(_:)): parent.move(-1)
             case #selector(NSResponder.insertNewline(_:)): parent.choose()
+            case #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
+                guard let run = parent.secondary else { return false }
+                run()
             case #selector(NSResponder.cancelOperation(_:)): parent.cancel()
             case #selector(NSResponder.insertTab(_:)): return parent.tab?() ?? false
             default: return false
