@@ -1244,3 +1244,41 @@ System and Network sample live every 4 s, so their in-content "Refresh" buttons 
   - merge into `redesign/integration`;
   - the final verification pass;
   - updates to RELEASE_AUDIT.md, IMPLEMENTATION_STATUS.md, BUILD_BASELINE.json and ARCHITECTURE.md.
+
+### CI repair and follow-up wave (cloud session, 2026-10-05)
+
+**Authorisation.** The user approved finishing the remaining follow-ups with Sonnet 5.5 and Opus 5.5 workers only (no Haiku), including T2 and the merge into `redesign/integration`. OP-01–OP-07 stay out: each is a separate feature that the execution ledger says to pilot one at a time. No pilot has been chosen.
+
+**CI red on the base.** `Validate MyDock` on `redesign/integration` at `cec6394` failed on both macOS 26 runners, with 3 issues in 685 tests:
+- `hiddenTimerCompletesAndDurationEditsRescheduleIt` timed out at its 2 s deadline;
+- `vanishedPresentationCanStartAnotherDwellWhenItReturns` used a 400 ms sleep for a real 350 ms dwell.
+
+On the runners every test took about 5 s, so these are timing margins, not regressions. Fix `79d3767`: both tests poll for the expected state with a 15 s ceiling, and their assertions are unchanged. On the arm64 runner the unit and regression tests then passed at `79d3767`, which also covers FX-10. The run was cancelled by the next push before the Intel job and the release build finished.
+
+**Packages** (Sonnet workers in isolated worktrees, merged by the orchestrator):
+- **FU-S** (`product-experience`; `2a3abc1`, merged `808e487`):
+  - Personal preset buttons share one bordered style; Remove keeps the destructive role.
+  - The Style and Glass footers state that Style is a preset and Glass fine-tunes it. The "Finish" label and every `.id` anchor are kept.
+  - Editor canvas: the 24 pt end-drop spacer is removed, so the padding is symmetric. The end-drop target still comes from item midpoints across the padded area, and the end capsule is now an overlay.
+  - QA exports: FACESA popout width; dark inspector canvases fill the export; the sample-vs-live board uses 2 columns, so Now Playing is not clipped. The FACESB 640 pt issue was confirmed fixed by FX-08.
+- **FU-G** (`widget-gallery`; `55156eb`, merged `b17fa62`):
+  - Gallery previews are leading-aligned with their captions.
+  - Everyday Tools tiles show the description line.
+  - More tab tiles use the bare-module backdrop; the Increase Contrast edge shows only on hover or selection.
+  - The orchestrator replaced the worker's gallery-only size-wording overrides with a fix at the source (`4384312`, `WidgetLayoutPresets` plus `RegistryCapabilityTests`), so the gallery and the widget sheet agree:
+    - Battery compact: "Charge ring and percentage";
+    - Disk Space compact: "Free space and a usage ring";
+    - System Activity meter: "CPU in a ring gauge" (verified against the `ModuleRing` face).
+- **FU-W** (`widget-visuals`; `0bd4871`, merged `b7ee4c8`):
+  - Calendar colour bars. `CalendarColorSnapshot` (sRGB, Sendable, clamped) comes from `EKCalendar.cgColor` and is runtime-only: never Codable, never persisted. It is neutral in Mono popouts and omitted on Mono faces, and 4 pt wide with a hairline under Increase Contrast.
+  - The QA fixture has Work (blue) and Home (green) calendars. The orchestrator added a colour to the release sample event (`9323c3b`).
+  - Popout heroes are centred everywhere: AI Activity, Stock/Watchlist and Network were brought in line with the roughly 20 families that already use `WidgetPopoutHero`.
+  - The Text Snippets "2" was already "2 snippets" since RD-09. Narrow side faces drop the unit by design.
+- **FU-W2, T2** (`widget-visuals`; `0c9abc0`, merged `a24f33b`):
+  - `WidgetPalette.resolved(kind:accent:active:)`: Auto is neutral at rest and takes the family colour only when active. Examples of active: playing, running, an active toggle, a full Trash, a targeted AirDrop.
+  - The Color icon treatment and the "Accent" glass tint stay coloured, because the user chose them.
+  - Named accents and the semantic warning and critical colours are unchanged. Persisted values are unchanged, so there is no migration.
+  - The Accent row explains Auto: "Neutral; colour shows when active".
+  - The orchestrator made an armed alarm count as active (`d237722`).
+
+**Review.** An Opus reviewer did a static compile and behaviour review of `cec6394..HEAD` before the final CI run (see below).
