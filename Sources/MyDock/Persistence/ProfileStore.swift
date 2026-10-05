@@ -271,6 +271,7 @@ final class ProfileStore: ObservableObject {
         copy.name = "\(original.name) Copy"
         copy.createdAt = .now
         copy.items = original.items.map(copyItemForDuplication)
+        copy.workspace = original.workspace?.remapped(from: original.items, to: copy.items)
         var candidate = state
         candidate.profiles.append(copy)
         try persistCandidate(candidate)

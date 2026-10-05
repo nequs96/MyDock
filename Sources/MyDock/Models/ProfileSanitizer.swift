@@ -30,6 +30,7 @@ enum ProfileSanitizer {
         var copy = profile
         copy.id = UUID(); copy.createdAt = .now
         copy.items = copy.items.map { item in var copy = item; copy.id = UUID(); return copy }
+        copy.workspace = profile.workspace?.remapped(from: profile.items, to: copy.items)
         return copy
     }
 }

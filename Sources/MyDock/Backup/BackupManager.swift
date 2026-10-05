@@ -5,6 +5,8 @@ struct DockBackup: Codable {
     var formatVersion = Self.currentVersion
     var exportedAt = Date.now
     var profiles: [DockProfile]
+    /// Present only in a single-Dock portable package (see PortableDockPackage). Older readers ignore it.
+    var dockPackage: DockPackageManifest?
 }
 
 struct BackupImportReport {
@@ -74,9 +76,9 @@ enum BackupManager {
         throw BackupError.tooLarge
     }
 
-    static func makeArchive(from profiles: [DockProfile]) throws -> Data {
+    static func makeArchive(from profiles: [DockProfile], dockPackage: DockPackageManifest? = nil) throws -> Data {
         try validate(profiles)
-        let archive = DockBackup(profiles: normalizedProfiles(profiles))
+        let archive = DockBackup(profiles: normalizedProfiles(profiles), dockPackage: dockPackage)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -120,6 +122,7 @@ enum BackupManager {
                 }
                 return itemCopy
             }
+            copy.workspace = profile.workspace?.remapped(from: profile.items, to: copy.items)
             return copy
         }
         let missing = copies.flatMap { profile in

@@ -24,6 +24,8 @@ struct SettingsView: View {
     @State var editingShortcutProfile: DockProfile?
     @State var backupMessage: String?
     @State var includePersonalBackupData = true
+    @State var dockExportRequest: PortableDockExportRequest?
+    @State var dockImportPreview: PortableDockImportPreview?
     @State var diagnosticsMessage: String?
     @State var advancedExpanded = false
     @State var marketConnectionExpanded = false
@@ -196,6 +198,15 @@ struct SettingsView: View {
                 diagnosticsMessage = "Saved the reviewed redacted diagnostics."
                 diagnosticsPreview = nil
             }
+        }
+        .sheet(item: $dockExportRequest) { request in
+            PortableDockExportSheet(profiles: request.profiles, selectedID: request.selectedID,
+                                    includePersonalData: request.includePersonalData,
+                                    close: { dockExportRequest = nil },
+                                    exported: { message in backupMessage = message; dockExportRequest = nil })
+        }
+        .sheet(item: $dockImportPreview) { preview in
+            PortableDockImportSheet(preview: preview, add: { addImportedDock(preview) }, cancel: { dockImportPreview = nil })
         }
         .onChange(of: selectedPage) { page in persistSettingsPage(page) }
         .onChange(of: store.state.settings.lastSettingsPage) { selectedPage = $0 }

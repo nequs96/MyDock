@@ -1093,6 +1093,8 @@ struct DockProfile: Codable, Identifiable, Hashable {
     var items: [DockItem] = []
     var createdAt: Date = .now
     var appearance: ProfileAppearance?
+    /// Optional Start Workspace selection (see DockWorkspace). Nil for existing profiles.
+    var workspace: DockWorkspace?
 }
 
 struct DockProfileDraft: Equatable {

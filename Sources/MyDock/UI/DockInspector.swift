@@ -4,6 +4,7 @@ struct DockAppearanceInspector: View {
     @ObservedObject var store: ProfileStore
     let profile: DockProfile
     let close: () -> Void
+    var workspace: DockWorkspaceSection? = nil
     private var settings: AppSettings { store.effectiveSettings(for: profile) }
     private func edit(_ change: (inout ProfileAppearance) -> Void) {
         var appearance = profile.appearance ?? ProfileAppearance(settings: settings)
@@ -70,6 +71,7 @@ struct DockAppearanceInspector: View {
                 Text("This layout is applied to Apple’s Dock. Widgets and appearance belong to custom Docks.")
                     .font(DockDesign.caption).foregroundStyle(.secondary)
             }
+            if let workspace { workspace }
         }.font(DockDesign.body)
             .padding(16)
             .background(DockDesign.card, in: RoundedRectangle(cornerRadius: DockDesign.Radius.group))
