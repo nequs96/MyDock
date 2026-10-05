@@ -928,3 +928,29 @@ Both tests fail with the fix commented out.
 ### FX-02 launched
 
 `dock-surface` agent, base `80ecbe0`.
+
+### FX-04 — merged (branch commit `3735eb4`), plus integration fix `0ac58f6`
+
+**Implementation:** implemented.
+
+- **Hero decoration:** the Weather condition card and the Trash glyph now hide together with the hero in the sheet, via `WidgetPopoutHeroGroup`.
+- **Duplicate copy removed:**
+  - Trash: the hero caption is "item"/"items", and the scope appears once, in the footer.
+  - Alarm: one formatter (`AlarmFacePresentation.timeText`). The hero alarm is not repeated in the list.
+- **Weather day/night per hour:** `WeatherDaylight` computes it from solar elevation at the city's coordinates, with the provider's −0.833° horizon. It needs no new request and no persistence change. Tests cover Warsaw, the equator, Tromsø polar night and midnight sun.
+- **Hour labels:** `WeatherHourLabel` gives "3 AM" or "03:00" depending on the locale.
+- **Now Playing:** the seek buttons use numbered symbols (`gobackward.N`) with a fallback.
+- **Weather Next Hours:** the column is evenly distributed via `ViewThatFits`.
+- **Add button:** the disabled state is visible (`WidgetRowTextButtonStyle`), with an edge under Increase Contrast.
+- **Reading first:** the Calendar, Now Playing, Weather and Alarm popouts show the reading first. Their settings sit in a collapsed "Settings" disclosure (`WidgetPopoutSettingsDisclosure`) that is accessible and has no animation under Reduce Motion. In the sheet the settings are shown in full.
+- **Footers:** one short sentence each; the detail is in `.help`.
+
+**Integration fix `0ac58f6`:** the Dock weather face (`WidgetPrimitives.swift:776`, outside FX-04's ownership) now uses `WeatherDaylight.isDay` per forecast hour.
+
+**Verification:**
+- Worker: 631 tests passed; FACESA produced 87 renders and WIDGET 130.
+- Integration: `./TestMyDock.sh` **637 tests in 79 suites** (`.build/redesign-fx04-test.log`).
+
+### FX-06 launched
+
+Codex, effort medium, base `0ac58f6`. Launched with stdin closed.
