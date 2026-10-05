@@ -537,3 +537,39 @@ The popout morph is scoped down:
 Other changes in RD-11:
 - `DockStarterPreset` moves out of `DockManagerView.swift` into `UI/DockStarterPresets.swift` (orchestrator-approved, mechanical).
 - Starter presets gain quick styles.
+
+### RD-11 — merged `32b5046` (branch commit `b9a93b7`)
+
+Both RD-09 and RD-11 were interrupted by an API session limit. They were resumed from their transcripts, with their uncommitted work intact.
+
+**Implementation:**
+- **Popout appear spring:** popouts open on a 0.96 → 1 spring from the Dock-facing edge. The anchor shows an active state (0.97 scale and slightly brighter, render-only). Both are instant under Reduce Motion.
+- **Reorder settle:** dropped or pinned items settle on `Motion.morph` in the live Dock. The existing springs now go through `DockMotionPolicy`.
+- **Interactive glass:** `.interactive()` glass on glass modules. A test shows clicks still register. Drag and context menu are natively unverified.
+- **First-run onboarding:**
+  - Applies Clear through `DockQuickStyle.clear`, persisted before completion is written, with rollback on failure.
+  - Then shows a "Your Dock, clearer" reveal, which morphs the hero preview into Clear.
+  - Replay Setup keeps the existing look.
+- **Starter presets:** `DockStarterPreset` moved to `UI/DockStarterPresets.swift`. Each preset applies a quick style as a `ProfileAppearance` snapshot:
+
+| Quick style | Presets |
+|---|---|
+| Clear | Everyday, Travel |
+| Glass | Creative, Build & code, AI |
+| Solid | Deep focus |
+| Frosted | Commerce, Home office, System monitor |
+
+**Not done, accepted:**
+- **One glass container for the Dock surface and modules.** `GlassEffectContainer` fuses shapes within its spacing. Modules sit inside the surface, so they would melt into the Dock glass. Lifting the container above the scroll view would escape the `DockScrollClip` mask. The decision is captured as a tested pure helper, `DockGlassComposition`.
+- **Native popout morph.** Recorded at launch: NSPopover lives in a separate window.
+
+**Orchestrator review:**
+- Accepted the out-of-list one-line call-site change in `DockManagerView`'s preset sheet: `profile.appearance = preset.appearance(basedOn:)`. The orchestrator owns that file.
+- Viewed `motion-onboarding-reveal-dark` and `motion-starter-presets-light`.
+- **Defect for the fix wave:** a trailing separator is drawn at the end of every Dock even when nothing follows it. This is visible in every preset preview.
+- **Follow-up:** editor canvas keyboard moves (`UI/DockCanvas.swift`) use `Motion.transform`, not `reorder`.
+
+**Verification:**
+- Worker: 597 tests passed; 25 renders were produced.
+- Integration: `./TestMyDock.sh` **597 tests in 76 suites** (`.build/redesign-rd11-test.log`).
+- Canonical app: rebuilt (SHA-256 starts `da1188e5286b1210`) and relaunched as PID 57634.
