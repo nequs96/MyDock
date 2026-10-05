@@ -126,7 +126,12 @@ enum AudioOutputPresentation {
     /// The name a compact face shows. A built-in device drops the model ("MacBook Pro Speakers" becomes "Speakers").
     static func shortName(name: String, transport: AudioOutputTransport) -> String {
         guard transport == .builtIn else { return name }
-        for suffix in ["Speakers", "Headphones"] where name.hasSuffix(" " + suffix) { return suffix }
+        // Only the Mac model is dropped ("MacBook Pro Speakers" → "Speakers"); other prefixes carry
+        // meaning ("External Headphones" is the headphone jack) and stay.
+        for suffix in ["Speakers", "Headphones"] where name.hasSuffix(" " + suffix) {
+            let model = name.dropLast(suffix.count + 1)
+            if model.hasPrefix("Mac") || model.hasPrefix("iMac") { return suffix }
+        }
         return name
     }
 
