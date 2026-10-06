@@ -863,7 +863,7 @@ struct CustomDockView: View {
             if pinned {
                 Button("Remove from Dock", role: .destructive) { store.removeItem(item.id, from: profile.id) }
             } else {
-                Button("Keep in Dock") { store.add(item, to: profile.id) }
+                Button("Keep in Dock") { store.add(item.withFreshIdentity(), to: profile.id) }
             }
         }
         .popover(isPresented: Binding(get: { popouts.anchorID == item.id }, set: { if !$0 { popouts.dismiss() } }), arrowEdge: popoutArrowEdge) {
@@ -1009,15 +1009,15 @@ struct CustomDockView: View {
             // installed copy may be pinned by a bundle-only payload.
             let matches = draggableRuntimeApps.filter { $0.item.bundleIdentifier == bundleID }
             guard !unpin, matches.count == 1 else { return false }
-            store.insert(matches[0].item, before: targetID, in: profile.id)
+            store.insert(matches[0].item.withFreshIdentity(), before: targetID, in: profile.id)
             return true
         }
         guard value.profileID == profile.id, !value.itemIDs.isEmpty else { return false }
         let running = draggableRuntimeApps.filter { value.itemIDs.contains($0.item.id) }
         if !running.isEmpty {
             guard !unpin, running.count == value.itemIDs.count else { return false }
-            for app in running { store.insert(app.item, before: targetID, in: profile.id) }
-            settle(Set(running.map(\.item.id)))
+            let pinned = running.compactMap { store.insert($0.item.withFreshIdentity(), before: targetID, in: profile.id) }
+            settle(Set(pinned))
             return true
         }
         if unpin {

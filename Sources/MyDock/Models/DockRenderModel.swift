@@ -37,6 +37,16 @@ enum RuntimeDockIdentity {
     }
 }
 
+extension DockItem {
+    /// Running and recent tiles carry a deterministic runtime ID. Pinning one saves a copy with its own
+    /// identity, so the saved tile and a later runtime tile for the same app can never share an ID.
+    func withFreshIdentity() -> DockItem {
+        var copy = self
+        copy.id = UUID()
+        return copy
+    }
+}
+
 enum DockRenderEntry: Identifiable {
     case item(DockItem, pinned: Bool)
     case boundary(String)
@@ -113,7 +123,7 @@ struct DockRenderModel {
             if case .item(let item, _) = entry { return item }
             return nil
         })
-        let visualIDs = Dictionary(uniqueKeysWithValues: tiles.map { ($0.item.id, $0.id) })
+        let visualIDs = Dictionary(tiles.map { ($0.item.id, $0.id) }, uniquingKeysWith: { first, _ in first })
         return entries.map { entry in
             let length = entry.length(settings: settings, scale: scale)
             defer { position += length + CGFloat(settings.customDockItemSpacing) * scale }

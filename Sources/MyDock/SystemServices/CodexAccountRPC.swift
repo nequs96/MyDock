@@ -17,6 +17,9 @@ enum CodexAccountRPC {
         environment["RUST_LOG"] = "off"
         process.environment = environment
         try process.run()
+        // A server that exits mid-session must not take MyDock down: writing to its closed stdin
+        // then fails with EPIPE instead of raising SIGPIPE, whose default action ends the process.
+        _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         defer {
             try? input.fileHandleForWriting.close()
             if process.isRunning {
@@ -41,7 +44,8 @@ enum CodexAccountRPC {
         func send(_ request: [String: Any]) throws {
             var data = try JSONSerialization.data(withJSONObject: request)
             data.append(0x0A)
-            try input.fileHandleForWriting.write(contentsOf: data)
+            do { try input.fileHandleForWriting.write(contentsOf: data) }
+            catch { throw AIUsageError.codexAuthenticationUnavailable }
         }
         func response(id: Int) throws -> Data {
             var buffer = [UInt8](repeating: 0, count: 16_384)

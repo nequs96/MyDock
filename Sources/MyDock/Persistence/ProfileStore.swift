@@ -469,14 +469,17 @@ final class ProfileStore: ObservableObject {
         commit(immediately: false)
     }
 
-    func insert(_ item: DockItem, before targetID: UUID?, in profileID: UUID) {
+    /// Returns the inserted item's ID, which differs from `item.id` when that ID was already in use.
+    @discardableResult
+    func insert(_ item: DockItem, before targetID: UUID?, in profileID: UUID) -> UUID? {
         guard let index = state.profiles.firstIndex(where: { $0.id == profileID }),
-              !state.profiles[index].items.contains(where: { $0.id == item.id }) else { return }
+              !state.profiles[index].items.contains(where: { $0.id == item.id }) else { return nil }
         let target = targetID.flatMap { id in state.profiles[index].items.firstIndex(where: { $0.id == id }) }
             ?? state.profiles[index].items.endIndex
         let insertedItem = itemWithUniqueIdentity(item)
         state.profiles[index].items.insert(insertedItem, at: target)
         commit(immediately: false)
+        return insertedItem.id
     }
 
     private func itemWithUniqueIdentity(_ item: DockItem) -> DockItem {
