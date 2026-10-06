@@ -84,7 +84,7 @@ enum ValidationBoundaryError: LocalizedError {
 
 /// No preference domain is written, including a disposable domain in the user's
 /// Library. Foundation's typed getters use these primitive overrides.
-private final class ValidationDefaults: UserDefaults, @unchecked Sendable {
+private final class ValidationDefaults: UserDefaults {
     private let lock = NSRecursiveLock()
     private var values: [String: Any] = [:]
     override func object(forKey defaultName: String) -> Any? {

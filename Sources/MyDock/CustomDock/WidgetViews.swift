@@ -1363,7 +1363,7 @@ private struct TimeProgressPopoutView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             WidgetPopoutHeroGroup {
-                TimelineView(.periodic(from: .now, by: 60)) { context in
+                TimelineView(.everyMinute) { context in
                     let progress = TimeProgressCalculator.fraction(for: configuration.timeProgressPeriod, at: context.date)
                     VStack(spacing: 10) {
                         WidgetPopoutHero(value: "\(Int(progress * 100))%", caption: "through this \(configuration.timeProgressPeriod.rawValue)")

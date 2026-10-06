@@ -78,7 +78,7 @@ enum WidgetDataValue {
                 }
             }
             c.aiLimitsSnapshot = snapshot
-        case .activity(var snapshot):
+        case .activity(let snapshot):
             guard snapshot.provider == c.aiActivityProvider, snapshot.range == c.aiActivityRange, snapshot.hasCurrentSemantics else { return }
             let scope = sourceScope ?? AIUsageSourceScope.activity(provider: c.aiActivityProvider, range: c.aiActivityRange, now: now)
             guard snapshot.sourceScope == scope else { return }

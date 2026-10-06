@@ -71,6 +71,9 @@ struct WidgetRuntimeReadings: Codable, Equatable {
     }
 }
 
+/// Generic types are not inferred `Sendable`; this lets the cache hand readings to its background writer.
+extension WidgetRuntimeReadings.Tagged: Sendable where Value: Sendable {}
+
 extension WidgetConfiguration {
     static func watchlistKey(symbol: String, currency: String) -> String { "\(symbol.uppercased())|\(currency)" }
 

@@ -99,7 +99,7 @@ private struct AlarmCompactWidgetView: View {
     private var alarms: [DockAlarm] { (item.widgetConfiguration ?? WidgetConfiguration()).alarms }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
+        TimelineView(.everyMinute) { context in
             let next = AlarmFacePresentation.next(alarms, now: context.date)
             AlarmDockFace(time: next.map { AlarmFacePresentation.timeText($0.date) }, title: next?.alarm.title)
                 .frame(width: width, height: 54)
@@ -142,7 +142,7 @@ private struct AlarmPopoutWidgetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
-            TimelineView(.periodic(from: .now, by: 60)) { context in
+            TimelineView(.everyMinute) { context in
                 let next = AlarmFacePresentation.next(alarms, now: context.date)
                 // The hero shows the next alarm; the list below never repeats it. In the settings sheet the
                 // hero is hidden, so every alarm is listed with its time.

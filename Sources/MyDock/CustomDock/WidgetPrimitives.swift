@@ -866,8 +866,11 @@ struct LocalWidgetDockFace: View {
             || (kind == "Countdown" && (c.countdownStartedAt != nil || c.countdownMode == .targetDate))
     }
     var body: some View {
-        TimelineView(.periodic(from: .now, by: ticksEverySecond ? 1 : 30)) { context in
-            face(at: context.date)
+        // Running timers tick every second; minute faces tick on the minute, so a clock never shows the previous minute.
+        if ticksEverySecond {
+            TimelineView(.periodic(from: .now, by: 1)) { context in face(at: context.date) }
+        } else {
+            TimelineView(.everyMinute) { context in face(at: context.date) }
         }
     }
     @ViewBuilder private func face(at date: Date) -> some View {
@@ -991,6 +994,9 @@ private struct TimerFace: View {
             if layout == .standard && !WidgetModuleMetrics.isNarrow(width) {
                 if kind == "Stopwatch" {
                     WidgetToggleGlyph(kind: kind, symbol: running ? "pause.fill" : "play.fill", active: running, diameter: 28)
+                } else if kind == "Countdown" && c.countdownMode == .targetDate {
+                    // A target date has no total duration to measure against, so no progress ring.
+                    WidgetToggleGlyph(kind: kind, symbol: "hourglass", active: running, diameter: 28)
                 } else {
                     let total = Double(max(1, kind == "Focus Timer" ? c.focusDurationSeconds : c.countdownDurationSeconds))
                     ModuleRing(fraction: min(1, max(0, duration / total)),
@@ -1209,7 +1215,7 @@ struct WorldClockDockFace: View {
     @Environment(\.widgetLayout) private var layout
     @Environment(\.dockWidgetContentWidth) private var width
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
+        TimelineView(.everyMinute) { context in
             let zone = TimeZone(identifier: configuration.worldClockTimeZoneID) ?? .current
             let city = zone.identifier.split(separator: "/").last.map(String.init)?.replacingOccurrences(of: "_", with: " ") ?? "Local"
             let time = formattedTime(context.date, timeZone: zone)

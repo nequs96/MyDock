@@ -220,6 +220,7 @@ struct RedesignGalleryTests {
         #expect(added.labelSuffix == ", Added" && add.labelSuffix.isEmpty)
     }
 
+    @MainActor
     @Test func presetChipsKeepModuleProportionsWithoutText() {
         for definition in WidgetRegistry.all {
             let width = PresetModuleChip.width(for: definition.name, height: 28)

@@ -234,6 +234,7 @@ struct RedesignFacesATests {
 
     /// The disabled inline "Add" stays perceivable: secondary text rather than a faded accent, with an edge
     /// under Increase Contrast.
+    @MainActor
     @Test func inlineAddButtonStaysPerceivableWhenDisabled() {
         #expect(WidgetRowTextButtonStyle.foreground(enabled: false) == Color.secondary)
         #expect(WidgetRowTextButtonStyle.foreground(enabled: true) == DockDesign.accent)
