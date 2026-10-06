@@ -134,7 +134,8 @@ enum AirDropDroppedItemLoader {
         return validatedShareURL(url)
     }
 
-    private static func validatedShareURL(_ url: URL) -> URL? {
+    /// Files pass through; web addresses must satisfy the same policy as every Dock link.
+    static func validatedShareURL(_ url: URL) -> URL? {
         if url.isFileURL { return url }
         return DockLinkPolicy.validatedURL(url.absoluteString)
     }
@@ -297,12 +298,12 @@ private final class AirDropDropTargetView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes([.fileURL, .URL])
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes([.fileURL, .URL])
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -326,7 +327,7 @@ private final class AirDropDropTargetView: NSView {
         guard let objects = sender.draggingPasteboard.readObjects(
             forClasses: [NSURL.self], options: [:]
         ) else { return false }
-        let urls = objects.compactMap { $0 as? URL }
+        let urls = objects.compactMap { ($0 as? URL).flatMap { AirDropDroppedItemLoader.validatedShareURL($0) } }
         guard !urls.isEmpty else { return false }
         onDropURLs?(urls)
         return true

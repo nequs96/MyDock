@@ -141,13 +141,7 @@ final class CustomDockWindowController {
               let authoredProfile = state.profiles.first(where: { $0.id == profileID && $0.kind == .custom }) else {
             usingDisplayFallback = false
             noScreenAvailable = false
-            SystemActivityMonitor.shared.setDockVisible(false)
-            NetworkActivityMonitor.shared.setDockVisible(false)
-            NowPlayingMonitor.shared.setDockVisible(false)
-            AudioOutputService.shared.setDockVisible(false)
-            RefreshScheduler.shared.setDockVisible(false)
-            store.widgetData.setVisible(false)
-            DockBadgeMonitor.shared.setDockVisible(false)
+            setLiveMonitorsVisible(false)
             WindowAccessibilityMonitor.shared.setEnabled(false)
             DockWindowPreviewController.shared.dismiss()
             lastPresentation = nil
@@ -161,13 +155,7 @@ final class CustomDockWindowController {
         }
         let profile = store.presentationProfile(authoredProfile)
         guard let screen = screen(for: state.settings) else {
-            SystemActivityMonitor.shared.setDockVisible(false)
-            NetworkActivityMonitor.shared.setDockVisible(false)
-            NowPlayingMonitor.shared.setDockVisible(false)
-            AudioOutputService.shared.setDockVisible(false)
-            RefreshScheduler.shared.setDockVisible(false)
-            store.widgetData.setVisible(false)
-            DockBadgeMonitor.shared.setDockVisible(false)
+            setLiveMonitorsVisible(false)
             WindowAccessibilityMonitor.shared.setEnabled(false)
             DockWindowPreviewController.shared.dismiss()
             lastPresentation = nil
@@ -236,13 +224,7 @@ final class CustomDockWindowController {
             revealMonitor.stopPointerMonitoring()
             revealPanel?.orderOut(nil)
             presentDock(visible: true)
-            SystemActivityMonitor.shared.setDockVisible(true)
-            NetworkActivityMonitor.shared.setDockVisible(true)
-            NowPlayingMonitor.shared.setDockVisible(true)
-            AudioOutputService.shared.setDockVisible(true)
-            RefreshScheduler.shared.setDockVisible(true)
-            store.widgetData.setVisible(true)
-            DockBadgeMonitor.shared.setDockVisible(true)
+            setLiveMonitorsVisible(true)
             configureWindowMonitoring(state.settings)
         }
     }
@@ -432,18 +414,25 @@ final class CustomDockWindowController {
         if panel?.isVisible == false { DiagnosticsService.shared.record(.customDockShown) }
         revealPanel?.orderOut(nil)
         presentDock(visible: true)
-        SystemActivityMonitor.shared.setDockVisible(true)
-        NetworkActivityMonitor.shared.setDockVisible(true)
-        NowPlayingMonitor.shared.setDockVisible(true)
-        RefreshScheduler.shared.setDockVisible(true)
-        store.widgetData.setVisible(true)
-        DockBadgeMonitor.shared.setDockVisible(true)
+        setLiveMonitorsVisible(true)
         configureWindowMonitoring(store.state.settings)
     }
 
     private var canPresentDock: Bool {
         CustomDockVisibilityPolicy.canPresent(mode: store.state.settings.setupMode,
                                              hasActiveProfile: store.activeCustomProfile != nil)
+    }
+
+    /// Everything that samples only while the Dock is on screen. One list, so a new live widget cannot be
+    /// left out of an auto-hide or hide-for-Apple-Dock path again.
+    private func setLiveMonitorsVisible(_ visible: Bool) {
+        SystemActivityMonitor.shared.setDockVisible(visible)
+        NetworkActivityMonitor.shared.setDockVisible(visible)
+        NowPlayingMonitor.shared.setDockVisible(visible)
+        AudioOutputService.shared.setDockVisible(visible)
+        RefreshScheduler.shared.setDockVisible(visible)
+        store.widgetData.setVisible(visible)
+        DockBadgeMonitor.shared.setDockVisible(visible)
     }
 
     private func configureWindowMonitoring(_ settings: AppSettings) {
@@ -457,12 +446,7 @@ final class CustomDockWindowController {
         if panel?.isVisible == true { DiagnosticsService.shared.record(.customDockHidden) }
         presentDock(visible: false)
         revealPanel?.orderFrontRegardless()
-        SystemActivityMonitor.shared.setDockVisible(false)
-        NetworkActivityMonitor.shared.setDockVisible(false)
-        NowPlayingMonitor.shared.setDockVisible(false)
-        RefreshScheduler.shared.setDockVisible(false)
-        store.widgetData.setVisible(false)
-        DockBadgeMonitor.shared.setDockVisible(false)
+        setLiveMonitorsVisible(false)
         WindowAccessibilityMonitor.shared.setEnabled(false)
         DockWindowPreviewController.shared.dismiss()
     }
@@ -471,12 +455,7 @@ final class CustomDockWindowController {
         if panel?.isVisible == true { DiagnosticsService.shared.record(.customDockHidden) }
         presentDock(visible: false)
         revealPanel?.orderOut(nil)
-        SystemActivityMonitor.shared.setDockVisible(false)
-        NetworkActivityMonitor.shared.setDockVisible(false)
-        NowPlayingMonitor.shared.setDockVisible(false)
-        RefreshScheduler.shared.setDockVisible(false)
-        store.widgetData.setVisible(false)
-        DockBadgeMonitor.shared.setDockVisible(false)
+        setLiveMonitorsVisible(false)
         WindowAccessibilityMonitor.shared.setEnabled(false)
         DockWindowPreviewController.shared.dismiss()
     }

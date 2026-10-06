@@ -24,6 +24,8 @@ protocol WeatherProvider: Sendable {
 }
 
 struct OpenMeteoWeatherProvider: WeatherProvider {
+    /// No disk cache or cookies: requests carry the place, including a current-location fix.
+    private static let ephemeral = BoundedHTTPFetch.ephemeralSession()
     /// A supplied session is an explicit fixture transport; the default is production.
     var session: URLSession? = nil
     func searchLocations(_ query: String) async throws -> [WeatherLocation] {
@@ -116,7 +118,7 @@ struct OpenMeteoWeatherProvider: WeatherProvider {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
         request.setValue("MyDock weather widget", forHTTPHeaderField: "User-Agent")
         do {
-            let (data, response) = try await BoundedHTTPFetch.fetch(request, session: session ?? .shared, maximumBytes: 2_000_000)
+            let (data, response) = try await BoundedHTTPFetch.fetch(request, session: session ?? Self.ephemeral, maximumBytes: 2_000_000)
             guard (200..<300).contains(response.statusCode) else { throw WeatherServiceError.serviceUnavailable }
             return (data, response)
         } catch let error as WeatherServiceError {

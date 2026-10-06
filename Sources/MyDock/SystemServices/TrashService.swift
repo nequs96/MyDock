@@ -4,9 +4,13 @@ import Darwin
 import Foundation
 
 enum TrashContentsReader {
+    /// Files Finder writes into the Trash for its own bookkeeping; they are not items the user threw away.
+    static let finderBookkeepingNames: Set<String> = [".DS_Store", ".localized"]
+
     static func itemCount(at trashURL: URL, fileManager: FileManager = .default) throws -> Int {
         do {
-            return try fileManager.contentsOfDirectory(at: trashURL, includingPropertiesForKeys: nil, options: []).count
+            return try fileManager.contentsOfDirectory(at: trashURL, includingPropertiesForKeys: nil, options: [])
+                .filter { !finderBookkeepingNames.contains($0.lastPathComponent) }.count
         } catch {
             let nsError = error as NSError
             if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileReadNoSuchFileError { return 0 }

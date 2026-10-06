@@ -49,6 +49,12 @@ struct CalendarColorSnapshot: Hashable, Sendable {
 }
 
 struct CalendarEventSnapshot: Identifiable, Hashable, Sendable {
+    /// One identity per occurrence: EventKit gives every occurrence of a recurring event the same
+    /// eventIdentifier, and a list needs each daily stand-up to stay distinct.
+    static func occurrenceID(eventIdentifier: String?, calendarID: String, occurrence: Date, title: String) -> String {
+        (eventIdentifier ?? "\(calendarID):\(title)") + ":" + String(Int64(occurrence.timeIntervalSince1970))
+    }
+
     var id: String
     var title: String
     var startDate: Date
@@ -169,8 +175,11 @@ actor CalendarRemindersService {
             .filter { includeAllDay || !$0.isAllDay }
             .map { event in
                 let title = displayTitle(event.title)
+                let occurrence: Date = event.occurrenceDate ?? event.startDate
                 return CalendarEventSnapshot(
-                    id: event.eventIdentifier ?? "\(event.calendar.calendarIdentifier):\(event.startDate.timeIntervalSince1970):\(title)",
+                    id: CalendarEventSnapshot.occurrenceID(eventIdentifier: event.eventIdentifier,
+                                                           calendarID: event.calendar.calendarIdentifier,
+                                                           occurrence: occurrence, title: title),
                     title: title,
                     startDate: event.startDate,
                     endDate: event.endDate,

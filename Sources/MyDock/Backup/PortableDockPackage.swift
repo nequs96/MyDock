@@ -118,8 +118,12 @@ enum PortableDockPackage {
     /// Personal widget data is included only when the user explicitly chooses it.
     /// Credentials, provider readings and permissions are never part of a profile export.
     static func exportedProfile(_ profile: DockProfile, includePersonalData: Bool) -> DockProfile {
-        guard includePersonalData else { return ProfileSanitizer.sanitize(profile) }
-        // Account and store IDs are Keychain lookup keys for this Mac; they never travel, even with personal data.
+        includePersonalData ? withoutAccountAssignments(profile) : ProfileSanitizer.sanitize(profile)
+    }
+
+    /// Account and store IDs are Keychain lookup keys for one Mac. They never travel in a Dock package,
+    /// in either direction, so an imported Dock always reconnects explicitly on this Mac.
+    static func withoutAccountAssignments(_ profile: DockProfile) -> DockProfile {
         var copy = profile
         for index in copy.items.indices {
             guard var c = copy.items[index].widgetConfiguration else { continue }
@@ -127,6 +131,11 @@ enum PortableDockPackage {
             copy.items[index].widgetConfiguration = c
         }
         return copy
+    }
+
+    /// What an imported Dock may carry onto this Mac: a fresh identity, no account assignments and no provider readings.
+    private static func importable(_ profile: DockProfile) -> DockProfile {
+        withoutAccountAssignments(ProfileSanitizer.newIdentity(profile)).strippedOfRuntimeReadings
     }
 
     static func makePackage(from profile: DockProfile, includePersonalData: Bool) throws -> Data {
@@ -157,7 +166,7 @@ enum PortableDockPackage {
         guard report.importedProfiles.count == 1 else { throw PortableDockError.multipleDocks(report.importedProfiles.count) }
 
         let manifest = try? decodedManifest(data)
-        var profile = ProfileSanitizer.newIdentity(imported)
+        var profile = importable(imported)
         profile.name = uniqueName(profile.name, existing: existingNames)
         return PortableDockImportPreview(profile: profile, summary: DockContentSummary(profile: profile),
                                          includesPersonalData: manifest?.includesPersonalData,
@@ -168,7 +177,7 @@ enum PortableDockPackage {
     /// Appends the previewed Dock as a new profile. Never replaces or activates an existing one.
     @discardableResult
     static func importAsNew(_ preview: PortableDockImportPreview, into store: ProfileStore) throws -> UUID {
-        var profile = ProfileSanitizer.newIdentity(preview.profile)
+        var profile = importable(preview.profile)
         profile.name = uniqueName(profile.name, existing: store.state.profiles.map(\.name))
         try ProfileSemanticValidator.validate(store.state.profiles + [profile])
         try store.importProfiles([profile])

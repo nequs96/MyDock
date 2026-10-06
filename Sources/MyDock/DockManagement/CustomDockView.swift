@@ -1067,8 +1067,9 @@ struct CustomDockView: View {
                 let folder = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
                 store.add(url.pathExtension == "app" ? .application(at: url) : .file(at: url, isFolder: folder), to: profile.id)
                 added = true
-            } else if ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil {
-                store.add(.link(url, title: url.host ?? url.absoluteString), to: profile.id)
+            } else if let link = DockLinkPolicy.validatedURL(url.absoluteString) {
+                // The same policy as every other link entry: http(s) only, never credentials in the URL.
+                store.add(.link(link, title: link.host ?? link.absoluteString), to: profile.id)
                 added = true
             }
         }

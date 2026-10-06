@@ -2,7 +2,7 @@ import Foundation
 
 enum FinancialCurrencyFormatter {
     static func majorUnits(from minorUnits: Decimal, currency: String) -> Decimal {
-        let scale = Decimal(exponent(for: currency) == 0 ? 1 : 100)
+        let scale: Decimal = switch exponent(for: currency) { case 0: 1; case 3: 1000; default: 100 }
         var amount = minorUnits
         var divisor = scale
         var result = Decimal.zero
@@ -14,9 +14,12 @@ enum FinancialCurrencyFormatter {
         majorUnits(from: minorUnits, currency: currency).formatted(.currency(code: currency))
     }
 
-    private static func exponent(for currency: String) -> Int {
+    /// Digits in a provider's minor unit, per Stripe's currency list: zero-decimal currencies (UGX included)
+    /// and the three-decimal Gulf and North African currencies; everything else uses cents.
+    static func exponent(for currency: String) -> Int {
         switch currency.uppercased() {
-        case "BIF", "CLP", "DJF", "GNF", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "VND", "VUV", "XAF", "XOF", "XPF": 0
+        case "BIF", "CLP", "DJF", "GNF", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "UGX", "VND", "VUV", "XAF", "XOF", "XPF": 0
+        case "BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND": 3
         default: 2
         }
     }

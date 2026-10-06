@@ -41,6 +41,9 @@ targets:
       path: Xcode/MyDock.entitlements
       properties:
         com.apple.security.automation.apple-events: true
+        # Hardened-runtime resource access for the Calendar/Reminders and current-location Weather widgets.
+        com.apple.security.personal-information.calendars: true
+        com.apple.security.personal-information.location: true
     settings:
       base:
         PRODUCT_NAME: ${MYDOCK_PRODUCT_NAME}

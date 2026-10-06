@@ -12,13 +12,23 @@ enum AppRuntimeEnvironment {
         #if DEBUG
         let flags = ["MYDOCK_VISUAL_PREVIEW", "MYDOCK_COUNTDOWN_VISUAL_PREVIEW", "MYDOCK_UNIT_TEST_HOST"]
         let previewBundle = Bundle.main.bundleIdentifier?.contains("VisualPreview") == true
-        if previewBundle || flags.contains(where: { environment[$0] == "1" }) || environment["MYDOCK_RENDER_QA"] != nil {
+        if previewBundle || flags.contains(where: { environment[$0] == "1" }) || environment["MYDOCK_RENDER_QA"] != nil
+            || isTestProcess(environment) {
             return FileManager.default.temporaryDirectory.appendingPathComponent(
                 "MyDock-validation-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
         }
         #endif
         return nil
     }()
+
+    #if DEBUG
+    /// Any test run is isolated however it was started (./TestMyDock.sh, swift test, Xcode's Test action):
+    /// a missing environment flag must never let a test reach the user's Dock, Keychain or files.
+    private static func isTestProcess(_ environment: [String: String]) -> Bool {
+        ["XCTestConfigurationFilePath", "XCTestBundlePath", "XCTestSessionIdentifier"].contains { environment[$0] != nil }
+            || Bundle.allBundles.contains { $0.bundleURL.pathExtension == "xctest" }
+    }
+    #endif
 
     static var isIsolated: Bool { validationRoot != nil }
     // Native acceptance is run in its separate explicitly opted-in harness

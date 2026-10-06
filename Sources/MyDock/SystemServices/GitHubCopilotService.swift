@@ -203,6 +203,8 @@ enum GitHubCopilotBillingError: LocalizedError {
 }
 
 enum GitHubCopilotBillingClient {
+    /// No disk cache or cookies: the request carries the personal token and the reply is billing data.
+    private static let ephemeral = BoundedHTTPFetch.ephemeralSession()
     static func makeRequest(username: String, token: String, now: Date = .now) throws -> URLRequest {
         guard GitHubCopilotUsernamePolicy.isValid(username), !token.isEmpty else {
             throw GitHubCopilotBillingError.invalidResponse
@@ -236,7 +238,7 @@ enum GitHubCopilotBillingClient {
         }
         let request = try makeRequest(username: credentials.username, token: credentials.token, now: now)
 
-        let (bytes, response) = try await (session ?? .shared).bytes(for: request)
+        let (bytes, response) = try await (session ?? Self.ephemeral).bytes(for: request)
         guard let response = response as? HTTPURLResponse else {
             throw GitHubCopilotBillingError.invalidResponse
         }

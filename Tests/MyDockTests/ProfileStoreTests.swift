@@ -1586,6 +1586,9 @@ struct ProfileStoreTests {
         try Data("one".utf8).write(to: directory.appendingPathComponent("one.txt"))
         try Data("hidden".utf8).write(to: directory.appendingPathComponent(".hidden"))
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("folder", isDirectory: true), withIntermediateDirectories: false)
+        // Finder's own bookkeeping is not something the user trashed.
+        try Data().write(to: directory.appendingPathComponent(".DS_Store"))
+        try Data().write(to: directory.appendingPathComponent(".localized"))
 
         #expect(try TrashContentsReader.itemCount(at: directory) == 3)
         #expect(try TrashContentsReader.itemCount(at: directory.appendingPathComponent("missing")) == 0)

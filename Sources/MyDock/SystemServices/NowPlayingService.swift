@@ -26,12 +26,14 @@ enum NowPlayingParsingError: Error {
 }
 
 enum NowPlayingResponseParser {
-    static func snapshot(from response: String, updatedAt: Date = .now) throws -> NowPlayingSnapshot? {
+    /// `durationScale` converts the player's duration unit to seconds: Spotify reports milliseconds, Music seconds.
+    static func snapshot(from response: String, updatedAt: Date = .now, durationScale: Double = 1) throws -> NowPlayingSnapshot? {
         guard !response.isEmpty else { return nil }
         let parts = response.trimmingCharacters(in: .newlines).components(separatedBy: response.contains("\u{1f}") ? "\u{1f}" : "\n")
         guard parts.count >= 6,
-              let position = Double(parts[4]), let duration = Double(parts[5]),
-              position.isFinite, duration.isFinite else { throw NowPlayingParsingError.malformedResponse }
+              let position = number(parts[4]), let rawDuration = number(parts[5]),
+              position.isFinite, rawDuration.isFinite else { throw NowPlayingParsingError.malformedResponse }
+        let duration = rawDuration * durationScale
         return NowPlayingSnapshot(title: parts[0],
                                   artist: parts[1],
                                   album: parts[2],
@@ -40,6 +42,11 @@ enum NowPlayingResponseParser {
                                   duration: max(0, duration),
                                   updatedAt: updatedAt,
                                   artworkURL: parts.count > 6 ? NowPlayingArtwork.spotifyURL(from: parts[6]) : nil)
+    }
+
+    /// AppleScript writes reals with the user's decimal separator ("12,5" in many regions).
+    private static func number(_ text: String) -> Double? {
+        Double(text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "."))
     }
 }
 
@@ -202,7 +209,7 @@ final class NowPlayingMonitor: ObservableObject {
         """
         guard let result = await execute(script, source: source), !Task.isCancelled else { return }
         do {
-            guard let snapshot = try NowPlayingResponseParser.snapshot(from: result) else {
+            guard let snapshot = try NowPlayingResponseParser.snapshot(from: result, durationScale: source == .spotify ? 0.001 : 1) else {
                 snapshots[source] = nil
                 errors[source] = nil
                 clearArtwork(source)

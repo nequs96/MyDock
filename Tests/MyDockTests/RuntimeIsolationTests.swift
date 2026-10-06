@@ -20,7 +20,9 @@ struct RuntimeIsolationTests {
     }
 
     @Test func productionAdaptersRefuseNativeAndCredentialEffects() async throws {
-        #expect(!AppRuntimeEnvironment.allowsNativeEffects)
+        // Stop before touching any adapter if isolation were ever off: the calls below would otherwise
+        // write the user's real Keychain and Apple Dock preferences.
+        try #require(!AppRuntimeEnvironment.allowsNativeEffects)
         #expect(try MarketAPIKeyStore.read() == nil)
         #expect(throws: ValidationBoundaryError.self) { try MarketAPIKeyStore.write("fixture") }
         #expect(throws: ValidationBoundaryError.self) { try MarketAPIKeyStore.delete() }
