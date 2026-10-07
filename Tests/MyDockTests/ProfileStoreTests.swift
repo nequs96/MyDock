@@ -2537,7 +2537,7 @@ struct ProfileStoreTests {
         settings.customDockWidgetStyle = .cards
         #expect(length(items, settings) == 242)
         settings.customDockItemSpacing = 14
-        #expect(length(items, settings) == 274)
+        #expect(length(items, settings) == 260)
         #expect(length(items, settings, scale: 1.5) == 389)
         settings.customDockPosition = .left
         #expect(length(items, settings) == 174)

@@ -154,7 +154,7 @@ import Testing
         #expect(DockSurfaceMetrics.clampedScale(9) == DockSurfaceMetrics.scaleRange.upperBound)
         #expect(DockSurfaceMetrics.clampedScale(.nan) == 1)
         #expect(DockSurfaceMetrics.clampedScale(1.2) == 1.2)
-        // Dragging the grip 180 pt away from the bottom edge grows the Dock by 100%, within bounds.
+        // `pointsPerUnit` of travel changes the size by 100%: half of it away from the bottom edge adds 50%.
         let grown = DockResizePolicy.size(start: 0.7, translation: CGSize(width: 0, height: -DockResizePolicy.pointsPerUnit / 2),
                                           position: .bottom)
         #expect(abs(grown - 1.2) < 0.0001)
@@ -169,8 +169,9 @@ import Testing
     }
 
     @Test func magnificationRunsWhereTheScrollViewDoesNotClipIt() {
-        // Test builds run on macOS 14 or later, where scroll clipping can be turned off.
-        #expect(DockMagnificationSupport.isAvailable)
+        // Scroll clipping can be turned off from macOS 14; macOS 13 keeps tiles at rest size.
+        let macOS14 = OperatingSystemVersion(majorVersion: 14, minorVersion: 0, patchVersion: 0)
+        #expect(DockMagnificationSupport.isAvailable == ProcessInfo.processInfo.isOperatingSystemAtLeast(macOS14))
     }
 
     @Test func increaseContrastStrengthensDockSeparators() {

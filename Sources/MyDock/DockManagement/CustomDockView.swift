@@ -128,7 +128,7 @@ struct CustomDockView: View {
 
     /// Profile choices show the active one with the menu's native checkmark.
     @ViewBuilder private func switchProfileMenu(settings: AppSettings) -> some View {
-        Menu("Switch Profile") {
+        Menu("Switch Dock") {
             if !store.nativeProfiles.isEmpty {
                 Menu("macOS Dock") {
                     ForEach(store.nativeProfiles) { candidate in
@@ -165,7 +165,7 @@ struct CustomDockView: View {
             }
             Divider()
             ForEach(SpacerKind.allCases) { kind in
-                Button("Add \(kind.title)") { store.add(.spacer(kind), to: profile.id) }
+                Button("Add \(kind.title.capitalized)") { store.add(.spacer(kind), to: profile.id) }
             }
         }
     }
@@ -720,7 +720,7 @@ struct CustomDockView: View {
         .modifier(DockTileAccessibilityModifier(item: item,
                                                 value: DockTileAccessibility.value(isRunning: isRunning, isMissing: isMissing, badge: tileBadge),
                                                 isSelected: isActivePopoutAnchor(item)))
-        .accessibilityHint(isMissing ? "Saved location unavailable. Re-add the item from its current location." : "")
+        .accessibilityHint(isMissing ? "Choose Locate… from its menu to find it." : "")
         .scaleEffect(magnification(center: center, isWidget: item.type == .widget, settings: settings), anchor: edgeAnchor)
         .scaleEffect(DockMotionPolicy.settleScale(isSettling: settlingItemIDs.contains(item.id), reduceMotion: reducesMotion),
                      anchor: edgeAnchor)
@@ -811,7 +811,7 @@ struct CustomDockView: View {
                         }
                     }
                 }
-                Button("Fetch Site Icon…", systemImage: "globe") { fetchLinkIcon(item) }
+                Button(item.linkFaviconData == nil ? "Fetch Site Icon" : "Refresh Site Icon", systemImage: "globe") { fetchLinkIcon(item) }
                 if item.linkFaviconData != nil {
                     Button("Remove Site Icon", role: .destructive) {
                         store.updateItem(item.id, in: profile.id) { $0.linkFaviconData = nil }
@@ -1145,10 +1145,10 @@ private struct WindowDockTile<SwitchProfileMenu: View>: View {
     @ViewBuilder var switchProfileMenu: SwitchProfileMenu
     @DockAccessibilityStyle() private var accessibility
 
+    /// The icon of the app that owns the window, from the bundle observed with it: no process lookup
+    /// on each render (icons are cached by `AppLauncher`).
     private var icon: NSImage {
-        if let identity = window.applicationIdentity,
-           let application = WindowAccessibilityService.currentApplication(matches: identity),
-           let bundleURL = application.bundleURL {
+        if let bundleURL = window.applicationIdentity?.bundleURL {
             return AppLauncher.icon(for: .application(at: bundleURL), size: size)
         }
         return NSImage(systemSymbolName: "macwindow", accessibilityDescription: window.title)
