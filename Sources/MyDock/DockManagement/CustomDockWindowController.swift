@@ -230,18 +230,13 @@ final class CustomDockWindowController {
     }
 
     private func screen(for settings: AppSettings) -> NSScreen? {
-        let selectedScreen = NSScreen.screens.first { screen in
-            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
-            return number.uint32Value == settings.customDockDisplayID
-        }
-        let fallback = selectedScreen == nil && settings.customDockDisplayID != nil
+        let (screen, fallback) = DockDisplaySelection.screen(selectedID: settings.customDockDisplayID)
         if fallback && !usingDisplayFallback {
             DiagnosticsService.shared.record(.customDockDisplayFallback)
         } else if !fallback && usingDisplayFallback {
             DiagnosticsService.shared.record(.customDockDisplayRestored)
         }
         usingDisplayFallback = fallback
-        let screen = selectedScreen ?? NSScreen.main ?? NSScreen.screens.first
         if screen == nil && !noScreenAvailable {
             DiagnosticsService.shared.record(.customDockScreenUnavailable)
         }
@@ -302,9 +297,11 @@ final class CustomDockWindowController {
     }
 
     private func configureWindowMode(desktop: Bool) {
-        let level = desktop ? NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow))) : .floating
+        // Desktop mode sits just above Finder's desktop-icon window, so clicks reach the Dock rather than Finder,
+        // and stays put through Mission Control and Show Desktop.
+        let level = desktop ? NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1) : .floating
         let behavior: NSWindow.CollectionBehavior = desktop
-            ? [.canJoinAllSpaces, .ignoresCycle]
+            ? [.canJoinAllSpaces, .stationary, .ignoresCycle]
             : [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel?.isFloatingPanel = !desktop
         panel?.level = level

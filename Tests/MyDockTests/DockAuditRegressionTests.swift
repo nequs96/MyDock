@@ -467,6 +467,31 @@ struct DockAuditRegressionTests {
         #expect(controller.health == .ready)
     }
 
+    /// S07-004: cancelling an apply after the new layout was written still restores the previous Dock and leaves
+    /// no journal behind, instead of failing the rollback in the cancelled task.
+    @Test func cancellingAnApplyDuringTheRelaunchStillRestoresThePreviousDock() async throws {
+        let backend = AuditDockBackend()
+        let original: [[String: Any]] = [["tile-type": "spacer-tile"]]
+        backend.tiles = original
+        let relauncher = CancellationSensitiveRelauncher()
+        let journal = AuditDockJournal()
+        let controller = NativeDockController(backend: backend, relauncher: relauncher, journal: journal,
+                                              gate: DockSystemOperationGate())
+        let profile = DockProfile(name: "Interrupted", kind: .native, items: [.spacer(.small)])
+        let task = Task { try await controller.apply(profile) }
+        do { try await waitUntil { relauncher.calls == 1 } }
+        catch { task.cancel(); throw error }
+        task.cancel()
+        do {
+            try await task.value
+            Issue.record("A cancelled apply must report its cancellation")
+        } catch { #expect(error is CancellationError) }
+        #expect(NativeDockSerializer.plistArraysEqual(backend.tiles, original))
+        #expect(relauncher.calls == 2)
+        #expect(journal.snapshot == nil)
+        #expect(controller.health == .ready)
+    }
+
     @Test func nativeAutoSaveRetainsErrorsAndRetriesFailedDiskWrites() async throws {
         let (store, directory) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -526,6 +551,18 @@ private final class AuditRelauncher: DockRelaunching {
     func restartDock() async throws {
         calls += 1
         if failingCalls.contains(calls) { throw AuditProviderError.unavailable }
+    }
+}
+
+/// Behaves like `killall` under `BoundedSubprocessCapture.runCancellable`: a relaunch in a cancelled task stops at once.
+/// The first relaunch waits until the apply is cancelled.
+@MainActor
+private final class CancellationSensitiveRelauncher: DockRelaunching {
+    var calls = 0
+    func restartDock() async throws {
+        calls += 1
+        if calls == 1 { try await Task.sleep(for: .seconds(60)) }
+        try Task.checkCancellation()
     }
 }
 

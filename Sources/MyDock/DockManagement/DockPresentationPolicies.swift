@@ -403,6 +403,28 @@ enum DockResizePolicy {
 
 @MainActor enum DockInteractionState { static var isResizing = false }
 
+/// "Main display" is the primary display (menu bar, origin at zero), which AppKit lists first. `NSScreen.main`
+/// follows keyboard focus, so it never stands in for it: the Dock would follow the focused window between displays.
+enum DockDisplaySelection {
+    /// The chosen display while it is connected; otherwise the primary display. `isFallback` is true only while a
+    /// chosen display is missing.
+    static func resolve<Display>(_ displays: [Display], selectedID: UInt32?,
+                                 id: (Display) -> UInt32?) -> (display: Display?, isFallback: Bool) {
+        if let selectedID, let selected = displays.first(where: { id($0) == selectedID }) { return (selected, false) }
+        return (displays.first, selectedID != nil)
+    }
+
+    @MainActor static func screen(selectedID: UInt32?) -> (screen: NSScreen?, isFallback: Bool) {
+        let resolved = resolve(NSScreen.screens, selectedID: selectedID) { $0.displayNumber }
+        return (resolved.display, resolved.isFallback)
+    }
+}
+
+extension NSScreen {
+    /// The Core Graphics display ID that Settings stores for a chosen display.
+    var displayNumber: UInt32? { (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value }
+}
+
 enum CustomDockVisibilityPolicy {
     static func canPresent(mode: SetupMode, hasActiveProfile: Bool) -> Bool {
         mode != .nativeOnly && hasActiveProfile

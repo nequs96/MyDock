@@ -85,6 +85,19 @@ import Testing
         #expect(AirDropDroppedItemLoader.validatedShareURL(URL(string: "javascript:alert(1)")!) == nil)
     }
 
+    @Test func mainDisplayIsThePrimaryDisplayNotTheFocusedOne() {
+        // AppKit lists the primary display (menu bar, origin at zero) first.
+        let displays: [UInt32] = [7, 8, 9]
+        let main = DockDisplaySelection.resolve(displays, selectedID: nil) { $0 }
+        #expect(main.display == 7 && !main.isFallback)
+        let chosen = DockDisplaySelection.resolve(displays, selectedID: 9) { $0 }
+        #expect(chosen.display == 9 && !chosen.isFallback)
+        let disconnected = DockDisplaySelection.resolve(displays, selectedID: 42) { $0 }
+        #expect(disconnected.display == 7 && disconnected.isFallback)
+        let none = DockDisplaySelection.resolve([UInt32](), selectedID: nil) { $0 }
+        #expect(none.display == nil && !none.isFallback)
+    }
+
     @MainActor
     @Test func dockLayoutToleratesDuplicateItemIdentities() {
         let item = runtimeApp()

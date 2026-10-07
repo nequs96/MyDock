@@ -25,23 +25,30 @@ struct TrashFacePresentation: Equatable {
     var isFull: Bool
     var isUnavailable: Bool
 
-    init(count: Int, errorMessage: String?) {
-        isUnavailable = errorMessage != nil
-        isFull = errorMessage == nil && count > 0
-        symbol = isUnavailable ? "exclamationmark.triangle" : isFull ? "trash.fill" : "trash"
-        label = isUnavailable ? "Unavailable" : count == 0 ? "Empty" : count == 1 ? "1 item" : "\(count) items"
+    /// `needsAccess`: the count is unknown without Full Disk Access. That is a calm state, not a warning.
+    init(count: Int, errorMessage: String?, needsAccess: Bool = false) {
+        isUnavailable = errorMessage != nil || needsAccess
+        isFull = !isUnavailable && count > 0
+        symbol = needsAccess ? "trash" : errorMessage != nil ? "exclamationmark.triangle" : isFull ? "trash.fill" : "trash"
+        label = needsAccess ? "No access" : errorMessage != nil ? "Unavailable"
+            : count == 0 ? "Empty" : count == 1 ? "1 item" : "\(count) items"
     }
 
-    /// The popout hero: the count (or "Empty", "Unavailable") as the one large value.
-    static func heroValue(count: Int, errorMessage: String?) -> String {
-        errorMessage != nil ? "Unavailable" : count == 0 ? "Empty" : "\(count)"
+    /// The popout hero: the count (or "Empty", "Unavailable", "No access") as the one large value.
+    static func heroValue(count: Int, errorMessage: String?, needsAccess: Bool = false) -> String {
+        needsAccess ? "No access" : errorMessage != nil ? "Unavailable" : count == 0 ? "Empty" : "\(count)"
     }
 
     /// The hero's one secondary line: only the unit. Where the count comes from is said once, by the
     /// `TrashCopy.countScope` footer, so the hero never repeats it.
-    static func heroCaption(count: Int, errorMessage: String?) -> String? {
-        guard errorMessage == nil, count > 0 else { return nil }
+    static func heroCaption(count: Int, errorMessage: String?, needsAccess: Bool = false) -> String? {
+        guard errorMessage == nil, !needsAccess, count > 0 else { return nil }
         return count == 1 ? "item" : "items"
+    }
+
+    /// Empty Trash goes through Finder, so it stays available when MyDock cannot count the items.
+    static func canEmpty(count: Int, errorMessage: String?, needsAccess: Bool) -> Bool {
+        needsAccess || (errorMessage == nil && count > 0)
     }
 }
 
@@ -50,10 +57,11 @@ struct TrashFacePresentation: Equatable {
 struct TrashDockFace: View {
     var count: Int
     var errorMessage: String?
+    var needsAccess = false
     @Environment(\.widgetLayout) private var layout
     @Environment(\.dockWidgetContentWidth) private var width
     @Environment(\.widgetShowsLabel) private var showsLabel
-    private var state: TrashFacePresentation { TrashFacePresentation(count: count, errorMessage: errorMessage) }
+    private var state: TrashFacePresentation { TrashFacePresentation(count: count, errorMessage: errorMessage, needsAccess: needsAccess) }
     private var showsName: Bool { layout != .icon && !WidgetModuleMetrics.isNarrow(width) && showsLabel }
     var body: some View {
         VStack(spacing: 2) {
@@ -79,14 +87,24 @@ private struct TrashCompactWidgetView: View {
         return (status.itemCount, status.errorMessage)
     }
 
+    private var needsAccess: Bool {
+        #if DEBUG
+        if TrashQAFixture.override != nil { return false }
+        #endif
+        return status.needsFullDiskAccess
+    }
+
     var body: some View {
         let reading = reading
-        TrashDockFace(count: reading.count, errorMessage: reading.errorMessage)
+        let needsAccess = needsAccess
+        TrashDockFace(count: reading.count, errorMessage: reading.errorMessage, needsAccess: needsAccess)
             .frame(width: width, height: 54)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Trash")
-            .accessibilityValue(reading.errorMessage ?? (reading.count == 0 ? "Empty" : "\(reading.count) items in home Trash"))
-            .help(reading.errorMessage ?? (reading.count == 0 ? "Home Trash is empty" : TrashCopy.countLabel(reading.count)))
+            .accessibilityValue(needsAccess ? TrashCopy.fullDiskAccessMessage
+                : reading.errorMessage ?? (reading.count == 0 ? "Empty" : "\(reading.count) items in home Trash"))
+            .help(needsAccess ? TrashCopy.fullDiskAccessMessage
+                : reading.errorMessage ?? (reading.count == 0 ? "Home Trash is empty" : TrashCopy.countLabel(reading.count)))
     }
 }
 
@@ -102,28 +120,46 @@ private struct TrashPopoutWidgetView: View {
         return (status.itemCount, status.errorMessage)
     }
 
+    private var needsAccess: Bool {
+        #if DEBUG
+        if TrashQAFixture.override != nil { return false }
+        #endif
+        return status.needsFullDiskAccess
+    }
+
     var body: some View {
         let reading = reading
-        let state = TrashFacePresentation(count: reading.count, errorMessage: reading.errorMessage)
+        let needsAccess = needsAccess
+        let state = TrashFacePresentation(count: reading.count, errorMessage: reading.errorMessage, needsAccess: needsAccess)
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             // The glyph is the hero's decoration: the settings sheet hides both together.
             WidgetPopoutHeroGroup {
                 VStack(spacing: 4) {
                     WidgetToggleGlyph(kind: "Trash", symbol: state.symbol, active: state.isFull, diameter: 48)
-                    WidgetPopoutHero(value: TrashFacePresentation.heroValue(count: reading.count, errorMessage: reading.errorMessage),
-                                     caption: TrashFacePresentation.heroCaption(count: reading.count, errorMessage: reading.errorMessage),
+                    WidgetPopoutHero(value: TrashFacePresentation.heroValue(count: reading.count, errorMessage: reading.errorMessage,
+                                                                            needsAccess: needsAccess),
+                                     caption: TrashFacePresentation.heroCaption(count: reading.count, errorMessage: reading.errorMessage,
+                                                                                needsAccess: needsAccess),
                                      valueColor: state.isUnavailable ? .secondary : .primary)
                 }
                 .frame(maxWidth: .infinity)
             }
-            if let errorMessage = reading.errorMessage {
+            if needsAccess {
+                WidgetPopoutCaption(TrashCopy.fullDiskAccessMessage)
+            } else if let errorMessage = reading.errorMessage {
                 WidgetPopoutCaption(errorMessage, color: .orange)
             }
             GroupedSection(footer: TrashCopy.countScope, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                if needsAccess {
+                    GroupedRow(TrashCopy.fullDiskAccessButton, role: .button) {
+                        WidgetPrivacySettings.open(WidgetPrivacySettings.fullDiskAccess)
+                    }
+                }
                 GroupedRow("Open Trash", role: .button, action: TrashActions.openTrash)
                 GroupedRow("Empty Trash…", role: .destructive) { confirmingEmpty = true }
                     .help(TrashCopy.emptyHelp)
-                    .disabled(reading.count == 0 || reading.errorMessage != nil)
+                    .disabled(!TrashFacePresentation.canEmpty(count: reading.count, errorMessage: reading.errorMessage,
+                                                             needsAccess: needsAccess))
             }
         }
         .task { status.refresh() }

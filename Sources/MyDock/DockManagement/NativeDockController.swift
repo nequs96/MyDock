@@ -231,6 +231,12 @@ final class NativeDockController: ObservableObject {
     private func transact(_ nextTiles: [[String: Any]], snapshot: [[String: Any]], profileID: UUID) async throws {
         try journal.begin(snapshot: snapshot, profileID: profileID)
         let freezeSession = await freezeProvider.beginIfEnabled()
+        if Task.isCancelled {
+            // Nothing has been written yet, so a cancelled apply leaves the Dock untouched.
+            if let freezeSession { freezeProvider.end(freezeSession) }
+            try journal.clear()
+            throw CancellationError()
+        }
         do {
             try backend.writeTiles(nextTiles)
             try await relauncher.restartDock()
@@ -244,10 +250,7 @@ final class NativeDockController: ObservableObject {
         } catch {
             let originalError = error.localizedDescription
             do {
-                try backend.writeTiles(snapshot)
-                try await relauncher.restartDock()
-                try await verify(snapshot: snapshot)
-                try journal.clear()
+                try await restoreJournaledSnapshot()
             } catch {
                 if let freezeSession { freezeProvider.end(freezeSession) }
                 logger.fault("Native Dock apply and rollback both failed")
@@ -257,6 +260,19 @@ final class NativeDockController: ObservableObject {
             if let freezeSession { freezeProvider.end(freezeSession) }
             throw error
         }
+    }
+
+    /// Puts back the layout `journal.begin` recorded and clears the journal once the Dock shows it again. The work runs
+    /// in its own task: a cancelled apply (an App Intent, a superseded switch) must still finish the restore, and in
+    /// the cancelled task `killall` and the verification sleeps would stop at once.
+    private func restoreJournaledSnapshot() async throws {
+        try await Task { @MainActor in
+            guard let snapshot = try self.journal.pendingSnapshot() else { return }
+            try self.backend.writeTiles(snapshot)
+            try await self.relauncher.restartDock()
+            try await self.verify(snapshot: snapshot)
+            try self.journal.clear()
+        }.value
     }
 
     private func verify(expectedSignatures: [String]) async throws {

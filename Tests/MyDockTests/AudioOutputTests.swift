@@ -81,6 +81,22 @@ private final class FakeAudioHardware: AudioOutputHardware {
         return observation
     }
     var liveObservations: Int { observations.filter { !$0.cancelled }.count }
+
+    struct ControlObservation { var device: UInt32; var observation: Observation; var onChange: @Sendable () -> Void }
+    var controlObservations: [ControlObservation] = []
+    func startObservingControls(of deviceID: UInt32, _ onChange: @escaping @Sendable () -> Void) -> (any AudioOutputObservation)? {
+        totalCalls += 1
+        let observation = Observation()
+        controlObservations.append(ControlObservation(device: deviceID, observation: observation, onChange: onChange))
+        return observation
+    }
+    var liveControlDevices: [UInt32] { controlObservations.filter { !$0.observation.cancelled }.map(\.device) }
+    /// What Core Audio does when the volume keys or Control Center change a device.
+    func changeControls(of deviceID: UInt32, volume: Double, muted: Bool) {
+        scalars[Key(device: deviceID, control: AudioControlAddress(kind: .volume, element: 0))] = volume
+        scalars[Key(device: deviceID, control: AudioControlAddress(kind: .mute, element: 0))] = muted ? 1 : 0
+        for entry in controlObservations where entry.device == deviceID && !entry.observation.cancelled { entry.onChange() }
+    }
 }
 
 @MainActor
@@ -290,6 +306,40 @@ struct AudioOutputTests {
         service.subscribe(popout, popout: true)
         service.unsubscribe(popout)
         #expect(fake.liveObservations == 0 && !scheduler.isActive)
+    }
+
+    /// S05-002: the volume keys, Control Center and other apps change the current device; the reading follows
+    /// them while observed, and the listener moves with the current output.
+    @Test func volumeAndMuteFollowChangesMadeOutsideMyDock() async throws {
+        let fake = Self.fixture()
+        for id: UInt32 in [10, 20] {
+            fake.allow(id, .volume, element: 0, value: 0.5)
+            fake.allow(id, .mute, element: 0, value: 0)
+        }
+        let service = Self.service(fake)
+        let popout = UUID()
+        service.subscribe(popout, popout: true)
+        #expect(fake.liveControlDevices == [10])
+        fake.changeControls(of: 10, volume: 0.25, muted: true)
+        try await eventually { service.controls.volume == 0.25 }
+        #expect(service.controls.isMuted == true)
+
+        fake.defaultID = 20
+        service.refresh()
+        #expect(fake.liveControlDevices == [20], "the listener moves to the new output")
+        fake.changeControls(of: 10, volume: 0.9, muted: false)
+        fake.changeControls(of: 20, volume: 0.75, muted: false)
+        try await eventually { service.controls.volume == 0.75 }
+        #expect(service.controls.isMuted == false)
+
+        service.unsubscribe(popout)
+        #expect(fake.liveControlDevices.isEmpty)
+    }
+
+    private func eventually(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(condition())
     }
 
     // MARK: Face reading

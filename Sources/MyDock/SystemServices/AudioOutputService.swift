@@ -233,13 +233,16 @@ protocol AudioOutputHardware {
     func writeScalar(_ deviceID: UInt32, _ control: AudioControlAddress, value: Double) throws
     /// Reports device-list and default-output changes until cancelled. The handler may run on any queue.
     func startObserving(_ onChange: @escaping @Sendable () -> Void) -> (any AudioOutputObservation)?
+    /// Reports volume and mute changes on one device (volume keys, Control Center, other apps) until cancelled.
+    /// Nil when the device has neither control. The handler may run on any queue.
+    func startObservingControls(of deviceID: UInt32, _ onChange: @escaping @Sendable () -> Void) -> (any AudioOutputObservation)?
 }
 
 // MARK: - Logic over the hardware boundary
 
 enum AudioOutputCatalog {
     static let mainElement: UInt32 = 0
-    private static let channelElements: [UInt32] = [1, 2]
+    static let channelElements: [UInt32] = [1, 2]
 
     /// Apps create hidden aggregates for the default device; they are not choices.
     static func isHiddenSystemDevice(uid: String) -> Bool { uid.hasPrefix("CADefaultDeviceAggregate") }
@@ -307,6 +310,9 @@ final class AudioOutputService: ObservableObject {
     private var dockIsVisible = false
     private var schedulerDemand: RefreshDemandToken?
     private var observation: (any AudioOutputObservation)?
+    /// Volume and mute listeners follow the current device while the device list is observed.
+    private var controlObservation: (any AudioOutputObservation)?
+    private var observedControlDeviceID: UInt32?
 
     init(hardware: any AudioOutputHardware = CoreAudioOutputHardware(),
          scheduler: RefreshScheduler = .shared,
@@ -357,6 +363,7 @@ final class AudioOutputService: ObservableObject {
             observation?.cancel()
             observation = nil
         }
+        updateControlObservation()
     }
 
     private func hardwareChanged() {
@@ -365,9 +372,29 @@ final class AudioOutputService: ObservableObject {
         refresh()
     }
 
+    private func updateControlObservation() {
+        let target = isObserving ? currentID : nil
+        guard target != observedControlDeviceID else { return }
+        controlObservation?.cancel()
+        controlObservation = nil
+        observedControlDeviceID = target
+        guard let target else { return }
+        controlObservation = hardware.startObservingControls(of: target) { [weak self] in
+            Task { @MainActor in self?.controlsChanged(on: target) }
+        }
+    }
+
+    /// Re-reads only volume and mute; the device list and the default output have their own listener.
+    private func controlsChanged(on deviceID: UInt32) {
+        guard isObserving, currentID == deviceID, devices.contains(where: { $0.id == deviceID }) else { return }
+        let next = AudioOutputCatalog.controlState(hardware, deviceID: deviceID)
+        if next != controls { controls = next }
+    }
+
     // MARK: Reading
 
     func refresh() {
+        defer { updateControlObservation() }
         guard allowsNativeEffects else {
             devices = []; currentID = nil; controls = .none
             return
@@ -548,10 +575,20 @@ struct CoreAudioOutputHardware: AudioOutputHardware {
         let selectors = [AudioObjectPropertySelector(kAudioHardwarePropertyDevices),
                          AudioObjectPropertySelector(kAudioHardwarePropertyDefaultOutputDevice)]
         for selector in selectors {
-            let block: AudioObjectPropertyListenerBlock = { _, _ in onChange() }
-            var address = Self.address(selector)
-            let status = AudioObjectAddPropertyListenerBlock(Self.systemObject, &address, DispatchQueue.main, block)
-            if status == noErr { observation.add(selector: selector, block: block) }
+            observation.listen(to: Self.systemObject, at: Self.address(selector), onChange)
+        }
+        guard observation.isActive else { return nil }
+        return observation
+    }
+
+    func startObservingControls(of deviceID: UInt32, _ onChange: @escaping @Sendable () -> Void) -> (any AudioOutputObservation)? {
+        let observation = CoreAudioObservation()
+        for kind in [AudioControlKind.volume, .mute] {
+            for element in [AudioOutputCatalog.mainElement] + AudioOutputCatalog.channelElements {
+                var address = Self.controlAddress(AudioControlAddress(kind: kind, element: element))
+                guard AudioObjectHasProperty(deviceID, &address) else { continue }
+                observation.listen(to: deviceID, at: address, onChange)
+            }
         }
         guard observation.isActive else { return nil }
         return observation
@@ -593,21 +630,22 @@ struct CoreAudioOutputHardware: AudioOutputHardware {
 
 /// Holds the registered listener blocks so the same blocks can be removed again.
 private final class CoreAudioObservation: AudioOutputObservation {
-    private var registrations: [(selector: AudioObjectPropertySelector, block: AudioObjectPropertyListenerBlock)] = []
+    private var registrations: [(object: AudioObjectID, address: AudioObjectPropertyAddress,
+                                 block: AudioObjectPropertyListenerBlock)] = []
 
     var isActive: Bool { !registrations.isEmpty }
 
-    func add(selector: AudioObjectPropertySelector, block: @escaping AudioObjectPropertyListenerBlock) {
-        registrations.append((selector, block))
+    func listen(to object: AudioObjectID, at address: AudioObjectPropertyAddress, _ onChange: @escaping @Sendable () -> Void) {
+        let block: AudioObjectPropertyListenerBlock = { _, _ in onChange() }
+        var address = address
+        guard AudioObjectAddPropertyListenerBlock(object, &address, DispatchQueue.main, block) == noErr else { return }
+        registrations.append((object, address, block))
     }
 
     func cancel() {
         for registration in registrations {
-            var address = AudioObjectPropertyAddress(mSelector: registration.selector,
-                                                     mScope: AudioObjectPropertyScope(kAudioObjectPropertyScopeGlobal),
-                                                     mElement: AudioObjectPropertyElement(kAudioObjectPropertyElementMain))
-            _ = AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address,
-                                                       DispatchQueue.main, registration.block)
+            var address = registration.address
+            _ = AudioObjectRemovePropertyListenerBlock(registration.object, &address, DispatchQueue.main, registration.block)
         }
         registrations = []
     }

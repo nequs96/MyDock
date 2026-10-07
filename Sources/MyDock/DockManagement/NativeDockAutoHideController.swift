@@ -133,9 +133,12 @@ final class NativeDockAutoHideController: ObservableObject {
         } catch {
             let originalError = error.localizedDescription
             do {
-                try backend.writeVisibilitySettings(current)
-                try await relauncher.restartDock()
-                try verify(expected: current)
+                // Its own task, so a cancelled change still restores the original settings before returning.
+                try await Task { @MainActor in
+                    try self.backend.writeVisibilitySettings(current)
+                    try await self.relauncher.restartDock()
+                    try self.verify(expected: current)
+                }.value
                 // Re-enabling must retain a previous session's original settings.
                 if existingRecord == nil { defaults.removeObject(forKey: Self.recoveryKey) }
             } catch {

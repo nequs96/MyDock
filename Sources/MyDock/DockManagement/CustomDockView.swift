@@ -111,14 +111,7 @@ struct CustomDockView: View {
     @State private var dropTargetedItemID: UUID?
 
     private var popoutMaxHeight: CGFloat {
-        let selectedDisplayID = settings.customDockDisplayID
-        let screen = NSScreen.screens.first { screen in
-            guard let selectedDisplayID,
-                  let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-                return false
-            }
-            return number.uint32Value == selectedDisplayID
-        } ?? NSScreen.main ?? NSScreen.screens.first
+        let screen = DockDisplaySelection.screen(selectedID: settings.customDockDisplayID).screen
         let visibleHeight = screen?.visibleFrame.height ?? 720
         return min(600, max(180, visibleHeight - 160))
     }

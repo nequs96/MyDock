@@ -17,6 +17,15 @@ enum TrashContentsReader {
             throw error
         }
     }
+
+    /// macOS protects ~/.Trash: without Full Disk Access, listing it fails with a permission error.
+    static func isPermissionDenied(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileReadNoPermissionError { return true }
+        if nsError.domain == NSPOSIXErrorDomain, nsError.code == Int(EPERM) || nsError.code == Int(EACCES) { return true }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError { return isPermissionDenied(underlying) }
+        return false
+    }
 }
 
 @MainActor
@@ -25,6 +34,9 @@ final class TrashStatus: ObservableObject {
 
     @Published private(set) var itemCount = 0
     @Published private(set) var errorMessage: String?
+    /// The home Trash could not be read because MyDock does not have Full Disk Access. Not an error: emptying
+    /// still works through Finder.
+    @Published private(set) var needsFullDiskAccess = false
 
     static let isolatedMessage = "Trash is unavailable in isolated validation."
     private let trashURL: URL
@@ -34,6 +46,7 @@ final class TrashStatus: ObservableObject {
     private var source: DispatchSourceFileSystemObject?
     private var refreshTask: Task<Void, Never>?
     private var fallbackRefreshTask: Task<Void, Never>?
+    private var activationObservation: AnyCancellable?
 
     private convenience init() {
         self.init(trashURL: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(".Trash", isDirectory: true),
@@ -49,6 +62,14 @@ final class TrashStatus: ObservableObject {
         }
         startWatching()
         refresh()
+        // Full Disk Access is granted in System Settings; check again when MyDock becomes active.
+        activationObservation = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.needsFullDiskAccess else { return }
+                    self.refresh()
+                }
+            }
     }
 
     func refresh() {
@@ -60,13 +81,25 @@ final class TrashStatus: ObservableObject {
                 let count = try await Task.detached(priority: .utility) {
                     try TrashContentsReader.itemCount(at: url)
                 }.value
-                guard !Task.isCancelled else { return }
-                self?.itemCount = count
-                self?.errorMessage = nil
+                guard !Task.isCancelled, let self else { return }
+                itemCount = count
+                errorMessage = nil
+                if needsFullDiskAccess {
+                    needsFullDiskAccess = false
+                    if source == nil { startWatching() }
+                }
             } catch {
-                guard !Task.isCancelled else { return }
-                self?.itemCount = 0
-                self?.errorMessage = error.localizedDescription
+                guard !Task.isCancelled, let self else { return }
+                itemCount = 0
+                if TrashContentsReader.isPermissionDenied(error) {
+                    // Polling cannot grant access, so it stops until access changes.
+                    needsFullDiskAccess = true
+                    errorMessage = nil
+                    fallbackRefreshTask?.cancel()
+                    fallbackRefreshTask = nil
+                } else {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -76,7 +109,9 @@ final class TrashStatus: ObservableObject {
         watchAttemptCount += 1
         let descriptor = open(trashURL.path, O_EVTONLY)
         guard descriptor >= 0 else {
-            scheduleFallbackRefresh()
+            // A protected Trash cannot be watched without Full Disk Access, and polling would not change that.
+            let failure = errno
+            if failure != EPERM && failure != EACCES { scheduleFallbackRefresh() }
             return
         }
         let watcher = DispatchSource.makeFileSystemObjectSource(
@@ -134,6 +169,8 @@ enum TrashCopy {
     static let emptyConfirmationMessage = "This permanently deletes everything in Finder's Trash on all volumes, including items on external drives that are not counted here. It cannot be undone. Finder may show its own confirmation."
     static let emptyButton = "Empty Trash on All Volumes"
     static let emptyHelp = "Asks Finder to empty the Trash on all volumes. The count shows only your home Trash."
+    static let fullDiskAccessMessage = "Allow Full Disk Access to count the items in your Trash."
+    static let fullDiskAccessButton = "Allow Full Disk Access…"
 
     static func countLabel(_ count: Int) -> String { count == 1 ? "1 item in home Trash" : "\(count) items in home Trash" }
 

@@ -285,11 +285,7 @@ private struct FacesBQAPopout: View {
     var maximumHeight: CGFloat {
         if fullContentForQA { return 1500 }
         let selectedDisplayID = store.effectiveSettings(profileID: profileID).customDockDisplayID
-        let screen = NSScreen.screens.first { screen in
-            guard let selectedDisplayID,
-                  let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
-            return number.uint32Value == selectedDisplayID
-        } ?? NSScreen.main ?? NSScreen.screens.first
+        let screen = DockDisplaySelection.screen(selectedID: selectedDisplayID).screen
         let visibleHeight = screen?.visibleFrame.height ?? 720
         return min(600, max(180, visibleHeight - 160))
     }
