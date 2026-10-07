@@ -66,14 +66,16 @@ struct UndoNotice<Element: Identifiable>: View {
                 }
             }
             .task(id: current.createdAt) {
+                // Reads the offer from the binding (the task restarts for a new one), so the task captures no entries.
+                guard let offer = pending else { return }
                 failed = false
                 let extended = Self.voiceOverEnabled
                 if extended {
                     NSAccessibility.post(element: NSApplication.shared, notification: .announcementRequested,
-                                         userInfo: [.announcement: UndoNoticeCopy.announcement(current.message),
+                                         userInfo: [.announcement: UndoNoticeCopy.announcement(offer.message),
                                                     .priority: NSAccessibilityPriorityLevel.high.rawValue])
                 }
-                try? await Task.sleep(for: .seconds(current.remainingLifetime(extended: extended)))
+                try? await Task.sleep(for: .seconds(offer.remainingLifetime(extended: extended)))
                 if !Task.isCancelled { pending = nil }
             }
         }

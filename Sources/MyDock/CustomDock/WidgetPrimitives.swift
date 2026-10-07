@@ -781,16 +781,12 @@ struct BatteryDockFace: View {
     private func name(_ reading: BatteryReading) -> String {
         reading.isCharging ? "Charging" : reading.isInternal ? "Mac" : reading.name
     }
+    /// The same low-charge rule as the popout (`BatteryPresentation`), so the face and the popout never disagree.
     private func ringColor(_ reading: BatteryReading) -> Color {
         if reading.isCharging { return WidgetPalette.positive }
-        if reading.percentage <= 10 { return WidgetPalette.critical }
-        if reading.percentage <= 20 { return WidgetPalette.warning }
-        return WidgetPalette.resolved(kind: kind, accent: accent)
+        return BatteryPresentation.lowChargeColor(reading) ?? WidgetPalette.resolved(kind: kind, accent: accent)
     }
-    private func valueColor(_ reading: BatteryReading) -> Color {
-        guard !reading.isCharging else { return .primary }
-        return reading.percentage <= 10 ? WidgetPalette.critical : reading.percentage <= 20 ? WidgetPalette.warning : .primary
-    }
+    private func valueColor(_ reading: BatteryReading) -> Color { BatteryPresentation.lowChargeColor(reading) ?? .primary }
 }
 
 enum WeatherDockTemperatureFormatter {
@@ -842,7 +838,6 @@ struct WeatherDockFace: View {
     /// A refresh has failed: with no forecast the face reads "Unavailable" instead of "Loading".
     var failed = false
     @Environment(\.widgetLayout) private var layout
-    @Environment(\.dockModuleRadius) private var moduleRadius
     private let kind = "Weather"
     private var place: String { configuration.weatherLocation?.name ?? "Weather" }
     var body: some View {
@@ -894,12 +889,8 @@ struct WeatherDockFace: View {
             }
             .moduleInsets()
             .overlay(alignment: .topTrailing) {
-                if stale {
-                    // The same warning dot the Dock shows for a coordinator family's failed refresh.
-                    let inset = max(6, min(10, moduleRadius * 0.45))
-                    Circle().fill(WidgetPalette.warning).frame(width: 6, height: 6)
-                        .padding(.top, inset).padding(.trailing, inset)
-                }
+                // The same warning dot the Dock shows for a coordinator family's failed refresh.
+                if stale { WidgetWarningDot() }
             }
             .moduleAccessibility(kind, value: ([place, temperature, WeatherCode.description(forecast.weatherCode)]
                                                + (stale ? ["saved forecast"] : [])).joined(separator: ", "))
@@ -940,12 +931,23 @@ enum LocalWidgetTickPolicy {
             let remaining = c.countdownRemaining(at: now)
             guard remaining > 0 else { return nil }
             if c.countdownMode == .targetDate {
-                // The face reads "2d" or "3h 5m" until the last hour, which shows minutes and seconds.
-                return remaining <= 3_600 ? second : minute
+                // The face reads "2d" or "3h 5m" until the last hour, which shows minutes and seconds. The pace is
+                // re-read only on the minute, so seconds start a minute early rather than up to a minute late.
+                return remaining <= 3_600 + minute ? second : minute
             }
             return c.countdownStartedAt != nil ? second : nil
         default: return nil
         }
+    }
+
+    /// Where a minute-paced target countdown's ticks start. Its text turns over as each whole minute to the
+    /// target passes, not on the clock's minute, so it ticks one second after each turn (from a past date, so
+    /// the timeline starts at its latest tick). Nil for faces that tick on the clock's minute.
+    static func minuteAnchor(kind: String, configuration c: WidgetConfiguration, now: Date) -> Date? {
+        guard kind == "Countdown", c.countdownMode == .targetDate, let target = c.countdownTargetDate else { return nil }
+        let remaining = target.timeIntervalSince(now)
+        guard remaining > 0 else { return nil }
+        return target.addingTimeInterval(second - minute * ((remaining + second) / minute).rounded(.up))
     }
 }
 
@@ -962,6 +964,8 @@ struct LocalWidgetDockFace: View {
             TimelineView(.everyMinute) { minute in
                 if LocalWidgetTickPolicy.interval(kind: kind, configuration: c, now: minute.date) == LocalWidgetTickPolicy.second {
                     TimelineView(.periodic(from: minute.date, by: LocalWidgetTickPolicy.second)) { context in face(at: context.date) }
+                } else if let anchor = LocalWidgetTickPolicy.minuteAnchor(kind: kind, configuration: c, now: minute.date) {
+                    TimelineView(.periodic(from: anchor, by: LocalWidgetTickPolicy.minute)) { context in face(at: context.date) }
                 } else {
                     face(at: minute.date)
                 }
@@ -1101,7 +1105,28 @@ private struct TimerFace: View {
             }
         }
         .moduleInsets()
-        .moduleAccessibility(kind, value: text + (running ? "" : ", paused"))
+        .moduleAccessibility(kind, value: TimerFaceSpeech.value(kind: kind, configuration: c, text: text, at: date))
+    }
+}
+
+/// What VoiceOver reads for a timer face: the time, plus its state where the time alone is ambiguous.
+/// "Paused" only for a timer stopped part-way; a fresh one is simply ready.
+enum TimerFaceSpeech {
+    static func value(kind: String, configuration c: WidgetConfiguration, text: String, at date: Date) -> String {
+        switch kind {
+        case "Stopwatch":
+            return c.stopwatchStartedAt == nil && c.stopwatchElapsedBeforeStart > 0 ? text + ", paused" : text
+        case "Focus Timer":
+            if c.focusRemaining(at: date) <= 0 { return text + ", complete" }
+            return c.focusStartedAt == nil && c.focusElapsedBeforeStart > 0 ? text + ", paused" : text
+        default:
+            if c.countdownMode == .targetDate {
+                guard c.countdownTargetDate != nil else { return "No target date" }
+                return c.countdownRemaining(at: date) <= 0 ? "Complete" : text
+            }
+            if c.countdownRemaining(at: date) <= 0 { return text + ", complete" }
+            return c.countdownStartedAt == nil && c.countdownElapsedBeforeStart > 0 ? text + ", paused" : text
+        }
     }
 }
 

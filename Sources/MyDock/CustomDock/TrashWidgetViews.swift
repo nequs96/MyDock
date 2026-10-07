@@ -100,7 +100,7 @@ private struct TrashCompactWidgetView: View {
         let reading = reading
         let needsAccess = needsAccess
         TrashDockFace(count: reading.count, errorMessage: reading.errorMessage, needsAccess: needsAccess)
-            .frame(width: width, height: 54)
+            .frame(width: width, height: DockDesign.Module.height)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Trash")
             .accessibilityValue(needsAccess ? TrashCopy.fullDiskAccessMessage

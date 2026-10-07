@@ -232,26 +232,38 @@ struct WidgetFreshnessIndicator: View {
     @ObservedObject var coordinator: WidgetDataCoordinator
     var item: DockItem
     @Environment(\.dockModuleRadius) private var moduleRadius
-    @DockAccessibilityStyle() private var accessibility
-    /// Keeps the dot inside the rounded corner for any module radius.
-    private var inset: CGFloat { max(6, min(10, moduleRadius * 0.45)) }
     var body: some View {
         let c = item.widgetConfiguration ?? WidgetConfiguration()
         if let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: c), item.widgetKind == "AI Activity", coordinator.refreshing.contains(query) {
-            ProgressView().controlSize(.mini).scaleEffect(0.5).frame(width: 10, height: 10).padding(inset - 2)
+            ProgressView().controlSize(.mini).scaleEffect(0.5).frame(width: 10, height: 10)
+                .padding(WidgetWarningDot.inset(moduleRadius: moduleRadius) - 2)
                 .help("Updating local activity").accessibilityHidden(true)
         } else if item.widgetKind != "AI Limits", // its face shows a per-provider stale mark itself
                   let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: c), coordinator.errors[query] != nil {
-            Circle().fill(WidgetPalette.warning)
-                .overlay {
-                    if accessibility.contrast == .increased {
-                        Circle().strokeBorder(DockDesign.Outline.color(.increased), lineWidth: DockDesign.Outline.controlWidth(.increased))
-                    }
-                }
-                .frame(width: 6, height: 6)
-                .padding(.top, inset).padding(.trailing, inset)
+            WidgetWarningDot()
                 .help("Saved data · open this widget to review the refresh error")
                 .accessibilityLabel("Refresh failed; saved data shown")
         }
+    }
+}
+
+/// The Dock's one mark for saved data that may be out of date: a small warning dot in the module's top
+/// trailing corner, with a visible edge under Increase Contrast. Faces that judge their own staleness
+/// (Weather) draw the same dot.
+struct WidgetWarningDot: View {
+    @Environment(\.dockModuleRadius) private var moduleRadius
+    @DockAccessibilityStyle() private var accessibility
+    /// Keeps the dot inside the rounded corner for any module radius.
+    static func inset(moduleRadius: CGFloat) -> CGFloat { max(6, min(10, moduleRadius * 0.45)) }
+    var body: some View {
+        let inset = Self.inset(moduleRadius: moduleRadius)
+        Circle().fill(WidgetPalette.warning)
+            .overlay {
+                if accessibility.contrast == .increased {
+                    Circle().strokeBorder(DockDesign.Outline.color(.increased), lineWidth: DockDesign.Outline.controlWidth(.increased))
+                }
+            }
+            .frame(width: 6, height: 6)
+            .padding(.top, inset).padding(.trailing, inset)
     }
 }

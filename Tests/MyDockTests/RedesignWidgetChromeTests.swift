@@ -145,7 +145,8 @@ struct RedesignWidgetChromeTests {
         #expect(NetworkRateText.short(0) == "0")
         #expect(NetworkRateText.short(512) == "512")
         #expect(NetworkRateText.short(148_000) == "148K")
-        #expect(NetworkRateText.short(2_400_000) == "2.4M")
+        // The decimal separator follows the locale (AuditLaneETests covers a comma locale).
+        #expect(NetworkRateText.short(2_400_000, locale: Locale(identifier: "en_US")) == "2.4M")
         #expect(NetworkRateText.short(12_600_000_000) == "13G")
         #expect(NetworkRateText.short(-5) == "0")
     }

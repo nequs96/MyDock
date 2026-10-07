@@ -76,6 +76,38 @@ import UniformTypeIdentifiers
         #expect(LocalWidgetTickPolicy.interval(kind: "Countdown", configuration: duration, now: now.addingTimeInterval(400)) == nil)
     }
 
+    @Test func targetCountdownFacesTurnOverWithTheTargetNotTheClock() throws {
+        var countdown = WidgetConfiguration()
+        countdown.setCountdownTarget(now.addingTimeInterval(3_930)) // 1h 5m 30s away
+        let target = try #require(countdown.countdownTargetDate)
+        let anchor = try #require(LocalWidgetTickPolicy.minuteAnchor(kind: "Countdown", configuration: countdown, now: now))
+        // The latest tick at or before now, one second after a whole minute to the target passed.
+        #expect(anchor <= now && now.timeIntervalSince(anchor) < 60)
+        #expect(target.timeIntervalSince(anchor).truncatingRemainder(dividingBy: 60) == 59)
+        // Seconds start a minute before the last hour, because the pace is re-read only on the minute.
+        #expect(LocalWidgetTickPolicy.interval(kind: "Countdown", configuration: countdown, now: now.addingTimeInterval(300)) == 1)
+        #expect(LocalWidgetTickPolicy.minuteAnchor(kind: "Clock", configuration: countdown, now: now) == nil)
+        #expect(LocalWidgetTickPolicy.minuteAnchor(kind: "Countdown", configuration: countdown, now: target.addingTimeInterval(1)) == nil)
+    }
+
+    @Test func timerFacesSayPausedOnlyForATimerStoppedPartWay() {
+        var focus = WidgetConfiguration()
+        focus.focusDurationSeconds = 1_500
+        #expect(TimerFaceSpeech.value(kind: "Focus Timer", configuration: focus, text: "25:00", at: now) == "25:00")
+        focus.startFocusTimer(at: now)
+        #expect(TimerFaceSpeech.value(kind: "Focus Timer", configuration: focus, text: "24:00", at: now.addingTimeInterval(60)) == "24:00")
+        focus.pauseFocusTimer(at: now.addingTimeInterval(60))
+        #expect(TimerFaceSpeech.value(kind: "Focus Timer", configuration: focus, text: "24:00", at: now.addingTimeInterval(120)) == "24:00, paused")
+        #expect(TimerFaceSpeech.value(kind: "Stopwatch", configuration: WidgetConfiguration(), text: "00:00", at: now) == "00:00")
+
+        var target = WidgetConfiguration()
+        target.setCountdownMode(.targetDate)
+        #expect(TimerFaceSpeech.value(kind: "Countdown", configuration: target, text: "0:00", at: now) == "No target date")
+        target.setCountdownTarget(now.addingTimeInterval(60))
+        #expect(TimerFaceSpeech.value(kind: "Countdown", configuration: target, text: "1:00", at: now) == "1:00")
+        #expect(TimerFaceSpeech.value(kind: "Countdown", configuration: target, text: "0:00", at: now.addingTimeInterval(61)) == "Complete")
+    }
+
     // MARK: Weather staleness
 
     @Test func weatherFaceMarksOldOrFutureForecastsAndLoadsBeforeFailing() {

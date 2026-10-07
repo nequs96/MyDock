@@ -78,7 +78,7 @@ struct WidgetCompactView: View {
     private var kind: String { item.widgetKind ?? item.title }
     private var configuration: WidgetConfiguration { currentItem.widgetConfiguration ?? WidgetConfiguration() }
     private var layout: WidgetLayout { layoutOverride ?? WidgetPresentationCatalog.resolvedLayout(for: kind, configuration: configuration, compactDefault: settings.customDockWidgetStyle == .compact) }
-    private var width: CGFloat { settings.customDockPosition == .bottom ? CGFloat(WidgetPresentationCatalog.width(for: kind, layout: layout)) : 54 }
+    private var width: CGFloat { settings.customDockPosition == .bottom ? CGFloat(WidgetPresentationCatalog.width(for: kind, layout: layout)) : DockDesign.Module.narrowWidth }
     var body: some View {
         Group {
             if sampleMode {

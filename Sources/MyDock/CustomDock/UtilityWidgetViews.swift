@@ -246,7 +246,7 @@ private struct DiskSpaceView: View {
             } else {
                 DiskSpacePopoutContent(snapshot: snapshot, sampledAt: sampledAt, refreshFailed: refreshFailed,
                                        isRefreshing: isRefreshing, accent: accent) {
-                    Task { await refresh() }
+                    Task { await refresh(showsProgress: true) }
                 }
             }
         }
@@ -258,9 +258,12 @@ private struct DiskSpaceView: View {
             }
         }
     }
-    private func refresh() async {
-        isRefreshing = true
-        defer { isRefreshing = false }
+    /// "Updating…" shows for a refresh someone asked for and for the first reading; the quiet sample each
+    /// minute does not flash the header.
+    private func refresh(showsProgress: Bool = false) async {
+        let visible = showsProgress || snapshot == nil
+        if visible { isRefreshing = true }
+        defer { if visible { isRefreshing = false } }
         let reading = await Task.detached(priority: .utility) { DiskSpaceSnapshot.read() }.value
         guard !Task.isCancelled else { return }
         if let reading { snapshot = reading; sampledAt = .now; refreshFailed = false }
