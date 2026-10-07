@@ -32,8 +32,12 @@ struct AppLifecycleSettingsView: View {
             }.id("Application").help(login.state.message)
             GroupedSection("Updates", footer: "Updates are checked only when requested.") {
                 GroupedRow("Installed version", value: Product.marketingVersion)
-                GroupedRow("Check for Updates", role: .button) { Task { await updates.check(repositoryURL: repositoryURL) } }
-                    .disabled(updates.checking || repositoryURL.isEmpty)
+                // Stays enabled without a source: the check explains what is missing and the source field opens.
+                GroupedRow("Check for Updates", role: .button) {
+                    if ReleaseRepository(url: repositoryURL) == nil { updateSourceExpanded = true }
+                    Task { await updates.check(repositoryURL: repositoryURL) }
+                }
+                .disabled(updates.checking)
                 if updates.checking { GroupedRow("Checking for updates") { ProgressView().controlSize(.small) } }
                 if let url = updates.releaseURL { GroupedRow("Review Release") { Link("Review Release", destination: url) } }
                 SettingsExpansionRow(title: "Update source", isExpanded: $updateSourceExpanded) {

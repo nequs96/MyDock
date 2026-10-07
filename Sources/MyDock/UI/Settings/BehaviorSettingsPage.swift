@@ -22,8 +22,7 @@ extension SettingsView {
             .disabled(!store.state.settings.automaticallyHideCustomDock || store.state.settings.customDockDesktopMode)
             GroupedRow("Hide when Apple Dock appears", isOn: Binding(get: { store.state.settings.hideCustomDockWhenSystemDockAppears }, set: { value in store.updateSettings { $0.hideCustomDockWhenSystemDockAppears = value } }))
             if store.state.settings.customDockDesktopMode {
-                Text("Stays behind windows, including fullscreen apps; auto-hide is paused.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+                GroupedNote("Stays behind windows, including fullscreen apps; auto-hide is paused.")
             }
         }.id("Custom Dock behavior").help("The screen edge stays active without a handle; overlap detection uses window positions without screen capture.")
         GroupedSection("Apps and windows", footer: "Window previews stay on this Mac.") {
@@ -49,7 +48,7 @@ extension SettingsView {
                     }
                 }
             if let windowPreviewMessage {
-                Text(windowPreviewMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+                GroupedNote(windowPreviewMessage)
             }
         }.id("Apps and windows").help("macOS 14+: previews stay local for 24 hours and are deleted when disabled; duplicates or unavailable previews use app icons.")
         GroupedSection("Dock items", footer: DockBadgeReader.isSupported ? "Notification contents stay private." : "App badge labels require macOS 14 or later.") {
@@ -63,13 +62,8 @@ extension SettingsView {
                 }
             if DockBadgeReader.isSupported, store.state.settings.showAppBadges,
                !WindowAccessibilityService.isTrusted() {
-                HStack {
-                    Text("Allow MyDock under Privacy & Security → Accessibility to show badge labels.")
-                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
-                    Spacer()
-                    Button("Accessibility Settings…", action: openAccessibilitySettings)
-                        .controlSize(.small)
-                }
+                GroupedNote("Allow MyDock under Privacy & Security → Accessibility to show badge labels.",
+                            actionTitle: "Accessibility Settings…") { openAccessibilitySettings() }
             }
         }.id("Dock items").help("Reads available Apple Dock badge labels through Accessibility; notification contents stay private.")
         GroupedSection("Interaction") {
@@ -77,12 +71,8 @@ extension SettingsView {
                 .onChange(of: store.state.settings.clickFocusedAppToMinimize) { enabled in
                     if enabled { _ = WindowAccessibilityService.requestAccessPrompt() }
                 }
-            HStack {
-                Text(WindowAccessibilityService.isTrusted() ? "Accessibility access is enabled." : "Accessibility access is needed for window controls.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
-                Spacer()
-                Button("Accessibility Settings…", action: openAccessibilitySettings)
-            }
+            GroupedNote(WindowAccessibilityService.isTrusted() ? "Accessibility access is enabled." : "Accessibility access is needed for window controls.",
+                        actionTitle: "Accessibility Settings…") { openAccessibilitySettings() }
             GroupedRow("Magnification", isOn: Binding(get: { store.state.settings.magnificationEnabled }, set: { value in store.updateSettings { $0.magnificationEnabled = value } }))
         }.id("Interaction")
         GroupedSection("Dock animations", footer: "Reveal and hide effects respect Reduce Motion.") {

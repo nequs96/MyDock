@@ -113,16 +113,20 @@ struct DisplayOption: Identifiable {
     var title: String
 }
 
-/// Inline disclosure in a grouped card, with a trailing chevron and one row inset.
+/// Inline disclosure in a grouped card: a chevron that turns down when expanded and one row inset.
 struct SettingsExpansionRow<Content: View>: View {
     let title: String
     @Binding var isExpanded: Bool
     @ViewBuilder var content: Content
+    @DockAccessibilityStyle() private var accessibility
     var body: some View {
         VStack(spacing: 0) {
-            GroupedRow(title, value: isExpanded ? "Hide" : nil, chevron: true) { isExpanded.toggle() }
-                .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-            if isExpanded { content.padding(12).frame(maxWidth: .infinity, alignment: .leading) }
+            GroupedRow(title, isExpanded: isExpanded) {
+                DockDesign.Motion.perform(DockDesign.Motion.disclosure, reduceMotion: accessibility.reduceMotion) { isExpanded.toggle() }
+            }
+            if isExpanded {
+                content.padding(DockDesign.Grouped.rowHorizontalPadding).frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }

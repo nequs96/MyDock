@@ -8,7 +8,6 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject var store: ProfileStore
-    @DockAccessibilityStyle() var accessibility
     var embeddedInWorkspace = false
     var sidebarVisible = true
     @ObservedObject var shortcutBindings = DockShortcutStore.shared
@@ -26,6 +25,9 @@ struct SettingsView: View {
     @State var includePersonalBackupData = true
     @State var dockExportRequest: PortableDockExportRequest?
     @State var dockImportPreview: PortableDockImportPreview?
+    @State var backupRestorePreview: BackupRestorePreview?
+    @State var confirmingAppearanceFactoryReset = false
+    @State var pendingCredentialRemoval: IntegrationCredentialKind?
     @State var diagnosticsMessage: String?
     @State var advancedExpanded = false
     @State var marketConnectionExpanded = false
@@ -65,31 +67,20 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let message = nativeDock.recoveryError {
-                HStack {
-                    Label("macOS Dock recovery required: " + message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    Button("Restore Previous Dock") { Task { try? await nativeDock.recoverInterruptedTransaction() } }.disabled(!store.allowsSystemChanges)
-                        .disabled(nativeDock.health == .recovering)
+                SettingsBanner(title: "macOS Dock recovery required", message: message) {
+                    Button("Restore Previous Dock") { Task { try? await nativeDock.recoverInterruptedTransaction() } }
+                        .controlSize(.small)
+                        .disabled(!store.allowsSystemChanges || nativeDock.health == .recovering)
                 }
-                .padding(12).background(Color.orange.opacity(0.12))
+                Divider()
             }
             if store.hasUnpersistedChanges || store.persistenceError != nil {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label(store.hasUnpersistedChanges ? "Changes not saved" : "MyDock data needs attention",
-                              systemImage: "exclamationmark.triangle.fill")
-                            .font(.callout.weight(.semibold)).foregroundStyle(.orange)
-                        Text(store.persistenceError ?? "MyDock has changes waiting to be saved.")
-                            .font(.caption).textSelection(.enabled)
-                    }
-                    Spacer(minLength: 8)
+                SettingsBanner(title: store.hasUnpersistedChanges ? "Changes not saved" : "MyDock data needs attention",
+                               message: store.persistenceError ?? "MyDock has changes waiting to be saved.") {
                     Button("Retry Save") { store.commit() }
                         .controlSize(.small)
                         .disabled(!store.canRetryPersistence || !store.hasUnpersistedChanges)
                 }
-                .padding(.horizontal, 20).padding(.vertical, 12)
-                .background(Color.orange.opacity(0.09))
                 Divider()
             }
             if !sidebarVisible {
@@ -152,9 +143,12 @@ struct SettingsView: View {
                 SettingsSearchResults(query: settingsSearch) { result in
                     selectedPage = result.page
                     settingsSearch = ""
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(100))
-                        settingsProxy.scrollTo(result.section, anchor: .top)
+                    // A page-title result has no section anchor: the page opens at its top.
+                    if !result.section.isEmpty {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(100))
+                            settingsProxy.scrollTo(result.section, anchor: .top)
+                        }
                     }
                 }
             } else if selectedPage == .dock {
@@ -208,6 +202,9 @@ struct SettingsView: View {
         .sheet(item: $dockImportPreview) { preview in
             PortableDockImportSheet(preview: preview, add: { addImportedDock(preview) }, cancel: { dockImportPreview = nil })
         }
+        .sheet(item: $backupRestorePreview) { preview in
+            BackupRestoreSheet(preview: preview, add: { addDocksFromBackup(preview) }, cancel: { backupRestorePreview = nil })
+        }
         .onChange(of: selectedPage) { page in persistSettingsPage(page) }
         .onChange(of: store.state.settings.lastSettingsPage) { selectedPage = $0 }
         .sheet(item: $editingShortcutProfile) { profile in
@@ -223,5 +220,31 @@ struct SettingsView: View {
     private func persistSettingsPage(_ page: MyDockSettingsPage) {
         guard store.state.settings.lastSettingsPage != page else { return }
         store.updateSettings { $0.lastSettingsPage = page }
+    }
+}
+
+/// Full-width warning above the Settings content, for state that needs the user's attention.
+struct SettingsBanner<Accessory: View>: View {
+    var title: String
+    var message: String?
+    @ViewBuilder var accessory: Accessory
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Label(title, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout.weight(.semibold)).foregroundStyle(.orange)
+                if let message {
+                    Text(message).font(.caption).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            accessory
+        }
+        .padding(.horizontal, 20).padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.1))
+        .accessibilityElement(children: .contain)
     }
 }

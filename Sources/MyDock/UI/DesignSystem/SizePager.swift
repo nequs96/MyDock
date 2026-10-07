@@ -51,7 +51,7 @@ struct SizePager<Page: Hashable, Content: View>: View {
             }
             if pages.count > 1 { dots }
             Text(caption(selection))
-                .font(.system(size: 13, weight: .semibold))
+                .font(DockDesign.sectionTitle)
                 .lineLimit(1)
                 .animation(nil, value: selection)
         }

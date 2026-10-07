@@ -49,7 +49,7 @@ struct DockContentSummary: Codable, Equatable, Sendable {
 }
 
 /// Marks a backup archive as a single-Dock portable package and records what it contains.
-/// Stored beside `profiles` in the existing backup format, so Restore… still accepts the file.
+/// Stored beside `profiles` in the existing backup format, so Add Docks from Backup… still accepts the file.
 struct DockPackageManifest: Codable, Equatable, Sendable {
     var includesPersonalData: Bool
     var summary: DockContentSummary
@@ -80,7 +80,7 @@ enum PortableDockError: LocalizedError, Equatable {
         case .newerVersion: "This Dock was exported by a newer version of MyDock. Update MyDock to import it. Nothing was changed."
         case .malformed: "This file is not a readable MyDock Dock. Nothing was changed."
         case .noDock: "This file contains no Dock. Nothing was changed."
-        case .multipleDocks(let count): "This file is a backup of \(count) Docks. Use Restore… in Settings → General to add them."
+        case .multipleDocks(let count): "This file is a backup of \(count) Docks. Use Add Docks from Backup… in Settings → General to add them."
         }
     }
 }

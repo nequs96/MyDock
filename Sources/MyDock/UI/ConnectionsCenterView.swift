@@ -113,6 +113,9 @@ struct ConnectionsCenterView: View {
         }
         .id("Connections")
         .help("Manage business accounts here, then assign them to widgets. Credentials are excluded from profiles and backups.")
+        // A typed secret does not outlive the form that holds it.
+        .onChange(of: connectionFormExpanded) { expanded in if !expanded { secret = "" } }
+        .onDisappear { secret = "" }
         .confirmationDialog("Disconnect this account?", isPresented: Binding(get: { pendingDisconnect != nil }, set: { if !$0 { pendingDisconnect = nil } })) {
             Button("Disconnect and Remove Credentials", role: .destructive) { disconnect() }
         } message: { Text("Every widget using this connection will be disconnected. This does not revoke access at the provider.") }

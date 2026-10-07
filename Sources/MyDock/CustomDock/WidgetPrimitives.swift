@@ -14,7 +14,7 @@ extension EnvironmentValues {
 /// Each category keeps its own hue so families stay recognisable; saturation and
 /// brightness are harmonised per appearance (deeper on light glass, lighter on dark glass).
 enum WidgetPalette {
-    /// One hue per category (matching `WidgetCategory.displayColor`), tuned per appearance:
+    /// One hue per widget category, tuned per appearance:
     /// deeper on light glass, lighter and less saturated on dark glass.
     enum Family: String, CaseIterable {
         case ai, system, business, personal, weather
@@ -279,7 +279,7 @@ struct WidgetTileSurface<Content: View>: View {
             .background {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(accessibility.reduceTransparency
-                          ? AnyShapeStyle(scheme == .dark ? Color(white: 0.16) : Color(white: 0.96))
+                          ? AnyShapeStyle(DockDesign.Glass.opaqueFill(scheme))
                           : AnyShapeStyle(scheme == .dark ? Color.white.opacity(hovered ? 0.10 : 0.065) : Color.white.opacity(hovered ? 0.76 : 0.62)))
             }
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)

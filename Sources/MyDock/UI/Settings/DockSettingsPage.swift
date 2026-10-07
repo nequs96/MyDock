@@ -24,26 +24,18 @@ extension SettingsView {
             ))
             if store.state.settings.setupMode == .customMain {
                 if store.activeCustomProfile == nil {
-                    Text("Create or select a Custom Dock first; Apple’s Dock remains available until then.")
-                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+                    GroupedNote("Create or select a Custom Dock first; Apple’s Dock remains available until then.")
                 } else {
-                    Text("Apple’s Dock stays hidden; MyDock restores its settings on mode change or quit.")
-                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+                    GroupedNote("Apple’s Dock stays hidden; MyDock restores its settings on mode change or quit.")
                 }
             }
             if let errorMessage = nativeDockVisibility.errorMessage {
-                HStack(alignment: .top, spacing: 10) {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                    Button("Retry") {
-                        let customMainRequested = store.state.settings.setupMode == .customMain
-                            && store.activeCustomProfile != nil
-                        Task { @MainActor in
-                            if store.allowsSystemChanges { try? await nativeDockVisibility.setCustomDockMain(customMainRequested) }
-                        }
-                    }.controlSize(.small)
+                GroupedNote(errorMessage, tone: .warning, actionTitle: "Retry") {
+                    let customMainRequested = store.state.settings.setupMode == .customMain
+                        && store.activeCustomProfile != nil
+                    Task { @MainActor in
+                        if store.allowsSystemChanges { try? await nativeDockVisibility.setCustomDockMain(customMainRequested) }
+                    }
                 }
             }
             SettingsControlRow(title: "macOS Dock profile") {
@@ -61,24 +53,15 @@ extension SettingsView {
             }
             .disabled(isApplyingNativeProfile)
             if isApplyingNativeProfile {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Applying \(store.nativeProfiles.first(where: { $0.id == nativeProfileSwitchTargetID })?.name ?? "macOS Dock profile")…")
-                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
-                }
+                GroupedNote("Applying \(store.nativeProfiles.first(where: { $0.id == nativeProfileSwitchTargetID })?.name ?? "macOS Dock profile")…",
+                            showsProgress: true)
             }
             if let nativeProfileSwitchMessage {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(nativeProfileSwitchMessage)
-                        .font(.caption)
-                        .foregroundStyle(nativeProfileSwitchFailedID == nil ? Color.secondary : Color.orange)
-                        .textSelection(.enabled)
-                    Spacer(minLength: 0)
-                    if let nativeProfileSwitchFailedID {
-                        Button("Retry") { selectNativeProfile(nativeProfileSwitchFailedID) }
-                            .controlSize(.small)
-                            .disabled(isApplyingNativeProfile)
-                    }
+                if let failedID = nativeProfileSwitchFailedID {
+                    GroupedNote(nativeProfileSwitchMessage, tone: .warning, actionTitle: "Retry") { selectNativeProfile(failedID) }
+                        .disabled(isApplyingNativeProfile)
+                } else {
+                    GroupedNote(nativeProfileSwitchMessage)
                 }
             }
             SettingsControlRow(title: "Custom Dock profile") {
@@ -109,9 +92,7 @@ extension SettingsView {
             }
             if let selectedID = store.state.settings.customDockDisplayID,
                !displayOptions.contains(where: { $0.id == selectedID }) {
-                Text("Display disconnected: using the main display until it reconnects. Select Main display to stay there.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                GroupedNote("Display disconnected: using the main display until it reconnects. Select Main display to stay there.")
             }
         }.id("Dock setup")
         GroupedSection("Focus filters", footer: FocusFilterAvailability.guidance()) {
@@ -126,11 +107,10 @@ extension SettingsView {
             ))
             if store.state.settings.automaticallySaveNativeDockChanges,
                store.state.settings.activeNativeProfileID == nil {
-                Text("Select a macOS Dock profile to start automatic saving.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+                GroupedNote("Select a macOS Dock profile to start automatic saving.")
             }
             if let message = nativeDockAutoSave.errorMessage, store.state.settings.automaticallySaveNativeDockChanges {
-                Text(message).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                GroupedNote(message, tone: .warning)
             }
             GroupedRow("Freeze desktop during Dock restart", subtitle: supportsScreenCaptureFreeze
                            ? "Holds one frame per display in memory. Switching works without Screen Recording."
@@ -139,11 +119,8 @@ extension SettingsView {
                 set: { enabled in
                     store.updateSettings { $0.smoothNativeDockSwitches = enabled }
                     screenCaptureMessage = nil
+                    // The row is disabled before macOS 14, so enabling always has the capture API.
                     guard enabled else { return }
-                    guard supportsScreenCaptureFreeze else {
-                        screenCaptureMessage = "This visual effect requires macOS 14 or later."
-                        return
-                    }
                     if !CGPreflightScreenCaptureAccess() {
                         let accessRequestStarted = AppRuntimeEnvironment.allowsNativeEffects && CGRequestScreenCaptureAccess()
                         screenCaptureMessage = accessRequestStarted
@@ -156,7 +133,7 @@ extension SettingsView {
             ))
             .disabled(!supportsScreenCaptureFreeze)
             if let screenCaptureMessage {
-                Text(screenCaptureMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+                GroupedNote(screenCaptureMessage)
             }
         }.id("Native Dock switching")
         }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)

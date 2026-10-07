@@ -40,7 +40,7 @@ struct StyleSwatch<Preview: View>: View {
                     }
                     .dockHover(hovered && !isSelected)
                 Text(title)
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                    .font(DockDesign.caption.weight(isSelected ? .semibold : .medium))
                     .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                     .lineLimit(1)
             }
@@ -129,7 +129,7 @@ struct DockSwatchPreview: View {
 
     @ViewBuilder private var surface: some View {
         if accessibility.reduceTransparency {
-            dockShape.fill(look.surface == .midnight ? Color(red: 0.10, green: 0.12, blue: 0.16) : DockDesign.Glass.opaqueFill(darkSurface ? .dark : .light))
+            dockShape.fill(look.surface == .midnight ? DockDesign.Glass.midnightFill : DockDesign.Glass.opaqueFill(darkSurface ? .dark : .light))
         } else {
             ZStack {
                 switch look.surface {
@@ -146,7 +146,7 @@ struct DockSwatchPreview: View {
                 case .solid:
                     dockShape.fill(Color(nsColor: .windowBackgroundColor))
                 case .midnight:
-                    dockShape.fill(Color(red: 0.10, green: 0.12, blue: 0.16))
+                    dockShape.fill(DockDesign.Glass.midnightFill)
                 }
                 if let tint = look.tint { dockShape.fill(tint.opacity(0.14)) }
             }

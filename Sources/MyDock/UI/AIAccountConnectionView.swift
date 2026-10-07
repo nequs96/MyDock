@@ -1,6 +1,15 @@
 import SwiftUI
 import AppKit
 
+/// App activation re-checks an account at most once a minute: detection launches the provider's CLI.
+enum AIAccountActivationPolicy {
+    static let minimumInterval: TimeInterval = 60
+    static func shouldRecheck(lastChecked: Date?, now: Date) -> Bool {
+        guard let lastChecked else { return true }
+        return now.timeIntervalSince(lastChecked) >= minimumInterval || now < lastChecked
+    }
+}
+
 struct AIAccountConnectionView: View {
     var provider: AIProvider
     var allowsAccountActions: Bool
@@ -13,6 +22,8 @@ struct AIAccountConnectionView: View {
     @State private var checking = false
     @State private var limitsEnabled = false
     @State private var message: String?
+    @State private var activation = 0
+    @State private var lastChecked: Date?
 
     private var directory: URL { status?.configurationDirectory ?? AIAccountService.claudeDirectory() }
 
@@ -47,8 +58,13 @@ struct AIAccountConnectionView: View {
         }
         }
         .task(id: provider) { await findAccount(refreshData: false) }
+        // SwiftUI cancels this when the view goes away or the app activates again.
+        .task(id: activation) {
+            guard activation > 0, AIAccountActivationPolicy.shouldRecheck(lastChecked: lastChecked, now: .now) else { return }
+            await findAccount(refreshData: true)
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await findAccount(refreshData: true) }
+            activation += 1
         }
     }
 
@@ -109,6 +125,7 @@ struct AIAccountConnectionView: View {
         let detected = await Task.detached(priority: .utility) { AIAccountService.detect(provider) }.value
         guard !Task.isCancelled else { checking = false; return }
         status = detected
+        lastChecked = .now
         if provider == .claude { limitsEnabled = ClaudeLimitsSetup.isEnabled(directory: directory) }
         checking = false
         if detected.state == .signedIn { message = nil }

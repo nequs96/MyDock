@@ -74,7 +74,9 @@ private struct SettingsQASectionView: View {
             case .glass: view.appearanceGlassSection
             case .layout: view.appearanceLayoutSection
             case .widgets: view.appearanceWidgetsSection
-            case .scope: view.appearanceScopeSection
+            case .scope:
+                view.appearanceScopeSection
+                view.appearanceResetSection
             }
             Spacer(minLength: 0)
         }.padding(24).background(DockDesign.page)

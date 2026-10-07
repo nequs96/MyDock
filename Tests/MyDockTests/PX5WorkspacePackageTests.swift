@@ -224,7 +224,7 @@ struct PX5WorkspacePackageTests {
         #expect(preview.unresolved.isEmpty)
         #expect(preview.reconnections.map(\.title) == ["Stripe", "AI Limits"])
         #expect(preview.profile.workspaceTargets.map(\.title) == profile.workspaceTargets.map(\.title))
-        // Still a valid backup, so Restore… accepts a Dock package.
+        // Still a valid backup, so Add Docks from Backup… accepts a Dock package.
         #expect(try BackupManager.readArchive(data).importedProfiles.count == 1)
     }
 

@@ -195,6 +195,19 @@ enum MarketAPIKeyStore {
         return value
     }
 
+    /// Whether a key is saved, from its attributes only: the key itself is not decrypted.
+    static func exists() throws -> Bool {
+        guard AppRuntimeEnvironment.allowsCredentials else { return false }
+        var query = baseQuery
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return false }
+        guard status == errSecSuccess else { throw KeychainError(status) }
+        return true
+    }
+
     static func write(_ value: String) throws {
         try AppRuntimeEnvironment.requireCredentials()
         let data = Data(value.utf8)

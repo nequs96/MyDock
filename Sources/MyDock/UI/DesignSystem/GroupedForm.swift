@@ -111,11 +111,14 @@ struct GroupedRow<Accessory: View>: View {
         case none
         case value(String)
         case chevron(value: String?)
+        /// Inline disclosure: the chevron turns down when expanded.
+        case disclosure(Bool)
         case toggle(Binding<Bool>)
         case custom
     }
 
     @Environment(\.isEnabled) private var isEnabled
+    @DockAccessibilityStyle() private var accessibility
 
     var body: some View {
         switch trailing {
@@ -135,7 +138,7 @@ struct GroupedRow<Accessory: View>: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(title)
                 .accessibilityValue(accessibilityValue)
-                .accessibilityHint(subtitle ?? "")
+                .accessibilityHint(hintText)
                 .accessibilityAddTraits(.isButton)
             } else if case .custom = trailing {
                 rowContent(showsAccessory: true) { EmptyView() }
@@ -155,8 +158,14 @@ struct GroupedRow<Accessory: View>: View {
         switch trailing {
         case .value(let value): value
         case .chevron(let value): value ?? ""
+        case .disclosure(let expanded): expanded ? "Expanded" : "Collapsed"
         default: ""
         }
+    }
+
+    private var hintText: String {
+        if case .disclosure(let expanded) = trailing { return expanded ? "Collapses this section" : "Expands this section" }
+        return subtitle ?? ""
     }
 
     private var titleColor: Color {
@@ -206,6 +215,12 @@ struct GroupedRow<Accessory: View>: View {
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.tertiary).accessibilityHidden(true)
             }
+        case .disclosure(let expanded):
+            Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(expanded ? 90 : 0))
+                .animation(accessibility.animation(DockDesign.Motion.disclosure), value: expanded)
+                .accessibilityHidden(true)
         case .custom: accessory
         }
     }
@@ -221,6 +236,18 @@ extension GroupedRow where Accessory == EmptyView {
         self.symbolColor = color
         self.role = .standard
         self.trailing = chevron ? .chevron(value: value) : value.map(Trailing.value) ?? .none
+        self.action = action
+        self.accessory = EmptyView()
+    }
+
+    /// Disclosure row: the chevron turns down when expanded; VoiceOver reads Expanded or Collapsed.
+    init(_ title: String, isExpanded: Bool, action: @escaping () -> Void) {
+        self.title = title
+        self.subtitle = nil
+        self.symbol = nil
+        self.symbolColor = .gray
+        self.role = .standard
+        self.trailing = .disclosure(isExpanded)
         self.action = action
         self.accessory = EmptyView()
     }
@@ -263,6 +290,48 @@ extension GroupedRow {
         self.trailing = .custom
         self.action = nil
         self.accessory = accessory()
+    }
+}
+
+/// A short note inside a grouped card, inset like every other row. `.warning` adds the orange
+/// triangle; an optional small trailing button acts on the note (Retry, Open Settings…).
+struct GroupedNote: View {
+    enum Tone { case secondary, warning }
+    var text: String
+    var tone: Tone
+    var showsProgress: Bool
+    var actionTitle: String?
+    var action: (() -> Void)?
+
+    init(_ text: String, tone: Tone = .secondary, showsProgress: Bool = false,
+         actionTitle: String? = nil, action: (() -> Void)? = nil) {
+        self.text = text
+        self.tone = tone
+        self.showsProgress = showsProgress
+        self.actionTitle = actionTitle
+        self.action = action
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            if showsProgress { ProgressView().controlSize(.small) }
+            Group {
+                switch tone {
+                case .secondary: Text(text).foregroundStyle(.secondary)
+                case .warning: Label(text, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                }
+            }
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+            Spacer(minLength: 0)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action).controlSize(.small)
+            }
+        }
+        .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+        .padding(.vertical, DockDesign.Grouped.rowVerticalPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
