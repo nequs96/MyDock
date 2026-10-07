@@ -28,7 +28,7 @@ A widget click toggles its tab in the shared popout. Clicking another widget sel
 
 ## Magnification
 
-**Magnification** (Settings → Behavior → Interaction) enlarges tiles around the pointer, apps more than widgets, and Reduce Motion suppresses it. It works only on macOS 14 and later; on macOS 13 the switch is not offered and a saved setting does not enlarge the Dock.
+**Magnification** (Settings → Behavior → Interaction) enlarges tiles around the pointer while widgets keep their size, and Reduce Motion suppresses it. It works only on macOS 14 and later; on macOS 13 the switch is not offered and a saved setting does not enlarge the Dock.
 
 ## Access with the manager closed
 
