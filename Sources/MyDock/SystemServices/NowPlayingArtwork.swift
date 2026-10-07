@@ -65,10 +65,6 @@ enum NowPlayingArtwork {
         }
     }
 
-    static func thumbnail(from data: Data) -> NSImage? {
-        decodedThumbnail(from: data)?.image
-    }
-
     /// Decodes and downsamples on any thread: CGImageSource and the resulting CGImage are thread-safe.
     static func decodedThumbnail(from data: Data) -> NowPlayingDecodedArtwork? {
         guard !data.isEmpty, data.count <= maximumLocalBytes,

@@ -120,7 +120,7 @@ final class NowPlayingMonitor: ObservableObject {
     private var dockIsVisible = false
     private var schedulerDemand: RefreshDemandToken?
     private var pendingReads: [NowPlayingSource: Task<Void, Never>] = [:]
-    /// Sources that asked for a read while one was in flight; that read may predate a playback command.
+    /// Sources whose playback command finished while a read was in flight; that read may predate the command.
     private var rereadRequested: Set<NowPlayingSource> = []
     private var commandTasks: [NowPlayingSource: Task<Void, Never>] = [:]
 
@@ -186,7 +186,9 @@ final class NowPlayingMonitor: ObservableObject {
         }
     }
 
-    func refresh(_ source: NowPlayingSource) {
+    /// `afterCommand`: a read already in flight may have started before the command, so one more read follows
+    /// it. Periodic refreshes skip a busy source; the in-flight read is recent enough.
+    func refresh(_ source: NowPlayingSource, afterCommand: Bool = false) {
         guard NSRunningApplication.runningApplications(withBundleIdentifier: source.bundleIdentifier).contains(where: { !$0.isTerminated }) else {
             snapshots[source] = nil
             errors[source] = nil
@@ -195,7 +197,7 @@ final class NowPlayingMonitor: ObservableObject {
         }
 
         guard pendingReads[source] == nil else {
-            rereadRequested.insert(source)
+            if afterCommand { rereadRequested.insert(source) }
             return
         }
         pendingReads[source] = Task { [weak self] in
@@ -271,7 +273,7 @@ final class NowPlayingMonitor: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             // A user action: allow time for the first-run Automation consent prompt.
             _ = await execute(script, source: source, timeout: 60)
-            refresh(source)
+            refresh(source, afterCommand: true)
         }
     }
 

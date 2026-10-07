@@ -5,7 +5,9 @@ import Testing
 
 @MainActor
 struct WindowPreviewCacheTests {
-    @Test func cacheIdentitySurvivesProcessRestartAndRejectsDuplicateTitles() {
+    /// Descriptors without a native identity key on the app and the trimmed title only. Sampled windows carry
+    /// their app's launch date and AX object, so their previews never outlive the app (AuditLaneCTests).
+    @Test func cacheIdentityWithoutNativeIdentityTrimsTitlesAndRejectsDuplicates() {
         let original = descriptor(processID: 42, windowIndex: 1, title: "Planning")
         let relaunched = descriptor(processID: 900, windowIndex: 0, title: " Planning ")
         let originalKey = WindowPreviewCacheIdentity.uniqueKeys(for: [original])[original.id]

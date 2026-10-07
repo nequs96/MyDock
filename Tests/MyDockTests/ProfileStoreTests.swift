@@ -1670,7 +1670,7 @@ struct ProfileStoreTests {
         #expect(withArtwork?.artworkURL?.host == "i.scdn.co")
         #expect(NowPlayingArtwork.spotifyURL(from: "https://localhost/image/abc123") == nil)
         #expect(NowPlayingArtwork.spotifyURL(from: "https://i.scdn.co/image/abc123?token=secret") == nil)
-        #expect(NowPlayingArtwork.thumbnail(from: Data([0, 1, 2, 3])) == nil)
+        #expect(NowPlayingArtwork.decodedThumbnail(from: Data([0, 1, 2, 3]))?.image == nil)
         #expect(try NowPlayingResponseParser.snapshot(from: "") == nil)
         #expect(throws: NowPlayingParsingError.self) { try NowPlayingResponseParser.snapshot(from: "missing fields") }
     }

@@ -76,7 +76,9 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
                     print("MyDock render matrix exported")
                 } catch {
                     // A failed validation must fail the run: scripts and reviewers read the exit status.
+                    // exit skips applicationWillTerminate, so the isolated preview state is removed here.
                     FileHandle.standardError.write(Data("MyDock render failed: \(error)\n".utf8))
+                    try? FileManager.default.removeItem(at: previewDirectory)
                     exit(1)
                 }
                 NSApplication.shared.terminate(nil)

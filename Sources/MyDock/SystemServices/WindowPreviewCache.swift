@@ -77,7 +77,6 @@ final class WindowPreviewDiskCache {
     }
 
     func pruneExpired() {
-        prepareDirectory()
         prune()
     }
 
