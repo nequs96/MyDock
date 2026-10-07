@@ -7,8 +7,15 @@ enum IntegrationCredentialPresence {
     /// The service every integration credential is stored under.
     static var service: String { Product.bundleIdentifier + ".integration-credentials" }
 
-    /// `failure` turns a Keychain status into the caller's own error.
-    static func exists(account: String, failure: (OSStatus) -> any Error) throws -> Bool {
+    /// Keychain answered with something other than "found" or "not found".
+    struct LookupError: LocalizedError, Equatable {
+        /// The credential as the start of a sentence, such as "The Alpha Vantage key".
+        let credential: String
+        let status: OSStatus
+        var errorDescription: String? { "\(credential) could not be checked in Keychain (\(status))." }
+    }
+
+    static func exists(account: String, credential: String) throws -> Bool {
         guard AppRuntimeEnvironment.allowsCredentials else { return false }
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                     kSecAttrService as String: service,
@@ -18,7 +25,7 @@ enum IntegrationCredentialPresence {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return false }
-        guard status == errSecSuccess else { throw failure(status) }
+        guard status == errSecSuccess else { throw LookupError(credential: credential, status: status) }
         return true
     }
 }

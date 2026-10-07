@@ -53,7 +53,7 @@ enum GitHubCopilotCredentialStore {
 
     /// Whether credentials are saved, from their attributes only: the token is not decrypted.
     static func exists() throws -> Bool {
-        try IntegrationCredentialPresence.exists(account: "github-copilot", failure: GitHubCopilotCredentialError.keychain)
+        try IntegrationCredentialPresence.exists(account: "github-copilot", credential: "GitHub Copilot credentials")
     }
 
     static func write(username: String, token: String) throws {
