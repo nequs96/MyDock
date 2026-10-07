@@ -418,6 +418,15 @@ struct AIActivitySnapshot: Codable, Hashable {
         if estimated || possiblyOverstated { return "~" + value }
         return partial ? value + "+" : value
     }
+
+    /// The popout footer: where the figures come from and how complete they are. An estimate's "~" hides "+",
+    /// so the footer is where an incomplete estimate says so.
+    var provenance: String {
+        if estimated { return partial ? "Local log estimate from incomplete logs, not a billing total." : "Local log estimate, not a billing total." }
+        if partial { return "Local log totals may be incomplete." }
+        if possiblyOverstated { return "Local log totals may include duplicates." }
+        return "Local session logs, not billing totals."
+    }
 }
 
 enum AIUsageError: LocalizedError, Equatable {

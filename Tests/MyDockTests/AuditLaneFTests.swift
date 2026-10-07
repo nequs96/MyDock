@@ -162,11 +162,16 @@ import Testing
         var snapshot = try #require(AIActivityPreviewData.item().widgetConfiguration?.aiActivitySnapshot)
         snapshot.estimated = true
         snapshot.partial = true
+        snapshot.possiblyOverstated = false
         #expect(snapshot.qualified("644M") == "~644M")
+        // "~" wins over "+", so the footer says the estimate is incomplete.
+        #expect(snapshot.provenance == "Local log estimate from incomplete logs, not a billing total.")
         snapshot.estimated = false
         #expect(snapshot.qualified("644M") == "644M+")
+        #expect(snapshot.provenance == "Local log totals may be incomplete.")
         snapshot.partial = false
         #expect(snapshot.qualified("644M") == "644M")
+        #expect(snapshot.provenance == "Local session logs, not billing totals.")
     }
 
     @Test func retainedLimitReadingShowsItsOwnSuccessTime() {

@@ -553,12 +553,7 @@ private struct AIActivitySummary: View {
 
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
-    private var provenanceFooter: String {
-        if snapshot?.estimated == true { return "Local log estimate, not a billing total." }
-        if snapshot?.partial == true { return "Local log totals may be incomplete." }
-        if snapshot?.possiblyOverstated == true { return "Local log totals may include duplicates." }
-        return "Local session logs, not billing totals."
-    }
+    private var provenanceFooter: String { snapshot?.provenance ?? "Local session logs, not billing totals." }
     private func metrics(_ s: AIActivitySnapshot) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             metric("Tokens", value: s.qualified(AIActivityFormatting.tokens(s.totals.totalTokens)), primary: true)
