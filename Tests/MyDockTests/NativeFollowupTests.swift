@@ -4,6 +4,9 @@ import UserNotifications
 import Testing
 @testable import MyDock
 
+/// The dwell tests await stream values that arrive only when the monitor presents; the limit turns a regression
+/// into a named failure (the awaits end when the timed-out test is cancelled) instead of a hung run.
+@Suite(.timeLimit(.minutes(1)))
 struct NativeFollowupTests {
     @Test @MainActor func defaultUpdateCheckFailsClosedInIsolatedValidation() async throws {
         // Stop before a real update request if isolation were ever off.

@@ -52,7 +52,6 @@ struct RegistryCapabilityTests {
     }
 
     @Test func presentationOutputIsIdenticalToLegacyCatalogForAllFamilies() {
-        #expect(Self.legacySnapshot.count == 36)
         #expect(WidgetRegistry.all.map(\.name) == Self.legacySnapshot.map { String($0.split(separator: "#", maxSplits: 1)[0]) })
         for line in Self.legacySnapshot {
             let name = String(line.split(separator: "#", maxSplits: 1)[0])

@@ -34,9 +34,9 @@ See [permissions and data handling](PERMISSIONS.md) before enabling features tha
 With full Xcode selected and XcodeGen available, run:
 
 ```sh
-./ReleaseMyDock.sh "Developer ID Application: Publisher (TEAMID)" notary-keychain-profile ../dockX-releases/0.1.0
+./ReleaseMyDock.sh "Developer ID Application: Publisher (TEAMID)" notary-keychain-profile ../MyDock-releases/0.1.0
 ```
 
 Use a fresh distribution output directory outside the repository; keep `build/` for the canonical development app. The script builds with full Xcode, requires extracted App Intents metadata, checks both architectures, signs with the hardened runtime and Apple Events entitlement, verifies the signature, submits/staples the app and DMG, assesses Gatekeeper and writes a SHA-256 checksum. A named notarization credential must already be stored in Keychain. No signing identity, account credentials or notarization success is supplied by this repository.
 
-Settings → General → Application lifecycle can register the installed app with Login Items and open approval settings when needed. Put the app in a stable Applications location before testing this. Update discovery requires the actual publisher's HTTPS GitHub repository URL and runs only on request. No release repository is configured by default. Open acceptance is in [the implementation status](IMPLEMENTATION_STATUS.md).
+Settings → General → Application → **Launch at login** can register the installed app with Login Items and open approval settings when needed. Put the app in a stable Applications location before testing this. Update discovery requires the actual publisher's HTTPS GitHub repository URL and runs only on request. No release repository is configured by default. Open acceptance is in [the implementation status](IMPLEMENTATION_STATUS.md).

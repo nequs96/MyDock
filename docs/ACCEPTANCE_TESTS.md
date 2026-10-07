@@ -165,12 +165,22 @@ Approval should cover the temporary profile apply/reapply and, separately, the C
 7. Create duplicate account/symbol queries and observe one shared request, maximum four provider jobs, changed-account cancellation, partial watchlist success, error retention and fastest requested interval. Exercise disconnected account remapping and both backup export choices.
 8. Inspect history before an edit/deletion, restore as a new profile, and verify current IDs/data are unchanged. Export/import a personal preset: notes, hydration undo/history, cached metrics and connection assignments must be absent by default; local app/file/link references remain disclosed.
 
-## Opt-in performance and disposable-system harnesses
+## Opt-in suites
+
+`./TestMyDock.sh` skips these suites unless their variable is set. Set one at a time, only where the table says it is safe.
+
+| Variable | What it touches | Where it is safe |
+| --- | --- | --- |
+| `MYDOCK_PERFORMANCE_OUTPUT=<path>` | Synthetic performance fixtures; writes a JSON baseline to the path | Any Mac. Write the file to `docs/history/` with a date |
+| `MYDOCK_CUSTOM_DOCK_RUNTIME_TESTS=1` | Shows an isolated live Custom Dock panel for about 20 seconds; never changes Apple’s Dock | A Mac where a briefly visible test panel is acceptable |
+| `MYDOCK_LOCAL_AI_ACCOUNT_TESTS=1` | Reads the signed-in local Codex account's quota (read-only; starts no task) | A Mac whose Codex sign-in you own |
+| `MYDOCK_INSTALLED_APP_AUDIT=1` | Scans installed applications and prints their count | Any Mac; the log lists no app names |
+| `MYDOCK_DISPOSABLE_SYSTEM_TESTS=1` | Applies and restores a real Apple Dock layout | Only a throwaway macOS account or VM (see below) |
 
 Run the synthetic baseline without changing native Dock preferences:
 
 ```sh
-MYDOCK_PERFORMANCE_OUTPUT="$PWD/docs/PERFORMANCE_BASELINE.json" ./TestMyDock.sh
+MYDOCK_PERFORMANCE_OUTPUT="$PWD/docs/history/PERFORMANCE_BASELINE_$(date +%F).json" ./TestMyDock.sh
 ```
 
 For the live test, first prepare a separate throwaway macOS account or VM, save an independent copy of its Dock preferences, close other MyDock copies, and confirm that this environment can be reset. The test adds a spacer, verifies apply, records/restores the original layout through the journal, and verifies recovery. It must never be enabled on the user's everyday Dock:

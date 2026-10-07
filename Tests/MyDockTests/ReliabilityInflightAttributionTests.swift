@@ -3,15 +3,19 @@ import Testing
 @testable import MyDock
 
 private actor AttributionGate {
+    struct StartTimeout: Error {}
     private var started = false
-    private var onStart: CheckedContinuation<Void, Never>?
     private var onRelease: CheckedContinuation<Void, Never>?
-    func waitForStart() async {
-        if started { return }
-        await withCheckedContinuation { onStart = $0 }
+    /// Polls with a deadline, so a loader that is never called fails the test instead of hanging the run.
+    func waitForStart(timeout: Duration = .seconds(10)) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !started {
+            guard ContinuousClock.now < deadline else { throw StartTimeout() }
+            try await Task.sleep(for: .milliseconds(5))
+        }
     }
     func hold() async {
-        started = true; onStart?.resume(); onStart = nil
+        started = true
         await withCheckedContinuation { onRelease = $0 }
     }
     func release() { onRelease?.resume(); onRelease = nil }
@@ -36,7 +40,7 @@ struct ReliabilityInflightAttributionTests {
             WidgetDataQuery.make(kind: kind, configuration: configuration, now: now, homeDirectory: root, environment: environment)
         })
         let refresh = Task { await coordinator.refresh(item: item, profileID: id) }
-        await gate.waitForStart()
+        try await gate.waitForStart()
         environment["CLAUDE_CONFIG_DIR"] = root.appendingPathComponent("B").path
         await gate.release(); await refresh.value
         #expect(store.runtimeCache.readings(for: item.id)?.aiLimits == nil)
@@ -55,7 +59,7 @@ struct ReliabilityInflightAttributionTests {
             return .limits(.init(fetchedAt: .now, readings: [], sourceScope: query.aiSourceScope))
         }
         let refresh = Task { await coordinator.refresh(item: item, profileID: id) }
-        await gate.waitForStart(); coordinator.connectionsDidChange()
+        try await gate.waitForStart(); coordinator.connectionsDidChange()
         await gate.release(); await refresh.value
         #expect(store.runtimeCache.readings(for: item.id)?.aiLimits == nil)
     }
@@ -76,7 +80,7 @@ struct ReliabilityInflightAttributionTests {
             WidgetDataQuery.make(kind: kind, configuration: configuration, now: now)
         })
         let refresh = Task { await coordinator.refresh(item: item, profileID: id) }
-        await gate.waitForStart(); now = now.addingTimeInterval(2)
+        try await gate.waitForStart(); now = now.addingTimeInterval(2)
         await gate.release(); await refresh.value
         #expect(store.runtimeCache.readings(for: item.id)?.aiLimits == nil)
     }

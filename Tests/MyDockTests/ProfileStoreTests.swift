@@ -808,6 +808,8 @@ struct ProfileStoreTests {
         let itemID = UUID()
         let otherItemID = UUID()
         let drafts = WidgetSetupDraftStore.shared
+        // Register cleanup before writing to the shared store, so a failure cannot leak drafts into other tests.
+        defer { drafts.clearDrafts(for: itemID) }
         drafts.updateStripeDraft(for: itemID) {
             $0.accountName = "Revenue account"
             $0.restrictedKey = "rk_test_memory_only"
@@ -838,10 +840,7 @@ struct ProfileStoreTests {
 
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer {
-            drafts.clearDrafts(for: itemID)
-            try? FileManager.default.removeItem(at: directory)
-        }
+        defer { try? FileManager.default.removeItem(at: directory) }
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
         let profileID = try store.createProfileAndPersist(kind: .custom, name: "Setup drafts")
         var stripeWidget = DockItem.widget("Stripe")
@@ -2249,7 +2248,11 @@ struct ProfileStoreTests {
             await AILimitsCollector.collect(providers: [.codex, .claude],
                                             adapters: [WaitingCodex(probe: probe), TrackingClaude(probe: probe)])
         }
-        while !(await probe.hasStarted(.codex)) { await Task.yield() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !(await probe.hasStarted(.codex)) {
+            guard ContinuousClock.now < deadline else { Issue.record("The Codex reader never started"); break }
+            await Task.yield()
+        }
         worker.cancel()
         _ = await worker.value
         let startedClaude = await probe.hasStarted(.claude)

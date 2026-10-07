@@ -91,10 +91,5 @@ struct InstalledAppCatalogTests {
             #expect(FileManager.default.fileExists(atPath: app.url.path))
         }
         print("INSTALLED APP AUDIT: \(scan.applications.count) current readable executable bundles; \(scan.unreadableLocations) unreadable roots.")
-        for app in scan.applications where app.name.localizedCaseInsensitiveContains("Adobe") || app.name.localizedCaseInsensitiveContains("Acrobat") { print("VALID ADOBE: \(app.name) — \(app.url.path)") }
-        for name in ["/Applications/Adobe Acrobat DC/Acrobat Distiller.app", "/Applications/Adobe Acrobat DC/Adobe Acrobat.app", "/Applications/Adobe Animate 2024/Adobe Animate 2024.app", "/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app"] {
-            let url = URL(fileURLWithPath: name)
-            if InstalledAppCatalog.validatedApplication(at: url) == nil { #expect(!scan.applications.contains { $0.url == url }) }
-        }
     }
 }

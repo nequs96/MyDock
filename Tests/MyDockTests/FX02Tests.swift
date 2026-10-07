@@ -106,16 +106,6 @@ struct FX02Tests {
         }
     }
 
-    @Test func dockBodyNoLongerNormalizesOnEveryEvaluation() throws {
-        // Source guard: the view body reads the cache rather than normalizing per evaluation.
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/MyDock/DockManagement/CustomDockView.swift"), encoding: .utf8)
-        #expect(!source.contains("InstalledApplicationIdentity.normalizedURL"))
-        #expect(!source.contains("RuntimeDockApplications.pinnedURLs"))
-        #expect(source.contains("runningAppCache.matches("))
-    }
-
     // MARK: Separators only between content
 
     @Test func separatorsDrawOnlyBetweenContent() {

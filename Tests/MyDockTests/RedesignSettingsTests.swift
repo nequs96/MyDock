@@ -141,9 +141,8 @@ struct RedesignSettingsTests {
         #expect(row.summary == sample.3)
     }
 
-    @Test(arguments: CustomDockMaterial.allCases)
-    func singleFinishControlReachesEveryMaterial(material: CustomDockMaterial) throws {
-        #expect(SettingsAppearanceDefaults.finishes.contains(material))
+    @Test func singleFinishControlReachesEveryMaterial() throws {
+        for material in CustomDockMaterial.allCases { #expect(SettingsAppearanceDefaults.finishes.contains(material), "\(material)") }
         let source = try uiSource("Settings/AppearanceSettingsPage.swift")
         #expect(source.components(separatedBy: "selection: appearanceBinding(\\.customDockMaterial)").count - 1 == 1)
         #expect(source.contains("ForEach(SettingsAppearanceDefaults.finishes)"))

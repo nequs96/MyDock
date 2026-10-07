@@ -23,7 +23,7 @@ struct RequiredPersistenceCorrectionTests {
             #expect(!store.canRetryPersistence)
             #expect(store.state.profiles.isEmpty)
             #expect(store.createProfile(kind: .custom) == nil)
-            #expect(throws: (any Error).self) { try store.importProfiles([DockProfile(name: "Import", kind: .custom)]) }
+            #expect(throws: EditSessionSaveError.self) { try store.importProfiles([DockProfile(name: "Import", kind: .custom)]) }
             store.flush()
             #expect(try Data(contentsOf: file) == original)
             #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["state.json"])

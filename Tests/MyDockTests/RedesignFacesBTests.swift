@@ -208,6 +208,7 @@ struct RedesignFacesBTests {
 
     @Test func activityPopoutFixtureSurvivesRuntimeProjection() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("FacesBProjection-\(UUID())/state.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = ProfileStore(fileURL: url, allowsSystemChanges: false)
         let id = try store.createProfileAndPersist(kind: .custom, name: "QA projection")
         for state in [FacesBQA.State.ready, .stale, .unavailable] {
@@ -223,6 +224,7 @@ struct RedesignFacesBTests {
     /// Covers every advertised layout plus 54 pt side-Dock and hidden labels.
     @Test func allOwnedFamiliesRenderVisibleContent() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("FacesBTests-\(UUID())/state.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = ProfileStore(fileURL: url, allowsSystemChanges: false)
         let profileID = UUID()
         var matrix = WidgetQAMatrix()

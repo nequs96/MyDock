@@ -34,7 +34,7 @@ struct AIAccountTests {
         #expect(!connected.message.contains("private"))
         let missing = try AIAccountService.parseCodexAccount(Data(#"{"result":{"account":null,"requiresOpenaiAuth":true}}"#.utf8))
         #expect(missing.state == .signedOut)
-        #expect(throws: (any Error).self) { try AIAccountService.parseCodexAccount(Data(#"{"error":{"message":"expired"}}"#.utf8)) }
+        #expect(throws: AIUsageError.codexResponseInvalid) { try AIAccountService.parseCodexAccount(Data(#"{"error":{"message":"expired"}}"#.utf8)) }
     }
 
     @Test func claudeSetupPreservesSettingsAndDisplayAndIsIdempotent() throws {
@@ -75,7 +75,7 @@ struct AIAccountTests {
         let settings = directory.appendingPathComponent("settings.json")
         let original = Data("invalid-json".utf8)
         try original.write(to: settings)
-        #expect(throws: (any Error).self) { try ClaudeLimitsSetup.enable(directory: directory) }
+        #expect(throws: CocoaError.self) { try ClaudeLimitsSetup.enable(directory: directory) }
         #expect(try Data(contentsOf: settings) == original)
         // The symlink points at valid settings, so only the symlink guard can refuse it.
         let target = directory.appendingPathComponent("original.json")

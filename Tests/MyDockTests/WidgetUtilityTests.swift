@@ -12,7 +12,7 @@ struct WidgetUtilityTests {
     }
     @Test func calculatorRejectsInvalidAndUnboundedInput() {
         for input in ["", "1/0", "1 +", "(2+3", "2..3", "2(3)", "hello", String(repeating: "1", count: 257)] {
-            #expect(throws: (any Error).self) { try QuickCalculator.calculate(input) }
+            #expect(throws: QuickCalculator.CalculationError.self) { try QuickCalculator.calculate(input) }
         }
     }
     @Test func oldConfigurationsDefaultToLiveAndNewStylesRoundTrip() throws {
@@ -39,7 +39,7 @@ struct WidgetUtilityTests {
         try ProfileSemanticValidator.validate([profile])
         var config = try #require(item.widgetConfiguration)
         config.checklistEntries.append(config.checklistEntries[0])
-        #expect(throws: (any Error).self) { try ProfileSemanticValidator.validate(config) }
+        #expect(throws: ProfileValidationError.self) { try ProfileSemanticValidator.validate(config) }
     }
     @Test func diskFractionIsBoundedAndWidgetsAreDiscoverable() {
         #expect(DiskSpaceSnapshot(name: "Disk", totalBytes: 100, availableBytes: 25).usedFraction == 0.75)

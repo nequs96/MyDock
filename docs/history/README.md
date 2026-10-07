@@ -21,6 +21,8 @@ These reports preserve the observations and hashes from their original dates. Cu
 | [Replacement mode and gallery](REPLACEMENT_MODE_AND_GALLERY_2026-09-30.md) | [Verification](REPLACEMENT_MODE_AND_GALLERY_VERIFICATION_2026-09-30.json) |
 | [Earlier release evidence](RELEASE_EVIDENCE_2026-09-30.md) | Candidate builds and original acceptance checks |
 | [Performance baseline, 29 September](PERFORMANCE_BASELINE_2026-09-29.json) | [30 September](PERFORMANCE_BASELINE_2026-09-30.json) |
+| [Build baseline, 4 October](BUILD_BASELINE_2026-10-04.json) | Source fingerprint recorded before the 5 October redesign baseline; superseded by [current build evidence](../RELEASE_AUDIT.md) |
+| [Full application audit prompt, 4 October](FULL_APP_AUDIT_PROMPT_2026-10-04.md) | Instructions given to the audit agent; tooling, not user documentation |
 
 ## Recoverable local archive
 

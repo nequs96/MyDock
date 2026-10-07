@@ -29,7 +29,7 @@ open build/MyDock.app
 
 The script builds a universal (Apple silicon and Intel) app at `build/MyDock.app` and refuses to replace a copy that is running. To keep MyDock, copy the app to `~/Applications` or `/Applications`.
 
-Local builds are ad-hoc signed and not notarized. If Gatekeeper blocks the app you built, use Finder's Open command and approve it in System Settings → Privacy & Security. See [installation and signing](docs/INSTALLATION.md) and [uninstalling](docs/UNINSTALL.md).
+Local builds are ad-hoc signed and not notarized. If Gatekeeper blocks the app you built, use Finder's Open command and approve it in System Settings → Privacy & Security. See [installation and signing](docs/INSTALLATION.md) and [uninstalling](docs/UNINSTALL.md). For Custom Dock clicks, menus and recovery, see [Dock interaction](docs/DOCK_INTERACTION.md); to report a problem, see [support](docs/SUPPORT.md).
 
 ## Using MyDock
 

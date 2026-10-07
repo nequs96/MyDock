@@ -22,7 +22,7 @@ Recorded on **5 October 2026** after the redesign (RD-01–RD-11, fix waves FX-0
   - **Start Workspace** and **portable Dock packages:** import is always new, and no credentials or account IDs are included.
   - **Automatic switching:** explainable rules, off by default, Custom Docks only.
   - **System Activity detail:** optional Network and Storage sections.
-  - **What's New, Help and keyboard shortcuts.
+  - **What's New, Help and keyboard shortcuts.**
 
 ## Current verification
 

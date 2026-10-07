@@ -201,6 +201,7 @@ struct DraftRecoveryAndPruningTests {
         try store.utilityDrafts.update(draft, itemID: links.id, in: profileID, kind: .link)
         try store.utilityDrafts.update(draft, itemID: other.id, in: otherID, kind: .snippet)
         #expect(store.utilityDrafts.flush())
+        defer { WidgetSetupDraftStore.shared.clearDrafts(for: note.id) }
         WidgetSetupDraftStore.shared.updateNoteDraft("pending", for: note.id, in: profileID)
 
         store.removeItem(snippets.id, from: profileID)

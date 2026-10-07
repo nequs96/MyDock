@@ -12,7 +12,9 @@ import Testing
 /// fractional height a little smaller, rounded it down and shrank the window one point,
 /// until AppKit raised NSGenericException ("…more Update Constraints in Window passes than
 /// there are views in the window"). The shell now sizes to its content's ideal height.
+/// Serialized: the Trash test swaps the process-wide Trash fixture across suspension points.
 @MainActor
+@Suite(.serialized)
 struct PopoutLayoutLoopTests {
     /// The real error string shapes the live popover can show: the isolated-session
     /// message, a typical permission error and a long one that wraps several lines.
@@ -78,7 +80,8 @@ struct PopoutLayoutLoopTests {
         let (store, id, directory) = try store()
         defer { try? FileManager.default.removeItem(at: directory) }
         let trash = item("Trash", in: store, profile: id)
-        defer { TrashQAFixture.override = nil }
+        let previousFixture = TrashQAFixture.override
+        defer { TrashQAFixture.override = previousFixture }
         for message in Self.trashMessages + [nil] {
             TrashQAFixture.override = (count: message == nil ? 3 : 0, errorMessage: message)
             let popout = AnyView(WidgetPopout(store: store, item: trash, profileID: id).padding(20).background(WidgetDesign.surface))
