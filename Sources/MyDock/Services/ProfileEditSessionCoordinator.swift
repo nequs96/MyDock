@@ -76,7 +76,8 @@ final class ProfileEditSessionCoordinator: ObservableObject {
         guard let latest = store.state.profiles.first(where: { $0.id == id }) else { throw ProfileDraftMergeError.profileRemoved }
         var merged = try draft.merged(with: latest)
         merged.name = merged.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !merged.name.isEmpty else { throw EditSessionSaveError.missingName }
+        // A missing name is a plain save failure, never a merge conflict to review.
+        guard !merged.name.isEmpty else { throw EditSessionSaveError.failed(EditSessionSaveError.missingName) }
         try ProfileSemanticValidator.validate([merged])
         store.replaceProfile(merged)
         if store.hasUnpersistedChanges { store.flush() }
@@ -99,7 +100,7 @@ final class ProfileEditSessionCoordinator: ObservableObject {
                 guard let latest else { throw ProfileDraftMergeError.profileRemoved }
                 var merged = try draft.merged(with: latest)
                 merged.name = merged.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !merged.name.isEmpty else { throw EditSessionSaveError.missingName }
+                guard !merged.name.isEmpty else { throw EditSessionSaveError.failed(EditSessionSaveError.missingName) }
                 mergedProfiles.append(merged)
             } catch {
                 let name = [latest?.name, draft.original.name].compactMap { $0 }.first { !$0.isEmpty } ?? "A Dock"
@@ -153,11 +154,6 @@ final class ProfileEditSessionCoordinator: ObservableObject {
 
 enum EditSessionSaveError: LocalizedError {
     case failed(String)
-    case missingName
-    var errorDescription: String? {
-        switch self {
-        case .failed(let message): message
-        case .missingName: "A Dock needs a name before it can be saved."
-        }
-    }
+    static let missingName = "A Dock needs a name."
+    var errorDescription: String? { if case .failed(let message) = self { message } else { nil } }
 }

@@ -51,13 +51,17 @@ final class ProfileLibrary: ObservableObject {
         }
     }
 
-    func record(_ profile: DockProfile, reason: String) {
+    /// Returns false when the library could not keep the entry: it needs recovery, or a synchronous write failed.
+    /// A background write reports a failure later, through `errorMessage`.
+    @discardableResult
+    func record(_ profile: DockProfile, reason: String) -> Bool {
         // A failed write does not stop later snapshots: the next record retries it.
-        guard readable else { return }
+        guard readable else { return false }
         let sanitized = ProfileSanitizer.sanitize(profile, includeNotes: includeNotes)
-        if entries.first?.profile == sanitized { return }
+        if entries.first?.profile == sanitized { return writesInBackground || errorMessage == nil }
         entries.insert(ProfileLibraryEntry(reason: reason, profile: sanitized), at: 0)
         trim(); persist()
+        return writesInBackground || errorMessage == nil
     }
 
     /// Like `record`, these never touch a library file that could not be read or set aside.

@@ -111,7 +111,13 @@ final class ProfileStore: ObservableObject {
         } else {
             self.state = PersistentState()
         }
-        if storageWritable { RevisionedStateWriter.removeAbandonedTemporaries(in: self.fileURL.deletingLastPathComponent()) }
+        if storageWritable {
+            // State, history, presets and the runtime cache live in the support folder; utility drafts in a subfolder.
+            let support = self.fileURL.deletingLastPathComponent()
+            for folder in [support, support.appendingPathComponent("utility-drafts", isDirectory: true)] {
+                RevisionedStateWriter.removeAbandonedTemporaries(in: folder)
+            }
+        }
         adoptRuntimeCache()
         loadUtilityDrafts()
     }
@@ -229,10 +235,13 @@ final class ProfileStore: ObservableObject {
         return state.profiles.first { $0.id == id && $0.kind == .custom }
     }
 
-    /// A name no other profile uses ("Work", "Work 2", ...), within the validator's name limit.
+    /// A name no other profile uses ("Work", "Work 2", ...), within the validator's name limit. A name is shortened
+    /// only when it, with any number it needs, would not fit.
     private func uniqueProfileName(_ name: String, in profiles: [DockProfile]) -> String {
-        PortableDockPackage.uniqueName(String(name.prefix(ProfileSemanticValidator.maximumNameLength - 10)),
-                                       existing: profiles.map(\.name))
+        let existing = profiles.map(\.name)
+        let unique = PortableDockPackage.uniqueName(name, existing: existing)
+        guard unique.count > ProfileSemanticValidator.maximumNameLength else { return unique }
+        return PortableDockPackage.uniqueName(String(name.prefix(ProfileSemanticValidator.maximumNameLength - 10)), existing: existing)
     }
 
     /// A returned identity always belongs to a durably saved profile.
@@ -258,7 +267,7 @@ final class ProfileStore: ObservableObject {
         profile.id = UUID()
         profile.createdAt = .now
         profile.name = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !profile.name.isEmpty else { throw EditSessionSaveError.failed("A Dock needs a name.") }
+        guard !profile.name.isEmpty else { throw EditSessionSaveError.failed(EditSessionSaveError.missingName) }
         profile.name = uniqueProfileName(profile.name, in: state.profiles)
         try ProfileSemanticValidator.validate(state.profiles + [profile])
         var candidate = state

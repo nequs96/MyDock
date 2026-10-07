@@ -179,10 +179,10 @@ import Testing
         let blocker = folder.appendingPathComponent("blocker")
         try Data().write(to: blocker)
         let library = ProfileLibrary(fileURL: blocker.appendingPathComponent("history.json"))
-        library.record(DockProfile(name: "First", kind: .custom, items: []), reason: "Before profile edit")
+        #expect(!library.record(DockProfile(name: "First", kind: .custom, items: []), reason: "Before profile edit"))
         #expect(library.errorMessage != nil)
         try FileManager.default.removeItem(at: blocker)
-        library.record(DockProfile(name: "Second", kind: .custom, items: []), reason: "Before profile edit")
+        #expect(library.record(DockProfile(name: "Second", kind: .custom, items: []), reason: "Before profile edit"))
         #expect(library.entries.map(\.profile.name) == ["Second", "First"])
         #expect(library.errorMessage == nil)
         #expect(FileManager.default.fileExists(atPath: blocker.appendingPathComponent("history.json").path))
@@ -334,7 +334,7 @@ import Testing
             "nowPlayingLayout", "nowPlayingSkipSeconds", "nowPlayingHidesWhenClosed", "nowPlayingShowsTrackControls",
             "nowPlayingShowsSeekControls", "weatherUnit", "weatherLayout", "weatherForecastHours", "weatherBackground"
         ]
-        let fields = Set(Mirror(reflecting: WidgetConfiguration()).children.compactMap(\.label))
+        let fields = Set(Mirror(reflecting: WidgetConfiguration()).children.compactMap { $0.label })
         #expect(stripped.isDisjoint(with: kept))
         let unclassified = fields.subtracting(stripped).subtracting(kept).sorted()
         #expect(unclassified.isEmpty, "Classify these WidgetConfiguration fields in ProfileSanitizer: \(unclassified)")
@@ -434,6 +434,31 @@ import Testing
         try store.replaceProfiles([long])
         let longCopy = try store.duplicateProfile(long.id)
         #expect((name(longCopy)?.count ?? .max) <= ProfileSemanticValidator.maximumNameLength)
+        // A long name that is already unique keeps every character.
+        let unique = String(repeating: "U", count: ProfileSemanticValidator.maximumNameLength)
+        try store.importProfiles([DockProfile(name: unique, kind: .custom)])
+        #expect(store.state.profiles.last?.name == unique)
+    }
+
+    @Test func anEmptyDockNameIsTheSameSaveFailureForOneOrAllDrafts() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = ProfileStore(fileURL: folder.appendingPathComponent("state.json"), allowsSystemChanges: false)
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Named")
+        var draft = DockProfileDraft(profile: try #require(store.state.profiles.first { $0.id == id }))
+        draft.update { $0.name = "   " }
+        store.editSessions.set(draft, for: id)
+        func expectMissingName(_ attempt: () throws -> Void) {
+            do {
+                try attempt()
+                Issue.record("A Dock without a name must not save")
+            } catch {
+                #expect(error.localizedDescription == EditSessionSaveError.missingName)
+            }
+        }
+        expectMissingName { _ = try store.editSessions.save(id) }
+        expectMissingName { try store.editSessions.saveAll() }
+        #expect(store.state.profiles.first { $0.id == id }?.name == "Named")
     }
 
     // MARK: S02-014
