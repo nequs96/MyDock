@@ -183,9 +183,10 @@ extension PremiumVisualQA {
                 for state in FacesBQA.State.allCases {
                     let item = FacesBQA.item(kind, state: state)
                     store.add(item, to: profileID)
-                    let naturalSize = facesBPopoutSize(store: store, item: item, profileID: profileID, state: state, scheme: scheme, fullContentForQA: true)
+                    // Shipping-height popout (CustomDockView's screen-dependent cap), plus a taller export to inspect all content.
+                    let naturalSize = facesBPopoutSize(store: store, item: item, profileID: profileID, state: state, scheme: scheme, fullContentForQA: false)
                     let inspectionSize = facesBPopoutSize(store: store, item: item, profileID: profileID, state: state, scheme: scheme, fullContentForQA: true)
-                    try await render(FacesBQAPopout(store: store, item: item, profileID: profileID, fullContentForQA: true)
+                    try await render(FacesBQAPopout(store: store, item: item, profileID: profileID, fullContentForQA: false)
                         .environment(\.facesBSystemReadings, FacesBQA.system(state))
                         .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
                         name: "facesb-popout-\(slug(kind))-\(state.rawValue)-\(suffix)",
@@ -208,7 +209,7 @@ extension PremiumVisualQA {
                         size: NSSize(width: 504, height: 1800), scheme: scheme, directory: directory)
                     if state == .ready {
                         for mode in ["reduce-transparency", "increase-contrast"] {
-                            try await render(FacesBQAPopout(store: store, item: item, profileID: profileID, fullContentForQA: true)
+                            try await render(FacesBQAPopout(store: store, item: item, profileID: profileID, fullContentForQA: false)
                                 .environment(\.facesBSystemReadings, FacesBQA.system(state))
                                 .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
                                 name: "facesb-popout-\(slug(kind))-\(mode)-\(suffix)",

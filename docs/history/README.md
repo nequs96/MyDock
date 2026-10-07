@@ -41,3 +41,4 @@ The archive is not an active build workspace. Saved profiles and credentials rem
 
 - [Everyday Tools widgets — 3 October 2026](EVERYDAY_TOOLS_2026-10-03.md): five new widget families, isolated tests/renders, and canonical installation/native acceptance status.
 - [Everyday Tools validation evidence](EVERYDAY_TOOLS_VALIDATION_2026-10-03.json): source/test and universal executable hashes, plus successful canonical installation and launch confirmation.
+- [Archived `/orchestrate` command — 4 October 2026](ORCHESTRATE_COMMAND_2026-10-04.md) and [archived `/redesign` command — 5 October 2026](REDESIGN_COMMAND_2026-10-05.md): orchestration briefs for finished campaigns, kept as records only.

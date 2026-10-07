@@ -1,11 +1,11 @@
 #!/bin/sh
 set -eu
+(set -o pipefail) 2>/dev/null && set -o pipefail
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$ROOT_DIR"
-PRODUCT_NAME=$(sed -n 's/.*static let name = "\(.*\)".*/\1/p' Sources/MyDock/Core/Product.swift)
-BUNDLE_IDENTIFIER=$(sed -n 's/.*static let bundleIdentifier = "\(.*\)".*/\1/p' Sources/MyDock/Core/Product.swift)
-PRODUCT_VERSION=$(sed -n 's/.*static let marketingVersion = "\(.*\)".*/\1/p' Sources/MyDock/Core/Product.swift)
+. "$ROOT_DIR/Scripts/product-identity.sh"
+PRODUCT_NAME=$MYDOCK_PRODUCT_NAME
 if [ "$#" -eq 0 ]; then
   OUTPUT_APP=build/MyDock.app
 elif [ "$#" -eq 2 ] && [ "$1" = --output ]; then
@@ -29,7 +29,7 @@ ensure_output_is_not_running() {
   RUNNING_PIDS=$(pgrep -x "$PRODUCT_NAME" || true)
   for RUNNING_PID in $RUNNING_PIDS; do
     if lsof -nP -a -p "$RUNNING_PID" -d txt -Fn 2>/dev/null |
-       grep -Fqx "n$APP/Contents/MacOS/$PRODUCT_NAME"; then
+       grep -Fx "n$APP/Contents/MacOS/$PRODUCT_NAME" >/dev/null; then
       printf 'Refusing to overwrite a running app: %s\n' "$APP" >&2
       printf 'Quit MyDock, rebuild, then reopen build/MyDock.app.\n' >&2
       printf 'Use --output under .build/ only for isolated validation bundles.\n' >&2
@@ -41,7 +41,7 @@ ensure_output_is_not_running() {
 source_fingerprint() {
   {
     find Sources/MyDock Resources Tools -type f -exec shasum -a 256 {} + | LC_ALL=C sort
-    shasum -a 256 Package.swift BuildMyDock.sh
+    shasum -a 256 Package.swift BuildMyDock.sh Scripts/product-identity.sh Xcode/MyDock-Info.plist
   } | shasum -a 256 | cut -d ' ' -f 1
 }
 
@@ -73,42 +73,40 @@ lipo -create \
   "$ROOT_DIR/.build/swiftpm-release-arm64/arm64-apple-macosx/release/MyDock" \
   "$ROOT_DIR/.build/swiftpm-release-x86_64/x86_64-apple-macosx/release/MyDock" \
   -output "$UNIVERSAL_BINARY"
-ensure_output_is_not_running
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$UNIVERSAL_BINARY" "$APP/Contents/MacOS/MyDock"
+# Assemble and sign a complete bundle off to the side, so a failed step never leaves the
+# canonical app half-updated, and no file from an earlier build survives into this one.
+STAGE="$ROOT_DIR/.build/app-stage/MyDock.app"
+rm -rf "$STAGE"
+mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
+cp "$UNIVERSAL_BINARY" "$STAGE/Contents/MacOS/MyDock"
 swift "$ROOT_DIR/Tools/GenerateAppIcon.swift" "$ROOT_DIR/.build/AppIcon.iconset"
-iconutil -c icns "$ROOT_DIR/.build/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
-cat > "$APP/Contents/Info.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleExecutable</key><string>MyDock</string>
-  <key>CFBundleIdentifier</key><string>__BUNDLE_IDENTIFIER__</string>
-  <key>CFBundleName</key><string>__PRODUCT_NAME__</string>
-  <key>CFBundleDisplayName</key><string>__PRODUCT_NAME__</string>
-  <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
-  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleVersion</key><string>1</string>
-  <key>CFBundleShortVersionString</key><string>__PRODUCT_VERSION__</string>
-  <key>NSPrincipalClass</key><string>NSApplication</string>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
-  <key>NSHighResolutionCapable</key><true/>
-  <key>UTExportedTypeDeclarations</key><array><dict>
-    <key>UTTypeIdentifier</key><string>app.mydock.items</string>
-    <key>UTTypeDescription</key><string>MyDock items</string>
-    <key>UTTypeConformsTo</key><array><string>public.json</string></array>
-  </dict></array>
-  <key>NSCalendarsFullAccessUsageDescription</key><string>MyDock reads selected calendar events for the Calendar widget.</string>
-  <key>NSCalendarsUsageDescription</key><string>MyDock reads selected calendar events for the Calendar widget.</string>
-  <key>NSRemindersFullAccessUsageDescription</key><string>MyDock reads, adds, and completes reminders when you use the Reminders widget.</string>
-  <key>NSRemindersUsageDescription</key><string>MyDock reads and updates reminders when you use the Reminders widget.</string>
-  <key>NSLocationWhenInUseUsageDescription</key><string>MyDock uses your location only when you choose current-location weather.</string>
-  <key>NSAppleEventsUsageDescription</key><string>MyDock reads and controls Music or Spotify while you use the Now Playing widget, or asks Finder to empty Trash after you confirm.</string>
-</dict></plist>
-PLIST
-sed -i '' "s/__PRODUCT_NAME__/$PRODUCT_NAME/g; s/__BUNDLE_IDENTIFIER__/$BUNDLE_IDENTIFIER/g; s/__PRODUCT_VERSION__/$PRODUCT_VERSION/g" "$APP/Contents/Info.plist"
-printf 'APPL????' > "$APP/Contents/PkgInfo"
-codesign --force --deep --sign - "$APP"
+iconutil -c icns "$ROOT_DIR/.build/AppIcon.iconset" -o "$STAGE/Contents/Resources/AppIcon.icns"
+# Xcode/MyDock-Info.plist (generated from project.yml) is the one Info.plist definition; fill in the
+# build settings Xcode would expand.
+PLIST="$STAGE/Contents/Info.plist"
+cp Xcode/MyDock-Info.plist "$PLIST"
+plutil -replace CFBundleDevelopmentRegion -string en "$PLIST"
+plutil -replace CFBundleExecutable -string MyDock "$PLIST"
+plutil -replace CFBundleIdentifier -string "$MYDOCK_BUNDLE_IDENTIFIER" "$PLIST"
+plutil -replace CFBundleName -string "$PRODUCT_NAME" "$PLIST"
+plutil -replace CFBundleDisplayName -string "$PRODUCT_NAME" "$PLIST"
+plutil -replace CFBundleShortVersionString -string "$MYDOCK_MARKETING_VERSION" "$PLIST"
+plutil -replace CFBundleVersion -string "$MYDOCK_BUILD_NUMBER" "$PLIST"
+plutil -replace CFBundleSupportedPlatforms -json '["MacOSX"]' "$PLIST"
+if grep -F '$(' "$PLIST" >/dev/null; then
+  printf 'Info.plist still contains an unexpanded build setting; teach BuildMyDock.sh to fill it in.\n' >&2
+  exit 1
+fi
+plutil -lint "$PLIST" >/dev/null
+printf 'APPL????' > "$STAGE/Contents/PkgInfo"
+codesign --force --sign - "$STAGE"
+codesign --verify --strict "$STAGE"
+assert_sources_unchanged
+ensure_output_is_not_running
+rm -rf "$APP.old"
+if [ -e "$APP" ]; then
+  mv "$APP" "$APP.old"
+fi
+mv "$STAGE" "$APP"
+rm -rf "$APP.old"
 printf 'Built %s\n' "$APP"

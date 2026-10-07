@@ -689,9 +689,12 @@ enum PremiumVisualQA {
         }
     }
 
+    /// `fitsContentHeight` grows the canvas to the content's height (plus the title-bar safe area) instead
+    /// of trusting `size.height`, for pages whose row count varies.
     static func render<Content: View>(_ view: Content, name: String, size: NSSize,
                                               scheme: ColorScheme, directory: URL, contrast: ColorSchemeContrast = .standard,
-                                              reduceTransparency: Bool = false, fixtureClick: NSPoint? = nil) async throws {
+                                              reduceTransparency: Bool = false, fixtureClick: NSPoint? = nil,
+                                              fitsContentHeight: Bool = false) async throws {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "MyDock"
@@ -709,6 +712,12 @@ enum PremiumVisualQA {
         window.contentView = host
         if fixtureClick != nil { window.orderFrontRegardless() }
         host.layoutSubtreeIfNeeded()
+        if fitsContentHeight, host.fittingSize.height.isFinite {
+            let height = max(size.height, ceil(host.fittingSize.height + host.safeAreaInsets.top))
+            window.setContentSize(NSSize(width: size.width, height: height))
+            host.frame = NSRect(origin: .zero, size: NSSize(width: size.width, height: height))
+            host.layoutSubtreeIfNeeded()
+        }
         // Settle SwiftUI's appearance/state tasks before caching the native view.
         try await Task.sleep(for: .milliseconds(ProcessInfo.processInfo.environment["MYDOCK_FOCUSED_QA"] == "1" ? 800 : 350))
         host.layoutSubtreeIfNeeded()
@@ -728,11 +737,21 @@ enum PremiumVisualQA {
             try await Task.sleep(for: .milliseconds(350))
             host.layoutSubtreeIfNeeded()
         }
+        warnIfClipped(host, name: name)
         guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { throw CocoaError(.fileWriteUnknown) }
         host.cacheDisplay(in: host.bounds, to: bitmap)
         guard let png = bitmap.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
         try png.write(to: directory.appendingPathComponent(name + ".png"))
         window.close()
+    }
+
+    /// A fixed canvas smaller than its content cuts the last rows off without any other signal, so say so.
+    /// Scrolling pages report a small fitting height and never warn.
+    static func warnIfClipped(_ host: NSView, name: String) {
+        let needed = host.fittingSize.height
+        guard needed.isFinite, needed > host.bounds.height + 0.5 else { return }
+        let message = "Render QA: \(name) may be clipped: its content needs \(Int(needed.rounded(.up))) pt, the canvas is \(Int(host.bounds.height)) pt.\n"
+        FileHandle.standardError.write(Data(message.utf8))
     }
 }
 #endif

@@ -218,15 +218,20 @@ struct ProductRuntimeTests {
         let first = DockItem.widget("AI Limits"), second = DockItem.widget("AI Limits")
         store.add(first, to: id); store.add(second, to: id)
         var count = 0
+        let gate = AuditLaneIGate()
         let coordinator = WidgetDataCoordinator(store: store) { query, _ in
             count += 1
-            try await Task.sleep(for: .milliseconds(20))
+            await gate.hold()
             return .limits(AILimitsSnapshot(fetchedAt: Date(timeIntervalSince1970: 123), readings: [], sourceScope: query.aiSourceScope))
         }
-        async let a: Void = coordinator.refresh(item: first, profileID: id)
-        async let b: Void = coordinator.refresh(item: second, profileID: id)
+        // The first refresh owns the request; the second joins it while the loader is held.
+        let a = Task { await coordinator.refresh(item: first, profileID: id) }
+        await gate.waitForStart()
+        let b = Task { await coordinator.refresh(item: second, profileID: id) }
         store.updateWidgetConfiguration(itemID: second.id, in: id) { $0.cardWidth = .wide }
-        _ = await (a, b)
+        await Task.yield()
+        await gate.release()
+        await a.value; await b.value
         #expect(count == 1)
         let items = try #require(store.activeCustomProfile.map { store.presentationProfile($0).items })
         #expect(items.allSatisfy { $0.widgetConfiguration?.aiLimitsSnapshot?.fetchedAt == Date(timeIntervalSince1970: 123) })

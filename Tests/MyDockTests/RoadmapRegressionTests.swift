@@ -114,7 +114,10 @@ struct RoadmapRegressionTests {
         let limiter = WidgetRefreshLimiter(maximumConcurrent: 1)
         try await limiter.acquire()
         let cancelled = Task { try await limiter.acquire() }
-        try await Task.sleep(for: .milliseconds(10))
+        // Cancel only once the waiter is queued, so the test exercises the queued-waiter path.
+        let deadline = Date.now.addingTimeInterval(10)
+        while await limiter.waiterCount == 0, Date.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(await limiter.waiterCount == 1)
         cancelled.cancel()
         do { try await cancelled.value; Issue.record("Cancelled refresh acquired a permit") }
         catch { #expect(error is CancellationError) }

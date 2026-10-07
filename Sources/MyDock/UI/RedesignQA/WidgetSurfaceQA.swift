@@ -20,7 +20,8 @@ extension PremiumVisualQA {
                         ForEach(kinds, id: \.self) { kind in WidgetSurfaceQARow(kind: kind) }
                     }.environment(\.dockWidgetSurface, surface),
                     name: "widgetsurface-matrix-\(name)-\(surface.rawValue)-\(schemeName)",
-                    size: NSSize(width: 640, height: CGFloat(70 + kinds.count * 92)), scheme: scheme, directory: directory)
+                    size: NSSize(width: 640, height: CGFloat(70 + kinds.count * 92)), scheme: scheme, directory: directory,
+                    fitsContentHeight: true)
                     for kind in kinds {
                         for option in WidgetPresentationCatalog.options(for: kind) { matrix.record(kind, .layout(option.layout)) }
                     }

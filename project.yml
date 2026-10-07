@@ -17,12 +17,15 @@ targets:
       - path: Sources/MyDock
       - path: Resources/AppIcon.icns
         buildPhase: resources
+    # Xcode/MyDock-Info.plist is generated from these properties and is also the template
+    # BuildMyDock.sh fills in for the SwiftPM app, so add keys here and regenerate it.
     info:
       path: Xcode/MyDock-Info.plist
       properties:
-        CFBundleDisplayName: ${MYDOCK_PRODUCT_NAME}
+        CFBundleDisplayName: $(PRODUCT_NAME)
         CFBundleIconFile: AppIcon
-        CFBundleShortVersionString: ${MYDOCK_MARKETING_VERSION}
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: "13.0"
         NSPrincipalClass: NSApplication
         NSHighResolutionCapable: true
@@ -49,7 +52,7 @@ targets:
         PRODUCT_NAME: ${MYDOCK_PRODUCT_NAME}
         PRODUCT_BUNDLE_IDENTIFIER: ${MYDOCK_BUNDLE_IDENTIFIER}
         MARKETING_VERSION: ${MYDOCK_MARKETING_VERSION}
-        CURRENT_PROJECT_VERSION: 1
+        CURRENT_PROJECT_VERSION: ${MYDOCK_BUILD_NUMBER}
         SWIFT_VERSION: 6.0
         SWIFT_STRICT_CONCURRENCY: complete
         CODE_SIGN_STYLE: Manual

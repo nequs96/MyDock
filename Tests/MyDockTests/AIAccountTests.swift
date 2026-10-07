@@ -77,10 +77,22 @@ struct AIAccountTests {
         try original.write(to: settings)
         #expect(throws: (any Error).self) { try ClaudeLimitsSetup.enable(directory: directory) }
         #expect(try Data(contentsOf: settings) == original)
-        try FileManager.default.moveItem(at: settings, to: directory.appendingPathComponent("original.json"))
-        try FileManager.default.createSymbolicLink(at: settings, withDestinationURL: directory.appendingPathComponent("original.json"))
-        #expect(throws: (any Error).self) { try ClaudeLimitsSetup.enable(directory: directory) }
-        #expect(try Data(contentsOf: settings) == original)
+        // The symlink points at valid settings, so only the symlink guard can refuse it.
+        let target = directory.appendingPathComponent("original.json")
+        let valid = Data(#"{"theme":"dark"}"#.utf8)
+        try FileManager.default.removeItem(at: settings)
+        try valid.write(to: target)
+        try FileManager.default.createSymbolicLink(at: settings, withDestinationURL: target)
+        do {
+            try ClaudeLimitsSetup.enable(directory: directory)
+            Issue.record("Enable Limits wrote through a symlinked settings file")
+        } catch let error as CocoaError {
+            #expect(error.code == .fileReadCorruptFile)
+        }
+        #expect(try Data(contentsOf: target) == valid)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: settings.path) == target.path)
+        let backups = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasPrefix("settings.before-mydock-") }
+        #expect(backups.isEmpty)
     }
 
     @Test func codexReaderWaitsForInitializationAndKeepsInputOpenUntilReply() throws {

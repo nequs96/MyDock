@@ -300,10 +300,17 @@ struct BoundedNativeFetchTests {
 
     @Test func taskCancellationEndsTheWaitAndCancelsNativeToken() async {
         let cancels = Counter()
+        var startedContinuation: AsyncStream<Void>.Continuation?
+        let started = AsyncStream<Void> { startedContinuation = $0 }
+        let startedSignal = startedContinuation
         let task = Task { () -> BoundedFetchOutcome<Int> in
-            await BoundedNativeFetch.run(timeout: 30) { _ in { cancels.increment() } }
+            await BoundedNativeFetch.run(timeout: 30) { _ in
+                startedSignal?.yield()
+                return { cancels.increment() }
+            }
         }
-        try? await Task.sleep(for: .milliseconds(100))
+        // Cancel only once the native request has started, so the cancel token always exists.
+        for await _ in started { break }
         task.cancel()
         let outcome = await task.value
         #expect(outcome == .cancelled)

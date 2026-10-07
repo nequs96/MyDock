@@ -21,7 +21,7 @@ The public site does not provide enough screen coverage for a pixel-perfect comp
 These are implementation values and observations from a safe live preview build:
 
 - Custom Dock: 76 pt high at default size on the bottom edge; 76 pt wide on side edges. The panel now measures rendered 54 pt tiles, preventing the previous 48/54 pt clipping mismatch.
-- Bottom widget information cards: 112 × 54 pt, with a live compact value and a two-line label. Compact 54 × 54 pt tiles remain available and are used on side Docks.
+- Bottom widget information cards (29–30 September 2026, since replaced by each family's own layouts): 112 × 54 pt, with a live compact value and a two-line label. Compact 54 × 54 pt tiles remain available and are used on side Docks.
 - Compact widget labels keep single-word names on one line with modest text scaling, avoiding awkward wraps in narrow side Docks. The live bottom-Dock preview shows the Countdown title on one line without an orphan character.
 - Item spacing: 8 pt by default, adjustable from 4–18 pt. The surface has 11 pt internal padding.
 - Surface: 24 pt rounded rectangle by default, adjustable from 12–32 pt, with 8% profile tint by default, adjustable from 0–30%.

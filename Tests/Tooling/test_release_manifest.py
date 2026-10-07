@@ -35,6 +35,7 @@ class ReleaseManifestTests(unittest.TestCase):
         self.architectures = "arm64 x86_64"
         self.signature = "Signature=adhoc"
         self.signature_verifies = True
+        self.git_status = ""
 
     def package(self):
         with zipfile.ZipFile(self.archive, "w") as zipped:
@@ -48,7 +49,7 @@ class ReleaseManifestTests(unittest.TestCase):
         if args[0] == "codesign":
             if args[1] == "-d": return 0, self.signature
             return (0 if self.signature_verifies else 1), ""
-        if args[0] == "git": return 0, "fixture-head" if args[-1] == "HEAD" else ""
+        if args[0] == "git": return 0, "fixture-head" if args[-1] == "HEAD" else self.git_status
         return 0, "fixture toolchain"
 
     def run_manifest(self, qualification="ci"):
@@ -162,7 +163,28 @@ class ReleaseManifestTests(unittest.TestCase):
         for key in ("nativeAcceptance", "supportedOSRuntimeMatrix", "focusDiscovery", "loginItemAcceptance"):
             self.assertEqual(result["qualification"][key], "open")
         self.assertEqual(result["qualification"]["notarization"], "not-run")
-        self.assertIn("MyDock.xcodeproj/project.pbxproj", {item["path"] for item in result["source"]["files"]})
+        paths = {item["path"] for item in result["source"]["files"]}
+        self.assertIn("project.yml", paths)
+        self.assertIn("Xcode/MyDock-Info.plist", paths)
+        self.assertFalse(result["source"]["hasTrackedChanges"])
+        self.assertFalse(result["source"]["hasUntrackedSources"])
+
+    def test_ci_records_untracked_sources(self):
+        self.package()
+        self.git_status = "?? Sources/MyDock/Untracked.swift\n?? notes.txt"
+        self.run_manifest()
+        result = json.loads(self.output.read_text())
+        self.assertFalse(result["source"]["hasTrackedChanges"])
+        self.assertTrue(result["source"]["hasUntrackedSources"])
+
+    def test_release_refuses_untracked_sources_and_tracked_changes(self):
+        self.package()
+        self.signature = "Authority=Developer ID Application: Fixture"
+        for status in ("?? Sources/MyDock/Untracked.swift", " M README.md"):
+            self.git_status = status
+            with self.assertRaisesRegex(RuntimeError, "clean source tree"):
+                self.run_manifest("release")
+            self.assertFalse(self.output.exists())
 
 
 if __name__ == "__main__":

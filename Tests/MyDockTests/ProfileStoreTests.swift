@@ -1373,9 +1373,7 @@ struct ProfileStoreTests {
     }
 
     @Test func globalShortcutBindingsPersistOutsideProfileBackupsAndRejectDuplicates() throws {
-        let suiteName = "MyDockTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = ValidationDefaults()
         let profileID = UUID()
         let binding = DockShortcut(keyCode: 12,
                                    modifierMask: DockShortcut.commandMask | DockShortcut.optionMask,
@@ -2597,9 +2595,7 @@ struct ProfileStoreTests {
     }
 
     @Test func customMainModeRestoresTheOriginalAppleDockAutoHideAfterRestart() async throws {
-        let suiteName = "MyDock.AutoHideTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = ValidationDefaults()
         let backend = FakeDockAutoHideBackend(value: false)
         let relauncher = FakeDockRelauncher()
         let controller = NativeDockAutoHideController(backend: backend, relauncher: relauncher, defaults: defaults)
@@ -2620,9 +2616,7 @@ struct ProfileStoreTests {
     }
 
     @Test func customMainModePreservesAnUnsetDockPreferenceAndKeepsRecoveryAfterRestoreFailure() async throws {
-        let suiteName = "MyDock.AutoHideTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = ValidationDefaults()
         let backend = FakeDockAutoHideBackend(value: nil)
         let controller = NativeDockAutoHideController(backend: backend, relauncher: FakeDockRelauncher(), defaults: defaults)
 
@@ -2645,9 +2639,7 @@ struct ProfileStoreTests {
     }
 
     @Test func replacementRestoresAllOriginalPreferencesAndDoesNotRestartWhenUnchanged() async throws {
-        let suite = "MyDock.ReplacementTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ValidationDefaults()
         let backend = FakeDockAutoHideBackend(value: true, revealDelay: 0.35, noBouncing: false)
         let original = backend.settings
         let relauncher = FakeDockRelauncher()
@@ -2664,9 +2656,7 @@ struct ProfileStoreTests {
     }
 
     @Test func replacementMigratesThePreviousAutoHideRecoveryRecordBeforeSuppressingHover() async throws {
-        let suite = "MyDock.ReplacementTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ValidationDefaults()
         defaults.set(try JSONSerialization.data(withJSONObject: ["version": 1, "originalValue": false]),
                      forKey: "nativeDockAutoHideRecoveryRecord")
         let backend = FakeDockAutoHideBackend(value: true, revealDelay: 0.2, noBouncing: nil)
@@ -2682,9 +2672,7 @@ struct ProfileStoreTests {
     }
 
     @Test func previousAutoHideRecordCanRestoreWithoutChangingUnownedPreferences() async throws {
-        let suite = "MyDock.ReplacementTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ValidationDefaults()
         defaults.set(try JSONSerialization.data(withJSONObject: ["version": 1]), forKey: "nativeDockAutoHideRecoveryRecord")
         let backend = FakeDockAutoHideBackend(value: true, revealDelay: 2, noBouncing: false)
         let controller = NativeDockAutoHideController(backend: backend, relauncher: FakeDockRelauncher(), defaults: defaults)

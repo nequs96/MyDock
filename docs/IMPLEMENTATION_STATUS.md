@@ -79,7 +79,7 @@ Sections below this one are dated evidence for earlier builds.
 
 ## Everyday Tools expansion
 
-The current source adds **File Shelf, Text Snippets, Quick Links, Unit Converter and Color Picker**, bringing the library to **35 families**. Everyday Tools appears first in Add Item. Saved file references/bookmarks, snippets, websites and palettes use existing validated profile persistence with backward-compatible defaults and bounded collections. File Shelf supports Dock/popout drops, Finder copy/paste, outward row drag, open/reveal and native sharing; snippets provide explicit clipboard capture and editing; links provide search/edit/open; conversion and color tools are fully implemented.
+The current source adds **File Shelf, Text Snippets, Quick Links, Unit Converter and Color Picker**, bringing the library to **35 families** at that point (3 October 2026; Audio Output later made 36). Everyday Tools appears first in Add Item. Saved file references/bookmarks, snippets, websites and palettes use existing validated profile persistence with backward-compatible defaults and bounded collections. File Shelf supports Dock/popout drops, Finder copy/paste, outward row drag, open/reveal and native sharing; snippets provide explicit clipboard capture and editing; links provide search/edit/open; conversion and color tools are fully implemented.
 
 `./TestMyDock.sh` reports **258 tests in 20 suites passed**, with five opt-ins skipped. **32 isolated light/dark renders** cover the library, layouts, editors/popouts, empty states and side faces. Native Finder/AirDrop/color sampling, keyboard and VoiceOver acceptance remains unrun because CUA native startup fails. The user subsequently quit normally; the complete source was built and launched as canonical `build/MyDock.app` (PID 28856). See [the focused tools report](history/EVERYDAY_TOOLS_2026-10-03.md) for validation build status. Earlier glass/adaptive evidence below remains dated evidence for the preceding canonical build.
 
@@ -95,7 +95,7 @@ Layout now owns widget geometry; Accent/Soft/Mono/Outline own only icon treatmen
 
 Configuration provides a live Dock-sized preview, widget-specific layout rows at their actual widths, compact icon swatches and relevant secondary metrics. Generic Card size and the old Live visual-style choice are removed from the product UI. Legacy style/width decoding preserves saved profiles; new outline remains distinct from old Mono. AI totals/history and CPU history use actual available readings. Empty states do not fabricate graphs or quotas.
 
-The preceding adaptive library contained 30 families, including Disk Space, Calculator and Quick Checklist. The current library contains 35 after the Everyday Tools expansion. Checklist persistence and private-note sanitization remain intact. The [adaptive presentation report](history/ADAPTIVE_WIDGET_PRESENTATION_2026-10-03.md) and [RELEASE_AUDIT.md](RELEASE_AUDIT.md) distinguish bitmap evidence, native observations and remaining acceptance.
+The preceding adaptive library contained 30 families, including Disk Space, Calculator and Quick Checklist. The Everyday Tools expansion brought it to 35 on 3 October 2026; the current count is in the README's widget table. Checklist persistence and private-note sanitization remain intact. The [adaptive presentation report](history/ADAPTIVE_WIDGET_PRESENTATION_2026-10-03.md) and [RELEASE_AUDIT.md](RELEASE_AUDIT.md) distinguish bitmap evidence, native observations and remaining acceptance.
 
 ## Liquid Glass and panel corners
 
