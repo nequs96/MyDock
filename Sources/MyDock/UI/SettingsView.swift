@@ -71,6 +71,9 @@ struct SettingsView: View {
                     Spacer()
                     Button("Restore Previous Dock") { Task { try? await nativeDock.recoverInterruptedTransaction() } }.disabled(!store.allowsSystemChanges)
                         .disabled(nativeDock.health == .recovering)
+                    // The other choice: keep the Dock as it is now, so macOS Dock switches work again.
+                    Button("Keep Current Dock") { Task { try? await nativeDock.discardInterruptedTransaction() } }
+                        .disabled(nativeDock.health == .recovering)
                 }
                 .padding(12).background(Color.orange.opacity(0.12))
             }
