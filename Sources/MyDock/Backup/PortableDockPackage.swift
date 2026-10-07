@@ -161,7 +161,7 @@ enum PortableDockPackage {
             throw PortableDockError.newerVersion(version)
         }
         let report: BackupImportReport
-        do { report = try BackupManager.readArchive(data) }
+        do { report = try BackupManager.readArchive(data, computeMissing: false) }
         catch is DecodingError { throw PortableDockError.malformed }
         guard let imported = report.importedProfiles.first else { throw PortableDockError.noDock }
         guard report.importedProfiles.count == 1 else { throw PortableDockError.multipleDocks(report.importedProfiles.count) }

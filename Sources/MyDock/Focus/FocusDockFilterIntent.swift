@@ -44,7 +44,7 @@ struct MyDockFocusFilterIntent: SetFocusFilterIntent {
 
     var appContext: FocusFilterAppContext { FocusFilterAppContext() }
     var displayRepresentation: DisplayRepresentation {
-        let subtitleText = profile?.name ?? "No profile change when Focus turns off"
+        let subtitleText = profile?.name ?? "No Dock selected"
         return DisplayRepresentation(title: "Apply Dock Profile",
                                      subtitle: "\(subtitleText)")
     }

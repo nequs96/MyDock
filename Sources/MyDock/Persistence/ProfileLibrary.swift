@@ -60,8 +60,9 @@ final class ProfileLibrary: ObservableObject {
         trim(); persist()
     }
 
-    func remove(_ id: UUID) { entries.removeAll { $0.id == id }; persist() }
-    func clear() { entries = []; persist() }
+    /// Like `record`, these never touch a library file that could not be read or set aside.
+    func remove(_ id: UUID) { guard readable else { return }; entries.removeAll { $0.id == id }; persist() }
+    func clear() { guard readable else { return }; entries = []; persist() }
 
     func importPreset(_ data: Data) throws {
         guard readable else { throw EditSessionSaveError.failed(errorMessage ?? "The preset library needs recovery.") }
@@ -122,10 +123,6 @@ final class ProfileLibrary: ObservableObject {
     }
 
     nonisolated private static func write(_ data: Data, to fileURL: URL) throws {
-        let folder = fileURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
-                                               attributes: [.posixPermissions: 0o700])
-        try data.write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        try PrivateAtomicFile.write(data, to: fileURL)
     }
 }

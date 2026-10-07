@@ -27,10 +27,11 @@ private struct DockUtilityDraftArchive: Codable {
 }
 
 enum DockUtilityDraftError: LocalizedError {
-    case tooLarge, unsupportedArchive
+    case tooLarge, tooMany, unsupportedArchive
     var errorDescription: String? {
         switch self {
         case .tooLarge: "This draft is too large to retain. Shorten it before closing; your text is still in this form."
+        case .tooMany: "Too many unfinished drafts. Finish or discard one first."
         case .unsupportedArchive: "Saved utility drafts could not be read. The original file was kept."
         }
     }
@@ -88,7 +89,7 @@ final class DockUtilityDraftStore: ObservableObject {
         guard readable else { throw DockUtilityDraftError.unsupportedArchive }
         try Self.validate(draft, kind: kind)
         let key = DockUtilityDraftKey(profileID: profileID, itemID: itemID, kind: kind)
-        guard draft.isEmpty || drafts[key] != nil || drafts.count < Self.maximumDrafts else { throw DockUtilityDraftError.tooLarge }
+        guard draft.isEmpty || drafts[key] != nil || drafts.count < Self.maximumDrafts else { throw DockUtilityDraftError.tooMany }
         var candidate = drafts
         candidate[key] = draft.isEmpty ? nil : draft
         guard try Self.encoded(candidate).count <= Self.maximumBytes else { throw DockUtilityDraftError.tooLarge }
@@ -179,7 +180,6 @@ final class DockUtilityDraftStore: ObservableObject {
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-        try data.write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        try PrivateAtomicFile.write(data, to: url)
     }
 }

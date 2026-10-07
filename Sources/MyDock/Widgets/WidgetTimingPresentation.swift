@@ -32,13 +32,4 @@ enum WidgetTimingPresentation {
         if offset == 0 { return "Same date as \(reference)" }
         return "\(offset.magnitude) day\(offset.magnitude == 1 ? "" : "s") \(offset > 0 ? "ahead of" : "behind") \(reference)"
     }
-
-    static func isStale(fetchedAt: Date, now: Date, maximumAge: TimeInterval) -> Bool {
-        now.timeIntervalSince(fetchedAt) > maximumAge
-    }
-
-    static func readingStatus(fetchedAt: Date, now: Date, maximumAge: TimeInterval) -> String {
-        (isStale(fetchedAt: fetchedAt, now: now, maximumAge: maximumAge) ? "Saved reading · " : "Updated ")
-            + fetchedAt.formatted(.relative(presentation: .numeric))
-    }
 }

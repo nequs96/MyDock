@@ -198,7 +198,6 @@ struct WidgetRuntimeCacheTests {
             let store = ProfileStore(fileURL: dir.appendingPathComponent("state.json"), allowsSystemChanges: false)
             let item = stripeItem(snapshot: stripe("acct"))
             _ = try store.createProfile(DockProfile(name: "P", kind: .custom, items: [item]))
-            #expect(store.runtimeCache.recovered)
             #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).contains { $0.hasPrefix("runtime-cache.json.corrupt-") })
             #expect(store.runtimeCache.readings(for: item.id)?.stripe != nil)
             #expect(store.runtimeCache.flush())

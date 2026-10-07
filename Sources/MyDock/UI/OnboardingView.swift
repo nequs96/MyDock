@@ -302,7 +302,7 @@ struct OnboardingView: View {
         }
         let baseline = store.state.settings
         let result = OnboardingCompletion.finish(store: store, appliesClearStyle: appliesClearStyle) {
-            store.finishOnboarding(setupMode: setupMode,
+            try store.finishOnboarding(setupMode: setupMode,
                                    customDockPosition: dockPosition,
                                    customDockDisplayID: displayID,
                                    importedNativeItems: importedItems,
@@ -335,7 +335,7 @@ enum OnboardingCompletion {
 
     static let saveFailure = "Setup could not be saved. Retry after restoring access to your data folder."
 
-    static func finish(store: ProfileStore, appliesClearStyle: Bool, persistSetup: () -> Void) -> Result {
+    static func finish(store: ProfileStore, appliesClearStyle: Bool, persistSetup: () throws -> Void) -> Result {
         let previous = store.state.settings
         func rollBack() {
             guard appliesClearStyle else { return }
@@ -349,7 +349,10 @@ enum OnboardingCompletion {
                 return Result(error: error)
             }
         }
-        persistSetup()
+        do { try persistSetup() } catch {
+            rollBack()
+            return Result(error: error.localizedDescription)
+        }
         guard !store.hasUnpersistedChanges, store.state.settings.onboardingComplete else {
             let error = store.persistenceError ?? saveFailure
             rollBack()

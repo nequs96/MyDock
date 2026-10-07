@@ -8,7 +8,8 @@ enum AlarmEditorCandidate {
         let existing = editingID.flatMap { id in alarms.first { $0.id == id } }
         guard editingID == nil || existing != nil else { return nil }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return DockAlarm(id: existing?.id ?? UUID(), title: trimmed.isEmpty ? "Alarm" : trimmed,
+        return DockAlarm(id: existing?.id ?? UUID(),
+                         title: trimmed.isEmpty ? "Alarm" : String(trimmed.prefix(ProfileSemanticValidator.maximumShortTextLength)),
                          hour: hour, minute: minute, repeatWeekdays: repeatWeekdays.sorted(),
                          isEnabled: existing?.isEnabled ?? true)
     }
@@ -19,9 +20,11 @@ enum AlarmEditorCandidate {
 }
 
 enum SavedSnippetSearch {
-    /// Searches saved entries only; recoverable editor state has no role in this projection.
+    /// Searches saved entries only; recoverable editor state has no role in this projection. Matches exactly what the
+    /// command palette finds for the same query (word prefixes, ignoring case and accents) and keeps the saved order.
     static func results(_ entries: [TextSnippet], query: String) -> [TextSnippet] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return entries.filter { query.isEmpty || ($0.title + " " + $0.text).localizedStandardContains(query) }
+        let tokens = SavedCollectionSearch.words(query)
+        guard !tokens.isEmpty else { return entries }
+        return entries.filter { SavedCollectionSearch.snippetRank(tokens: tokens, entry: $0) != nil }
     }
 }

@@ -203,7 +203,6 @@ final class WidgetRuntimeCache: ObservableObject {
     private struct VersionEnvelope: Decodable { var version: Int? }
 
     @Published private(set) var entries: [UUID: Entry] = [:]
-    private(set) var recovered = false
     let fileURL: URL
     private let writer: Writer
     private let logger = Logger(subsystem: Product.bundleIdentifier, category: "runtime-cache")
@@ -253,7 +252,8 @@ final class WidgetRuntimeCache: ObservableObject {
         switch result {
         case .success: dirty = false; return true
         case .failure(let error):
-            logger.error("Runtime cache flush failed: \(error.localizedDescription, privacy: .public)")
+            let nsError = error as NSError
+            logger.error("Runtime cache flush failed: \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public) \(nsError.localizedDescription, privacy: .private)")
             DiagnosticsService.shared.record(.runtimeCacheSaveFailed)
             return false
         }
@@ -269,7 +269,8 @@ final class WidgetRuntimeCache: ObservableObject {
                 switch result {
                 case .success: self.dirty = false
                 case .failure(let error):
-                    self.logger.error("Runtime cache save failed: \(error.localizedDescription, privacy: .public)")
+                    let nsError = error as NSError
+                    self.logger.error("Runtime cache save failed: \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public) \(nsError.localizedDescription, privacy: .private)")
                     DiagnosticsService.shared.record(.runtimeCacheSaveFailed)
                 }
             }
@@ -298,7 +299,6 @@ final class WidgetRuntimeCache: ObservableObject {
 
     /// A cache is never worth blocking launch: keep one set-aside copy for diagnosis and start empty.
     private func setAside() {
-        recovered = true
         DiagnosticsService.shared.record(.runtimeCacheRecovered)
         let folder = fileURL.deletingLastPathComponent()
         let prefix = fileURL.lastPathComponent + ".corrupt-"
@@ -350,9 +350,6 @@ final class WidgetRuntimeCache: ObservableObject {
             oldest.forEach { kept[$0] = nil }
             data = try encoder.encode(FileEnvelope(version: version, entries: Dictionary(uniqueKeysWithValues: kept.map { ($0.key.uuidString, $0.value) })))
         }
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                               attributes: [.posixPermissions: 0o700])
-        try data.write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        try PrivateAtomicFile.write(data, to: url)
     }
 }

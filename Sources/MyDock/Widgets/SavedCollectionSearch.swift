@@ -58,10 +58,10 @@ enum SavedCollectionSearch {
                 switch item.widgetKind ?? "" {
                 case snippetsKind:
                     for entry in configuration.textSnippets {
-                        let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard let rank = snippetRank(tokens: tokens, entry: entry) else { continue }
                         let preview = oneLinePreview(entry.text)
+                        let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
                         let shownTitle = title.isEmpty ? preview : title
-                        guard let rank = rank(tokens: tokens, primary: shownTitle, secondary: String(entry.text.prefix(2_000))) else { continue }
                         candidates.append((rank, SavedCollectionResult(
                             id: "\(profile.id)-\(item.id)-\(entry.id)", kind: .snippet, title: shownTitle, detail: preview,
                             dockName: profile.name, profileID: profile.id, itemID: item.id, entryID: entry.id,
@@ -110,6 +110,14 @@ enum SavedCollectionSearch {
                                            snippetText: nil, linkURL: nil, fileURL: url, isMissing: missing)
             return result
         }
+    }
+
+    /// One snippet's match, shared by the palette and the Text Snippets popout: its shown title (or text preview) first,
+    /// then the start of its text.
+    static func snippetRank(tokens: [String], entry: TextSnippet) -> Int? {
+        let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return rank(tokens: tokens, primary: title.isEmpty ? oneLinePreview(entry.text) : title,
+                    secondary: String(entry.text.prefix(2_000)))
     }
 
     /// 0 = the whole title starts with the query, 1 = every token starts a title word, 2 = tokens start words elsewhere in the content.

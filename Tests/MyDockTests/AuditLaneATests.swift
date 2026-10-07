@@ -289,4 +289,302 @@ import Testing
         let partial = WidgetDataValue.watchlist([:], failedSymbols: ["AAPL"], limitReached: false)
         #expect(partial.partialError?.contains("AAPL") == true)
     }
+
+    // MARK: Part 2 — S01-015
+
+    @Test func privateTextExclusionAlsoReplacesAlarmTitles() throws {
+        var alarm = DockItem.widget("Alarm")
+        alarm.widgetConfiguration?.alarms = [DockAlarm(title: "Take medication", hour: 8, minute: 0, repeatWeekdays: [], isEnabled: true)]
+        let profile = DockProfile(name: "Health", kind: .custom, items: [alarm])
+        let sanitized = try #require(ProfileSanitizer.sanitize(profile).items.first?.widgetConfiguration?.alarms.first)
+        #expect(sanitized.title == ProfileSanitizer.genericAlarmTitle)
+        #expect(!sanitized.isEnabled)
+        let withText = try #require(ProfileSanitizer.sanitize(profile, includeNotes: true).items.first?.widgetConfiguration?.alarms.first)
+        #expect(withText.title == "Take medication")
+    }
+
+    /// Every stored widget field is either cleared by `ProfileSanitizer` or deliberately kept. A new field must be added
+    /// to one list, which forces a decision about whether it holds private or machine-local data.
+    @Test func sanitizerClassifiesEveryWidgetField() {
+        let stripped: Set<String> = [
+            "noteText", "checklistEntries", "textSnippets", "shelfFiles", "quickLinks", "stripeAccountID",
+            "stripeSnapshot", "paddleAccountID", "paddleSnapshot", "shopifyStoreID", "shopifySnapshot",
+            "stockSnapshot", "watchlistStocks", "aiLimitsSnapshot", "aiActivitySnapshot", "hydrationEntries",
+            "hydrationLastRemovedEntry", "hydrationRemindersEnabled", "selectedCalendarIDs",
+            "selectedReminderCalendarID", "selectedShortcutName", "weatherLocation", "cachedWeatherForecast",
+            "focusElapsedBeforeStart", "focusStartedAt", "stopwatchElapsedBeforeStart", "stopwatchStartedAt",
+            "stopwatchClockStart", "countdownElapsedBeforeStart", "countdownStartedAt", "countdownTargetDate",
+            "alarms"
+        ]
+        let kept: Set<String> = [
+            "cardWidth", "iconStyle", "widgetLayout", "iconAppearance", "widgetAccent", "showsLabel", "glassTint",
+            "aiActivitySecondaryMetric", "systemSecondaryMetric", "systemShowsNetwork", "systemShowsStorage",
+            "savedColors", "noteBackground", "focusDurationSeconds", "worldClockTimeZoneID",
+            "worldClockAdditionalTimeZoneIDs", "stockSymbol", "stockName", "stockCurrency", "stockRange",
+            "stockRefreshIntervalMinutes", "stockShowsVolume", "watchlistSelectedSymbol", "stripeDisplayName",
+            "stripeColor", "stripeMetric", "stripeCurrency", "stripePeriod", "paddleDisplayName", "paddleColor",
+            "paddleMetric", "paddlePeriod", "paddleShowsChart", "shopifyDisplayName", "shopifyColor",
+            "shopifyMetric", "shopifyPeriod", "shopifyShowsChart", "aiLimitsLayout", "aiLimitsRepresentation",
+            "aiLimitsVisibleProviders", "aiLimitsProviderOrder", "aiLimitsCompactProvider",
+            "aiCopilotMonthlyCreditAllowance", "aiActivityProvider", "aiActivityRange", "aiActivityChartStyle",
+            "countdownDurationSeconds", "countdownMode", "timeProgressPeriod", "hydrationSaveHistory",
+            "hydrationTrackAmounts", "hydrationDefaultAmountML", "hydrationReminderIntervalMinutes", "appFolderName",
+            "appFolderColor", "appFolderLetter", "appFolderApplications", "calendarLayout",
+            "calendarShowsAllDayEvents", "remindersLayout", "nowPlayingSource", "nowPlayingEnabledSources",
+            "nowPlayingLayout", "nowPlayingSkipSeconds", "nowPlayingHidesWhenClosed", "nowPlayingShowsTrackControls",
+            "nowPlayingShowsSeekControls", "weatherUnit", "weatherLayout", "weatherForecastHours", "weatherBackground"
+        ]
+        let fields = Set(Mirror(reflecting: WidgetConfiguration()).children.compactMap(\.label))
+        #expect(stripped.isDisjoint(with: kept))
+        let unclassified = fields.subtracting(stripped).subtracting(kept).sorted()
+        #expect(unclassified.isEmpty, "Classify these WidgetConfiguration fields in ProfileSanitizer: \(unclassified)")
+        #expect(stripped.union(kept).subtracting(fields).isEmpty)
+    }
+
+    // MARK: S01-016
+
+    @Test func oversizedTextAndIconsLoadBoundedButAreRejectedOnWrite() throws {
+        var link = DockItem.link(try #require(URL(string: "https://example.com")), title: String(repeating: "t", count: 600))
+        link.linkFaviconData = Data(count: ProfileSemanticValidator.maximumFaviconBytes + 1)
+        #expect(throws: ProfileValidationError.self) {
+            try ProfileSemanticValidator.validate([DockProfile(name: "Links", kind: .custom, items: [link])])
+        }
+        let decoded = try JSONDecoder().decode(DockItem.self, from: JSONEncoder().encode(link))
+        #expect(decoded.title.count == ProfileSemanticValidator.maximumNameLength)
+        #expect(decoded.linkFaviconData == nil)
+        try ProfileSemanticValidator.validate([DockProfile(name: "Links", kind: .custom, items: [decoded])])
+
+        var configuration = WidgetConfiguration()
+        configuration.appFolderName = String(repeating: "f", count: 300)
+        configuration.alarms = [DockAlarm(title: String(repeating: "a", count: 300), hour: 7, minute: 0, repeatWeekdays: [], isEnabled: false)]
+        configuration.selectedCalendarIDs = (0..<250).map { "calendar-\($0)" }
+        configuration.aiLimitsVisibleProviders = [.codex, .codex, .claude]
+        #expect(throws: ProfileValidationError.self) { try ProfileSemanticValidator.validate(configuration) }
+        let bounded = try JSONDecoder().decode(WidgetConfiguration.self, from: JSONEncoder().encode(configuration))
+        #expect(bounded.appFolderName.count == ProfileSemanticValidator.maximumShortTextLength)
+        #expect(bounded.alarms.first?.title.count == ProfileSemanticValidator.maximumShortTextLength)
+        #expect(bounded.selectedCalendarIDs.count == ProfileSemanticValidator.maximumCalendarSelections)
+        #expect(bounded.aiLimitsVisibleProviders == [.codex, .claude])
+    }
+
+    // MARK: S01-019
+
+    @Test func lockFailuresReportTheRealPOSIXError() {
+        let diskFull = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError,
+                               userInfo: [NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: Int(ENOSPC))])
+        #expect(SingleInstanceLock.posixCode(of: diskFull) == ENOSPC)
+        #expect(SingleInstanceLock.posixCode(of: NSError(domain: NSPOSIXErrorDomain, code: Int(EROFS))) == EROFS)
+        #expect(SingleInstanceLock.posixCode(of: NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError)) == EIO)
+    }
+
+    // MARK: S01-020
+
+    @Test func stockRangesUseFamiliarLabelsAndKeepStoredValues() {
+        #expect(StockChartRange.allCases.map(\.title) == ["1W", "1M", "3M", "5M"])
+        #expect(StockChartRange.allCases.map(\.rawValue) == ["week", "month", "threeMonths", "year"])
+    }
+
+    // MARK: S01-021
+
+    @Test func snippetPopoutAndPaletteFindTheSameSnippets() {
+        let entries = [TextSnippet(title: "Quarterly Report", text: "Numbers for the board"),
+                       TextSnippet(title: "", text: "Café opening hours"),
+                       TextSnippet(title: "Support reply", text: "Thanks for writing")]
+        var item = DockItem.widget(SavedCollectionSearch.snippetsKind)
+        item.widgetConfiguration?.textSnippets = entries
+        let profile = DockProfile(name: "Writing", kind: .custom, items: [item])
+        for query in ["port", "rep", "QUART numb", "cafe", "thanks", "zzz"] {
+            let popout = Set(SavedSnippetSearch.results(entries, query: query).map(\.id))
+            let palette = Set(SavedCollectionSearch.results(in: [profile], query: query, limit: 50).map(\.entryID))
+            #expect(popout == palette, "Query \(query)")
+        }
+        #expect(SavedSnippetSearch.results(entries, query: "port").isEmpty)
+        #expect(SavedSnippetSearch.results(entries, query: " ").map(\.id) == entries.map(\.id))
+    }
+
+    // MARK: S02-012
+
+    @Test func onboardingShowsTheActualSaveError() throws {
+        struct DiskUnavailable: LocalizedError { var errorDescription: String? { "The disk is not available." } }
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = ProfileStore(fileURL: folder.appendingPathComponent("state.json"), allowsSystemChanges: false)
+        let result = OnboardingCompletion.finish(store: store, appliesClearStyle: false) { throw DiskUnavailable() }
+        #expect(result.error == "The disk is not available.")
+        #expect(!store.state.settings.onboardingComplete)
+    }
+
+    // MARK: S02-013
+
+    @Test func duplicatesAndRestoresGetUniqueNames() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = ProfileStore(fileURL: folder.appendingPathComponent("state.json"), allowsSystemChanges: false)
+        let work = try store.createProfileAndPersist(kind: .custom, name: "Work")
+        let first = try store.duplicateProfile(work)
+        let second = try store.duplicateProfile(work)
+        func name(_ id: UUID) -> String? { store.state.profiles.first { $0.id == id }?.name }
+        #expect(name(first) == "Work Copy")
+        #expect(name(second) == "Work Copy 2")
+        try store.importProfiles([DockProfile(name: "Work", kind: .custom), DockProfile(name: "work", kind: .custom)])
+        #expect(store.state.profiles.suffix(2).map(\.name) == ["Work 2", "work 3"])
+
+        var long = store.state.profiles[0]
+        long.name = String(repeating: "L", count: ProfileSemanticValidator.maximumNameLength)
+        try store.replaceProfiles([long])
+        let longCopy = try store.duplicateProfile(long.id)
+        #expect((name(longCopy)?.count ?? .max) <= ProfileSemanticValidator.maximumNameLength)
+    }
+
+    // MARK: S02-014
+
+    @Test func restoreDuplicateAndRecoveryShareOneNewIdentityRule() throws {
+        var countdown = DockItem.widget("Countdown")
+        countdown.widgetConfiguration?.countdownDurationSeconds = 600
+        countdown.widgetConfiguration?.startCountdown(at: Date(timeIntervalSince1970: 100))
+        var alarm = DockItem.widget("Alarm")
+        alarm.widgetConfiguration?.alarms = [DockAlarm(title: "Wake", hour: 7, minute: 0, repeatWeekdays: [], isEnabled: true)]
+        var water = DockItem.widget("Hydration")
+        water.widgetConfiguration?.hydrationRemindersEnabled = true
+        let missing = DockItem.file(at: URL(fileURLWithPath: "/MyDockAuditFixtureMissing/notes.txt"))
+        let profile = DockProfile(name: "Day", kind: .custom, items: [countdown, alarm, water, missing])
+
+        let archive = try BackupManager.makeArchive(from: [profile])
+        let restored = try #require(BackupManager.readArchive(archive).importedProfiles.first)
+        let recovered = ProfileSanitizer.newIdentity(profile)
+        for copy in [restored, recovered] {
+            #expect(Set(copy.items.map(\.id)).isDisjoint(with: profile.items.map(\.id)))
+            #expect(copy.items[0].widgetConfiguration?.countdownStartedAt == nil)
+            #expect(copy.items[0].widgetConfiguration?.countdownDurationSeconds == 600)
+            #expect(copy.items[1].widgetConfiguration?.alarms.first?.isEnabled == false)
+            #expect(copy.items[2].widgetConfiguration?.hydrationRemindersEnabled == false)
+        }
+        #expect(try BackupManager.readArchive(archive).missingItems.isEmpty == false)
+        #expect(try BackupManager.readArchive(archive, computeMissing: false).missingItems.isEmpty)
+    }
+
+    // MARK: S02-016
+
+    @Test func rejectedProfileEditsLeaveHistoryUntouched() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = ProfileStore(fileURL: folder.appendingPathComponent("state.json"), allowsSystemChanges: false)
+        let id = try store.createProfileAndPersist(kind: .custom, name: "Main")
+        var invalid = try #require(store.state.profiles.first { $0.id == id })
+        invalid.name = String(repeating: "x", count: ProfileSemanticValidator.maximumNameLength + 1)
+        let before = store.history.entries.count
+        #expect(throws: ProfileValidationError.self) { try store.replaceProfiles([invalid]) }
+        #expect(store.history.entries.count == before)
+        #expect(store.state.profiles.first { $0.id == id }?.name == "Main")
+    }
+
+    // MARK: S02-017
+
+    @Test func restoringFromRecoveryKeepsTheCurrentDock() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = ProfileStore(fileURL: folder.appendingPathComponent("state.json"), allowsSystemChanges: false)
+        let main = try store.createProfileAndPersist(kind: .custom, name: "Main")
+        store.setSetupMode(.nativeOnly)
+        let restored = try store.createProfile(DockProfile(name: "Old layout", kind: .custom), activate: false)
+        #expect(store.state.profiles.contains { $0.id == restored })
+        #expect(store.state.settings.activeCustomProfileID == main)
+        #expect(store.state.settings.setupMode == .nativeOnly)
+    }
+
+    // MARK: S02-019
+
+    @Test func privateFilesAreWrittenWithPrivatePermissionsAndNoLeftovers() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let nested = folder.appendingPathComponent("drafts", isDirectory: true)
+        let file = nested.appendingPathComponent("data.json")
+        try PrivateAtomicFile.write(Data("first".utf8), to: file)
+        try PrivateAtomicFile.write(Data("second".utf8), to: file)
+        #expect(try String(contentsOf: file, encoding: .utf8) == "second")
+        let fileMode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
+        let folderMode = try FileManager.default.attributesOfItem(atPath: nested.path)[.posixPermissions] as? NSNumber
+        #expect(fileMode?.intValue == 0o600)
+        #expect(folderMode?.intValue == 0o700)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: nested.path) == ["data.json"])
+
+        let library = ProfileLibrary(fileURL: folder.appendingPathComponent("presets.json"))
+        library.record(DockProfile(name: "Preset", kind: .custom, items: []), reason: "Saved preset")
+        let libraryMode = try FileManager.default.attributesOfItem(atPath: folder.appendingPathComponent("presets.json").path)[.posixPermissions] as? NSNumber
+        #expect(libraryMode?.intValue == 0o600)
+    }
+
+    // MARK: S02-021
+
+    @Test func theDraftCountLimitSaysSo() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let drafts = DockUtilityDraftStore(fileURL: folder.appendingPathComponent("drafts.json"), write: { _, _ in })
+        let profileID = UUID()
+        for index in 0..<100 {
+            try drafts.update(DockUtilityFormDraft(editingID: nil, title: "Draft \(index)", body: ""), itemID: UUID(), in: profileID, kind: .snippet)
+        }
+        #expect(throws: DockUtilityDraftError.tooMany) {
+            try drafts.update(DockUtilityFormDraft(editingID: nil, title: "One more", body: ""), itemID: UUID(), in: profileID, kind: .snippet)
+        }
+    }
+
+    // MARK: S02-023
+
+    @Test func oneConflictingDraftDoesNotHoldBackTheOthers() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = ProfileStore(fileURL: folder.appendingPathComponent("state.json"), allowsSystemChanges: false)
+        let conflicting = try store.createProfileAndPersist(kind: .custom, name: "Work")
+        let clean = try store.createProfileAndPersist(kind: .custom, name: "Home")
+        for (id, name) in [(conflicting, "Work draft"), (clean, "Home draft")] {
+            var draft = DockProfileDraft(profile: try #require(store.state.profiles.first { $0.id == id }))
+            draft.update { $0.name = name }
+            store.editSessions.set(draft, for: id)
+        }
+        store.renameProfile(conflicting, to: "Work elsewhere")
+        #expect(throws: EditSessionSaveError.self) { try store.editSessions.saveAll() }
+        #expect(store.state.profiles.first { $0.id == clean }?.name == "Home draft")
+        #expect(store.editSessions.drafts[clean]?.isDirty == false)
+        #expect(store.state.profiles.first { $0.id == conflicting }?.name == "Work elsewhere")
+        #expect(store.editSessions.drafts[conflicting]?.isDirty == true)
+    }
+
+    // MARK: S18-022
+
+    @Test func libraryRetentionCapsAndPresetChecks() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let history = folder.appendingPathComponent("history.json")
+        let entries = [ProfileLibraryEntry(recordedAt: .now.addingTimeInterval(-86_400), reason: "Before profile edit",
+                                           profile: DockProfile(name: "Recent", kind: .custom, items: [])),
+                       ProfileLibraryEntry(recordedAt: .now.addingTimeInterval(-15 * 86_400), reason: "Before profile edit",
+                                           profile: DockProfile(name: "Expired", kind: .custom, items: []))]
+        try JSONEncoder().encode(entries).write(to: history)
+        #expect(ProfileLibrary(fileURL: history, retentionDays: 14).entries.map(\.profile.name) == ["Recent"])
+
+        let capped = ProfileLibrary(fileURL: folder.appendingPathComponent("capped.json"), maximumEntries: 2)
+        for name in ["One", "Two", "Three"] { capped.record(DockProfile(name: name, kind: .custom, items: []), reason: "Saved preset") }
+        #expect(capped.entries.map(\.profile.name) == ["Three", "Two"])
+
+        #expect(throws: EditSessionSaveError.self) {
+            try capped.importPreset(JSONEncoder().encode(DockProfile(name: "System", kind: .native, items: [])))
+        }
+        #expect(throws: ProfileValidationError.self) { try capped.importPreset(Data(count: 8 * 1_024 * 1_024 + 1)) }
+
+        let corrupt = folder.appendingPathComponent("corrupt.json")
+        try Data("not a library".utf8).write(to: corrupt)
+        let recovered = ProfileLibrary(fileURL: corrupt)
+        let aside = try #require(try FileManager.default.contentsOfDirectory(atPath: folder.path).first { $0.hasPrefix("corrupt.json.recovery-") })
+        recovered.clear()
+        #expect(try Data(contentsOf: folder.appendingPathComponent(aside)) == Data("not a library".utf8))
+    }
+
+    // MARK: S19-009
+
+    @Test func onlyWidgetsThatScheduleNotificationsDeclareThePermission() {
+        let declared = WidgetRegistry.all.filter { $0.capabilities.permissions.contains(.notifications) }.map(\.name).sorted()
+        #expect(declared == ["Alarm", "Countdown", "Hydration"])
+    }
 }

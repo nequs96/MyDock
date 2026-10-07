@@ -34,7 +34,6 @@ final class ProfileStore: ObservableObject {
     @Published private(set) var persistenceError: String?
     @Published private(set) var persistenceWarning: String?
     @Published private(set) var hasUnpersistedChanges = false
-    var draggingItemID: UUID?
     lazy var editSessions = ProfileEditSessionCoordinator(store: self)
     lazy var widgetData = WidgetDataCoordinator(store: self)
     lazy var widgetLifecycle = WidgetLifecycleCoordinator(store: self)
@@ -230,22 +229,17 @@ final class ProfileStore: ObservableObject {
         return state.profiles.first { $0.id == id && $0.kind == .custom }
     }
 
-    @discardableResult
-    func createProfile(kind: DockProfileKind, name: String? = nil) -> UUID? {
-        try? createProfileAndPersist(kind: kind, name: name)
+    /// A name no other profile uses ("Work", "Work 2", ...), within the validator's name limit.
+    private func uniqueProfileName(_ name: String, in profiles: [DockProfile]) -> String {
+        PortableDockPackage.uniqueName(String(name.prefix(ProfileSemanticValidator.maximumNameLength - 10)),
+                                       existing: profiles.map(\.name))
     }
 
     /// A returned identity always belongs to a durably saved profile.
     @discardableResult
     func createProfileAndPersist(kind: DockProfileKind, name: String? = nil) throws -> UUID {
-        let baseName = name ?? (kind == .custom ? "Custom Dock" : "macOS Dock")
-        var candidate = baseName
-        var suffix = 2
-        while state.profiles.contains(where: { $0.name.localizedCaseInsensitiveCompare(candidate) == .orderedSame }) {
-            candidate = "\(baseName) \(suffix)"
-            suffix += 1
-        }
-        let profile = DockProfile(name: candidate, kind: kind)
+        let profile = DockProfile(name: uniqueProfileName(name ?? (kind == .custom ? "Custom Dock" : "macOS Dock"), in: state.profiles),
+                                  kind: kind)
         var next = state
         next.profiles.append(profile)
         if kind == .custom {
@@ -256,22 +250,20 @@ final class ProfileStore: ObservableObject {
         return profile.id
     }
 
+    /// Adds a new profile. `activate` makes a new Custom Dock the one on screen; Recovery restores pass false, like
+    /// backup Restore, so the current Dock stays in place.
     @discardableResult
-    func createProfile(_ resolved: DockProfile) throws -> UUID {
+    func createProfile(_ resolved: DockProfile, activate: Bool = true) throws -> UUID {
         var profile = resolved
         profile.id = UUID()
         profile.createdAt = .now
         profile.name = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !profile.name.isEmpty else { throw EditSessionSaveError.failed("A profile needs a name.") }
-        let base = profile.name
-        var suffix = 2
-        while state.profiles.contains(where: { $0.name.localizedCaseInsensitiveCompare(profile.name) == .orderedSame }) {
-            profile.name = "\(base) \(suffix)"; suffix += 1
-        }
+        guard !profile.name.isEmpty else { throw EditSessionSaveError.failed("A Dock needs a name.") }
+        profile.name = uniqueProfileName(profile.name, in: state.profiles)
         try ProfileSemanticValidator.validate(state.profiles + [profile])
         var candidate = state
         candidate.profiles.append(profile)
-        if profile.kind == .custom {
+        if activate, profile.kind == .custom {
             candidate.settings.activeCustomProfileID = profile.id
             if candidate.settings.setupMode == .nativeOnly { candidate.settings.setupMode = .both }
         }
@@ -284,7 +276,7 @@ final class ProfileStore: ObservableObject {
         guard let original = state.profiles.first(where: { $0.id == id }) else { throw ProfileDraftMergeError.profileRemoved }
         var copy = original
         copy.id = UUID()
-        copy.name = "\(original.name) Copy"
+        copy.name = uniqueProfileName("\(original.name) Copy", in: state.profiles)
         copy.createdAt = .now
         copy.items = original.items.map(copyItemForDuplication)
         copy.workspace = original.workspace?.remapped(from: original.items, to: copy.items)
@@ -306,21 +298,7 @@ final class ProfileStore: ObservableObject {
     }
 
     func copyItemForDuplication(_ item: DockItem) -> DockItem {
-        var copy = item
-        copy.id = UUID()
-        if copy.widgetKind == "Hydration" { copy.widgetConfiguration?.hydrationRemindersEnabled = false }
-        if copy.widgetKind == "Countdown", copy.widgetConfiguration?.countdownMode != .targetDate {
-            copy.widgetConfiguration?.resetCountdown()
-        }
-        if copy.widgetKind == "Alarm", var configuration = copy.widgetConfiguration {
-            configuration.alarms = configuration.alarms.map { alarm in
-                var alarm = alarm
-                alarm.isEnabled = false
-                return alarm
-            }
-            copy.widgetConfiguration = configuration
-        }
-        return copy
+        item.preparedForNewIdentity()
     }
 
     func deleteProfile(_ id: UUID) {
@@ -372,18 +350,13 @@ final class ProfileStore: ObservableObject {
         commit()
     }
 
-    func completeOnboarding() {
-        state.settings.onboardingComplete = true
-        state.settings.lastSeenWhatsNewVersion = Product.marketingVersion
-        commit()
-    }
-
+    /// Saves the setup choices and marks onboarding complete only when that write succeeds.
     func finishOnboarding(setupMode: SetupMode,
                           customDockPosition: DockPosition,
                           customDockDisplayID: UInt32?,
                           importedNativeItems: [DockItem],
                           starterWidgets: [String],
-                          starterApplications: [DockItem] = []) {
+                          starterApplications: [DockItem] = []) throws {
         var nextState = state
         nextState.settings.setupMode = setupMode
         nextState.settings.customDockPosition = customDockPosition
@@ -393,9 +366,8 @@ final class ProfileStore: ObservableObject {
             if let existing = nextState.settings.activeNativeProfileID,
                nextState.profiles.contains(where: { $0.id == existing && $0.kind == .native }) {
                 // Keep the selected profile.
-            } else if let first = nextState.profiles.first(where: { $0.kind == .native }) {
+            } else if nextState.profiles.contains(where: { $0.kind == .native }) {
                 // Existing unapplied profiles are not associated with the real Dock.
-                _ = first
             } else {
                 let profile = DockProfile(name: "macOS Dock", kind: .native, items: importedNativeItems)
                 nextState.profiles.append(profile)
@@ -419,7 +391,7 @@ final class ProfileStore: ObservableObject {
 
         nextState.settings.onboardingComplete = true
         nextState.settings.lastSeenWhatsNewVersion = Product.marketingVersion
-        do { try persistCandidate(nextState) } catch { }
+        try persistCandidate(nextState)
     }
 
     func updateSettings(immediately: Bool = false, _ update: (inout AppSettings) -> Void) {
@@ -521,11 +493,6 @@ final class ProfileStore: ObservableObject {
         commit(immediately: false)
     }
 
-    func addSpacer(_ kind: SpacerKind) {
-        guard let profile = activeCustomProfile ?? state.profiles.first(where: { $0.id == state.settings.activeNativeProfileID }) else { return }
-        add(.spacer(kind), to: profile.id)
-    }
-
     func removeItem(_ itemID: UUID, from profileID: UUID) {
         removeItems([itemID], from: profileID)
     }
@@ -541,35 +508,18 @@ final class ProfileStore: ObservableObject {
         commit(immediately: false)
     }
 
-    func moveItem(_ itemID: UUID, before targetID: UUID, in profileID: UUID) {
-        guard itemID != targetID,
-              let profileIndex = state.profiles.firstIndex(where: { $0.id == profileID }),
-              let sourceIndex = state.profiles[profileIndex].items.firstIndex(where: { $0.id == itemID }),
-              let targetIndex = state.profiles[profileIndex].items.firstIndex(where: { $0.id == targetID }) else { return }
-        let item = state.profiles[profileIndex].items.remove(at: sourceIndex)
-        let adjustedTarget = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
-        state.profiles[profileIndex].items.insert(item, at: adjustedTarget)
-        commit(immediately: false)
-    }
-
-    func moveItems(_ itemIDs: Set<UUID>, direction: DockItemMoveDirection, in profileID: UUID) {
-        guard !itemIDs.isEmpty,
-              let profileIndex = state.profiles.firstIndex(where: { $0.id == profileID }) else { return }
-        let items = DockItemOrderingPolicy.moving(state.profiles[profileIndex].items, ids: itemIDs, direction: direction)
-        guard items.map(\.id) != state.profiles[profileIndex].items.map(\.id) else { return }
-        state.profiles[profileIndex].items = items
-        commit(immediately: false)
-    }
-
     func replaceProfiles(_ profiles: [DockProfile]) throws {
         let profiles = profiles.map(\.strippedOfRuntimeReadings)
         var next = state.profiles
+        var replaced: [DockProfile] = []
         for profile in profiles {
             guard let index = next.firstIndex(where: { $0.id == profile.id && $0.kind == profile.kind }) else { throw ProfileDraftMergeError.profileRemoved }
-            if next[index] != profile { history.record(next[index], reason: "Before profile edit") }
+            if next[index] != profile { replaced.append(next[index]) }
             next[index] = profile
         }
         try ProfileSemanticValidator.validate(next)
+        // History records only an edit that is about to happen, never one validation rejected.
+        for profile in replaced { history.record(profile, reason: "Before profile edit") }
         let retained = Set(next.flatMap { $0.items.map(\.id) })
         var removedIDs = Set<UUID>()
         for item in state.profiles.flatMap(\.items) where !retained.contains(item.id) {
@@ -697,8 +647,8 @@ final class ProfileStore: ObservableObject {
         }
         var configuration = candidate.profiles[profileIndex].items[itemIndex].widgetConfiguration ?? WidgetConfiguration()
         update(&configuration)
-        do { try ProfileSemanticValidator.validate(configuration) }
-        catch { persistenceWarning = error.localizedDescription; throw error }
+        // Callers show this rejection where the edit was made; it is not a data-integrity notice.
+        try ProfileSemanticValidator.validate(configuration)
         candidate.profiles[profileIndex].items[itemIndex].widgetConfiguration = configuration
     }
 
@@ -718,9 +668,13 @@ final class ProfileStore: ObservableObject {
         commit()
     }
 
+    /// Appends restored or imported profiles, each under a name no other profile uses.
     func importProfiles(_ profiles: [DockProfile]) throws {
         var candidate = state
-        candidate.profiles.append(contentsOf: profiles)
+        for var profile in profiles {
+            profile.name = uniqueProfileName(profile.name, in: candidate.profiles)
+            candidate.profiles.append(profile)
+        }
         try persistCandidate(candidate)
     }
 
@@ -761,7 +715,7 @@ final class ProfileStore: ObservableObject {
             } catch { finishWrite(.failure(error), revision: currentRevision) }
         } else {
             isSaving = true
-            writer.write(state, to: fileURL, revision: currentRevision, immediately: false) { [weak self] result in
+            writer.write(state, to: fileURL, revision: currentRevision) { [weak self] result in
                 Task { @MainActor [weak self] in self?.finishWrite(result, revision: currentRevision) }
             }
         }
@@ -786,7 +740,9 @@ final class ProfileStore: ObservableObject {
         case .failure(let error):
             persistenceError = "Could not save MyDock data: \(error.localizedDescription)"
             hasUnpersistedChanges = true
-            logger.error("State save failed: \(error.localizedDescription, privacy: .public)")
+            // Only the error's domain and code are public; its description can name files or user content.
+            let nsError = error as NSError
+            logger.error("State save failed: \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public) \(nsError.localizedDescription, privacy: .private)")
             DiagnosticsService.shared.record(.stateSaveFailed)
         }
     }

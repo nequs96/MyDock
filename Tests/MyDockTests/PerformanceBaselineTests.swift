@@ -48,7 +48,7 @@ struct PerformanceBaselineTests {
         let coalescedStart = clock.now
         for index in 0..<20 {
             appearanceState.settings.customDockSize = 0.8 + Double(index) * 0.02
-            writer.write(appearanceState, to: folder.appendingPathComponent("state.json"), revision: UInt64(200 + index), immediately: false) { _ in }
+            writer.write(appearanceState, to: folder.appendingPathComponent("state.json"), revision: UInt64(200 + index)) { _ in }
         }
         try writer.writeImmediately(appearanceState, to: folder.appendingPathComponent("state.json"), revision: 220)
         results.append(["scenario": "20-appearance-updates-coalesced-with-flush-2000-items", "elapsed_ms": elapsed(coalescedStart)])

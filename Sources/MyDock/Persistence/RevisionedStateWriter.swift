@@ -19,15 +19,14 @@ final class RevisionedStateWriter: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }; return latestRevision == revision
     }
 
+    /// Coalesced background write: a newer revision announced within 150 ms supersedes this one.
     func write(_ state: PersistentState, to url: URL, revision: UInt64,
-               immediately: Bool, completion: @escaping @Sendable (Result<Void, Error>) -> Void) {
+               completion: @escaping @Sendable (Result<Void, Error>) -> Void) {
         announce(revision)
-        let work: @Sendable () -> Void = { [self] in
+        queue.asyncAfter(deadline: .now() + .milliseconds(150)) { [self] in
             guard isCurrent(revision) else { return }
             completion(Result { try persistState(state.strippedOfRuntimeReadings, url) })
         }
-        if immediately { queue.sync(execute: work) }
-        else { queue.asyncAfter(deadline: .now() + .milliseconds(150), execute: work) }
     }
 
     func writeImmediately(_ state: PersistentState, to url: URL, revision: UInt64) throws {
@@ -35,7 +34,7 @@ final class RevisionedStateWriter: @unchecked Sendable {
         try queue.sync { try persistState(state.strippedOfRuntimeReadings, url) }
     }
 
-    enum PersistenceCheckpoint: Equatable { case temporaryWritten, beforeAtomicCommit }
+    typealias PersistenceCheckpoint = PrivateAtomicFile.Checkpoint
 
     static func persist(_ state: PersistentState, to url: URL,
                         checkpoint: ((PersistenceCheckpoint) throws -> Void)? = nil) throws {
@@ -45,67 +44,19 @@ final class RevisionedStateWriter: @unchecked Sendable {
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(state)
         guard data.count <= BackupManager.maximumArchiveBytes else { throw BackupError.tooLarge }
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                               attributes: [.posixPermissions: 0o700])
-        // Prepare a private sibling completely before the commit point. Nothing after rename can
-        // report failure with new bytes on disk while ProfileStore still retains the old candidate.
-        let temporary = url.deletingLastPathComponent().appendingPathComponent(".mydock-state-\(UUID().uuidString).tmp")
-        var descriptor = temporary.withUnsafeFileSystemRepresentation {
-            Darwin.open($0!, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode_t(0o600))
-        }
-        guard descriptor >= 0 else { throw posixError() }
-        defer {
-            if descriptor >= 0 { _ = Darwin.close(descriptor) }
-            // This unique sibling is the only file this writer owns for cleanup.
-            _ = temporary.withUnsafeFileSystemRepresentation { Darwin.unlink($0!) }
-        }
-        guard Darwin.fchmod(descriptor, mode_t(0o600)) == 0 else { throw posixError() }
-        try data.withUnsafeBytes { bytes in
-            guard let base = bytes.baseAddress else { return }
-            var offset = 0
-            while offset < bytes.count {
-                let written = Darwin.write(descriptor, base.advanced(by: offset), bytes.count - offset)
-                if written < 0 {
-                    if errno == EINTR { continue }
-                    throw posixError()
-                }
-                guard written > 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO)) }
-                offset += written
-            }
-        }
-        try checkpoint?(.temporaryWritten)
-        // Plain fsync leaves the bytes in the drive cache on macOS; F_FULLFSYNC makes them durable before the
-        // rename can be. Volumes that do not support it fall back to fsync.
-        if Darwin.fcntl(descriptor, F_FULLFSYNC) != 0 {
-            guard Darwin.fsync(descriptor) == 0 else { throw posixError() }
-        }
-        let closeResult = Darwin.close(descriptor)
-        descriptor = -1
-        guard closeResult == 0 else { throw posixError() }
-        try checkpoint?(.beforeAtomicCommit)
-        let result = temporary.withUnsafeFileSystemRepresentation { source in
-            url.withUnsafeFileSystemRepresentation { destination in Darwin.rename(source!, destination!) }
-        }
-        guard result == 0 else { throw posixError() }
-        // Make the rename itself durable. Best effort: the commit has happened, so nothing is reported from here.
-        let folder = url.deletingLastPathComponent().withUnsafeFileSystemRepresentation { Darwin.open($0!, O_RDONLY) }
-        if folder >= 0 { _ = Darwin.fsync(folder); _ = Darwin.close(folder) }
+        try PrivateAtomicFile.write(data, to: url, checkpoint: checkpoint)
     }
 
     /// Removes `.mydock-state-*.tmp` siblings left by a crash between creating and cleaning up a temporary file.
     /// Only files older than `minimumAge` are touched, so a write in flight is never removed.
     static func removeAbandonedTemporaries(in folder: URL, minimumAge: TimeInterval = 60, now: Date = .now) {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return }
-        for name in names where name.hasPrefix(".mydock-state-") && name.hasSuffix(".tmp") {
+        for name in names where name.hasPrefix(PrivateAtomicFile.temporaryPrefix) && name.hasSuffix(".tmp") {
             let file = folder.appendingPathComponent(name)
             guard let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey]),
                   values.isRegularFile == true, let modified = values.contentModificationDate,
                   now.timeIntervalSince(modified) >= minimumAge else { continue }
             try? FileManager.default.removeItem(at: file)
         }
-    }
-
-    private static func posixError() -> NSError {
-        NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
     }
 }
