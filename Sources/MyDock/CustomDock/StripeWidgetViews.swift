@@ -13,7 +13,10 @@ struct StripeWidgetProvider: DockWidgetProvider {
 struct StripeCompactView: View {
     var item: DockItem
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-    private var values: StripeCurrencyMetrics? { configuration.stripeSnapshot?.metrics(for: configuration.stripeCurrency) }
+    private var metricUnavailable: Bool { configuration.stripeSnapshot?.isAvailable(configuration.stripeMetric) == false }
+    private var values: StripeCurrencyMetrics? {
+        metricUnavailable ? nil : configuration.stripeSnapshot?.metrics(for: configuration.stripeCurrency)
+    }
 
     var body: some View {
         FacesBBusinessDockFace(kind: "Stripe", title: configuration.stripeDisplayName, metric: configuration.stripeMetric.title,
@@ -21,7 +24,8 @@ struct StripeCompactView: View {
             currency: configuration.stripeMetric == .payingSubscribers ? nil : configuration.stripeCurrency,
             fullValue: values.map { StripeMetricFormatter.text(for: configuration.stripeMetric, values: $0) },
             context: configuration.stripePeriod.faceToken,
-            emptyValue: configuration.stripeSnapshot != nil || !configuration.stripeAccountID.isEmpty ? "No data" : "Connect")
+            emptyValue: metricUnavailable ? "Unavailable"
+                : configuration.stripeSnapshot != nil || !configuration.stripeAccountID.isEmpty ? "No data" : "Connect")
     }
 }
 
@@ -46,7 +50,8 @@ private struct StripePopoutView: View {
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var snapshot: StripeSnapshot? { configuration.stripeSnapshot }
-    private var currencyMetrics: StripeCurrencyMetrics? { snapshot?.metrics(for: configuration.stripeCurrency) }
+    private var metricUnavailable: Bool { snapshot?.isAvailable(configuration.stripeMetric) == false }
+    private var currencyMetrics: StripeCurrencyMetrics? { metricUnavailable ? nil : snapshot?.metrics(for: configuration.stripeCurrency) }
     private var setupDraft: StripeConnectionDraft { setupDrafts.stripeDraft(for: item.id) }
 
     var body: some View {
@@ -58,6 +63,10 @@ private struct StripePopoutView: View {
                         caption:
                             "\(configuration.stripeMetric.title) · \(configuration.stripeMetric.popoutUnit(currency: configuration.stripeCurrency)) · \(snapshot?.period.title ?? configuration.stripePeriod.title)"
                     )
+                } else if metricUnavailable {
+                    WidgetPopoutHero(
+                        value: "Unavailable",
+                        caption: "Over \(StripeAPIProvider.recordBudget.formatted()) records to load, so no partial total is shown.")
                 } else {
                     WidgetPopoutHero(
                         value: snapshot == nil ? (configuration.stripeAccountID.isEmpty ? "Connect Stripe" : "No data") : "No currency data",

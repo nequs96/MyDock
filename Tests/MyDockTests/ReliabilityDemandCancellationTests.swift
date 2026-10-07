@@ -146,7 +146,7 @@ struct ShortcutExecutionTests {
         #expect(service.statusByShortcut["Hung"] == "Cancelling…")
         await waitUntil { !service.isRunning("Hung") }
         #expect(!service.isRunning("Hung"))
-        #expect(service.statusByShortcut["Hung"] == "Cancelled")
+        #expect(service.statusByShortcut["Hung"] == ShortcutRunMessages.cancelled())
     }
 
     @Test func cancelAllStopsEveryRunAndRunsCanStartAgain() async throws {

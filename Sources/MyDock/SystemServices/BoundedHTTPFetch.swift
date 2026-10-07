@@ -18,11 +18,13 @@ enum BoundedHTTPFetch {
         return URLSession(configuration: configuration)
     }
 
+    /// `delegate` receives this task's events, for example a redirect policy.
     static func fetch(_ request: URLRequest, session: URLSession, maximumBytes: Int,
-                      maximumDuration: TimeInterval = 60) async throws -> (data: Data, response: HTTPURLResponse) {
+                      maximumDuration: TimeInterval = 60,
+                      delegate: (any URLSessionTaskDelegate)? = nil) async throws -> (data: Data, response: HTTPURLResponse) {
         guard maximumBytes > 0 else { throw BoundedHTTPFetchError.invalidLimit }
         try Task.checkCancellation()
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request, delegate: delegate)
         guard let http = response as? HTTPURLResponse else { throw BoundedHTTPFetchError.notHTTP }
         let data = try await collect(bytes, expectedLength: http.expectedContentLength,
                                      maximumBytes: maximumBytes, maximumDuration: maximumDuration)
@@ -42,11 +44,11 @@ enum BoundedHTTPFetch {
         var data = Data()
         if expectedLength > 0 { data.reserveCapacity(Int(min(expectedLength, Int64(maximumBytes)))) }
         for try await byte in bytes {
-            try Task.checkCancellation()
-            if Date.now > deadline { throw BoundedHTTPFetchError.deadlineExceeded }
             if data.count >= maximumBytes { throw BoundedHTTPFetchError.tooLarge }
             data.append(byte)
-            if data.count & 0x3FFF == 0 {
+            // Clock and cancellation are checked once per KiB rather than per byte; URLSession's own
+            // timeout still bounds a stalled transfer between checks.
+            if data.count & 0x3FF == 0 {
                 try Task.checkCancellation()
                 if Date.now > deadline { throw BoundedHTTPFetchError.deadlineExceeded }
             }

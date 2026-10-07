@@ -484,11 +484,7 @@ struct ShopifyAPIProvider: Sendable {
         "created_at:>=\(isoDate(start)) created_at:<=\(isoDate(end))"
     }
 
-    private static func isoDate(_ date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.string(from: date)
-    }
+    private static func isoDate(_ date: Date) -> String { ISO8601Timestamp.string(date) }
 }
 
 /// Shopify's cost bucket was empty. Waits for what the query needs, from the response's throttle status.
@@ -660,15 +656,7 @@ enum ShopifySnapshotParser {
         try nodes.map(orderRecord)
     }
 
-    private static func date(_ value: String?) -> Date? {
-        guard let value else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let parsed = fractional.date(from: value) { return parsed }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: value)
-    }
+    private static func date(_ value: String?) -> Date? { ISO8601Timestamp.date(value) }
 }
 
 enum ShopifyCredentialStore {
@@ -681,46 +669,25 @@ enum ShopifyCredentialStore {
         }
         try write(credential, storeID: storeID)
     }
-    private static var service: String { Product.bundleIdentifier + ".integration-credentials" }
     fileprivate static var directoryKey: String { Product.bundleIdentifier + ".shopify-connected-stores" }
 
     static func read(storeID: String) throws -> ShopifyCredential? {
-        guard AppRuntimeEnvironment.allowsCredentials else { return nil }
-        var query = baseQuery(storeID: storeID)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data else { throw KeychainError(status) }
+        guard let data = try item(storeID).readData(failure: KeychainError.init) else { return nil }
         do { return try JSONDecoder().decode(ShopifyCredential.self, from: data) }
         catch { throw ShopifyDataError.invalidResponse }
     }
 
     static func write(_ credential: ShopifyCredential, storeID: String) throws {
         try AppRuntimeEnvironment.requireCredentials()
-        let data = try JSONEncoder().encode(credential)
-        let query = baseQuery(storeID: storeID)
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var addQuery = query
-            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            addQuery[kSecValueData as String] = data
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            guard addStatus == errSecSuccess else { throw KeychainError(addStatus) }
-        } else if status != errSecSuccess { throw KeychainError(status) }
+        try item(storeID).write(try JSONEncoder().encode(credential), failure: KeychainError.init)
     }
 
     static func delete(storeID: String) throws {
-        try AppRuntimeEnvironment.requireCredentials()
-        let status = SecItemDelete(baseQuery(storeID: storeID) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status) }
+        try item(storeID).delete(failure: KeychainError.init)
     }
 
-    private static func baseQuery(storeID: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: "shopify.\(storeID)"]
+    private static func item(_ storeID: String) -> IntegrationKeychainItem {
+        IntegrationKeychainItem(account: "shopify.\(storeID)")
     }
 
     private struct KeychainError: LocalizedError {
@@ -731,30 +698,23 @@ enum ShopifyCredentialStore {
 }
 
 enum ShopifyConnectionDirectory {
+    private static var directory: ConnectionDirectory<ShopifyConnectedStore> { .init(defaultsKey: ShopifyCredentialStore.directoryKey) }
+
     static func stores(defaults: UserDefaults = AppRuntimeEnvironment.defaults) -> [ShopifyConnectedStore] {
-        guard let data = defaults.data(forKey: ShopifyCredentialStore.directoryKey),
-              let stores = try? JSONDecoder().decode([ShopifyConnectedStore].self, from: data) else { return [] }
-        return stores
+        directory.entries(defaults: defaults)
     }
 
     static func save(_ store: ShopifyConnectedStore, credential: ShopifyCredential, defaults: UserDefaults = AppRuntimeEnvironment.defaults) throws {
         try ShopifyCredentialStore.write(credential, storeID: store.id)
-        var values = stores(defaults: defaults)
-        values.removeAll { $0.id == store.id }
-        values.append(store)
-        if let data = try? JSONEncoder().encode(values) { defaults.set(data, forKey: ShopifyCredentialStore.directoryKey) }
+        directory.insert(store, defaults: defaults)
     }
 
     static func update(_ store: ShopifyConnectedStore, defaults: UserDefaults = AppRuntimeEnvironment.defaults) {
-        var values = stores(defaults: defaults)
-        guard let index = values.firstIndex(where: { $0.id == store.id }) else { return }
-        values[index] = store
-        if let data = try? JSONEncoder().encode(values) { defaults.set(data, forKey: ShopifyCredentialStore.directoryKey) }
+        directory.update(store, defaults: defaults)
     }
 
     static func remove(storeID: String, defaults: UserDefaults = AppRuntimeEnvironment.defaults) throws {
         try ShopifyCredentialStore.delete(storeID: storeID)
-        let remaining = stores(defaults: defaults).filter { $0.id != storeID }
-        if let data = try? JSONEncoder().encode(remaining) { defaults.set(data, forKey: ShopifyCredentialStore.directoryKey) }
+        directory.remove(id: storeID, defaults: defaults)
     }
 }

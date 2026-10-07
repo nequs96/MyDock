@@ -1894,8 +1894,10 @@ struct ProfileStoreTests {
 
         #expect(result.accountID == "fixture-account")
         #expect(result.accountName == "Fixture Store")
-        #expect(requests.count == 4)
+        // Balance, one balance-transaction list per revenue type, then active and past-due subscriptions.
+        #expect(requests.count == 1 + StripeAPIProvider.revenueTransactionTypes.count + 2)
         #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer rk_test_fixture" })
+        #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Stripe-Version") == StripeAPIProvider.apiVersion })
         #expect(requests.allSatisfy { !($0.url?.absoluteString.contains("rk_test_fixture") ?? true) })
         #expect(requests.contains { $0.url?.path == "/v1/balance_transactions" })
         #expect(requests.contains { $0.url?.path == "/v1/subscriptions" })
@@ -1903,17 +1905,17 @@ struct ProfileStoreTests {
 
     @Test func stripeProviderRejectsPartialTotalsAtPaginationCap() async throws {
         let provider = StripeAPIProvider(transport: StripeFixtureTransport(transactionHasMore: true), maximumPages: 1)
-        do {
-            _ = try await provider.snapshot(apiKey: "rk_test_fixture",
-                                            accountID: "fixture-account",
-                                            accountName: "Fixture Store",
-                                            period: .thirtyDays,
-                                            now: Date(timeIntervalSince1970: 2_500),
-                                            calendar: Calendar(identifier: .gregorian))
-            Issue.record("A capped Stripe transaction list must not produce partial totals")
-        } catch let error as StripeDataError {
-            if case .paginationLimit = error { } else { Issue.record("Expected paginationLimit, got \(error)") }
-        }
+        let snapshot = try await provider.snapshot(apiKey: "rk_test_fixture",
+                                                   accountID: "fixture-account",
+                                                   accountName: "Fixture Store",
+                                                   period: .thirtyDays,
+                                                   now: Date(timeIntervalSince1970: 2_500),
+                                                   calendar: Calendar(identifier: .gregorian))
+        // A capped transaction list never yields a partial revenue total; it makes only revenue metrics unavailable.
+        #expect(!snapshot.isAvailable(.revenue))
+        #expect(!snapshot.isAvailable(.netAfterFees))
+        #expect(snapshot.isAvailable(.availableBalance))
+        #expect(snapshot.isAvailable(.mrr))
     }
 
     @Test func stripePeriodUsesInjectedLocalCalendarForDayBoundary() throws {
@@ -2220,42 +2222,46 @@ struct ProfileStoreTests {
         #expect(snapshot.reading(for: .grok) == nil)
     }
 
-    @Test func aiLimitsCollectorStopsStartingReadersAfterCancellation() async {
+    @Test func aiLimitsCollectorCancellationReachesInFlightReaders() async {
         actor Probe {
             private var startedProviders = Set<AIProvider>()
+            private var cancelledProviders = Set<AIProvider>()
             func markStarted(_ provider: AIProvider) { startedProviders.insert(provider) }
+            func markCancelled(_ provider: AIProvider) { cancelledProviders.insert(provider) }
             func hasStarted(_ provider: AIProvider) -> Bool { startedProviders.contains(provider) }
+            func wasCancelled(_ provider: AIProvider) -> Bool { cancelledProviders.contains(provider) }
         }
         struct WaitingCodex: AILimitProviderAdapter {
             let probe: Probe
             let provider: AIProvider = .codex
             func read(now: Date) async throws -> AIProviderLimitReading {
                 await probe.markStarted(provider)
-                try await Task.sleep(nanoseconds: 30_000_000_000)
+                do { try await Task.sleep(nanoseconds: 30_000_000_000) }
+                catch { await probe.markCancelled(provider); throw error }
                 return AIProviderLimitReading(provider: provider, availability: .available,
                                               plan: nil, windows: [], updatedAt: now, message: nil)
             }
         }
         struct TrackingClaude: AILimitProviderAdapter {
-            let probe: Probe
             let provider: AIProvider = .claude
             func read(now: Date) async throws -> AIProviderLimitReading {
-                await probe.markStarted(provider)
-                return AIProviderLimitReading(provider: provider, availability: .available,
-                                              plan: nil, windows: [], updatedAt: now, message: nil)
+                AIProviderLimitReading(provider: provider, availability: .available,
+                                       plan: nil, windows: [], updatedAt: now, message: nil)
             }
         }
 
+        // Readers run concurrently; cancelling the refresh cancels the reader still waiting instead of
+        // leaving it to run out its own timeout.
         let probe = Probe()
         let worker = Task {
             await AILimitsCollector.collect(providers: [.codex, .claude],
-                                            adapters: [WaitingCodex(probe: probe), TrackingClaude(probe: probe)])
+                                            adapters: [WaitingCodex(probe: probe), TrackingClaude()])
         }
         while !(await probe.hasStarted(.codex)) { await Task.yield() }
         worker.cancel()
         _ = await worker.value
-        let startedClaude = await probe.hasStarted(.claude)
-        #expect(!startedClaude)
+        let codexCancelled = await probe.wasCancelled(.codex)
+        #expect(codexCancelled)
     }
 
     @Test func claudeStatusLineLimitsAreReadLocallyAndExpiredSamplesAreHidden() throws {
@@ -2383,7 +2389,8 @@ struct ProfileStoreTests {
 
         #expect(snapshot.available)
         #expect(snapshot.estimated)
-        #expect(snapshot.partial)
+        // An estimate is labelled as one; it is not also reported as unreadable records.
+        #expect(!snapshot.partial)
         #expect(snapshot.totals.totalTokens == 100)
         #expect(snapshot.totals.sessions == 1)
         #expect(snapshot.totals.totalTokens < 999_999)

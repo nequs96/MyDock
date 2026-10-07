@@ -67,13 +67,15 @@ struct AIActivityDedupeTests {
         #expect(snapshot.totals.requests == 1)
     }
 
-    @Test func rowsWithoutIdentityAreCountedButMarkedPartialWhenIdenticalRowsAppear() throws {
+    @Test func rowsWithoutIdentityAreCountedButMarkedPossiblyOverstatedWhenIdenticalRowsAppear() throws {
         let home = r2Temporary(); defer { try? FileManager.default.removeItem(at: home) }
         let row = claudeRow(message: nil, request: nil)
         try r2WriteLines([row, row], to: home.appendingPathComponent(".claude/projects/p/a.jsonl"))
         let snapshot = AIActivityReader.read(provider: .claude, range: .sevenDays, now: r2Now, timeZone: r2UTC, homeDirectory: home)
         #expect(snapshot.totals.totalTokens == 260)
-        #expect(snapshot.partial)
+        // Every record was read, so the total is not a lower bound; it may be too high instead.
+        #expect(!snapshot.partial)
+        #expect(snapshot.possiblyOverstated)
     }
 
     private func codexRows(session: String, totals: [Int]) -> [[String: Any]] {
@@ -107,13 +109,14 @@ struct AIActivityDedupeTests {
         #expect(snapshot.totals.sessions == 2)
     }
 
-    @Test func codexLogWithoutSessionIdentityIsMarkedPartial() throws {
+    @Test func codexLogWithoutSessionIdentityIsMarkedPossiblyOverstated() throws {
         let home = r2Temporary(); defer { try? FileManager.default.removeItem(at: home) }
         let rows = Array(codexRows(session: "x", totals: [100]).dropFirst())
         try r2WriteLines(rows, to: home.appendingPathComponent(".codex/sessions/a.jsonl"))
         let snapshot = AIActivityReader.read(provider: .codex, range: .sevenDays, now: r2Now, timeZone: r2UTC, homeDirectory: home)
         #expect(snapshot.totals.totalTokens == 100)
-        #expect(snapshot.partial)
+        #expect(!snapshot.partial)
+        #expect(snapshot.possiblyOverstated)
     }
 
     // MD-P10

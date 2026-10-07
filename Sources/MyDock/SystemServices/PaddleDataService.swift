@@ -186,14 +186,7 @@ struct PaddleAPIProvider: Sendable {
         }
     }
 
-    private static func dateString(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
-    }
+    private static func dateString(_ date: Date) -> String { UTCDayFormat.string(date) }
 
     private static func nextDateString(_ date: Date) -> String {
         var calendar = Calendar(identifier: .gregorian)
@@ -299,25 +292,21 @@ enum PaddleMetricsParser {
         return nil
     }
 
-    private static func date(_ value: String?) -> Date? {
-        guard let value else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: value) { return date }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: value)
-    }
+    private static func date(_ value: String?) -> Date? { ISO8601Timestamp.date(value) }
 
-    private static func dayStart(_ date: Date) -> Date {
+    private static let utcCalendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .gmt
-        return calendar.startOfDay(for: date)
-    }
+        return calendar
+    }()
+
+    private static func dayStart(_ date: Date) -> Date { utcCalendar.startOfDay(for: date) }
 
     private static func validCurrency(_ currency: String) -> Bool {
-        currency.count == 3 && currency.unicodeScalars.allSatisfy { CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ").contains($0) }
+        currency.count == 3 && currency.unicodeScalars.allSatisfy { currencyLetters.contains($0) }
     }
+
+    private static let currencyLetters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 }
 
 struct PaddleConnectedAccount: Codable, Hashable, Identifiable {
@@ -336,7 +325,6 @@ enum PaddleAPIKeyStore {
     /// One provider-owned explanation shared by Connections Center and the Paddle widget help.
     static let permissionSetupCopy = "Paddle Billing: create a Billing API key with Metrics → Read (metrics.read). Both live and sandbox keys are supported."
 
-    private static var service: String { Product.bundleIdentifier + ".integration-credentials" }
     fileprivate static var directoryKey: String { Product.bundleIdentifier + ".paddle-connected-accounts" }
 
     static func isBillingKey(_ value: String) -> Bool {
@@ -345,45 +333,23 @@ enum PaddleAPIKeyStore {
     }
 
     static func read(accountID: String) throws -> String? {
-        guard AppRuntimeEnvironment.allowsCredentials else { return nil }
-        var query = baseQuery(accountID: accountID)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data,
-              let value = String(data: data, encoding: .utf8) else { throw KeychainError(status) }
+        guard let data = try item(accountID).readData(failure: KeychainError.init) else { return nil }
+        guard let value = String(data: data, encoding: .utf8) else { throw KeychainError(errSecDecode) }
         return value
     }
 
     static func write(_ value: String, accountID: String) throws {
         try AppRuntimeEnvironment.requireCredentials()
         guard isBillingKey(value) else { throw PaddleDataError.billingKeyRequired }
-        let data = Data(value.utf8)
-        let query = baseQuery(accountID: accountID)
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var addQuery = query
-            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            addQuery[kSecValueData as String] = data
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            guard addStatus == errSecSuccess else { throw KeychainError(addStatus) }
-        } else if status != errSecSuccess {
-            throw KeychainError(status)
-        }
+        try item(accountID).write(Data(value.utf8), failure: KeychainError.init)
     }
 
     static func delete(accountID: String) throws {
-        try AppRuntimeEnvironment.requireCredentials()
-        let status = SecItemDelete(baseQuery(accountID: accountID) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status) }
+        try item(accountID).delete(failure: KeychainError.init)
     }
 
-    private static func baseQuery(accountID: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: "paddle.\(accountID)"]
+    private static func item(_ accountID: String) -> IntegrationKeychainItem {
+        IntegrationKeychainItem(account: "paddle.\(accountID)")
     }
 
     private struct KeychainError: LocalizedError {
@@ -394,30 +360,23 @@ enum PaddleAPIKeyStore {
 }
 
 enum PaddleConnectionDirectory {
+    private static var directory: ConnectionDirectory<PaddleConnectedAccount> { .init(defaultsKey: PaddleAPIKeyStore.directoryKey) }
+
     static func accounts(defaults: UserDefaults = AppRuntimeEnvironment.defaults) -> [PaddleConnectedAccount] {
-        guard let data = defaults.data(forKey: PaddleAPIKeyStore.directoryKey),
-              let accounts = try? JSONDecoder().decode([PaddleConnectedAccount].self, from: data) else { return [] }
-        return accounts
+        directory.entries(defaults: defaults)
     }
 
     static func save(_ account: PaddleConnectedAccount, key: String, defaults: UserDefaults = AppRuntimeEnvironment.defaults) throws {
         try PaddleAPIKeyStore.write(key, accountID: account.id)
-        var accounts = self.accounts(defaults: defaults)
-        accounts.removeAll { $0.id == account.id }
-        accounts.append(account)
-        if let data = try? JSONEncoder().encode(accounts) { defaults.set(data, forKey: PaddleAPIKeyStore.directoryKey) }
+        directory.insert(account, defaults: defaults)
     }
 
     static func update(_ account: PaddleConnectedAccount, defaults: UserDefaults = AppRuntimeEnvironment.defaults) {
-        var accounts = self.accounts(defaults: defaults)
-        guard let index = accounts.firstIndex(where: { $0.id == account.id }) else { return }
-        accounts[index] = account
-        if let data = try? JSONEncoder().encode(accounts) { defaults.set(data, forKey: PaddleAPIKeyStore.directoryKey) }
+        directory.update(account, defaults: defaults)
     }
 
     static func remove(accountID: String, defaults: UserDefaults = AppRuntimeEnvironment.defaults) throws {
         try PaddleAPIKeyStore.delete(accountID: accountID)
-        let remaining = accounts(defaults: defaults).filter { $0.id != accountID }
-        if let data = try? JSONEncoder().encode(remaining) { defaults.set(data, forKey: PaddleAPIKeyStore.directoryKey) }
+        directory.remove(id: accountID, defaults: defaults)
     }
 }

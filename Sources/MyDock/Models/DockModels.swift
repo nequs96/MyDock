@@ -1100,18 +1100,41 @@ struct WeatherForecast: Codable, Hashable, Sendable {
 struct AppFolderApplication: Codable, Hashable, Identifiable, Sendable {
     var bundleIdentifier: String?
     var name: String
-    var url: URL
-    var id: String { url.standardizedFileURL.resolvingSymlinksInPath().path }
+    var url: URL { didSet { id = Self.identity(of: url) } }
+    /// The resolved bundle path, computed when the URL is set rather than on every list diff and render.
+    private(set) var id: String
     var hasExistingBundlePath: Bool { url.isFileURL && FileManager.default.fileExists(atPath: url.path) }
+
+    private enum CodingKeys: String, CodingKey { case bundleIdentifier, name, url }
 
     init(url: URL) {
         self.url = url
+        id = Self.identity(of: url)
         let bundle = url.isFileURL ? Bundle(url: url) : nil
         bundleIdentifier = bundle?.bundleIdentifier
         name = bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
             ?? url.deletingPathExtension().lastPathComponent
     }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        bundleIdentifier = try values.decodeIfPresent(String.self, forKey: .bundleIdentifier)
+        name = try values.decode(String.self, forKey: .name)
+        url = try values.decode(URL.self, forKey: .url)
+        id = Self.identity(of: url)
+    }
+
+    /// Equality and hashing cover the stored fields only; the identity is derived from the URL.
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.bundleIdentifier == rhs.bundleIdentifier && lhs.name == rhs.name && lhs.url == rhs.url
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(bundleIdentifier); hasher.combine(name); hasher.combine(url)
+    }
+
+    private static func identity(of url: URL) -> String { url.standardizedFileURL.resolvingSymlinksInPath().path }
 }
 
 struct DockProfile: Codable, Identifiable, Hashable {

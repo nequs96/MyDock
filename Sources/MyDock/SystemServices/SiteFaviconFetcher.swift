@@ -64,23 +64,11 @@ enum SiteFaviconFetcher {
         request.setValue("image/avif,image/webp,image/png,image/x-icon,image/vnd.microsoft.icon,image/*;q=0.8",
                          forHTTPHeaderField: "Accept")
 
-        let redirectPolicy = SameHostRedirectPolicy(host: host)
         do {
-            let (bytes, response) = try await session.bytes(for: request, delegate: redirectPolicy)
-            guard let response = response as? HTTPURLResponse,
-                  (200..<300).contains(response.statusCode),
-                  response.mimeType?.lowercased().hasPrefix("image/") == true,
-                  response.expectedContentLength <= Int64(maximumResponseBytes) else { return nil }
-
-            var data = Data()
-            if response.expectedContentLength > 0 {
-                data.reserveCapacity(Int(response.expectedContentLength))
-            }
-            for try await byte in bytes {
-                guard data.count < maximumResponseBytes, !Task.isCancelled else { return nil }
-                data.append(byte)
-            }
-            guard !Task.isCancelled else { return nil }
+            let (data, response) = try await BoundedHTTPFetch.fetch(request, session: session, maximumBytes: maximumResponseBytes,
+                                                                    delegate: SameHostRedirectPolicy(host: host))
+            guard !Task.isCancelled, (200..<300).contains(response.statusCode),
+                  response.mimeType?.lowercased().hasPrefix("image/") == true else { return nil }
             return normalizedPNG(from: data)
         } catch {
             return nil
@@ -93,6 +81,8 @@ enum SiteFaviconFetcher {
         let imageCount = min(CGImageSourceGetCount(source), 64)
         guard imageCount > 0 else { return nil }
 
+        // favicon.ico usually lists 16 px first; prefer the largest usable frame (square on a tie) so Dock tiles stay sharp.
+        var candidates: [(index: Int, size: Int, square: Bool)] = []
         for index in 0..<imageCount {
             guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
                   let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
@@ -100,14 +90,18 @@ enum SiteFaviconFetcher {
                   width.intValue > 0, height.intValue > 0,
                   width.intValue <= maximumPixelDimension,
                   height.intValue <= maximumPixelDimension else { continue }
+            candidates.append((index, min(width.intValue, height.intValue), width.intValue == height.intValue))
+        }
+        candidates.sort { lhs, rhs in lhs.size != rhs.size ? lhs.size > rhs.size : (lhs.square && !rhs.square) }
 
+        for candidate in candidates {
             let thumbnailOptions: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceThumbnailMaxPixelSize: 128,
                 kCGImageSourceShouldCacheImmediately: true
             ]
-            guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, index, thumbnailOptions as CFDictionary) else {
+            guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, candidate.index, thumbnailOptions as CFDictionary) else {
                 continue
             }
 

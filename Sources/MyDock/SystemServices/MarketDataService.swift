@@ -99,10 +99,11 @@ struct AlphaVantageMarketProvider: Sendable {
 enum MarketDataParser {
     static func isValidSymbol(_ symbol: String) -> Bool {
         guard (1...20).contains(symbol.count) else { return false }
-        return symbol.unicodeScalars.allSatisfy { scalar in
-            CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-").contains(scalar)
-        }
+        return symbol.unicodeScalars.allSatisfy { symbolCharacters.contains($0) }
     }
+
+    private static let symbolCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
+    private static let currencyLetters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
 
     static func searchResults(from data: Data) throws -> [MarketSymbol] {
         let root = try responseObject(data)
@@ -161,65 +162,31 @@ enum MarketDataParser {
         return nil
     }
 
-    private static func parseDate(_ value: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: value)
-    }
+    private static func parseDate(_ value: String) -> Date? { UTCDayFormat.date(value) }
 
     private static func currencyCode(_ value: String?) -> String {
         guard let value, value.count == 3,
-              value.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz").contains($0) })
+              value.unicodeScalars.allSatisfy({ currencyLetters.contains($0) })
         else { return "USD" }
         return value.uppercased()
     }
 }
 
 enum MarketAPIKeyStore {
-    private static let account = "alphavantage"
-    private static var service: String { Product.bundleIdentifier + ".integration-credentials" }
+    private static let item = IntegrationKeychainItem(account: "alphavantage")
 
     static func read() throws -> String? {
-        guard AppRuntimeEnvironment.allowsCredentials else { return nil }
-        var query = baseQuery
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data,
-              let value = String(data: data, encoding: .utf8) else { throw KeychainError(status) }
+        guard let data = try item.readData(failure: KeychainError.init) else { return nil }
+        guard let value = String(data: data, encoding: .utf8) else { throw KeychainError(errSecDecode) }
         return value
     }
 
     static func write(_ value: String) throws {
-        try AppRuntimeEnvironment.requireCredentials()
-        let data = Data(value.utf8)
-        let status = SecItemUpdate(baseQuery as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var query = baseQuery
-            query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            query[kSecValueData as String] = data
-            let addStatus = SecItemAdd(query as CFDictionary, nil)
-            guard addStatus == errSecSuccess else { throw KeychainError(addStatus) }
-        } else if status != errSecSuccess {
-            throw KeychainError(status)
-        }
+        try item.write(Data(value.utf8), failure: KeychainError.init)
     }
 
     static func delete() throws {
-        try AppRuntimeEnvironment.requireCredentials()
-        let status = SecItemDelete(baseQuery as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status) }
-    }
-
-    private static var baseQuery: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: account]
+        try item.delete(failure: KeychainError.init)
     }
 
     private struct KeychainError: LocalizedError {

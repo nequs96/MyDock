@@ -117,6 +117,9 @@ struct DataSourceProvenance: Equatable {
         if let skipped = snapshot?.unsupportedSubscriptionItems, skipped > 0 {
             flags.append("\(skipped) unsupported subscription item\(skipped == 1 ? "" : "s") skipped")
         }
+        if snapshot?.isAvailable(metric) == false {
+            flags.append("over \(StripeAPIProvider.recordBudget.formatted()) records; no partial total shown")
+        }
         return derive(source: source, metric: definition, lastRefresh: snapshot?.fetchedAt, error: error, flags: flags, now: now)
     }
 
@@ -156,6 +159,7 @@ struct DataSourceProvenance: Equatable {
     static func aiActivity(snapshot: AIActivitySnapshot?, error: String?, now: Date = .now) -> DataSourceProvenance {
         var flags: [String] = []
         if snapshot?.partial == true { flags.append("some records could not be read") }
+        if snapshot?.possiblyOverstated == true { flags.append("duplicates could not be ruled out") }
         if snapshot?.estimated == true { flags.append("local estimate") }
         let provider = snapshot?.provider.title ?? "AI"
         return derive(source: "Local \(provider) logs on this Mac", metric: "Local logs, not billing",

@@ -132,11 +132,31 @@ enum AIUsageSourceScope {
         guard let url = directory(provider: provider, homeDirectory: homeDirectory, environment: environment) else {
             return provider.rawValue + "|provider-api"
         }
-        return url.standardizedFileURL.resolvingSymlinksInPath().path
+        return memo.value(for: "root|" + url.path) { url.standardizedFileURL.resolvingSymlinksInPath().path }
     }
 
     private static func hash(_ value: String) -> String {
-        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+        memo.value(for: "hash|" + value) { SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined() }
+    }
+
+    /// Widget faces build their data query while rendering, so symlink resolution and hashing are memoized
+    /// rather than repeated on every hover and magnification frame. A resolved root lasts until the next launch.
+    private static let memo = SourceScopeMemo()
+
+    private final class SourceScopeMemo: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [String: String] = [:]
+
+        func value(for key: String, compute: () -> String) -> String {
+            lock.lock()
+            if let cached = values[key] { lock.unlock(); return cached }
+            lock.unlock()
+            let computed = compute()
+            lock.lock(); defer { lock.unlock() }
+            if values.count >= 256 { values.removeAll(keepingCapacity: true) }
+            values[key] = computed
+            return computed
+        }
     }
 
     static func activity(provider: AIProvider, range: AIActivityRange, homeDirectory: URL? = nil,
@@ -339,18 +359,23 @@ struct AIActivitySnapshot: Codable, Hashable {
     /// 1 counted session-days and duplicate log records; 2 counts distinct sessions in the range and de-duplicates records.
     var semanticVersion: Int
     var sourceScope: String?
+    /// Records without identity may repeat, so the total may be too high. `partial` marks only a lower bound.
+    var possiblyOverstated: Bool
 
     static let currentSemanticVersion = 2
     var hasCurrentSemantics: Bool { semanticVersion >= Self.currentSemanticVersion }
 
     private enum CodingKeys: String, CodingKey {
         case provider, range, fetchedAt, sourceDescription, available, estimated, partial, message, points, totals, semanticVersion, sourceScope
+        case possiblyOverstated
     }
 
     init(provider: AIProvider, range: AIActivityRange, fetchedAt: Date, sourceDescription: String, available: Bool,
          estimated: Bool, partial: Bool, message: String? = nil, points: [AIActivityDailyPoint], totals: AIActivityDailyPoint,
-         semanticVersion: Int = AIActivitySnapshot.currentSemanticVersion, sourceScope: String? = nil) {
+         semanticVersion: Int = AIActivitySnapshot.currentSemanticVersion, sourceScope: String? = nil,
+         possiblyOverstated: Bool = false) {
         self.sourceScope = sourceScope
+        self.possiblyOverstated = possiblyOverstated
         self.semanticVersion = semanticVersion
         self.provider = provider; self.range = range; self.fetchedAt = fetchedAt
         self.sourceDescription = sourceDescription; self.available = available; self.estimated = estimated
@@ -374,6 +399,7 @@ struct AIActivitySnapshot: Codable, Hashable {
         totals = try values.decode(AIActivityDailyPoint.self, forKey: .totals).clamped()
         semanticVersion = try values.decodeIfPresent(Int.self, forKey: .semanticVersion) ?? 1
         sourceScope = try values.decodeIfPresent(String.self, forKey: .sourceScope)
+        possiblyOverstated = try values.decodeIfPresent(Bool.self, forKey: .possiblyOverstated) ?? false
     }
 
     var isValid: Bool {
@@ -383,8 +409,17 @@ struct AIActivitySnapshot: Codable, Hashable {
 
     var tokensText: String {
         if estimated { return "Est. \(totals.totalTokens.formatted()) tokens" }
+        if possiblyOverstated { return "About \(totals.totalTokens.formatted()) tokens" }
         if partial { return "≥\(totals.totalTokens.formatted()) tokens" }
         return "\(totals.totalTokens.formatted()) tokens"
+    }
+
+    /// Marks a total honestly: "~" when duplicates could not be ruled out (it may be too high),
+    /// "+" when some records could not be read (a lower bound). Estimates carry their own label.
+    func qualified(_ value: String) -> String {
+        if estimated { return value }
+        if possiblyOverstated { return "~" + value }
+        return partial ? value + "+" : value
     }
 }
 
@@ -392,6 +427,7 @@ enum AIUsageError: LocalizedError, Equatable {
     case codexCLIUnavailable
     case codexAppServerTimedOut
     case codexAuthenticationUnavailable
+    case codexAppServerUnsupported
     case codexResponseInvalid
     case claudeLimitResponseInvalid
 
@@ -400,6 +436,7 @@ enum AIUsageError: LocalizedError, Equatable {
         case .codexCLIUnavailable: "Codex app-server was not found. Install Codex CLI or the Codex app, then refresh."
         case .codexAppServerTimedOut: "Codex app-server did not answer its read-only limits request in time."
         case .codexAuthenticationUnavailable: "Codex could not read account limits. Sign in with your ChatGPT account in Codex and try again."
+        case .codexAppServerUnsupported: "This Codex version cannot report limits. Update Codex, then refresh."
         case .codexResponseInvalid: "Codex returned a rate-limit response MyDock could not parse."
         case .claudeLimitResponseInvalid: "Claude Code's saved status-line limits could not be read."
         }
@@ -409,7 +446,7 @@ enum AIUsageError: LocalizedError, Equatable {
 enum CodexRateLimitParser {
     static func reading(from data: Data, now: Date = .now) throws -> AIProviderLimitReading {
         guard let response = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw AIUsageError.codexResponseInvalid }
-        if response["error"] != nil { throw AIUsageError.codexAuthenticationUnavailable }
+        if let error = response["error"], !(error is NSNull) { throw CodexAccountRPC.usageError(forRPCError: error) }
         let source = (response["result"] as? [String: Any]) ?? response
         let fallback = source["rateLimits"] as? [String: Any]
         var buckets = source["rateLimitsByLimitId"] as? [String: [String: Any]] ?? [:]
@@ -463,17 +500,20 @@ enum CodexRateLimitParser {
 }
 
 enum CodexAppServerLimitReader {
-    static func read(now: Date = .now, environment: [String: String]? = nil) throws -> AIProviderLimitReading {
+    /// Waits for the app-server off the Swift-concurrency pool; cancelling the task stops the server.
+    static func read(now: Date = .now, environment: [String: String]? = nil) async throws -> AIProviderLimitReading {
         try AppRuntimeEnvironment.requireCredentials()
         guard let executable = executableURL() else { throw AIUsageError.codexCLIUnavailable }
-        let response = try CodexAccountRPC.request(executable: executable, method: "account/rateLimits/read", environment: environment)
+        let response = try await CodexAccountRPC.requestInBackground(executable: executable, method: "account/rateLimits/read",
+                                                                     environment: environment)
         return try CodexRateLimitParser.reading(from: response, now: now)
     }
 
     private static func executableURL() -> URL? { AIAccountService.executable(for: .codex) }
 }
 
-protocol AILimitProviderAdapter {
+/// Readers run concurrently, so each one is Sendable.
+protocol AILimitProviderAdapter: Sendable {
     var provider: AIProvider { get }
     func read(now: Date) async throws -> AIProviderLimitReading
 }
@@ -484,7 +524,7 @@ struct CodexLimitAdapter: AILimitProviderAdapter {
 
     func read(now: Date) async throws -> AIProviderLimitReading {
         try AppRuntimeEnvironment.requireCredentials()
-        return try CodexAppServerLimitReader.read(now: now, environment: environment)
+        return try await CodexAppServerLimitReader.read(now: now, environment: environment)
     }
 }
 
@@ -593,31 +633,44 @@ enum AILimitsCollector {
         let sourceScope = AIUsageSourceScope.limits(providers: providers, homeDirectory: homeDirectory, environment: environment, now: now)
         let adapters = adapters ?? defaultAdapters(copilotMonthlyCreditAllowance: copilotMonthlyCreditAllowance, homeDirectory: homeDirectory, environment: environment)
         let readers = Dictionary(adapters.map { ($0.provider, $0) }, uniquingKeysWith: { first, _ in first })
-        var readings: [AIProviderLimitReading] = []
-        for provider in providers {
-            guard !Task.isCancelled else { break }
-            let reader = readers[provider] ?? UnavailableLimitAdapter(provider: provider)
-            do {
-                readings.append(try await reader.read(now: now))
-            } catch let failure as AILimitReadFailure {
-                readings.append(.init(provider: provider,
-                    availability: failure.kind == .authentication ? .setupRequired : (failure.kind == .unavailable ? .unavailable : .error),
-                    windows: [], message: DataSourceProvenance.sanitized(failure.message), requestedAccountIdentity: failure.requestedAccountIdentity,
-                    failureKind: failure.kind))
-            } catch {
-                let needsSetup: Bool
-                if let usageError = error as? AIUsageError {
-                    needsSetup = usageError == .codexCLIUnavailable || usageError == .codexAuthenticationUnavailable
-                } else {
-                    needsSetup = false
+        // Providers are read concurrently, so a slow Codex app-server does not hold back Claude or Copilot.
+        // Readings keep the requested provider order; a cancelled refresh starts no further reader.
+        let readings = await withTaskGroup(of: (Int, AIProviderLimitReading?).self) { group in
+            for (index, provider) in providers.enumerated() {
+                let reader: any AILimitProviderAdapter = readers[provider] ?? UnavailableLimitAdapter(provider: provider)
+                group.addTask {
+                    guard !Task.isCancelled else { return (index, nil) }
+                    return (index, await AILimitsCollector.reading(from: reader, provider: provider, now: now))
                 }
-                readings.append(AIProviderLimitReading(provider: provider,
-                                                       availability: needsSetup ? .setupRequired : .error,
-                                                       plan: nil, windows: [], updatedAt: nil,
-                                                       message: error.localizedDescription))
             }
+            var collected: [(Int, AIProviderLimitReading?)] = []
+            for await result in group { collected.append(result) }
+            return collected.sorted { $0.0 < $1.0 }.compactMap { $0.1 }
         }
         return AILimitsSnapshot(fetchedAt: now, readings: readings, sourceScope: sourceScope)
+    }
+
+    private static func reading(from reader: any AILimitProviderAdapter, provider: AIProvider, now: Date) async -> AIProviderLimitReading {
+        do {
+            return try await reader.read(now: now)
+        } catch let failure as AILimitReadFailure {
+            return .init(provider: provider,
+                availability: failure.kind == .authentication ? .setupRequired : (failure.kind == .unavailable ? .unavailable : .error),
+                windows: [], message: DataSourceProvenance.sanitized(failure.message), requestedAccountIdentity: failure.requestedAccountIdentity,
+                failureKind: failure.kind)
+        } catch {
+            var availability = AILimitAvailability.error
+            if let usageError = error as? AIUsageError {
+                switch usageError {
+                case .codexCLIUnavailable, .codexAuthenticationUnavailable: availability = .setupRequired
+                case .codexAppServerUnsupported: availability = .unavailable
+                default: break
+                }
+            }
+            return AIProviderLimitReading(provider: provider, availability: availability,
+                                          plan: nil, windows: [], updatedAt: nil,
+                                          message: error.localizedDescription)
+        }
     }
 
     private static func defaultAdapters(copilotMonthlyCreditAllowance: Int?, homeDirectory: URL?, environment: [String: String]) -> [any AILimitProviderAdapter] {
@@ -660,41 +713,102 @@ enum AIActivityReader {
         var reportedCostUSD: Decimal?
     }
 
+    /// Reads newline-delimited records without moving the buffer for every line. A file larger than
+    /// `maximumBytes` is read from its newest `maximumBytes`, because session logs append, so the
+    /// in-range usage at the end is kept; the reader then starts at the first complete line.
     private final class JSONLDataReader {
+        static let maximumBytes = 32_000_000
         private let handle: FileHandle
         private var buffer = Data()
+        private var start = 0
+        private var searched = 0
         private var reachedEOF = false
+        private var discardsPartialLine: Bool
         private let maximumLineSize = 2_000_000
-        private let deadline = Date.now.addingTimeInterval(10)
-        private var bytesRead = 0
+        private let deadline: Date
+        private let cancellation: BackgroundCancellation?
+        private var remainingBytes: UInt64
+        /// True when older records before the read window were not read.
+        let startsMidFile: Bool
 
-        init(url: URL) throws { handle = try FileHandle(forReadingFrom: url) }
+        init(url: URL, deadline: Date, cancellation: BackgroundCancellation?) throws {
+            let handle = try FileHandle(forReadingFrom: url)
+            self.handle = handle
+            self.deadline = deadline
+            self.cancellation = cancellation
+            let size = try handle.seekToEnd()
+            let limit = UInt64(JSONLDataReader.maximumBytes)
+            let startsMidFile = size > limit
+            self.startsMidFile = startsMidFile
+            discardsPartialLine = startsMidFile
+            // A file that grows while it is read is read as it was when opened.
+            if startsMidFile {
+                // Start one byte early: if that byte is a newline, discarding through it keeps the first full line.
+                try handle.seek(toOffset: size - limit - 1)
+                remainingBytes = limit + 1
+            } else {
+                try handle.seek(toOffset: 0)
+                remainingBytes = size
+            }
+        }
         deinit { try? handle.close() }
 
         func nextLine() throws -> Data? {
             while true {
                 try Task.checkCancellation()
-                guard Date.now < deadline, bytesRead <= 32_000_000 else { throw CocoaError(.fileReadTooLarge) }
-                if let newline = buffer.firstIndex(of: 0x0A) {
-                    let line = buffer.subdata(in: 0..<newline)
-                    buffer.removeSubrange(0...newline)
+                if cancellation?.isCancelled == true { throw CancellationError() }
+                guard Date.now < deadline else { throw CocoaError(.fileReadTooLarge) }
+                if let newline = buffer[max(start, searched)...].firstIndex(of: 0x0A) {
+                    let line = buffer.subdata(in: start..<newline)
+                    start = newline + 1
+                    searched = start
+                    if discardsPartialLine { discardsPartialLine = false; continue }
                     return line
                 }
-                if buffer.count > maximumLineSize { throw CocoaError(.fileReadTooLarge) }
+                searched = buffer.endIndex
+                if buffer.endIndex - start > maximumLineSize { throw CocoaError(.fileReadTooLarge) }
                 if reachedEOF {
-                    guard !buffer.isEmpty else { return nil }
-                    defer { buffer.removeAll(keepingCapacity: false) }
-                    return buffer
+                    guard start < buffer.endIndex, !discardsPartialLine else { return nil }
+                    defer { buffer = Data(); start = 0; searched = 0 }
+                    return buffer.subdata(in: start..<buffer.endIndex)
                 }
-                let next = try handle.read(upToCount: 64 * 1024) ?? Data()
+                // Drop consumed lines only before reading the next chunk, instead of moving the buffer for every line.
+                if start > 0 {
+                    buffer = buffer.subdata(in: start..<buffer.endIndex)
+                    searched -= start
+                    start = 0
+                }
+                let next = remainingBytes == 0 ? Data() : (try handle.read(upToCount: Int(min(UInt64(64 * 1024), remainingBytes))) ?? Data())
                 if next.isEmpty { reachedEOF = true }
-                else { buffer.append(next); bytesRead += next.count }
+                else { buffer.append(next); remainingBytes -= UInt64(next.count) }
             }
+        }
+
+        /// The first line of a file, used to recover a session's identity when the reader starts mid-file.
+        static func firstLine(of url: URL, maximumBytes: Int = 2_000_000) throws -> Data? {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            var head = Data()
+            while head.count < maximumBytes {
+                guard let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty else { return nil }
+                if let newline = chunk.firstIndex(of: 0x0A) {
+                    head.append(chunk.subdata(in: chunk.startIndex..<newline))
+                    return head
+                }
+                head.append(chunk)
+            }
+            return nil
         }
     }
 
+    /// Scans the logs off the Swift-concurrency pool; cancelling the task stops the scan between records.
+    static func readInBackground(provider: AIProvider, range: AIActivityRange) async -> AIActivitySnapshot {
+        await BackgroundWork.run { cancellation in AIActivityReader.read(provider: provider, range: range, cancellation: cancellation) }
+    }
+
     static func read(provider: AIProvider, range: AIActivityRange, now: Date = .now, timeZone: TimeZone = .current,
-                     homeDirectory: URL? = nil, environment: [String: String]? = nil) -> AIActivitySnapshot {
+                     homeDirectory: URL? = nil, environment: [String: String]? = nil,
+                     cancellation: BackgroundCancellation? = nil) -> AIActivitySnapshot {
         let environment = environment ?? (homeDirectory == nil ? ProcessInfo.processInfo.environment : [:])
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
@@ -719,19 +833,23 @@ enum AIActivityReader {
         var budgetExceeded = false
         var processedFiles = 0
         var skippedFiles = 0
+        var truncatedFiles = 0
         let lowerBound = chartInterval.start
-        let fileScan = dataFiles(in: source, modifiedAfter: lowerBound.addingTimeInterval(-30 * 86_400), maximumFiles: 10_000)
+        let fileScan = dataFiles(in: source, modifiedAfter: lowerBound.addingTimeInterval(-30 * 86_400), maximumFiles: 10_000,
+                                 cancellation: cancellation)
         let files = fileScan.files
         for file in files {
-            guard !Task.isCancelled, Date.now < deadline else { budgetExceeded = true; break }
+            guard !Task.isCancelled, cancellation?.isCancelled != true, Date.now < deadline else { budgetExceeded = true; break }
             do {
+                var truncated = false
                 switch provider {
-                case .codex: try parseCodex(file: file, calendar: calendar, interval: chartInterval, daily: &daily, sessions: &sessionsByIDAndDay, dedupe: &dedupe)
-                case .claude: try parseClaude(file: file, calendar: calendar, interval: chartInterval, daily: &daily, sessions: &sessionsByIDAndDay, dedupe: &dedupe)
+                case .codex: truncated = try parseCodex(file: file, calendar: calendar, interval: chartInterval, deadline: deadline, cancellation: cancellation, daily: &daily, sessions: &sessionsByIDAndDay, dedupe: &dedupe)
+                case .claude: truncated = try parseClaude(file: file, calendar: calendar, interval: chartInterval, deadline: deadline, cancellation: cancellation, daily: &daily, sessions: &sessionsByIDAndDay, dedupe: &dedupe)
                 case .grok: try parseGrok(file: file, calendar: calendar, interval: chartInterval, daily: &daily, sessions: &sessionsByIDAndDay)
                 default: break
                 }
                 processedFiles += 1
+                if truncated { truncatedFiles += 1 }
             } catch {
                 skippedFiles += 1
             }
@@ -761,7 +879,8 @@ enum AIActivityReader {
         totals.sessions = Set(sessionsByIDAndDay.filter { includedDays.contains($0.day) }.map(\.id)).count
         let available = processedFiles > 0 && (totals.sessions > 0 || totals.totalTokens > 0 || totals.requests > 0)
         let estimated = provider == .grok
-        let partial = estimated || skippedFiles > 0 || fileScan.hitLimit || budgetExceeded || dedupe.uncertain
+        // `partial` is a lower bound (records were not read); duplicates that could not be ruled out are reported separately.
+        let partial = skippedFiles > 0 || truncatedFiles > 0 || fileScan.hitLimit || budgetExceeded
         let sourceDescription: String
         switch provider {
         case .codex: sourceDescription = "Local Codex session event logs · total token deltas include cached input. This excludes ChatGPT conversations outside Codex."
@@ -776,14 +895,15 @@ enum AIActivityReader {
                                   available: available,
                                   estimated: estimated,
                                   partial: partial,
-                                  message: available ? (skippedFiles > 0 || fileScan.hitLimit || budgetExceeded ? "Some local records could not be read; totals are partial." : (dedupe.uncertain ? "Some records had no identity to rule out duplicates; totals may be overstated." : (estimated ? "Local estimate; not an exact provider billing total." : nil))) : (processedFiles == 0 ? "No supported local activity records were found." : "No provider usage counters were present in these records."),
+                                  message: available ? (partial ? "Some local records could not be read; totals are partial." : (dedupe.uncertain ? "Some records had no identity to rule out duplicates; totals may be overstated." : (estimated ? "Local estimate; not an exact provider billing total." : nil))) : (processedFiles == 0 ? "No supported local activity records were found." : "No provider usage counters were present in these records."),
                                   points: points,
                                   totals: AIActivityDailyPoint(date: calendar.startOfDay(for: now), sessions: totals.sessions,
                                                                toolCalls: totals.toolCalls, totalTokens: totals.totalTokens,
                                                                cachedInputTokens: totals.cachedInputTokens, inputTokens: totals.inputTokens,
                                                                outputTokens: totals.outputTokens, requests: totals.requests,
                                                                reportedCostUSD: totals.reportedCostUSD),
-                                  sourceScope: sourceScope)
+                                  sourceScope: sourceScope,
+                                  possiblyOverstated: dedupe.uncertain)
     }
 
     private static func unavailable(provider: AIProvider, range: AIActivityRange, now: Date, message: String) -> AIActivitySnapshot {
@@ -794,14 +914,15 @@ enum AIActivityReader {
                                                        requests: 0, reportedCostUSD: nil))
     }
 
-    private static func dataFiles(in directory: URL, modifiedAfter: Date, maximumFiles: Int) -> (files: [URL], hitLimit: Bool) {
+    private static func dataFiles(in directory: URL, modifiedAfter: Date, maximumFiles: Int,
+                                  cancellation: BackgroundCancellation?) -> (files: [URL], hitLimit: Bool) {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(at: directory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey],
                                               options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return ([], false) }
         var result: [URL] = []
         let deadline = Date.now.addingTimeInterval(5)
         while let url = enumerator.nextObject() as? URL {
-            guard !Task.isCancelled, Date.now < deadline else { return (result, true) }
+            guard !Task.isCancelled, cancellation?.isCancelled != true, Date.now < deadline else { return (result, true) }
             guard ["jsonl", "json"].contains(url.pathExtension.lowercased()),
                   let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]),
                   values.isSymbolicLink != true,
@@ -818,10 +939,12 @@ enum AIActivityReader {
         return (result, false)
     }
 
-    private static func parseCodex(file: URL, calendar: Calendar, interval: DateInterval,
+    /// Returns true when older in-range records were not read because the file is over the read budget.
+    private static func parseCodex(file: URL, calendar: Calendar, interval: DateInterval, deadline: Date,
+                                   cancellation: BackgroundCancellation?,
                                    daily: inout [Date: MutablePoint], sessions: inout Set<SessionActivity>,
-                                   dedupe: inout DedupeState) throws {
-        let reader = try JSONLDataReader(url: file)
+                                   dedupe: inout DedupeState) throws -> Bool {
+        let reader = try JSONLDataReader(url: file, deadline: deadline, cancellation: cancellation)
         let fileID = file.deletingPathExtension().lastPathComponent
         var sessionID = fileID
         var hasSessionIdentity = false
@@ -829,6 +952,18 @@ enum AIActivityReader {
         var previousInput: Int64 = 0
         var previousCached: Int64 = 0
         var previousOutput: Int64 = 0
+        // Counters are cumulative: after a mid-file start the first reading is a baseline, not a delta.
+        var needsBaseline = reader.startsMidFile
+        // An in-range reading used as that baseline leaves its own delta uncounted, so the total is a lower bound.
+        var usedInRangeBaseline = false
+        var firstTimestamp: Date?
+        if reader.startsMidFile, let head = try? JSONLDataReader.firstLine(of: file),
+           let row = try? JSONSerialization.jsonObject(with: head) as? [String: Any], row["type"] as? String == "session_meta",
+           let payload = row["payload"] as? [String: Any],
+           let id = (payload["session_id"] as? String) ?? (payload["id"] as? String), !id.isEmpty {
+            sessionID = id
+            hasSessionIdentity = true
+        }
         while let lineData = try reader.nextLine() {
             guard let row = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                   let type = row["type"] as? String,
@@ -838,6 +973,7 @@ enum AIActivityReader {
                 hasSessionIdentity = true
             }
             guard let timestamp = date(row["timestamp"] as? String) else { continue }
+            if firstTimestamp == nil { firstTimestamp = timestamp }
             let day = calendar.startOfDay(for: timestamp)
             guard interval.contains(timestamp) || calendar.isDate(timestamp, inSameDayAs: interval.start) else {
                 if type == "event_msg", payload["type"] as? String == "token_count",
@@ -848,6 +984,7 @@ enum AIActivityReader {
                     previousInput = integer(usage["input_tokens"]) ?? previousInput
                     previousCached = integer(usage["cached_input_tokens"]) ?? previousCached
                     previousOutput = integer(usage["output_tokens"]) ?? previousOutput
+                    needsBaseline = false
                 }
                 continue
             }
@@ -855,6 +992,15 @@ enum AIActivityReader {
                let info = payload["info"] as? [String: Any],
                let usage = info["total_token_usage"] as? [String: Any],
                let total = integer(usage["total_tokens"]) {
+                if needsBaseline {
+                    previousTotal = total
+                    previousInput = integer(usage["input_tokens"]) ?? previousInput
+                    previousCached = integer(usage["cached_input_tokens"]) ?? previousCached
+                    previousOutput = integer(usage["output_tokens"]) ?? previousOutput
+                    needsBaseline = false
+                    usedInRangeBaseline = true
+                    continue
+                }
                 let delta = max(0, total - previousTotal)
                 let input = integer(usage["input_tokens"]) ?? previousInput
                 let cached = integer(usage["cached_input_tokens"]) ?? previousCached
@@ -880,17 +1026,29 @@ enum AIActivityReader {
                 sessions.insert(SessionActivity(id: sessionID, day: day))
             }
         }
+        return usedInRangeBaseline
+            || truncatedInRange(startsMidFile: reader.startsMidFile, firstTimestamp: firstTimestamp, interval: interval)
     }
 
-    private static func parseClaude(file: URL, calendar: Calendar, interval: DateInterval,
+    /// A file read from its tail missed in-range records unless its first read record is already older than the range.
+    private static func truncatedInRange(startsMidFile: Bool, firstTimestamp: Date?, interval: DateInterval) -> Bool {
+        startsMidFile && (firstTimestamp.map { $0 >= interval.start } ?? true)
+    }
+
+    /// Returns true when older in-range records were not read because the file is over the read budget.
+    private static func parseClaude(file: URL, calendar: Calendar, interval: DateInterval, deadline: Date,
+                                    cancellation: BackgroundCancellation?,
                                     daily: inout [Date: MutablePoint], sessions: inout Set<SessionActivity>,
-                                    dedupe: inout DedupeState) throws {
-        let reader = try JSONLDataReader(url: file)
+                                    dedupe: inout DedupeState) throws -> Bool {
+        let reader = try JSONLDataReader(url: file, deadline: deadline, cancellation: cancellation)
         let fallbackID = file.deletingPathExtension().lastPathComponent
+        var firstTimestamp: Date?
         while let lineData = try reader.nextLine() {
-            guard let row = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                  row["type"] as? String == "assistant",
-                  let timestamp = date(row["timestamp"] as? String),
+            guard let row = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else { continue }
+            let rowTimestamp = date(row["timestamp"] as? String)
+            if firstTimestamp == nil { firstTimestamp = rowTimestamp }
+            guard row["type"] as? String == "assistant",
+                  let timestamp = rowTimestamp,
                   interval.contains(timestamp) || calendar.isDate(timestamp, inSameDayAs: interval.start),
                   let message = row["message"] as? [String: Any],
                   let usage = message["usage"] as? [String: Any] else { continue }
@@ -939,6 +1097,7 @@ enum AIActivityReader {
             }
             sessions.insert(SessionActivity(id: sessionID, day: day))
         }
+        return truncatedInRange(startsMidFile: reader.startsMidFile, firstTimestamp: firstTimestamp, interval: interval)
     }
 
     private static func parseGrok(file: URL, calendar: Calendar, interval: DateInterval,
@@ -1002,15 +1161,7 @@ enum AIActivityReader {
         return result
     }
 
-    private static func date(_ value: String?) -> Date? {
-        guard let value else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: value) { return date }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: value)
-    }
+    private static func date(_ value: String?) -> Date? { ISO8601Timestamp.date(value) }
 
     private static func integer(_ value: Any?) -> Int64? {
         let parsed: Int64?

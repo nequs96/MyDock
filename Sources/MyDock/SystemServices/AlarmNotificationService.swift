@@ -146,6 +146,18 @@ enum AlarmNotificationService {
                     removeOperationRequests(widgetID: widgetID, alarmID: alarm.id, operationID: operationID, client: client)
                     return
                 }
+            } else if weekdays.count == 7 {
+                // Every day is one repeating request rather than seven: macOS keeps a bounded number of
+                // pending requests per app and drops the rest without telling anyone.
+                let trigger = UNCalendarNotificationTrigger(dateMatching: DateComponents(hour: alarm.hour, minute: alarm.minute),
+                                                            repeats: true)
+                try await client.add(UNNotificationRequest(identifier: dailyID(widgetID: widgetID, alarmID: alarm.id,
+                                                                               operationID: operationID),
+                                                            content: content, trigger: trigger))
+                guard isCurrent(widgetID: widgetID, alarmID: alarm.id, operationID: operationID) else {
+                    removeOperationRequests(widgetID: widgetID, alarmID: alarm.id, operationID: operationID, client: client)
+                    return
+                }
             } else {
                 for weekday in weekdays {
                     guard isCurrent(widgetID: widgetID, alarmID: alarm.id, operationID: operationID) else {
@@ -241,9 +253,14 @@ enum AlarmNotificationService {
 
     static func isScheduled(widgetID: UUID, alarm: DockAlarm, pending: Set<String>) -> Bool {
         let weekdays = Set(alarm.repeatWeekdays.filter { (1...7).contains($0) })
-        let requiredSuffixes: Set<String> = weekdays.isEmpty ? ["once"] : Set(weekdays.map(String.init))
+        // An every-day alarm is one daily request; one scheduled before that change has a request per weekday.
+        let selected: Set<String> = Set(weekdays.map(String.init))
+        let alternatives: [Set<String>]
+        if weekdays.isEmpty { alternatives = [["once"]] }
+        else if weekdays.count == 7 { alternatives = [[dailySuffix], selected] }
+        else { alternatives = [selected] }
         let prefix = notificationPrefix(widgetID: widgetID, alarmID: alarm.id) + "."
-        if requiredSuffixes.allSatisfy({ pending.contains(prefix + $0) }) { return true }
+        if alternatives.contains(where: { suffixes in suffixes.allSatisfy { pending.contains(prefix + $0) } }) { return true }
 
         var suffixesByOperation: [UUID: Set<String>] = [:]
         for identifier in pending where identifier.hasPrefix(prefix) {
@@ -251,7 +268,13 @@ enum AlarmNotificationService {
             guard tail.count == 2, let operationID = UUID(uuidString: String(tail[0])) else { continue }
             suffixesByOperation[operationID, default: []].insert(String(tail[1]))
         }
-        return suffixesByOperation.values.contains { requiredSuffixes.isSubset(of: $0) }
+        return suffixesByOperation.values.contains { suffixes in alternatives.contains { $0.isSubset(of: suffixes) } }
+    }
+
+    static let dailySuffix = "daily"
+
+    static func dailyID(widgetID: UUID, alarmID: UUID, operationID: UUID) -> String {
+        "\(notificationPrefix(widgetID: widgetID, alarmID: alarmID)).\(operationID.uuidString).\(dailySuffix)"
     }
 
     static func notificationPrefix(widgetID: UUID, alarmID: UUID) -> String {
@@ -268,11 +291,12 @@ enum AlarmNotificationService {
 
     private static func legacyIDs(widgetID: UUID, alarmID: UUID) -> [String] {
         let prefix = notificationPrefix(widgetID: widgetID, alarmID: alarmID)
-        return [prefix + ".once"] + (1...7).map { prefix + ".\($0)" }
+        return [prefix + ".once", prefix + "." + dailySuffix] + (1...7).map { prefix + ".\($0)" }
     }
 
     private static func operationIDs(widgetID: UUID, alarmID: UUID, operationID: UUID) -> [String] {
-        [oneTimeID(widgetID: widgetID, alarmID: alarmID, operationID: operationID)]
+        [oneTimeID(widgetID: widgetID, alarmID: alarmID, operationID: operationID),
+         dailyID(widgetID: widgetID, alarmID: alarmID, operationID: operationID)]
             + (1...7).map { repeatingID(widgetID: widgetID, alarmID: alarmID, operationID: operationID, weekday: $0) }
     }
 

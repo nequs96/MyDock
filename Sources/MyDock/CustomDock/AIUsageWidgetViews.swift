@@ -50,12 +50,11 @@ enum AIFacePresentation {
         let tokens = Double(snapshot.totals.totalTokens)
         let scale: Double = tokens >= 1_000_000_000 ? 1_000_000_000 : tokens >= 1_000_000 ? 1_000_000 : tokens >= 1_000 ? 1_000 : 1
         let suffix = scale == 1_000_000_000 ? "B" : scale == 1_000_000 ? "M" : scale == 1_000 ? "K" : ""
-        return (tokens / scale).formatted(.number.precision(.fractionLength(0)).locale(locale)) + suffix
-            + (snapshot.partial && !snapshot.estimated ? "+" : "")
+        return snapshot.qualified((tokens / scale).formatted(.number.precision(.fractionLength(0)).locale(locale)) + suffix)
     }
     static func activityValue(snapshot: AIActivitySnapshot?) -> String {
         guard let snapshot, snapshot.available else { return snapshot == nil ? "Set up" : "No data" }
-        return AIActivityFormatting.tokens(snapshot.totals.totalTokens) + (snapshot.partial && !snapshot.estimated ? "+" : "")
+        return snapshot.qualified(AIActivityFormatting.tokens(snapshot.totals.totalTokens))
     }
     static func limitValue(reading: AIProviderLimitReading?, mode: AIUsageRepresentation) -> String {
         guard let reading else { return "Set up" }
@@ -452,8 +451,7 @@ struct AIActivityPopoutView: View {
                 account = nil
                 let provider = configuration.aiActivityProvider
                 guard store.allowsSystemChanges, snapshot?.available != true, [.codex, .claude].contains(provider) else { return }
-                let worker = Task.detached(priority: .utility) { AIAccountService.detect(provider) }
-                let status = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+                let status = await AIAccountService.detectInBackground(provider)
                 guard !Task.isCancelled else { return }
                 account = status
             }
@@ -555,11 +553,12 @@ private struct AIActivitySummary: View {
     private var provenanceFooter: String {
         if snapshot?.estimated == true { return "Local log estimate, not a billing total." }
         if snapshot?.partial == true { return "Local log totals may be incomplete." }
+        if snapshot?.possiblyOverstated == true { return "Local log totals may include duplicates." }
         return "Local session logs, not billing totals."
     }
     private func metrics(_ s: AIActivitySnapshot) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
-            metric("Tokens", value: AIActivityFormatting.tokens(s.totals.totalTokens) + (s.partial && !s.estimated ? "+" : ""), primary: true)
+            metric("Tokens", value: s.qualified(AIActivityFormatting.tokens(s.totals.totalTokens)), primary: true)
                 .help(s.tokensText + ". " + s.sourceDescription)
             metric("Sessions", value: AIActivityFormatting.tokens(Int64(s.totals.sessions)))
                 .help("Distinct local sessions with activity in \(s.range.activityDescription). Daily counts count each session once per day.")

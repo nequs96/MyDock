@@ -27,6 +27,47 @@ struct CalendarListSnapshot: Identifiable, Hashable, Sendable {
     var title: String
 }
 
+/// Which calendars an event fetch may read. No selection means every accessible calendar; a selection whose
+/// calendars are all gone is unavailable and is never widened to every calendar.
+enum CalendarSelectionPolicy {
+    enum Resolution: Equatable { case all, selected([String]), unavailable }
+
+    static func resolve(selected: [String], available: [String]) -> Resolution {
+        guard !selected.isEmpty else { return .all }
+        let wanted = Set(selected)
+        let matches = available.filter { wanted.contains($0) }
+        return matches.isEmpty ? .unavailable : .selected(matches)
+    }
+}
+
+/// The selection a calendar refresh was started for. A reply is published only while the request is the
+/// latest one and the widget still shows that selection.
+struct CalendarRefreshToken: Equatable {
+    var requestID: UUID
+    var selectedIDs: [String]
+    var includeAllDay: Bool
+    var layout: CalendarWidgetLayout
+
+    func isCurrent(latestRequestID: UUID, configuration: WidgetConfiguration?) -> Bool {
+        guard requestID == latestRequestID, let configuration else { return false }
+        return configuration.selectedCalendarIDs == selectedIDs
+            && configuration.calendarShowsAllDayEvents == includeAllDay
+            && configuration.calendarLayout == layout
+    }
+}
+
+enum CalendarSelectionSummary {
+    /// The selected calendars by name, with a count of selected calendars that are no longer available.
+    static func label(calendars: [CalendarListSnapshot], selectedIDs: [String]) -> String {
+        guard !selectedIDs.isEmpty else { return "All accessible calendars" }
+        let selected = calendars.filter { selectedIDs.contains($0.id) }
+        let missing = selectedIDs.count - selected.count
+        let names = selected.map(\.title).joined(separator: ", ")
+        if missing > 0 { return (names.isEmpty ? "Selected calendars" : names) + " · \(missing) unavailable" }
+        return names
+    }
+}
+
 /// A calendar's colour as sRGB components. Runtime-only: read from EventKit with each event, never persisted
 /// in profiles or backups (CGColor is not Sendable, so the snapshot carries plain numbers).
 struct CalendarColorSnapshot: Hashable, Sendable {
@@ -164,11 +205,14 @@ actor CalendarRemindersService {
         guard hasFullAccess(to: .event) else { throw CalendarRemindersServiceError.accessDenied }
         let available = eventStore.calendars(for: .event)
         let selected: [EKCalendar]?
-        if calendarIDs.isEmpty {
+        switch CalendarSelectionPolicy.resolve(selected: calendarIDs, available: available.map(\.calendarIdentifier)) {
+        case .all:
             selected = nil
-        } else {
-            selected = available.filter { calendarIDs.contains($0.calendarIdentifier) }
-            guard !(selected?.isEmpty ?? true) else { throw CalendarRemindersServiceError.calendarUnavailable }
+        case .selected(let identifiers):
+            let wanted = Set(identifiers)
+            selected = available.filter { wanted.contains($0.calendarIdentifier) }
+        case .unavailable:
+            throw CalendarRemindersServiceError.calendarUnavailable
         }
         let end = Calendar.current.date(byAdding: .day, value: 7, to: now) ?? now.addingTimeInterval(7 * 86_400)
         let predicate = eventStore.predicateForEvents(withStart: now, end: end, calendars: selected)

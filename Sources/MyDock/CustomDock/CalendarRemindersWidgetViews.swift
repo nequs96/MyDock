@@ -336,11 +336,9 @@ private struct CalendarCompactWidgetView: View {
 
     private func requestIsCurrent(_ requestID: UUID, selectedIDs: [String],
                                   includeAllDay: Bool, layout: CalendarWidgetLayout) -> Bool {
-        guard refreshRequestID == requestID, !Task.isCancelled,
-              let current = currentConfiguration() else { return false }
-        return current.selectedCalendarIDs == selectedIDs
-            && current.calendarShowsAllDayEvents == includeAllDay
-            && current.calendarLayout == layout
+        guard !Task.isCancelled else { return false }
+        return CalendarRefreshToken(requestID: requestID, selectedIDs: selectedIDs, includeAllDay: includeAllDay, layout: layout)
+            .isCurrent(latestRequestID: refreshRequestID, configuration: currentConfiguration())
     }
 }
 
@@ -564,12 +562,7 @@ private struct CalendarPopoutWidgetView: View {
     }
 
     private var selectedCalendarLabel: String {
-        let selected = calendars.filter { configuration.selectedCalendarIDs.contains($0.id) }
-        guard !configuration.selectedCalendarIDs.isEmpty else { return "All accessible calendars" }
-        let missing = configuration.selectedCalendarIDs.count - selected.count
-        let names = selected.map(\.title).joined(separator: ", ")
-        if missing > 0 { return (names.isEmpty ? "Selected calendars" : names) + " · \(missing) unavailable" }
-        return names
+        CalendarSelectionSummary.label(calendars: calendars, selectedIDs: configuration.selectedCalendarIDs)
     }
 
     private func updateLayout(_ layout: CalendarWidgetLayout) {
@@ -655,11 +648,9 @@ private struct CalendarPopoutWidgetView: View {
 
     private func requestIsCurrent(_ requestID: UUID, selectedIDs: [String],
                                   includeAllDay: Bool, layout: CalendarWidgetLayout) -> Bool {
-        guard refreshRequestID == requestID, !Task.isCancelled,
-              let current = currentConfiguration() else { return false }
-        return current.selectedCalendarIDs == selectedIDs
-            && current.calendarShowsAllDayEvents == includeAllDay
-            && current.calendarLayout == layout
+        guard !Task.isCancelled else { return false }
+        return CalendarRefreshToken(requestID: requestID, selectedIDs: selectedIDs, includeAllDay: includeAllDay, layout: layout)
+            .isCurrent(latestRequestID: refreshRequestID, configuration: currentConfiguration())
     }
 
     private func currentConfiguration() -> WidgetConfiguration? {

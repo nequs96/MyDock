@@ -4,10 +4,10 @@ import Testing
 
 struct AIAccountTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["MYDOCK_LOCAL_AI_ACCOUNT_TESTS"] == "1"))
-    func existingCodexAccountProvidesReadOnlyLimits() throws {
+    func existingCodexAccountProvidesReadOnlyLimits() async throws {
         let status = AIAccountService.detect(.codex)
         #expect(status.state == .signedIn)
-        let reading = try CodexAppServerLimitReader.read()
+        let reading = try await CodexAppServerLimitReader.read()
         #expect(reading.availability == .available)
         #expect(reading.windows.contains { $0.usedPercent != nil })
         print("Existing Codex account discovered; read-only quota windows received. No task started.")

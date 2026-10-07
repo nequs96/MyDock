@@ -71,7 +71,10 @@ enum ShortcutRunMessages {
 
     static func completed() -> String { "Completed" }
     static func cancelling() -> String { "Cancelling…" }
-    static func cancelled() -> String { "Cancelled" }
+    /// Cancel stops the `shortcuts` command MyDock waits on. The run itself belongs to the Shortcuts
+    /// runtime, which may keep going, so the status does not claim the shortcut was stopped.
+    /// It is short enough for the one-line Status value; Open Shortcuts sits beside it.
+    static func cancelled() -> String { "Stopped waiting (may still run)" }
     static func running() -> String { "Running…" }
 
     /// A short, bounded failure message that includes the first useful stderr text.
