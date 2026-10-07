@@ -31,10 +31,29 @@ enum AppRuntimeEnvironment {
     #endif
 
     static var isIsolated: Bool { validationRoot != nil }
-    // Native acceptance is run in its separate explicitly opted-in harness
-    // with injected backends. The default application graph never escapes.
-    static var allowsNativeEffects: Bool { !isIsolated }
-    static var allowsCredentials: Bool { !isIsolated }
+    // The default application graph never escapes isolation. Only an opted-in live suite lifts it, and only for its
+    // own task, through `withLiveSystemAccess(enabledBy:)`.
+    static var allowsNativeEffects: Bool { !isIsolated || hasLiveSystemGrant }
+    static var allowsCredentials: Bool { !isIsolated || hasLiveSystemGrant }
+
+    #if DEBUG
+    /// Set only inside `withLiveSystemAccess(enabledBy:)`. A task-local value covers that task and the tasks it creates
+    /// (detached tasks excepted), so every other test running in the same process stays isolated.
+    private static let liveSystemGrant = TaskLocal(wrappedValue: false)
+    private static var hasLiveSystemGrant: Bool { liveSystemGrant.get() }
+
+    /// Runs one opt-in live suite (docs/ACCEPTANCE_TESTS.md) against the real Dock, Keychain and local accounts, but only
+    /// while that suite's own variable is "1"; otherwise it throws before `body` runs.
+    static func withLiveSystemAccess<T>(enabledBy variable: String,
+                                        environment: [String: String] = ProcessInfo.processInfo.environment,
+                                        isolation: isolated (any Actor)? = #isolation,
+                                        _ body: () async throws -> T) async throws -> T {
+        guard environment[variable] == "1" else { throw ValidationBoundaryError.nativeEffectsDisabled }
+        return try await liveSystemGrant.withValue(true, operation: body)
+    }
+    #else
+    private static var hasLiveSystemGrant: Bool { false }
+    #endif
     static var allowsNetwork: Bool { allowsProductionNetwork(validationRoot: validationRoot) }
     static func allowsProductionNetwork(validationRoot: URL?) -> Bool { validationRoot == nil }
 

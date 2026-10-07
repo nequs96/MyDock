@@ -36,4 +36,19 @@ struct RuntimeIsolationTests {
         }
         CountdownNotificationService.cancel(itemID: itemID)
     }
+
+    /// The opt-in live suites lift isolation only with their variable set, and only for their own task.
+    @Test func liveSystemAccessNeedsItsVariableAndCoversOnlyItsOwnTask() async throws {
+        await #expect(throws: ValidationBoundaryError.self) {
+            try await AppRuntimeEnvironment.withLiveSystemAccess(enabledBy: "MYDOCK_LIVE_PROBE", environment: [:]) {}
+        }
+        #expect(!AppRuntimeEnvironment.allowsNativeEffects)
+        let detachedSawAccess = try await AppRuntimeEnvironment.withLiveSystemAccess(
+            enabledBy: "MYDOCK_LIVE_PROBE", environment: ["MYDOCK_LIVE_PROBE": "1"]) {
+            #expect(AppRuntimeEnvironment.allowsNativeEffects && AppRuntimeEnvironment.allowsCredentials)
+            return await Task.detached { AppRuntimeEnvironment.allowsNativeEffects }.value
+        }
+        #expect(!detachedSawAccess)
+        #expect(!AppRuntimeEnvironment.allowsNativeEffects && !AppRuntimeEnvironment.allowsCredentials)
+    }
 }

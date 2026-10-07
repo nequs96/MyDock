@@ -167,7 +167,7 @@ Approval should cover the temporary profile apply/reapply and, separately, the C
 
 ## Opt-in suites
 
-`./TestMyDock.sh` skips these suites unless their variable is set. Set one at a time, only where the table says it is safe.
+`./TestMyDock.sh` skips these suites unless their variable is set. Set one at a time, only where the table says it is safe. A suite that reaches the real system lifts the test isolation only for its own test task, through `AppRuntimeEnvironment.withLiveSystemAccess(enabledBy:)`, and only while its variable is `1`; every other test in the run stays isolated.
 
 | Variable | What it touches | Where it is safe |
 | --- | --- | --- |

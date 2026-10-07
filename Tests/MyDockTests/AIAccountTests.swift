@@ -5,12 +5,15 @@ import Testing
 struct AIAccountTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["MYDOCK_LOCAL_AI_ACCOUNT_TESTS"] == "1"))
     func existingCodexAccountProvidesReadOnlyLimits() async throws {
-        let status = AIAccountService.detect(.codex)
-        #expect(status.state == .signedIn)
-        let reading = try await CodexAppServerLimitReader.read()
-        #expect(reading.availability == .available)
-        #expect(reading.windows.contains { $0.usedPercent != nil })
-        print("Existing Codex account discovered; read-only quota windows received. No task started.")
+        // Only this test's own task may read the local account; the rest of the run stays isolated.
+        try await AppRuntimeEnvironment.withLiveSystemAccess(enabledBy: "MYDOCK_LOCAL_AI_ACCOUNT_TESTS") {
+            let status = AIAccountService.detect(.codex)
+            #expect(status.state == .signedIn)
+            let reading = try await CodexAppServerLimitReader.read()
+            #expect(reading.availability == .available)
+            #expect(reading.windows.contains { $0.usedPercent != nil })
+            print("Existing Codex account discovered; read-only quota windows received. No task started.")
+        }
     }
     @Test func accountStatusUsesProviderResponsesWithoutDisplayingSecrets() {
         let claude = BoundedSubprocessOutput(standardOutput: Data(#"{"loggedIn":true,"email":"private@example.com","configDirectory":"/tmp/Claude Config"}"#.utf8), standardError: Data(), terminationStatus: 0)
