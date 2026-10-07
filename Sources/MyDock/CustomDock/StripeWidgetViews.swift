@@ -110,7 +110,7 @@ private struct StripePopoutView: View {
             }
             GroupedRow("Account") {
                 Picker("Account", selection: accountBinding) {
-                    Text(snapshot == nil ? "Not connected" : "Saved reading only").tag("")
+                    Text("None").tag("")
                     if !configuration.stripeAccountID.isEmpty, !connections.contains(where: { $0.id == configuration.stripeAccountID }) {
                         Text(configuration.stripeDisplayName + " (saved)").tag(configuration.stripeAccountID)
                     }

@@ -130,7 +130,9 @@ enum AlarmNotificationService {
 
             let weekdays = Array(Set(alarm.repeatWeekdays.filter { (1...7).contains($0) })).sorted()
             if weekdays.isEmpty {
-                guard let fireDate = AlarmSchedule.nextFireDate(hour: alarm.hour, minute: alarm.minute) else {
+                // The ring time recorded when the alarm was armed, so the face and the notification agree.
+                let recorded = alarm.scheduledFireDate.flatMap { $0 > .now ? $0 : nil }
+                guard let fireDate = recorded ?? AlarmSchedule.nextFireDate(hour: alarm.hour, minute: alarm.minute) else {
                     throw AlarmNotificationError.invalidTime
                 }
                 let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)

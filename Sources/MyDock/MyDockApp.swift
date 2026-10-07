@@ -196,7 +196,11 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let store = self?.store else { return }
-                Task { @MainActor in await HydrationReminderService.reconcileSchedules(in: store) }
+                Task { @MainActor in
+                    // One-time alarms that rang while the Mac slept turn off, as do any macOS dropped.
+                    await AlarmNotificationService.reconcileSchedules(in: store)
+                    await HydrationReminderService.reconcileSchedules(in: store)
+                }
             }
     }
 

@@ -87,6 +87,8 @@ struct ReminderSnapshot: Identifiable, Hashable, Sendable {
     var dueDate: Date?
     var calendarID: String
     var calendarTitle: String
+    /// False for a date-only due date, which Reminders treats as due for the whole day.
+    var dueHasTime = true
 }
 
 /// EventKit access is intentionally isolated behind an actor. The widget UI only receives
@@ -218,7 +220,8 @@ actor CalendarRemindersService {
                         title: rawTitle.isEmpty ? "Untitled reminder" : rawTitle,
                         dueDate: reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) },
                         calendarID: reminder.calendar.calendarIdentifier,
-                        calendarTitle: reminder.calendar.title
+                        calendarTitle: reminder.calendar.title,
+                        dueHasTime: reminder.dueDateComponents?.hour != nil
                     )
                 }.sorted { lhs, rhs in
                     switch (lhs.dueDate, rhs.dueDate) {

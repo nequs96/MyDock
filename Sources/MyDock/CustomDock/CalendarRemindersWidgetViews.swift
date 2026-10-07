@@ -125,10 +125,36 @@ struct CalendarColorBar: View {
 }
 
 enum RemindersFacePresentation {
-    static func overdueCount(_ reminders: [ReminderSnapshot], now: Date) -> Int {
-        reminders.filter { $0.dueDate.map { $0 < now } ?? false }.count
+    static func overdueCount(_ reminders: [ReminderSnapshot], now: Date, calendar: Calendar = .current) -> Int {
+        reminders.filter { isOverdue($0, now: now, calendar: calendar) }.count
     }
-    static func isOverdue(_ reminder: ReminderSnapshot, now: Date) -> Bool { reminder.dueDate.map { $0 < now } ?? false }
+
+    /// A date-only reminder is due for the whole day, as in Reminders, so it is overdue only once that day ends.
+    static func isOverdue(_ reminder: ReminderSnapshot, now: Date, calendar: Calendar = .current) -> Bool {
+        guard let due = reminder.dueDate else { return false }
+        guard !reminder.dueHasTime,
+              let endOfDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: due)) else { return due < now }
+        return now >= endOfDay
+    }
+
+    /// "Today", "Tomorrow", "Yesterday" or a short date (with the year only outside this year), plus the time only
+    /// when the reminder has one.
+    static func dueText(_ reminder: ReminderSnapshot, now: Date, calendar: Calendar = .current) -> String? {
+        guard let due = reminder.dueDate else { return nil }
+        let day: String
+        if calendar.isDate(due, inSameDayAs: now) {
+            day = "Today"
+        } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(due, inSameDayAs: tomorrow) {
+            day = "Tomorrow"
+        } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(due, inSameDayAs: yesterday) {
+            day = "Yesterday"
+        } else if calendar.isDate(due, equalTo: now, toGranularity: .year) {
+            day = due.formatted(.dateTime.day().month(.abbreviated))
+        } else {
+            day = due.formatted(date: .abbreviated, time: .omitted)
+        }
+        return reminder.dueHasTime ? day + ", " + due.formatted(date: .omitted, time: .shortened) : day
+    }
 }
 
 // MARK: - Calendar face
@@ -942,8 +968,8 @@ private struct RemindersPopoutWidgetView: View {
                 .accessibilityLabel("Complete \(reminder.title)")
                 VStack(alignment: .leading, spacing: 1) {
                     Text(reminder.title).font(DockDesign.Grouped.titleFont).lineLimit(2)
-                    if let dueDate = reminder.dueDate {
-                        Text((overdue ? "Overdue · " : "") + dueDate.formatted(date: .abbreviated, time: .shortened))
+                    if let dueText = RemindersFacePresentation.dueText(reminder, now: now) {
+                        Text((overdue ? "Overdue · " : "") + dueText)
                             .font(DockDesign.Grouped.subtitleFont)
                             .foregroundStyle(overdue ? WidgetPalette.critical : Color.secondary)
                     }

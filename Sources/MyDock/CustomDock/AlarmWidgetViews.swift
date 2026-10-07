@@ -11,13 +11,18 @@ struct AlarmWidgetProvider: DockWidgetProvider {
 }
 
 enum AlarmFacePresentation {
-    /// The next enabled alarm and when it fires.
+    /// The next armed alarm and when it fires. A one-time alarm rings at the time recorded when it was armed.
     static func next(_ alarms: [DockAlarm], now: Date) -> (alarm: DockAlarm, date: Date)? {
-        alarms.filter(\.isEnabled).compactMap { alarm in
-            AlarmSchedule.nextFireDate(hour: alarm.hour, minute: alarm.minute, repeatWeekdays: alarm.repeatWeekdays, now: now)
-                .map { (alarm, $0) }
+        alarms.filter { isArmed($0, now: now) }.compactMap { alarm -> (alarm: DockAlarm, date: Date)? in
+            let recorded = alarm.repeatWeekdays.isEmpty ? alarm.scheduledFireDate : nil
+            let date = recorded ?? AlarmSchedule.nextFireDate(hour: alarm.hour, minute: alarm.minute,
+                                                              repeatWeekdays: alarm.repeatWeekdays, now: now)
+            return date.map { (alarm: alarm, date: $0) }
         }.min { $0.date < $1.date }
     }
+
+    /// On and not yet rung: a one-time alarm whose ring time has passed no longer counts as armed.
+    static func isArmed(_ alarm: DockAlarm, now: Date) -> Bool { alarm.isEnabled && !alarm.hasRung(now: now) }
 
     /// "Today", "Tomorrow" or the weekday of the next firing.
     static func day(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
@@ -156,11 +161,11 @@ private struct AlarmPopoutWidgetView: View {
                         WidgetPopoutHero(value: "Off", caption: alarms.isEmpty ? "No alarms yet" : "No alarm is on", valueColor: .secondary)
                     }
                     if let heroAlarm {
-                        GroupedSection { alarmRow(heroAlarm, showsTime: false) }
+                        GroupedSection { alarmRow(heroAlarm, showsTime: false, now: context.date) }
                     }
                     if !listed.isEmpty {
                         GroupedSection(heroAlarm == nil ? "Alarms" : "Other Alarms", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
-                            ForEach(listed) { alarm in alarmRow(alarm, showsTime: true) }
+                            ForEach(listed) { alarm in alarmRow(alarm, showsTime: true, now: context.date) }
                         }
                     }
                 }
@@ -234,16 +239,18 @@ private struct AlarmPopoutWidgetView: View {
 
     /// One alarm: its time (in the shared format) over its name and repeat, then edit, remove and on/off.
     /// The row under the hero omits the time, which the hero already shows.
-    @ViewBuilder private func alarmRow(_ alarm: DockAlarm, showsTime: Bool) -> some View {
+    @ViewBuilder private func alarmRow(_ alarm: DockAlarm, showsTime: Bool, now: Date) -> some View {
+        // A one-time alarm that has rung reads as off; turning it on again arms its next occurrence.
+        let armed = AlarmFacePresentation.isArmed(alarm, now: now)
         WidgetPopoutRow {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
                     if showsTime {
                         Text(AlarmFacePresentation.timeText(hour: alarm.hour, minute: alarm.minute))
                             .font(.system(size: 26, weight: .regular).monospacedDigit())
-                            .foregroundStyle(alarm.isEnabled ? .primary : .secondary)
+                            .foregroundStyle(armed ? .primary : .secondary)
                     }
-                    let schedule = AlarmFacePresentation.repeatSummary(alarm.repeatWeekdays) + (alarm.isEnabled ? "" : " · Off")
+                    let schedule = AlarmFacePresentation.repeatSummary(alarm.repeatWeekdays) + (armed ? "" : " · Off")
                     if showsTime {
                         // Two lines: the time, then name and schedule.
                         Text(alarm.title + " · " + schedule)
@@ -263,7 +270,7 @@ private struct AlarmPopoutWidgetView: View {
                 }
                 .buttonStyle(.plain).help("Remove alarm").accessibilityLabel("Remove \(alarm.title)")
                 .disabled(isScheduling || busyAlarmIDs.contains(alarm.id))
-                Toggle("Enabled", isOn: Binding(get: { alarm.isEnabled }, set: { enabled in changeEnabled(alarm, to: enabled) }))
+                Toggle("Enabled", isOn: Binding(get: { armed }, set: { enabled in changeEnabled(alarm, to: enabled) }))
                     .labelsHidden().toggleStyle(.switch).controlSize(.small).fixedSize()
                     .accessibilityLabel("Enable \(alarm.title)").disabled(busyAlarmIDs.contains(alarm.id) || isScheduling)
             }
@@ -285,7 +292,7 @@ private struct AlarmPopoutWidgetView: View {
         let components = Calendar.current.dateComponents([.hour, .minute], from: alarmTime)
         guard let hour = components.hour, let minute = components.minute else { return }
         guard let alarm = AlarmEditorCandidate.make(editingID: editingAlarmID, alarms: alarms, title: alarmTitle,
-                                                   hour: hour, minute: minute, repeatWeekdays: repeatWeekdays) else {
+                                                   hour: hour, minute: minute, repeatWeekdays: repeatWeekdays)?.armed() else {
             operationMessage = "This alarm was removed or its time is invalid. Your input is still here."; return
         }
         do {
@@ -309,6 +316,7 @@ private struct AlarmPopoutWidgetView: View {
     private func changeEnabled(_ alarm: DockAlarm, to enabled: Bool) {
         guard !busyAlarmIDs.contains(alarm.id), let current = alarms.first(where: { $0.id == alarm.id }) else { return }
         var candidate = current; candidate.isEnabled = enabled
+        candidate = candidate.armed()
         do {
             try store.updateWidgetConfigurationAndPersist(itemID: item.id, in: profileID) { configuration in
                 if let index = configuration.alarms.firstIndex(where: { $0.id == candidate.id }) { configuration.alarms[index] = candidate }

@@ -99,6 +99,14 @@ struct StripeSnapshot: Codable, Hashable {
     func metrics(for currency: String) -> StripeCurrencyMetrics? {
         currencies.first { $0.currency == currency.uppercased() }
     }
+
+    /// The account's main currency in this period: the most revenue, then the larger available balance, then
+    /// alphabetical. Used when an account does not report the selected currency at all.
+    var primaryCurrency: String? {
+        currencies.max { lhs, rhs in
+            (lhs.revenueMinor, lhs.availableBalanceMinor, rhs.currency) < (rhs.revenueMinor, rhs.availableBalanceMinor, lhs.currency)
+        }?.currency
+    }
 }
 
 struct StripeHTTPResponse: Sendable {

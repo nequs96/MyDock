@@ -96,7 +96,7 @@ private struct PaddlePopoutView: View {
             }
             GroupedRow("Account") {
                 Picker("Account", selection: accountBinding) {
-                    Text(snapshot == nil ? "Not connected" : "Saved reading only").tag("")
+                    Text("None").tag("")
                     if !configuration.paddleAccountID.isEmpty, !connections.contains(where: { $0.id == configuration.paddleAccountID }) {
                         Text(configuration.paddleDisplayName + " (saved)").tag(configuration.paddleAccountID)
                     }

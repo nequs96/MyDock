@@ -2,9 +2,13 @@ import Foundation
 
 struct FolderContentsEntry: Identifiable, Hashable, Sendable {
     var url: URL
+    /// A folder the popout can browse. Apps and document packages (.app, .rtfd, .pages) are directories on disk
+    /// but open like files, as in Finder.
     var isDirectory: Bool
+    /// Finder's display name (no .app, localized folder names); the file name when unknown.
+    var displayName: String? = nil
     var id: String { url.path }
-    var name: String { url.lastPathComponent }
+    var name: String { displayName ?? url.lastPathComponent }
 }
 
 /// A bounded view of a folder: the first `entries` in display order plus how much was left out.
@@ -35,7 +39,7 @@ enum FolderContentsReader {
                         enumerationCap: Int = defaultEnumerationCap) throws -> FolderContentsListing {
         guard let enumerator = FileManager.default.enumerator(
             at: folderURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants],
             errorHandler: nil
         ) else {
@@ -49,8 +53,10 @@ enum FolderContentsReader {
                 capped = true
                 break
             }
-            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            collected.append(FolderContentsEntry(url: url, isDirectory: isDirectory))
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            let browsable = values?.isDirectory == true && values?.isPackage != true
+            collected.append(FolderContentsEntry(url: url, isDirectory: browsable,
+                                                 displayName: FileManager.default.displayName(atPath: url.path)))
         }
         // An unreadable folder yields an empty enumerator; surface it instead of showing "Empty folder".
         if collected.isEmpty, !FileManager.default.isReadableFile(atPath: folderURL.path) {

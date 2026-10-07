@@ -1041,6 +1041,21 @@ struct DockAlarm: Codable, Hashable, Identifiable, Sendable {
     /// Calendar weekday values: Sunday = 1 through Saturday = 7. Empty means one-time.
     var repeatWeekdays: [Int]
     var isEnabled: Bool
+    /// When a one-time alarm rings, recorded when it is armed. Nil for repeating alarms and older saved alarms.
+    var scheduledFireDate: Date? = nil
+
+    /// A copy armed from `now`: a one-time alarm records its next ring, so once that passes it reads as off.
+    func armed(now: Date = .now) -> DockAlarm {
+        var copy = self
+        copy.scheduledFireDate = isEnabled && repeatWeekdays.isEmpty
+            ? AlarmSchedule.nextFireDate(hour: hour, minute: minute, now: now) : nil
+        return copy
+    }
+
+    /// A one-time alarm whose ring time has passed: it rang, so it is no longer armed.
+    func hasRung(now: Date) -> Bool {
+        repeatWeekdays.isEmpty && (scheduledFireDate.map { $0 <= now } ?? false)
+    }
 }
 
 struct WeatherLocation: Codable, Hashable, Identifiable, Sendable {

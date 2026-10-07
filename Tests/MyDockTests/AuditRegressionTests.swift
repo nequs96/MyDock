@@ -147,6 +147,76 @@ import Testing
         #expect(DockStarterPreset.commerce.applicationCandidates.joined().contains("com.apple.iWork.Numbers"))
     }
 
+    /// S10-001: apps and document packages open like files in the folder popout instead of being browsed.
+    @Test func folderPopoutOpensPackagesInsteadOfBrowsingThem() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        for name in ["Tool.app/Contents", "Notes.rtfd", "Projects"] {
+            try FileManager.default.createDirectory(at: folder.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+        try Data("x".utf8).write(to: folder.appendingPathComponent("readme.txt"))
+        let entries = try FolderContentsReader.entries(at: folder)
+        let browsable = Set(entries.filter(\.isDirectory).map(\.url.lastPathComponent))
+        #expect(browsable == ["Projects"])
+        #expect(entries.first?.url.lastPathComponent == "Projects", "only real folders sort first")
+        #expect(entries.count == 4)
+    }
+
+    /// S10-003: a reminder due on a day without a time is due all that day, as in Reminders.
+    @Test func dateOnlyRemindersAreDueAllDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
+        let afternoon = Date(timeIntervalSince1970: 1_790_000_000)
+        let dueDay = calendar.startOfDay(for: afternoon)
+        let dateOnly = ReminderSnapshot(id: "r", title: "Pay rent", dueDate: dueDay, calendarID: "c", calendarTitle: "Home",
+                                        dueHasTime: false)
+        #expect(!RemindersFacePresentation.isOverdue(dateOnly, now: afternoon, calendar: calendar))
+        #expect(RemindersFacePresentation.isOverdue(dateOnly, now: dueDay.addingTimeInterval(86_400), calendar: calendar))
+        #expect(RemindersFacePresentation.dueText(dateOnly, now: afternoon, calendar: calendar) == "Today")
+        var timed = dateOnly
+        timed.dueHasTime = true
+        #expect(RemindersFacePresentation.isOverdue(timed, now: afternoon, calendar: calendar))
+        #expect(RemindersFacePresentation.dueText(timed, now: afternoon, calendar: calendar)?.hasPrefix("Today, ") == true)
+        #expect(RemindersFacePresentation.overdueCount([dateOnly, timed], now: afternoon, calendar: calendar) == 1)
+    }
+
+    /// S10-002: a one-time alarm records when it rings, so once that passes it no longer reads as armed.
+    @Test func aOneTimeAlarmStopsReadingAsArmedOnceItHasRung() throws {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let once = DockAlarm(title: "Once", hour: 7, minute: 0, repeatWeekdays: [], isEnabled: true).armed(now: now)
+        let ring = try #require(once.scheduledFireDate)
+        #expect(ring > now)
+        #expect(AlarmFacePresentation.next([once], now: now)?.date == ring)
+        let later = ring.addingTimeInterval(60)
+        #expect(AlarmFacePresentation.next([once], now: later) == nil)
+        #expect(!AlarmFacePresentation.isArmed(once, now: later))
+        #expect(once.armed(now: later).scheduledFireDate.map { $0 > later } == true, "turning it on again arms the next ring")
+        let weekly = DockAlarm(title: "Weekly", hour: 7, minute: 0, repeatWeekdays: [2], isEnabled: true).armed(now: now)
+        #expect(weekly.scheduledFireDate == nil && AlarmFacePresentation.isArmed(weekly, now: later))
+        let off = DockAlarm(title: "Off", hour: 7, minute: 0, repeatWeekdays: [], isEnabled: false).armed(now: now)
+        #expect(off.scheduledFireDate == nil)
+    }
+
+    /// S12-002: a EUR-only Stripe account shows EUR instead of "No data" for the USD a new connection starts on,
+    /// while a currency the account did report stays the user's choice.
+    @Test func stripeShowsTheAccountsOwnCurrencyWhenItNeverReportedTheSelectedOne() {
+        func metrics(_ currency: String, revenue: Decimal) -> StripeCurrencyMetrics {
+            StripeCurrencyMetrics(currency: currency, revenueMinor: revenue, netAfterFeesMinor: revenue, mrrMinor: 0,
+                                  payingSubscribers: 0, availableBalanceMinor: 0, pendingBalanceMinor: 0)
+        }
+        func snapshot(_ currencies: [StripeCurrencyMetrics]) -> StripeSnapshot {
+            StripeSnapshot(accountID: "acct", accountName: "Shop", fetchedAt: .now, period: .thirtyDays, periodStart: .now,
+                           periodEnd: .now, currencies: currencies, unsupportedSubscriptionItems: 0)
+        }
+        var configuration = WidgetConfiguration()
+        configuration.stripeCurrency = "USD"
+        WidgetDataValue.stripe(snapshot([metrics("EUR", revenue: 900), metrics("GBP", revenue: 100)])).apply(to: &configuration)
+        #expect(configuration.stripeCurrency == "EUR")
+        configuration.stripeCurrency = "GBP"
+        WidgetDataValue.stripe(snapshot([metrics("EUR", revenue: 950)])).apply(to: &configuration)
+        #expect(configuration.stripeCurrency == "GBP", "a currency the account reported before stays selected")
+    }
+
     @Test func mainDisplayIsThePrimaryDisplayNotTheFocusedOne() {
         // AppKit lists the primary display (menu bar, origin at zero) first.
         let displays: [UInt32] = [7, 8, 9]

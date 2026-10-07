@@ -99,7 +99,7 @@ private struct ShopifyPopoutView: View {
             }
             GroupedRow("Store") {
                 Picker("Store", selection: accountBinding) {
-                    Text(snapshot == nil ? "Not connected" : "Saved reading only").tag("")
+                    Text("None").tag("")
                     if !configuration.shopifyStoreID.isEmpty, !connectedStores.contains(where: { $0.id == configuration.shopifyStoreID }) {
                         Text(configuration.shopifyDisplayName + " (saved)").tag(configuration.shopifyStoreID)
                     }
