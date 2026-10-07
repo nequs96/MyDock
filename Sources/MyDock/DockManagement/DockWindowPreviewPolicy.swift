@@ -114,6 +114,8 @@ struct WindowPreviewHoverMachine: Equatable {
             return .noChange
 
         case .enterPanel:
+            // A late enter from a panel that is fading out must not mark the pointer as inside the next one.
+            guard displayedTarget != nil else { return .noChange }
             pointerInPanel = true
             if case .closing(let target, _) = phase { phase = .open(target) }
             return .noChange
@@ -129,6 +131,7 @@ struct WindowPreviewHoverMachine: Equatable {
             switch phase {
             case .arming(let target, let deadline) where now + Self.tolerance >= deadline:
                 phase = .open(target)
+                pointerInPanel = false
                 return .show(target)
             case .closing(_, let deadline) where now + Self.tolerance >= deadline:
                 phase = .idle

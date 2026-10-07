@@ -72,7 +72,11 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
                 do {
                     try await PremiumVisualQA.export(to: URL(fileURLWithPath: directory, isDirectory: true), store: previewStore)
                     print("MyDock render matrix exported")
-                } catch { print("MyDock render failed: \(error)") }
+                } catch {
+                    // A failed validation must fail the run: scripts and reviewers read the exit status.
+                    FileHandle.standardError.write(Data("MyDock render failed: \(error)\n".utf8))
+                    exit(1)
+                }
                 NSApplication.shared.terminate(nil)
             }
             return
@@ -129,7 +133,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         if let existing = NSRunningApplication.runningApplications(withBundleIdentifier: Product.bundleIdentifier)
             .first(where: { $0.processIdentifier < currentPID }) {
             abortingDuplicateLaunch = true
-            existing.activate(options: [.activateIgnoringOtherApps])
+            AppActivation.activate(existing)
             NSApplication.shared.terminate(nil)
             return
         }
@@ -212,6 +216,16 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard sender === windows["workspace"] else { return true }
         return store.editSessions.resolveBeforeQuitting(action: "Close")
+    }
+
+    /// A closed window keeps no SwiftUI graph (store subscriptions, timers, live previews); showWindow builds
+    /// a fresh one when it opens again.
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, windows.values.contains(where: { $0 === window }) else { return }
+        Task { @MainActor in
+            guard !window.isVisible else { return }
+            window.contentView = nil
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -382,6 +396,11 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         menu.items.last?.target = self
         menu.addItem(NSMenuItem(title: "About \(Product.name)", action: #selector(openAbout(_:)), keyEquivalent: ""))
         menu.items.last?.target = self
+        // After setup MyDock is an accessory app with no menu bar, so Help lives here too.
+        menu.addItem(NSMenuItem(title: "What's New in \(Product.name)", action: #selector(openWhatsNew(_:)), keyEquivalent: ""))
+        menu.items.last?.target = self
+        menu.addItem(NSMenuItem(title: "Keyboard Shortcuts", action: #selector(openKeyboardShortcuts(_:)), keyEquivalent: ""))
+        menu.items.last?.target = self
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit \(Product.name)", action: #selector(quit(_:)), keyEquivalent: "q"))
         menu.items.last?.target = self
@@ -402,17 +421,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         if profile.kind == .custom {
             store.activate(id)
         } else {
-            Task { @MainActor in
-                do {
-                    try await NativeDockController.shared.apply(profile)
-                    store.recordAppliedNativeProfile(id)
-                } catch {
-                    let alert = NSAlert()
-                    alert.messageText = "Could not switch the macOS Dock"
-                    alert.informativeText = error.localizedDescription
-                    alert.runModal()
-                }
-            }
+            NativeDockSwitcher.apply(profile, store: store)
         }
     }
 
@@ -446,6 +455,8 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     @objc private func openAbout(_ sender: Any?) {
         showWindow(id: "about", title: "About \(Product.name)", root: AboutView(onReplaySetup: { [weak self] in self?.showOnboarding() }), size: NSSize(width: 420, height: 360))
     }
+    @objc private func openWhatsNew(_ sender: Any?) { showWhatsNew() }
+    @objc private func openKeyboardShortcuts(_ sender: Any?) { showKeyboardShortcutsFromMenu() }
     @objc private func quit(_ sender: Any?) { NSApplication.shared.terminate(nil) }
 
     private func showManager(_ sender: Any?) {
@@ -454,7 +465,8 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
 
     private func showWorkspace() {
-        if let window = windows["workspace"] {
+        // A window that is open (or minimized) keeps its view state; a closed one released its content.
+        if let window = windows["workspace"], window.contentView != nil {
             window.makeKeyAndOrderFront(nil)
             NSApplication.shared.activate(ignoringOtherApps: true)
             return
@@ -484,7 +496,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             window.backgroundColor = NSColor.windowBackgroundColor
             window.hasShadow = true
             window.minSize = id == "workspace" ? NSSize(width: 780, height: 600) : size
-            if id == "workspace" { window.delegate = self }
+            window.delegate = self
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: root.modifier(MyDockInterfaceStyle()))
             window.center()

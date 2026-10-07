@@ -114,6 +114,8 @@ final class DockWindowPreviewController {
     }
 
     func pointerInPanel(_ inside: Bool) {
+        // AppKit sends no exit when a panel is ordered out under the pointer; ignore enters while it fades out.
+        if inside && !isPanelVisible { return }
         apply(machine.handle(inside ? .enterPanel : .exitPanel, at: now))
     }
 

@@ -14,6 +14,8 @@ final class WindowAccessibilityObservation: @unchecked Sendable, Hashable {
         CFEqual(lhs.element, rhs.element)
     }
     func hash(into hasher: inout Hasher) { hasher.combine(CFHash(element)) }
+    /// Stable for one native window for as long as its app runs, unlike its index or title.
+    var nativeHash: UInt { UInt(CFHash(element)) }
 }
 
 struct DockWindowDescriptor: Identifiable, Hashable, Sendable {
@@ -27,11 +29,57 @@ struct DockWindowDescriptor: Identifiable, Hashable, Sendable {
     var rawTitle: String? = nil
     var applicationIdentity: NativeApplicationIdentity? = nil
     var accessibilityObservation: WindowAccessibilityObservation? = nil
+    /// Set only when two different windows of one app share an AX hash, to keep their ids unique.
+    var identityCollisionIndex: Int? = nil
 
     var identityTitle: String { rawTitle ?? title }
+    /// The sampled AX object identifies the window, so focusing, reordering or retitling windows keeps
+    /// their ids. `windowIndex` and the title are a fallback only for descriptors without an observation.
     var id: String {
         let lifetime = applicationIdentity.map { $0.launchDate.map { String($0.timeIntervalSince1970) } ?? "unknown" } ?? "legacy"
-        return "\(processID)-\(lifetime)-\(accessibilityIdentifier ?? "\(windowIndex):\(identityTitle)")"
+        let window = accessibilityIdentifier
+            ?? accessibilityObservation.map { "ax\($0.nativeHash)" + (identityCollisionIndex.map { ":\($0)" } ?? "") }
+            ?? "\(windowIndex):\(identityTitle)"
+        return "\(processID)-\(lifetime)-\(window)"
+    }
+}
+
+enum WindowIdentityPolicy {
+    /// Distinct windows whose AX hashes collide fall back to their index, so ids stay unique within a sample.
+    static func disambiguated(_ windows: [DockWindowDescriptor]) -> [DockWindowDescriptor] {
+        var result = windows
+        let groups = Dictionary(grouping: result.indices.filter { result[$0].accessibilityObservation != nil }) {
+            result[$0].accessibilityObservation?.nativeHash ?? 0
+        }
+        for indices in groups.values where indices.count > 1 {
+            for index in indices { result[index].identityCollisionIndex = result[index].windowIndex }
+        }
+        return result
+    }
+}
+
+/// One background window sample. Apps that were slow or not reached before the deadline are listed,
+/// so the monitor keeps their previous windows instead of dropping their tiles for a cycle.
+struct WindowAccessibilitySample: Sendable {
+    var windows: [DockWindowDescriptor]
+    var incompleteProcessIDs: Set<pid_t> = []
+}
+
+enum WindowSampleMerge {
+    static func merged(previous: [DockWindowDescriptor], sample: WindowAccessibilitySample) -> [DockWindowDescriptor] {
+        guard !sample.incompleteProcessIDs.isEmpty else { return ordered(sample.windows) }
+        let sampledProcesses = Set(sample.windows.map(\.processID))
+        let retained = previous.filter {
+            sample.incompleteProcessIDs.contains($0.processID) && !sampledProcesses.contains($0.processID)
+        }
+        return ordered(sample.windows + retained)
+    }
+
+    static func ordered(_ windows: [DockWindowDescriptor]) -> [DockWindowDescriptor] {
+        windows.sorted {
+            let order = $0.applicationName.localizedCaseInsensitiveCompare($1.applicationName)
+            return order == .orderedSame ? $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending : order == .orderedAscending
+        }
     }
 }
 
@@ -148,21 +196,24 @@ enum WindowAccessibilityService {
         return observedWindows(for: app, identity: identity, deadline: Date.now.addingTimeInterval(timeLimit))
     }
 
-    static func windows() -> [DockWindowDescriptor] {
-        guard AppRuntimeEnvironment.allowsNativeEffects, AXIsProcessTrusted() else { return [] }
+    static func windows() -> WindowAccessibilitySample {
+        guard AppRuntimeEnvironment.allowsNativeEffects, AXIsProcessTrusted() else { return WindowAccessibilitySample(windows: []) }
         var result: [DockWindowDescriptor] = []
+        var incomplete = Set<pid_t>()
         let deadline = Date.now.addingTimeInterval(2)
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && !app.isTerminated {
-            if Task.isCancelled || Date.now >= deadline { break }
+            if Task.isCancelled || Date.now >= deadline {
+                incomplete.insert(app.processIdentifier)
+                continue
+            }
             guard let identity = NativeApplicationIdentity.observing(app) else { continue }
-            if case .available(let windows) = observedWindows(for: app, identity: identity, deadline: deadline) {
-                result += windows
+            switch observedWindows(for: app, identity: identity, deadline: deadline) {
+            case .available(let windows): result += windows
+            case .unavailable: incomplete.insert(identity.processID)
+            case .permissionRequired, .applicationUnavailable: break
             }
         }
-        return result.sorted {
-            let order = $0.applicationName.localizedCaseInsensitiveCompare($1.applicationName)
-            return order == .orderedSame ? $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending : order == .orderedAscending
-        }
+        return WindowAccessibilitySample(windows: WindowSampleMerge.ordered(result), incompleteProcessIDs: incomplete)
     }
 
     private static func observedWindows(for app: NSRunningApplication, identity: NativeApplicationIdentity, deadline: Date) -> WindowDiscoveryResult {
@@ -189,7 +240,7 @@ enum WindowAccessibilityService {
         }
         guard !Task.isCancelled, Date.now < deadline else { return .unavailable }
         guard currentApplication(matches: identity) != nil else { return .applicationUnavailable }
-        return .available(result)
+        return .available(WindowIdentityPolicy.disambiguated(result))
     }
 
     @discardableResult
@@ -217,8 +268,14 @@ enum WindowAccessibilityService {
     static func activate(_ descriptor: DockWindowDescriptor) {
         guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         Task { @MainActor in
-            let restored = await Task.detached(priority: .userInitiated) { activateSynchronously(descriptor) }.value
-            if !restored, AppRuntimeEnvironment.allowsNativeEffects {
+            let restored = await Task.detached(priority: .userInitiated) { restoreSynchronously(descriptor) }.value
+            if restored, let identity = descriptor.applicationIdentity, let app = currentApplication(matches: identity) {
+                // Unminimizing and raising select the window; bringing its app forward is best effort,
+                // since macOS may decline a cooperative activation request.
+                AppActivation.activate(app)
+                return
+            }
+            if AppRuntimeEnvironment.allowsNativeEffects {
                 let alert = NSAlert()
                 alert.messageText = "Window unavailable"
                 alert.informativeText = "MyDock could not identify this window uniquely or the app did not respond. Open the app and choose its window directly, then try again."
@@ -268,12 +325,16 @@ enum WindowAccessibilityService {
         guard !Task.isCancelled,
               let index = WindowRestoreIdentity.uniqueIndex(sameObject),
               currentApplication(matches: identity) != nil else { return nil }
+        // Elements read from an attribute do not inherit the application's timeout; a hung app
+        // must not hold a window action for the 6 s default.
+        AXUIElementSetMessagingTimeout(windows[index], 0.2)
         return windows[index]
     }
 
-    private static func activateSynchronously(_ descriptor: DockWindowDescriptor) -> Bool {
+    /// Unminimizes and raises the window. Activating its app happens on the main actor afterwards.
+    private static func restoreSynchronously(_ descriptor: DockWindowDescriptor) -> Bool {
         guard let window = resolvedWindow(descriptor), let identity = descriptor.applicationIdentity,
-              let app = currentApplication(matches: identity) else { return false }
+              currentApplication(matches: identity) != nil else { return false }
         var minimizedValue: CFTypeRef?
         _ = AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedValue)
         guard isTrusted(), currentApplication(matches: identity) != nil else { return false }
@@ -281,10 +342,8 @@ enum WindowAccessibilityService {
             guard AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse) == .success else { return false }
         }
         let raised = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
-        guard currentApplication(matches: identity) != nil else { return false }
-        let activated = app.activate(options: [.activateIgnoringOtherApps])
         // Application activation alone is not successful window selection.
-        return raised && activated
+        return raised && currentApplication(matches: identity) != nil
     }
 
     /// Untitled windows are common (no title attribute value). Only a failed or
@@ -326,12 +385,12 @@ final class WindowAccessibilityMonitor: ObservableObject {
     private var retainsPreviews = false
     private var previewRetentionPolicyApplied = false
     private let previewCache: WindowPreviewDiskCache
-    private let sampleWindows: @MainActor () async -> [DockWindowDescriptor]
+    private let sampleWindows: @MainActor () async -> WindowAccessibilitySample
     private let captureWindows: @MainActor ([DockWindowDescriptor], Set<String>) async -> WindowPreviewBatch
     private let canCapture: @MainActor () -> Bool
 
     init(previewCache: WindowPreviewDiskCache? = nil,
-         sampleWindows: @escaping @MainActor () async -> [DockWindowDescriptor] = {
+         sampleWindows: @escaping @MainActor () async -> WindowAccessibilitySample = {
              let worker = Task.detached(priority: .utility) { WindowAccessibilityService.windows() }
              return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
          },
@@ -412,7 +471,13 @@ final class WindowAccessibilityMonitor: ObservableObject {
             let sampled = await sampler()
             guard let self, !Task.isCancelled, self.sampleGeneration == generation, self.wantsMonitor else { return }
             self.sampleTask = nil
-            if self.windows != sampled { self.windows = sampled }
+            let merged = WindowSampleMerge.merged(previous: self.windows, sample: sampled)
+            // Without previews only minimized windows matter (they are the Dock tiles), so title churn in
+            // other windows publishes nothing. Previews also need the visible windows they capture.
+            if self.windows != merged,
+               self.wantsPreviews || self.windows.filter(\.isMinimized) != merged.filter(\.isMinimized) {
+                self.windows = merged
+            }
             self.refreshPreviews()
         }
     }

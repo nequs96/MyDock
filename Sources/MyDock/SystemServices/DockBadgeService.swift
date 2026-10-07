@@ -61,7 +61,12 @@ enum DockBadgeReader {
             var childrenValue: CFTypeRef?
             guard AXUIElementCopyAttributeValue(current.element, kAXChildrenAttribute as CFString, &childrenValue) == .success,
                   let children = childrenValue as? [AXUIElement] else { continue }
-            pending.append(contentsOf: children.map { ($0, current.depth + 1) })
+            for child in children {
+                // Children do not inherit the application element's timeout; a stalled Dock must not hold
+                // each read for the 6 s default.
+                AXUIElementSetMessagingTimeout(child, 0.1)
+                pending.append((element: child, depth: current.depth + 1))
+            }
         }
         return DockBadgeValuePolicy.badges(from: entries)
     }

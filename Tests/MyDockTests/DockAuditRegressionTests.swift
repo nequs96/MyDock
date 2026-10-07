@@ -323,7 +323,7 @@ struct DockAuditRegressionTests {
         let window = previewWindow(title: "Document")
         let gate = AuditCaptureGate()
         let monitor = WindowAccessibilityMonitor(
-            previewCache: WindowPreviewDiskCache(directoryURL: directory), sampleWindows: { [window] },
+            previewCache: WindowPreviewDiskCache(directoryURL: directory), sampleWindows: { WindowAccessibilitySample(windows: [window]) },
             captureWindows: { _, _ in await gate.capture() }, canCapture: { true })
         defer { monitor.setEnabled(false) }
         monitor.setEnabled(true, previewsEnabled: true)
@@ -345,7 +345,7 @@ struct DockAuditRegressionTests {
         var window = previewWindow(title: "Old document")
         let gate = AuditCaptureGate()
         let monitor = WindowAccessibilityMonitor(
-            previewCache: WindowPreviewDiskCache(directoryURL: directory), sampleWindows: { [window] },
+            previewCache: WindowPreviewDiskCache(directoryURL: directory), sampleWindows: { WindowAccessibilitySample(windows: [window]) },
             captureWindows: { _, _ in await gate.capture() }, canCapture: { true })
         defer { monitor.setEnabled(false) }
         monitor.setEnabled(true, previewsEnabled: true)
@@ -365,7 +365,7 @@ struct DockAuditRegressionTests {
         var allowed = true
         let gate = AuditCaptureGate()
         let monitor = WindowAccessibilityMonitor(
-            previewCache: WindowPreviewDiskCache(directoryURL: directory), sampleWindows: { [window] },
+            previewCache: WindowPreviewDiskCache(directoryURL: directory), sampleWindows: { WindowAccessibilitySample(windows: [window]) },
             captureWindows: { _, _ in await gate.capture() }, canCapture: { allowed })
         defer { monitor.setEnabled(false) }
         monitor.setEnabled(true, previewsEnabled: true)

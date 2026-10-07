@@ -138,7 +138,7 @@ struct SystemWorkspaceLauncher: WorkspaceLaunching {
 
     func activate(_ item: DockItem) -> Bool {
         guard AppRuntimeEnvironment.allowsNativeEffects, let app = AppLauncher.runningApplication(for: item) else { return false }
-        return app.activate(options: [.activateIgnoringOtherApps])
+        return AppActivation.activate(app)
     }
 
     func open(_ item: DockItem) async -> String? {

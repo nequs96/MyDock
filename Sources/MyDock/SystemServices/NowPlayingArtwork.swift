@@ -65,8 +65,12 @@ enum NowPlayingArtwork {
         }
     }
 
-    @MainActor
     static func thumbnail(from data: Data) -> NSImage? {
+        decodedThumbnail(from: data)?.image
+    }
+
+    /// Decodes and downsamples on any thread: CGImageSource and the resulting CGImage are thread-safe.
+    static func decodedThumbnail(from data: Data) -> NowPlayingDecodedArtwork? {
         guard !data.isEmpty, data.count <= maximumLocalBytes,
               let source = CGImageSourceCreateWithData(data as CFData, nil),
               CGImageSourceGetCount(source) > 0,
@@ -82,8 +86,14 @@ enum NowPlayingArtwork {
             kCGImageSourceShouldCacheImmediately: true
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-        return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+        return NowPlayingDecodedArtwork(cgImage: image)
     }
+}
+
+/// Carries a decoded thumbnail from a worker back to the main actor. A CGImage is immutable.
+struct NowPlayingDecodedArtwork: @unchecked Sendable {
+    let cgImage: CGImage
+    var image: NSImage { NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height)) }
 }
 
 private final class NoArtworkRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable {

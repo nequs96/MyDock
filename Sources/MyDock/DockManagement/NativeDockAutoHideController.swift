@@ -172,7 +172,7 @@ final class NativeDockAutoHideController: ObservableObject {
     }
 
     private func verify(expected: NativeDockVisibilitySettings) throws {
-        guard try backend.readVisibilitySettings() == expected else { throw NativeDockError.verificationFailed }
+        guard try backend.readVisibilitySettings() == expected else { throw NativeDockError.visibilityNotApplied }
     }
 }
 

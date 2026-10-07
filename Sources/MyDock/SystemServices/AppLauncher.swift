@@ -3,6 +3,25 @@ import AppKit
 @MainActor
 enum AppLauncher {
     private static let icons: NSCache<NSString, NSImage> = { let cache = NSCache<NSString, NSImage>(); cache.countLimit = 256; return cache }()
+    private struct IconTargetKey: Hashable {
+        var type: DockItemType
+        var url: URL?
+        var bundleIdentifier: String?
+    }
+    /// Tile bodies ask for icons at frame rate during magnification; resolving the target (a stat, and for a
+    /// moved app Launch Services plus two file reads) once every couple of seconds is enough for an icon.
+    private static var iconTargets: [IconTargetKey: (url: URL?, resolvedAt: Date)] = [:]
+    static let iconTargetLifetime: TimeInterval = 2
+
+    static func iconTargetURL(for item: DockItem, now: Date = .now) -> URL? {
+        let key = IconTargetKey(type: item.type, url: item.url, bundleIdentifier: item.bundleIdentifier)
+        if let cached = iconTargets[key], now.timeIntervalSince(cached.resolvedAt) >= 0,
+           now.timeIntervalSince(cached.resolvedAt) < iconTargetLifetime { return cached.url }
+        let url = resolvedURL(for: item)
+        if iconTargets.count >= 512 { iconTargets.removeAll(keepingCapacity: true) }
+        iconTargets[key] = (url, now)
+        return url
+    }
     static func resolvedURL(for item: DockItem) -> URL? {
         // Keep the selected installed copy/version. Bundle-ID resolution is a
         // relocation fallback, never a reason to substitute another live bundle.
@@ -160,7 +179,7 @@ enum AppLauncher {
             image.size = NSSize(width: size, height: size)
             return image
         }
-        if let url = resolvedURL(for: item), url.isFileURL {
+        if let url = iconTargetURL(for: item), url.isFileURL {
             let day = item.bundleIdentifier == "com.apple.iCal" ? String(Calendar.current.ordinality(of: .day, in: .era, for: .now) ?? 0) : ""
             // Cache the source image, not every fractional size during a resize.
             let key = "\(url.path)|\(day)" as NSString

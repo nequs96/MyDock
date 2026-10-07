@@ -43,6 +43,8 @@ final class TrashStatus: ObservableObject {
     private let allowsNativeEffects: Bool
     /// Test seam: number of filesystem watches attempted by this instance.
     private(set) var watchAttemptCount = 0
+    /// Test seam: a filesystem watch is attached to the Trash folder.
+    var isWatching: Bool { source != nil }
     private var source: DispatchSourceFileSystemObject?
     private var refreshTask: Task<Void, Never>?
     private var fallbackRefreshTask: Task<Void, Never>?
@@ -120,17 +122,25 @@ final class TrashStatus: ObservableObject {
             queue: .main
         )
         watcher.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if source?.data.contains(.delete) == true || source?.data.contains(.rename) == true {
-                    source?.cancel(); source = nil; scheduleFallbackRefresh()
-                }
-                refresh()
+            // The source targets the main queue, and its event mask is valid only while this handler runs.
+            MainActor.assumeIsolated {
+                guard let self, let events = self.source?.data else { return }
+                self.handleWatchEvents(events)
             }
         }
         watcher.setCancelHandler { close(descriptor) }
         source = watcher
         watcher.resume()
+    }
+
+    private func handleWatchEvents(_ events: DispatchSource.FileSystemEvent) {
+        if events.contains(.delete) || events.contains(.rename) {
+            // The watched folder was replaced; poll until a new one can be watched.
+            source?.cancel()
+            source = nil
+            scheduleFallbackRefresh()
+        }
+        refresh()
     }
 
     private func scheduleFallbackRefresh() {
@@ -155,7 +165,8 @@ enum TrashActions {
 
     static func emptyTrash() async throws {
         do {
-            _ = try await BoundedAutomationRunner.run("tell application id \"com.apple.finder\" to empty trash")
+            // An explicit action: Finder may be deleting many items or waiting for the Automation consent prompt.
+            _ = try await BoundedAutomationRunner.run("tell application id \"com.apple.finder\" to empty trash", timeout: 120)
         } catch {
             throw TrashActionError.failed(TrashCopy.emptyFailureMessage(for: error))
         }
@@ -177,6 +188,9 @@ enum TrashCopy {
     /// The automation runner reports every non-zero osascript exit the same way, so describe the likely causes without claiming one.
     static func emptyFailureMessage(for error: Error) -> String {
         if let known = error as? TrashActionError, case let .failed(message) = known { return message }
+        if (error as? BoundedSubprocessCaptureError) == .timedOut {
+            return "Finder is still working. Check the Trash in a moment."
+        }
         if let automation = error as? AutomationError {
             if automation == .permissionDenied {
                 return "MyDock is not allowed to control Finder. Turn on Automation for MyDock \u{2192} Finder in System Settings \u{2192} Privacy & Security \u{2192} Automation, then try again."

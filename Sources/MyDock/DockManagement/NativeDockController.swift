@@ -36,7 +36,11 @@ enum NativeDockError: LocalizedError {
     case preferencesUnavailable
     case missingApplication(String)
     case unsupportedItem(String)
-    case verificationFailed
+    case dockDidNotSettle
+    case visibilityNotApplied
+    case dockRestartFailed
+    /// The change failed and the previous layout is back; carries the failure's description.
+    case restoredAfterFailure(String)
     case rollbackFailed(original: String, rollback: String)
     case interruptedTransaction
     case changedSinceInterruption
@@ -46,8 +50,11 @@ enum NativeDockError: LocalizedError {
         case .preferencesUnavailable: "The current macOS Dock layout could not be read or saved."
         case .missingApplication(let title): "The application “\(title)” is missing or no longer accessible."
         case .unsupportedItem(let title): "“\(title)” cannot be stored in a macOS Dock profile."
-        case .verificationFailed: "The macOS Dock did not settle on the requested profile. The previous layout was restored."
-        case .rollbackFailed(let original, let rollback): "Dock apply failed (\(original)); restoring the previous Dock also failed (\(rollback))."
+        case .dockDidNotSettle: "The macOS Dock did not show the expected layout."
+        case .visibilityNotApplied: "The macOS Dock did not keep the requested visibility settings."
+        case .dockRestartFailed: "The macOS Dock could not be restarted."
+        case .restoredAfterFailure(let reason): "\(reason) The previous layout was restored."
+        case .rollbackFailed(let original, let rollback): "The Dock change failed (\(original)); restoring the previous Dock also failed (\(rollback))."
         case .interruptedTransaction: "An interrupted Dock change could not be recovered. The saved recovery data remains available for the next launch."
         case .changedSinceInterruption: "An earlier Dock change was interrupted, and the Dock has changed since, so it was not restored automatically. Restore Previous Dock returns to the layout from before that change."
         }
@@ -157,12 +164,30 @@ final class FileDockTransactionJournal: DockTransactionJournal {
 
 @MainActor
 final class ProcessDockRelauncher: DockRelaunching {
+    private static let dockBundleIdentifier = "com.apple.dock"
+
+    /// Returns once a new Dock process has finished launching and had a moment to load its preferences
+    /// (bounded), so verification reads what the relaunched Dock kept and a switch freeze lasts until it draws.
     func restartDock() async throws {
         try AppRuntimeEnvironment.requireNativeEffects()
+        let previousProcessID = Self.runningDock()?.processIdentifier
         let output = try await BoundedSubprocessCapture.runCancellable(executableURL: URL(fileURLWithPath: "/usr/bin/killall"),
             arguments: ["Dock"], maximumOutputBytes: 4_096, maximumErrorBytes: 4_096, timeout: 5)
         let status = output.terminationStatus
-        guard status == 0 else { throw NativeDockError.preferencesUnavailable }
+        guard status == 0 else { throw NativeDockError.dockRestartFailed }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while ContinuousClock.now < deadline {
+            if let dock = Self.runningDock(), dock.processIdentifier != previousProcessID, dock.isFinishedLaunching {
+                try await Task.sleep(for: .milliseconds(300))
+                return
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        // launchd normally relaunches the Dock well within the deadline; verification decides either way.
+    }
+
+    private static func runningDock() -> NSRunningApplication? {
+        NSRunningApplication.runningApplications(withBundleIdentifier: dockBundleIdentifier).first { !$0.isTerminated }
     }
 }
 
@@ -179,6 +204,10 @@ final class NativeDockController: ObservableObject {
     private let journal: DockTransactionJournal
     private let freezeProvider: DockSwitchFreezeProviding
     private let gate: DockSystemOperationGate
+    private let verifyAttempts: Int
+    private let verifyInterval: Duration
+    /// The newest `applyLatest` request; older requests still waiting for the gate give way to it.
+    private var latestRequest: UUID?
     private let logger = Logger(subsystem: Product.bundleIdentifier, category: "native-dock")
     @Published private(set) var health: NativeDockHealth = .ready
     @Published private(set) var recoveryError: String?
@@ -189,12 +218,16 @@ final class NativeDockController: ObservableObject {
          relauncher: DockRelaunching = ProcessDockRelauncher(),
          journal: DockTransactionJournal = FileDockTransactionJournal(),
          freezeProvider: DockSwitchFreezeProviding = NoDockSwitchFreezeProvider(),
-         gate: DockSystemOperationGate = .shared) {
+         gate: DockSystemOperationGate = .shared,
+         verifyAttempts: Int = 20,
+         verifyInterval: Duration = .milliseconds(250)) {
         self.backend = backend
         self.relauncher = relauncher
         self.journal = journal
         self.freezeProvider = freezeProvider
         self.gate = gate
+        self.verifyAttempts = max(1, verifyAttempts)
+        self.verifyInterval = verifyInterval
         do {
             if try journal.pendingSnapshot() != nil { health = .recoveryRequired; recoveryError = NativeDockError.interruptedTransaction.localizedDescription }
         } catch { health = .recoveryRequired; recoveryError = error.localizedDescription }
@@ -210,8 +243,25 @@ final class NativeDockController: ObservableObject {
     }
 
     func apply(_ profile: DockProfile) async throws {
+        _ = try await apply(profile, onlyIfLatest: nil)
+    }
+
+    /// For quick successive picks (menus): a request that is no longer the newest when its turn comes
+    /// returns false without touching the Dock, so only the last pick restarts it.
+    @discardableResult
+    func applyLatest(_ profile: DockProfile) async throws -> Bool {
+        let request = UUID()
+        latestRequest = request
+        return try await apply(profile, onlyIfLatest: request)
+    }
+
+    private func apply(_ profile: DockProfile, onlyIfLatest request: UUID?) async throws -> Bool {
         guard profile.kind == .native else { throw NativeDockError.unsupportedItem(profile.name) }
         await gate.acquire()
+        if let request, request != latestRequest {
+            await gate.release()
+            return false
+        }
         DiagnosticsService.shared.record(.nativeApplyStarted)
         do {
             // Cancelled requests waiting behind another Dock transaction must
@@ -225,6 +275,7 @@ final class NativeDockController: ObservableObject {
             try await transact(nextTiles, snapshot: snapshot, profileID: profile.id)
             health = .ready
             await gate.release()
+            return true
         } catch {
             DiagnosticsService.shared.record(.nativeApplyFailed)
             recordRecoveryFailureIfNeeded(error)
@@ -316,7 +367,8 @@ final class NativeDockController: ObservableObject {
                 throw NativeDockError.rollbackFailed(original: originalError, rollback: error.localizedDescription)
             }
             if let freezeSession { freezeProvider.end(freezeSession) }
-            throw error
+            if error is CancellationError { throw error }
+            throw NativeDockError.restoredAfterFailure(originalError)
         }
     }
 
@@ -334,19 +386,19 @@ final class NativeDockController: ObservableObject {
     }
 
     private func verify(expectedSignatures: [String]) async throws {
-        for attempt in 0..<20 {
+        for attempt in 0..<verifyAttempts {
             if NativeDockSerializer.signatures(from: try backend.readCurrentTiles()) == expectedSignatures { return }
-            if attempt < 19 { try await Task.sleep(for: .milliseconds(250)) }
+            if attempt < verifyAttempts - 1 { try await Task.sleep(for: verifyInterval) }
         }
-        throw NativeDockError.verificationFailed
+        throw NativeDockError.dockDidNotSettle
     }
 
     private func verify(snapshot: [[String: Any]]) async throws {
-        for attempt in 0..<20 {
+        for attempt in 0..<verifyAttempts {
             if NativeDockSerializer.plistArraysEqual(try backend.readCurrentTiles(), snapshot) { return }
-            if attempt < 19 { try await Task.sleep(for: .milliseconds(250)) }
+            if attempt < verifyAttempts - 1 { try await Task.sleep(for: verifyInterval) }
         }
-        throw NativeDockError.verificationFailed
+        throw NativeDockError.dockDidNotSettle
     }
 }
 
@@ -366,8 +418,14 @@ enum NativeDockSerializer {
         }
     }
 
+    /// An app already in the Dock keeps its own tile (GUID and metadata). A new app gets a fresh tile with
+    /// only the documented keys, never another app's metadata.
     static func tiles(for items: [DockItem], using snapshot: [[String: Any]]) throws -> [[String: Any]] {
-        let template = snapshot.first { $0["tile-type"] as? String == "file-tile" }
+        var existingTiles: [String: [String: Any]] = [:]
+        for tile in snapshot where tile["tile-type"] as? String == "file-tile" {
+            guard let path = applicationPath(of: tile), existingTiles[path] == nil else { continue }
+            existingTiles[path] = tile
+        }
         return try items.map { item in
             switch item.type {
             case .spacer:
@@ -377,7 +435,9 @@ enum NativeDockSerializer {
                 guard let url = item.url, url.isFileURL, FileManager.default.fileExists(atPath: url.path) else {
                     throw NativeDockError.missingApplication(item.title)
                 }
-                return try applicationTile(item, url: url, template: template)
+                // Each existing tile is reused once, so a duplicated app never shares a GUID.
+                let existing = existingTiles.removeValue(forKey: url.standardizedFileURL.path)
+                return try applicationTile(item, url: url, existing: existing)
             default:
                 throw NativeDockError.unsupportedItem(item.title)
             }
@@ -415,12 +475,23 @@ enum NativeDockSerializer {
         (lhs as NSArray).isEqual(to: rhs)
     }
 
-    private static func applicationTile(_ item: DockItem, url: URL, template: [String: Any]?) throws -> [String: Any] {
+    private static func applicationPath(of tile: [String: Any]) -> String? {
+        guard let tileData = tile["tile-data"] as? [String: Any],
+              let fileData = tileData["file-data"] as? [String: Any],
+              let rawURL = fileData["_CFURLString"] as? String,
+              let url = URL(string: rawURL), url.isFileURL else { return nil }
+        return url.standardizedFileURL.path
+    }
+
+    /// Dock-authored GUIDs fit in 32 bits.
+    static func newTileGUID() -> Int { Int(UInt32.random(in: 1...UInt32.max)) }
+
+    private static func applicationTile(_ item: DockItem, url: URL, existing: [String: Any]?) throws -> [String: Any] {
         let bookmark: Data
         do { bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) }
         catch { throw NativeDockError.missingApplication(item.title) }
 
-        var tile = template ?? ["tile-type": "file-tile", "GUID": Int.random(in: 1..<Int.max)]
+        var tile = existing ?? ["tile-type": "file-tile", "GUID": newTileGUID()]
         var tileData = tile["tile-data"] as? [String: Any] ?? [:]
         var fileData = tileData["file-data"] as? [String: Any] ?? [:]
         fileData["_CFURLString"] = url.standardizedFileURL.absoluteString
@@ -434,9 +505,30 @@ enum NativeDockSerializer {
         if tileData["parent-mod-date"] == nil { tileData["parent-mod-date"] = 0 }
         if tileData["dock-extra"] == nil { tileData["dock-extra"] = false }
         if tileData["is-beta"] == nil { tileData["is-beta"] = false }
-        tile["GUID"] = Int.random(in: 1..<Int.max)
+        if tile["GUID"] == nil { tile["GUID"] = newTileGUID() }
         tile["tile-data"] = tileData
         tile["tile-type"] = "file-tile"
         return tile
+    }
+}
+
+/// Applies a native Dock picked from a menu. Quick successive picks write only the newest one, and a
+/// failure alert comes forward even though MyDock runs as an accessory app.
+@MainActor
+enum NativeDockSwitcher {
+    static func apply(_ profile: DockProfile, store: ProfileStore) {
+        Task { @MainActor in
+            do {
+                guard try await NativeDockController.shared.applyLatest(profile) else { return }
+                store.recordAppliedNativeProfile(profile.id)
+            } catch {
+                guard AppRuntimeEnvironment.allowsNativeEffects else { return }
+                let alert = NSAlert()
+                alert.messageText = "Could not switch the macOS Dock"
+                alert.informativeText = error.localizedDescription
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
+        }
     }
 }
