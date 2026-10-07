@@ -606,7 +606,7 @@ final class ProfileStore: ObservableObject {
 
     private func cancelScheduledNotifications(for item: DockItem) {
         switch item.widgetKind {
-        case "Hydration": HydrationReminderService.cancel(itemID: item.id, operationID: UUID())
+        case "Hydration": HydrationReminderService.cancel(itemID: item.id)
         case "Countdown": CountdownNotificationService.cancel(itemID: item.id)
         case "Alarm": AlarmNotificationService.cancelAll(widgetID: item.id,
                                                           alarms: item.widgetConfiguration?.alarms ?? [])

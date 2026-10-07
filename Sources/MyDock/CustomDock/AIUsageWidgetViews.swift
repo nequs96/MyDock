@@ -125,7 +125,6 @@ private struct AILimitsPopoutView: View {
     @State private var activeRefreshTask: Task<AILimitsSnapshot, Never>?
     @Environment(\.widgetPopoutShowsHero) private var showsHero
     @State private var showsSettings = false
-    @State private var copiedClaudeStatusLineCommand = false
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var orderedProviders: [AIProvider] {
@@ -261,25 +260,6 @@ private struct AILimitsPopoutView: View {
                 Text("Open " + reading.provider.title + " to set up local readings.")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
                     .help(reading.provider.setupInstructions)
-                if let command = reading.provider.statusLineSetupCommand {
-                    HStack {
-                        Button("Copy statusLine value") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(command, forType: .string)
-                            copiedClaudeStatusLineCommand = true
-                        }
-                        if copiedClaudeStatusLineCommand {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                        }
-                        if let url = URL(string: "https://code.claude.com/docs/en/statusline") {
-                            Link("Status line docs", destination: url)
-                        }
-                    }
-                    .font(DockDesign.Grouped.subtitleFont)
-                    Text("Merge with any existing statusLine command.")
-                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
-                        .help("Merge this file-writing step into the existing Claude Code statusLine command to preserve its terminal display.")
-                }
             }
         }
 

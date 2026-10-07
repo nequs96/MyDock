@@ -180,7 +180,7 @@ private struct StripePopoutView: View {
             }
         }
         .help(
-            "Grant read-only Account, Balance, Balance Transactions, and Subscriptions access. MyDock never requests write access. An unfinished form stays in memory for this widget until connected or cleared; its key is never written to profile data or backups."
+            "Grant read-only \(StripeAPIKeyStore.requiredReadAccess) access. MyDock never requests write access. An unfinished form stays in memory for this widget until connected or cleared; its key is never written to profile data or backups."
         )
     }
 

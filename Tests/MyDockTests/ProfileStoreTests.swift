@@ -2294,11 +2294,6 @@ struct ProfileStoreTests {
         let reading = try await ClaudeStatusLineLimitAdapter(homeDirectory: home).read(now: now)
         #expect(reading.availability == .available)
         #expect(reading.windows.first?.usedPercent == 24)
-
-        let commandValue = try #require(AIProvider.claude.statusLineSetupCommand)
-        let shellCommand = try JSONDecoder().decode(String.self, from: Data(commandValue.utf8))
-        #expect(shellCommand.contains("mydock-rate-limits.json"))
-        #expect(shellCommand.contains("rate_limits"))
     }
 
     @Test func codexActivityCountsUsageDeltasAndActiveSessionDaysWithoutRetainingTranscript() throws {

@@ -46,10 +46,39 @@ struct IntegrationKeychainItem: Sendable {
         guard status == errSecSuccess || status == errSecItemNotFound else { throw failure(status) }
     }
 
+    func readData(credential: String) throws -> Data? {
+        try readData(failure: { IntegrationKeychainError(credential: credential, operation: .read, status: $0) })
+    }
+
+    func write(_ data: Data, credential: String) throws {
+        try write(data, failure: { IntegrationKeychainError(credential: credential, operation: .write, status: $0) })
+    }
+
+    func delete(credential: String) throws {
+        try delete(failure: { IntegrationKeychainError(credential: credential, operation: .delete, status: $0) })
+    }
+
     private var baseQuery: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: Self.service,
          kSecAttrAccount as String: account]
+    }
+}
+
+/// A Keychain failure for one integration credential, worded for the operation that failed.
+struct IntegrationKeychainError: LocalizedError, Equatable {
+    enum Operation: Sendable { case read, write, delete }
+    /// The credential as the start of a sentence, such as "The Stripe key".
+    let credential: String
+    let operation: Operation
+    let status: OSStatus
+
+    var errorDescription: String? {
+        switch operation {
+        case .read: "\(credential) could not be read from Keychain (\(status)). Save it again to reconnect."
+        case .write: "\(credential) could not be saved in Keychain (\(status))."
+        case .delete: "\(credential) could not be removed from Keychain (\(status))."
+        }
     }
 }
 

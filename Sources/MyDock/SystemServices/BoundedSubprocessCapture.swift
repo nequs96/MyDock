@@ -80,6 +80,9 @@ private struct SubprocessDeadline {
     var isExpired: Bool { DispatchTime.now().uptimeNanoseconds >= uptimeNanoseconds }
 
     func pollTimeoutMilliseconds() -> Int32 {
+        // Without a deadline (an interactive shortcut can wait on the user) a slow tick is enough: cancelling
+        // terminates the child, and its closed pipe wakes poll at once.
+        if uptimeNanoseconds == .max { return 1_000 }
         let now = DispatchTime.now().uptimeNanoseconds
         guard uptimeNanoseconds > now else { return 0 }
         let remaining = uptimeNanoseconds - now

@@ -7,6 +7,17 @@ enum BoundedHTTPFetchError: Error, Equatable {
     case invalidLimit
 }
 
+extension BoundedHTTPFetchError {
+    /// User-facing copy for a failed transfer from `provider`, such as "Stripe".
+    func message(provider: String) -> String {
+        switch self {
+        case .deadlineExceeded: "\(provider) took too long to respond. Try again later."
+        case .tooLarge: "\(provider) sent a response larger than MyDock accepts."
+        case .notHTTP, .invalidLimit: "\(provider) returned data MyDock could not read. Try again later."
+        }
+    }
+}
+
 /// Streams a response and stops as soon as the byte limit is exceeded, so an oversized
 /// body is never fully allocated. Callers keep their own host restrictions and timeouts.
 enum BoundedHTTPFetch {

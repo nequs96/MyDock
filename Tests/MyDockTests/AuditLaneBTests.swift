@@ -148,16 +148,46 @@ struct AuditLaneBFaviconTests {
         return try #require(context.makeImage())
     }
 
-    @Test func largestFrameIsUsedWhenTheSmallestIsListedFirst() throws {
+    private func encoded(_ type: String, sides: [Int]) throws -> Data {
         let data = NSMutableData()
-        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.tiff.identifier as CFString, 2, nil))
-        CGImageDestinationAddImage(destination, try image(side: 16), nil)
-        CGImageDestinationAddImage(destination, try image(side: 64), nil)
+        let destination = try #require(CGImageDestinationCreateWithData(data, type as CFString, sides.count, nil))
+        for side in sides { CGImageDestinationAddImage(destination, try image(side: side), nil) }
         #expect(CGImageDestinationFinalize(destination))
-        let png = try #require(SiteFaviconFetcher.normalizedPNG(from: data as Data))
+        return data as Data
+    }
+
+    @Test func largestFrameIsUsedWhenTheSmallestIsListedFirst() throws {
+        // A favicon.ico that lists 16 px before 64 px.
+        let png = try #require(SiteFaviconFetcher.normalizedPNG(from: try encoded("com.microsoft.ico", sides: [16, 64])))
         let source = try #require(CGImageSourceCreateWithData(png as CFData, nil))
         let properties = try #require(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
         #expect((properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue == 64)
+    }
+
+    // S03-017: only icon formats reach ImageIO's decoders.
+    @Test func formatsOutsideTheIconAllowlistAreRefused() throws {
+        #expect(SiteFaviconFetcher.normalizedPNG(from: try encoded(UTType.tiff.identifier, sides: [32])) == nil)
+        #expect(SiteFaviconFetcher.normalizedPNG(from: try encoded(UTType.png.identifier, sides: [32])) != nil)
+    }
+
+    // S03-017: a connection that reached a private address after DNS rebinding is recognised.
+    @Test func connectedAddressLiteralsArePublicOnlyWhenRoutable() {
+        #expect(SiteFaviconFetcher.isPublicAddressLiteral("93.184.216.34"))
+        #expect(SiteFaviconFetcher.isPublicAddressLiteral("2606:2800:220:1:248:1893:25c8:1946"))
+        for address in ["127.0.0.1", "10.0.0.5", "192.168.1.2", "169.254.1.1", "::1", "fe80::1%en0", "fd00::1", "example.com", ""] {
+            #expect(!SiteFaviconFetcher.isPublicAddressLiteral(address))
+        }
+    }
+
+    // S03-018: the fixture transport goes through the production response checks.
+    @Test func responseChecksAreSharedByBothTransports() {
+        let url = URL(string: "https://fixture.example.org/favicon.ico")!
+        func response(_ status: Int, _ type: String) -> HTTPURLResponse {
+            HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": type])!
+        }
+        #expect(SiteFaviconFetcher.accepts(response(200, "image/x-icon")))
+        #expect(!SiteFaviconFetcher.accepts(response(404, "image/x-icon")))
+        #expect(!SiteFaviconFetcher.accepts(response(200, "text/html")))
     }
 }
 
@@ -546,5 +576,301 @@ struct AuditLaneBAppFolderTests {
         #expect(decoded == application && decoded.id == application.id)
         let keys = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(application)) as? [String: Any]).keys
         #expect(!keys.contains("id"))
+    }
+}
+
+// MARK: - Part 2: provider copy and Keychain wording (S03-014, S03-015, S03-016)
+
+private final class LaneBStatusProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        // Weather searches are throttled; anything else returns an oversized body.
+        let throttled = request.url?.host == "geocoding-api.open-meteo.com"
+        let data = throttled ? Data("{}".utf8) : Data(repeating: 0x20, count: 1_000_001)
+        let response = HTTPURLResponse(url: request.url!, statusCode: throttled ? 429 : 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private func laneBFixtureSession() -> URLSession {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [LaneBStatusProtocol.self]
+    return URLSession(configuration: configuration)
+}
+
+struct AuditLaneBProviderCopyTests {
+    @Test func keychainFailuresNameTheOperationThatFailed() {
+        let read = IntegrationKeychainError(credential: "The Stripe key", operation: .read, status: -25293)
+        #expect(read.errorDescription?.hasPrefix("The Stripe key could not be read from Keychain") == true)
+        #expect(IntegrationKeychainError(credential: "The Stripe key", operation: .write, status: -25293)
+            .errorDescription?.contains("could not be saved") == true)
+        #expect(IntegrationKeychainError(credential: "The Stripe key", operation: .delete, status: -25293)
+            .errorDescription?.contains("could not be removed") == true)
+        #expect(ShopifyDataError.corruptCredential.errorDescription?.contains("Reconnect this Shopify store in Connections") == true)
+        #expect(ShopifyDataError.corruptCredential != ShopifyDataError.invalidResponse)
+    }
+
+    @Test func transferFailuresAreNotReportedAsUnreadableData() {
+        #expect(StripeDataError.transfer(.deadlineExceeded).errorDescription == "Stripe took too long to respond. Try again later.")
+        #expect(PaddleDataError.transfer(.tooLarge).errorDescription?.contains("larger than MyDock accepts") == true)
+        #expect(ShopifyDataError.transfer(.notHTTP).errorDescription?.contains("could not read") == true)
+        #expect(MarketDataError.transfer(.deadlineExceeded).errorDescription?.hasPrefix("Alpha Vantage took too long") == true)
+        #expect(StripeDataError.missingPermission.errorDescription?.contains(StripeAPIKeyStore.requiredReadAccess) == true)
+        #expect(CurrentLocationError.busy.errorDescription != WeatherServiceError.serviceUnavailable.errorDescription)
+        #expect(CurrentLocationError.servicesDisabled.errorDescription?.contains("Location Services") == true)
+    }
+
+    @Test func weatherThrottlingAndUndecodableDataHaveTheirOwnErrors() async throws {
+        let session = laneBFixtureSession()
+        defer { session.invalidateAndCancel() }
+        await #expect(throws: WeatherServiceError.rateLimited) {
+            _ = try await OpenMeteoWeatherProvider(session: session).searchLocations("Fixture City")
+        }
+        let location = WeatherLocation(id: "c", name: "Warsaw", administrativeArea: nil, country: "Poland",
+                                       latitude: 52, longitude: 21, timeZoneIdentifier: "Europe/Warsaw")
+        #expect(throws: WeatherServiceError.malformedResponse) {
+            _ = try OpenMeteoWeatherProvider.decodeForecast(Data(#"{"current":{}}"#.utf8), location: location)
+        }
+    }
+
+    @Test func copilotBodyOverTheLimitIsReportedAsTooLarge() async throws {
+        let session = laneBFixtureSession()
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await GitHubCopilotBillingClient.read(credentials: .init(username: "fixture", token: "synthetic"),
+                                                         monthlyAllowance: 100, session: session)
+            Issue.record("An oversized body was accepted")
+        } catch GitHubCopilotBillingError.responseTooLarge {
+        } catch {
+            Issue.record("Unexpected error \(error)")
+        }
+    }
+
+    @Test @MainActor func unchangedShopifyCredentialStillRefusesARemovedConnection() throws {
+        try #require(AppRuntimeEnvironment.isIsolated)
+        let credential = ShopifyCredential(clientID: "app", clientSecret: "secret", accessToken: "token", tokenExpiresAt: .distantFuture)
+        let storeID = "lane-b-unregistered-" + UUID().uuidString
+        // Skipping the Keychain for an unchanged token keeps the removed-connection guard.
+        #expect(throws: EditSessionSaveError.self) {
+            try ShopifyCredentialStore.writeRefreshed(credential, replacing: credential, storeID: storeID)
+        }
+        var refreshed = credential
+        refreshed.accessToken = "new-token"
+        #expect(throws: (any Error).self) {
+            try ShopifyCredentialStore.writeRefreshed(refreshed, replacing: credential, storeID: storeID)
+        }
+    }
+}
+
+// MARK: - Part 2: weather hours (S03-019)
+
+struct AuditLaneBWeatherTests {
+    @Test func nullHourlyValuesSkipOnlyThoseHours() throws {
+        let location = WeatherLocation(id: "c", name: "Warsaw", administrativeArea: nil, country: "Poland",
+                                       latitude: 52, longitude: 21, timeZoneIdentifier: "Europe/Warsaw")
+        let payload = Data(#"{"current":{"temperature_2m":18,"relative_humidity_2m":50,"apparent_temperature":18,"precipitation":0,"weather_code":1,"is_day":1,"wind_speed_10m":4},"hourly":{"time":[1727193600,1727197200,1727200800,1727204400],"temperature_2m":[18,null,19,20],"precipitation_probability":[null,10,20,30],"weather_code":[1,2,null,3]}}"#.utf8)
+        let forecast = try OpenMeteoWeatherProvider.decodeForecast(payload, location: location)
+        #expect(forecast.hourly.map(\.temperature) == [18, 20])
+        #expect(forecast.hourly.first?.precipitationProbability == nil)
+        #expect(forecast.hourly.last?.precipitationProbability == 30)
+    }
+}
+
+// MARK: - Part 2: AI readers (S04-013, S04-020, S04-021, S04-023, S04-024)
+
+struct AuditLaneBAIPart2Tests {
+    @Test func windowTitlesAgreeAcrossProviders() throws {
+        #expect(AILimitWindow.title(forDurationMinutes: 10_080) == "7 days")
+        #expect(AILimitWindow.title(forDurationMinutes: 300) == "5 hours")
+        #expect(AILimitWindow.title(forDurationMinutes: 1_440) == "1 day")
+        let response = Data(#"{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":31,"windowDurationMins":300},"secondary":{"usedPercent":12,"windowDurationMins":10080}}}}"#.utf8)
+        let names = try CodexRateLimitParser.reading(from: response).windows.map(\.name)
+        #expect(names.contains { $0.hasSuffix("· 7 days") })
+        #expect(!names.contains { $0.contains("Weekly") })
+    }
+
+    @Test func tokenSumsSaturateInsteadOfTrapping() {
+        var total = AIUsageDomain.maximumTokens - 5
+        total.addClampedTokens(1_000_000_000_000)
+        #expect(total == AIUsageDomain.maximumTokens)
+        var huge = Int64.max - 1
+        huge.addClampedTokens(Int64.max)
+        #expect(huge == AIUsageDomain.maximumTokens)
+        var small: Int64 = 10
+        small.addClampedTokens(5)
+        #expect(small == 15)
+    }
+
+    @Test func serverRequestWithOurIdIsNotTakenAsTheReplyAndClosedStderrIsIgnored() throws {
+        let fixture = try laneBExecutable("""
+        #!/bin/sh
+        exec 2>&-
+        IFS= read -r initialize || exit 3
+        printf '{"id":1,"result":{"userAgent":"fixture"}}\\n'
+        IFS= read -r initialized || exit 4
+        IFS= read -r request || exit 5
+        printf '{"id":2,"method":"item/requestApproval","params":{}}\\n'
+        printf '{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":31,"windowDurationMins":300}}}}\\n'
+        IFS= read -r finish
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let started = Date()
+        let response = try CodexAccountRPC.request(executable: fixture.executable, method: "account/rateLimits/read", timeout: 5)
+        #expect(try CodexRateLimitParser.reading(from: response).windows.first?.remainingPercent == 69)
+        #expect(Date().timeIntervalSince(started) < 5)
+    }
+
+    @Test func symlinkedClaudeSettingsAreExplainedAndRewritesKeepSlashes() throws {
+        let directory = laneBTemporary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settings = directory.appendingPathComponent("settings.json")
+        let target = directory.appendingPathComponent("dotfiles-settings.json")
+        try Data(#"{"theme":"dark"}"#.utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(at: settings, withDestinationURL: target)
+        #expect(throws: ClaudeLimitsSetupError.symlinkedSettings) { try ClaudeLimitsSetup.enable(directory: directory) }
+        #expect(try Data(contentsOf: target) == Data(#"{"theme":"dark"}"#.utf8))
+
+        try FileManager.default.removeItem(at: settings)
+        try Data(#"{"theme":"dark"}"#.utf8).write(to: settings)
+        try ClaudeLimitsSetup.enable(directory: directory)
+        let text = try String(contentsOf: settings, encoding: .utf8)
+        #expect(text.contains("/usr/bin/plutil"))
+        #expect(!text.contains("\\/"))
+    }
+}
+
+// MARK: - Part 2: notifications (S04-014, S04-017, S04-019)
+
+@MainActor
+private final class LaneBStatusAlarmClient: AlarmNotificationClient {
+    var status: UNAuthorizationStatus
+    var added: [UNNotificationRequest] = []
+    init(status: UNAuthorizationStatus) { self.status = status }
+    func authorizationStatus() async -> UNAuthorizationStatus { status }
+    func requestAuthorization() async throws -> Bool { false }
+    func add(_ request: UNNotificationRequest) async throws { added.append(request) }
+    func pendingIdentifiers() async -> [String] { added.map(\.identifier) }
+    func deliveredIdentifiers() async -> [String] { [] }
+    func removePending(_ identifiers: [String]) { added.removeAll { identifiers.contains($0.identifier) } }
+    func removeDelivered(_ identifiers: [String]) {}
+}
+
+struct AuditLaneBNotificationTests {
+    @Test func oneTimeAlarmInASkippedHourKeepsItsHourTheNextDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "America/New_York"))
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 4)))
+        let next = try #require(AlarmSchedule.nextFireDate(hour: 2, minute: 30, now: now, calendar: calendar))
+        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: next)
+        #expect(parts.year == 2026 && parts.month == 3 && parts.day == 9)
+        #expect(parts.hour == 2 && parts.minute == 30)
+    }
+
+    @Test func provisionalDeliveryCountsAsAuthorizedEverywhere() {
+        #expect(NotificationAuthorization.isDeliverable(.authorized))
+        #expect(NotificationAuthorization.isDeliverable(.provisional))
+        #expect(!NotificationAuthorization.isDeliverable(.denied))
+        #expect(!NotificationAuthorization.isDeliverable(.notDetermined))
+        #expect(AlarmNotificationError.permissionDenied.errorDescription == NotificationAuthorization.deniedMessage)
+        #expect(HydrationReminderError.permissionDenied.errorDescription == NotificationAuthorization.deniedMessage)
+    }
+
+    @Test @MainActor func alarmSchedulesUnderProvisionalAuthorization() async throws {
+        let widget = UUID(), operation = UUID()
+        let alarm = DockAlarm(title: "Quiet", hour: 7, minute: 0, repeatWeekdays: [2], isEnabled: true)
+        let client = LaneBStatusAlarmClient(status: .provisional)
+        AlarmNotificationService.begin(widgetID: widget, alarmID: alarm.id, operationID: operation)
+        try await AlarmNotificationService.schedule(widgetID: widget, alarm: alarm, operationID: operation, client: client)
+        #expect(client.added.count == 1)
+        AlarmNotificationService.cancelOperation(widgetID: widget, alarmID: alarm.id, operationID: operation, client: client)
+    }
+
+    @Test func endingAnItemForgetsItsOperation() {
+        var policy = WidgetNotificationGenerationPolicy()
+        let item = UUID(), operation = UUID()
+        policy.begin(itemID: item, operationID: operation)
+        #expect(policy.isCurrent(itemID: item, operationID: operation))
+        policy.end(itemID: item)
+        #expect(!policy.isCurrent(itemID: item, operationID: operation))
+        #expect(policy.currentOperationByItem.isEmpty)
+    }
+
+    @Test func hydrationIntervalIsClampedToTheSupportedRangeOnDecode() throws {
+        func decoded(_ minutes: Int) throws -> Int {
+            try JSONDecoder().decode(WidgetConfiguration.self, from: Data(#"{"hydrationReminderIntervalMinutes":\#(minutes)}"#.utf8))
+                .hydrationReminderIntervalMinutes
+        }
+        #expect(try decoded(15) == 30)
+        #expect(try decoded(600) == 240)
+        #expect(try decoded(90) == 90)
+        #expect(WidgetConfiguration().hydrationReminderIntervalMinutes == 60)
+    }
+}
+
+// MARK: - Part 2: Shortcuts (S04-015)
+
+@MainActor
+struct AuditLaneBShortcutTests {
+    @Test func shortcutNameStartingWithADashIsPassedAfterTheOptionTerminator() async throws {
+        let directory = laneBTemporary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let command = directory.appendingPathComponent("fake-shortcuts")
+        let script = """
+        #!/bin/sh
+        [ "$1" = run ] && [ "$2" = -- ] && [ "$3" = -Morning ] && exit 0
+        echo "unexpected $*" >&2
+        exit 7
+
+        """
+        try script.write(to: command, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: command.path)
+        let service = ShortcutExecutionService(commandURL: command, requiresNativeEffects: false)
+        try service.run("-Morning")
+        let deadline = Date().addingTimeInterval(6)
+        while service.isRunning("-Morning"), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(service.statusByShortcut["-Morning"] == ShortcutRunMessages.completed())
+    }
+
+    @Test func catalogFailureDetailIsBoundedToTwoShortLines() {
+        let noisy = Data((["first line", "second line"] + Array(repeating: String(repeating: "x", count: 500), count: 300))
+            .joined(separator: "\n").utf8)
+        let detail = ShortcutRunMessages.detail(from: noisy)
+        #expect(detail.hasPrefix("first line second line"))
+        #expect(detail.count <= ShortcutRunMessages.maximumDetailCharacters + 1)
+        #expect(ShortcutRunMessages.detail(from: Data()) == "")
+    }
+}
+
+// MARK: - Part 2: next meeting (S04-022)
+
+struct AuditLaneBNextMeetingTests {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private func event(_ id: String, start: TimeInterval, end: TimeInterval, free: Bool = false) -> CalendarEventSnapshot {
+        CalendarEventSnapshot(id: id, title: id, startDate: now.addingTimeInterval(start), endDate: now.addingTimeInterval(end),
+                              isAllDay: false, calendarID: "A", calendarTitle: "A", meetingURL: nil, isFree: free)
+    }
+
+    @Test func imminentMeetingBeatsALongBlockThatStartedEarlier() {
+        let focus = event("focus", start: -2 * 3_600, end: 2 * 3_600)
+        let call = event("call", start: 5 * 60, end: 35 * 60)
+        #expect(NextMeeting.next(from: [focus, call], now: now)?.id == "call")
+        // Further away, the ongoing block still leads.
+        let later = event("later", start: 40 * 60, end: 70 * 60)
+        #expect(NextMeeting.next(from: [focus, later], now: now)?.id == "focus")
+        // A meeting that started recently stays ahead of the next one.
+        let standUp = event("stand-up", start: -5 * 60, end: 10 * 60)
+        #expect(NextMeeting.next(from: [focus, standUp, call], now: now)?.id == "stand-up")
+    }
+
+    @Test func freeEventsAreNeverTheNextMeeting() {
+        let workingLocation = event("home", start: -60, end: 8 * 3_600, free: true)
+        let review = event("review", start: 3_600, end: 5_400)
+        #expect(NextMeeting.next(from: [workingLocation, review], now: now)?.id == "review")
+        #expect(NextMeeting.next(from: [workingLocation], now: now) == nil)
     }
 }

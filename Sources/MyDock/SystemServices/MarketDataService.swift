@@ -17,6 +17,7 @@ enum MarketDataError: LocalizedError {
     case providerLimit
     case providerFailure
     case httpStatus(Int)
+    case transfer(BoundedHTTPFetchError)
 
     var errorDescription: String? {
         switch self {
@@ -26,6 +27,7 @@ enum MarketDataError: LocalizedError {
         case .providerLimit: "Alpha Vantage's request limit was reached. Try again later or review your plan."
         case .providerFailure: "Alpha Vantage could not find data for this request. Check the ticker and try again."
         case .httpStatus(let code): "Market data is temporarily unavailable (HTTP \(code))."
+        case .transfer(let error): error.message(provider: "Alpha Vantage")
         }
     }
 }
@@ -52,8 +54,8 @@ struct URLSessionMarketDataTransport: MarketDataTransport {
         let result: (data: Data, response: HTTPURLResponse)
         do {
             result = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 5_000_000)
-        } catch is BoundedHTTPFetchError {
-            throw MarketDataError.invalidResponse
+        } catch let error as BoundedHTTPFetchError {
+            throw MarketDataError.transfer(error)
         }
         guard (200..<300).contains(result.response.statusCode) else { throw MarketDataError.httpStatus(result.response.statusCode) }
         return result.data
@@ -174,24 +176,19 @@ enum MarketDataParser {
 
 enum MarketAPIKeyStore {
     private static let item = IntegrationKeychainItem(account: "alphavantage")
+    private static let credentialName = "The Alpha Vantage key"
 
     static func read() throws -> String? {
-        guard let data = try item.readData(failure: KeychainError.init) else { return nil }
-        guard let value = String(data: data, encoding: .utf8) else { throw KeychainError(errSecDecode) }
+        guard let data = try item.readData(credential: credentialName) else { return nil }
+        guard let value = String(data: data, encoding: .utf8) else { throw IntegrationKeychainError(credential: credentialName, operation: .read, status: errSecDecode) }
         return value
     }
 
     static func write(_ value: String) throws {
-        try item.write(Data(value.utf8), failure: KeychainError.init)
+        try item.write(Data(value.utf8), credential: credentialName)
     }
 
     static func delete() throws {
-        try item.delete(failure: KeychainError.init)
-    }
-
-    private struct KeychainError: LocalizedError {
-        var status: OSStatus
-        init(_ status: OSStatus) { self.status = status }
-        var errorDescription: String? { "The Alpha Vantage key could not be saved in Keychain (\(status))." }
+        try item.delete(credential: credentialName)
     }
 }

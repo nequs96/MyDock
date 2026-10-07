@@ -111,6 +111,8 @@ struct AIAccountConnectionView: View {
             limitsEnabled = true
             message = "Limits sync enabled. Start or restart Claude Code and use it once to receive limits."
             Task { await refresh() }
+        } catch let error as ClaudeLimitsSetupError {
+            message = error.localizedDescription
         } catch { message = "Could not update Claude Code settings. Your existing settings were preserved." }
     }
 
@@ -120,6 +122,8 @@ struct AIAccountConnectionView: View {
             limitsEnabled = false
             message = "Limits sync is off. Claude Code’s previous status line is restored."
             Task { await refresh() }
+        } catch let error as ClaudeLimitsSetupError {
+            message = error.localizedDescription
         } catch { message = "Could not update Claude Code settings. Your existing settings were preserved." }
     }
 

@@ -108,6 +108,8 @@ enum CodexAccountRPC {
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
         var pending = Data()
         var receivedBytes = 0
+        // After stderr reaches end of file it stays readable (POLLHUP), so it leaves the poll set.
+        var errorOpen = true
         func send(_ request: [String: Any]) throws {
             var data = try JSONSerialization.data(withJSONObject: request)
             data.append(0x0A)
@@ -122,13 +124,15 @@ enum CodexAccountRPC {
                 while let newline = pending.firstIndex(of: 0x0A) {
                     let line = Data(pending[..<newline])
                     pending.removeSubrange(...newline)
-                    if let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any], json["id"] as? Int == id {
+                    // A response carries our id and a result or error; a server request reusing the id has a method.
+                    if let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any], json["id"] as? Int == id,
+                       json["method"] == nil, json["result"] != nil || json["error"] != nil {
                         if let error = json["error"], !(error is NSNull) { throw usageError(forRPCError: error) }
                         return line
                     }
                 }
                 var descriptors = [pollfd(fd: fd, events: Int16(POLLIN | POLLHUP), revents: 0),
-                                   pollfd(fd: errorFD, events: Int16(POLLIN | POLLHUP), revents: 0)]
+                                   pollfd(fd: errorOpen ? errorFD : -1, events: Int16(POLLIN | POLLHUP), revents: 0)]
                 let result = poll(&descriptors, 2, 50)
                 if result < 0 && errno != EINTR { throw AIUsageError.codexResponseInvalid }
                 for index in descriptors.indices where descriptors[index].revents & Int16(POLLIN | POLLHUP) != 0 {
@@ -140,6 +144,8 @@ enum CodexAccountRPC {
                     } else if count == 0 && index == 0 {
                         // The server closed its output before replying: it exited or does not speak this protocol.
                         throw AIUsageError.codexAppServerUnsupported
+                    } else if count == 0 {
+                        errorOpen = false
                     }
                 }
             }

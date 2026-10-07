@@ -110,6 +110,8 @@ struct CalendarEventSnapshot: Identifiable, Hashable, Sendable {
     var location: String? = nil
     /// True only when EventKit lists the current user as a participant who declined; nil when it reports no status (never guessed).
     var declinedByCurrentUser: Bool? = nil
+    /// The event is marked Free (EventKit availability), such as a focus block or working location. Runtime-only.
+    var isFree: Bool = false
 
     var timeDescription: String {
         if isAllDay { return "All day" }
@@ -235,7 +237,8 @@ actor CalendarRemindersService {
                     meetingURL: MeetingLinkDetector.link(url: event.url, location: event.location),
                     calendarColor: CalendarColorSnapshot(cgColor: event.calendar.cgColor),
                     location: event.location,
-                    declinedByCurrentUser: event.attendees?.first(where: { $0.isCurrentUser }).map { $0.participantStatus == .declined }
+                    declinedByCurrentUser: event.attendees?.first(where: { $0.isCurrentUser }).map { $0.participantStatus == .declined },
+                    isFree: event.availability == .free
                 )
             }
         guard hasFullAccess(to: .event) else { throw CalendarRemindersServiceError.accessDenied }

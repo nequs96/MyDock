@@ -50,10 +50,23 @@ enum NextMeeting {
             && (calendarIDs.isEmpty || calendarIDs.contains($0.calendarID)) }
     }
 
-    /// Ongoing beats upcoming; all-day events are never "next".
+    /// An ongoing event that started longer ago than this yields to one about to start.
+    static let longOngoingThreshold: TimeInterval = 30 * 60
+    /// How soon an upcoming event must start to take over from a long ongoing one.
+    static let imminentWindow: TimeInterval = 15 * 60
+
+    /// Ongoing beats upcoming, except that a meeting starting within `imminentWindow` beats a block (Focus,
+    /// Working from home) that began more than `longOngoingThreshold` ago. All-day and Free events are never "next".
     static func next(from events: [CalendarEventSnapshot], calendarIDs: [String] = [], now: Date) -> CalendarEventSnapshot? {
-        relevant(events, calendarIDs: calendarIDs, now: now).filter { !$0.isAllDay }
-            .sorted { CalendarEventOrdering.precedes($0, $1, now: now) }.first
+        let ordered = relevant(events, calendarIDs: calendarIDs, now: now).filter { !$0.isAllDay && !$0.isFree }
+            .sorted { CalendarEventOrdering.precedes($0, $1, now: now) }
+        let ongoing = ordered.filter { isOngoing($0, now: now) }
+        if let recent = ongoing.first(where: { now.timeIntervalSince($0.startDate) <= longOngoingThreshold }) { return recent }
+        if !ongoing.isEmpty,
+           let imminent = ordered.first(where: { !isOngoing($0, now: now) && $0.startDate.timeIntervalSince(now) <= imminentWindow }) {
+            return imminent
+        }
+        return ordered.first
     }
 
     /// All-day events that cover today in `calendar`, for one quiet line.

@@ -7,7 +7,7 @@ enum AlarmNotificationError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .permissionDenied: "Notification access is disabled. Enable alerts for MyDock in System Settings to schedule alarms."
+        case .permissionDenied: NotificationAuthorization.deniedMessage
         case .invalidTime: "MyDock couldn't calculate the next time for this alarm."
         }
     }
@@ -22,13 +22,13 @@ enum AlarmSchedule {
         guard (0...23).contains(hour), (0...59).contains(minute) else { return nil }
         let weekdays = Set(repeatWeekdays.filter { (1...7).contains($0) })
         if weekdays.isEmpty {
-            var components = calendar.dateComponents([.year, .month, .day], from: now)
-            components.hour = hour
-            components.minute = minute
-            components.second = 0
-            guard let today = calendar.date(from: components) else { return nil }
-            if today > now { return today }
-            return calendar.date(byAdding: .day, value: 1, to: today)
+            // Matching rather than building today's date keeps a time inside a skipped DST hour on its own hour:
+            // only the transition day itself moves to the next existing time.
+            return calendar.nextDate(after: now,
+                                     matching: DateComponents(hour: hour, minute: minute, second: 0),
+                                     matchingPolicy: .nextTime,
+                                     repeatedTimePolicy: .first,
+                                     direction: .forward)
         }
         let matches = weekdays.compactMap { weekday in
             calendar.nextDate(after: now,
@@ -117,7 +117,7 @@ enum AlarmNotificationService {
                 guard try await client.requestAuthorization() else {
                     throw AlarmNotificationError.permissionDenied
                 }
-            } else if authorization != .authorized {
+            } else if !NotificationAuthorization.isDeliverable(authorization) {
                 throw AlarmNotificationError.permissionDenied
             }
             guard isCurrent(widgetID: widgetID, alarmID: alarm.id, operationID: operationID) else { return }
@@ -239,7 +239,7 @@ enum AlarmNotificationService {
                 let configuration = item.widgetConfiguration ?? WidgetConfiguration()
                 let stale = configuration.alarms.filter { alarm in
                     guard alarm.isEnabled else { return false }
-                    return authorization != .authorized || !isScheduled(widgetID: item.id, alarm: alarm, pending: pendingIdentifiers)
+                    return !NotificationAuthorization.isDeliverable(authorization) || !isScheduled(widgetID: item.id, alarm: alarm, pending: pendingIdentifiers)
                 }
                 for alarm in stale {
                     store.updateWidgetConfiguration(itemID: item.id, in: profile.id) { configuration in

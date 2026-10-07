@@ -60,7 +60,7 @@ enum ProfileSemanticValidator {
         guard config.noteText.utf8.count <= 1_048_576,
               config.hydrationEntries.count <= 50_000,
               (1...20_000).contains(config.hydrationDefaultAmountML),
-              (1...1_440).contains(config.hydrationReminderIntervalMinutes),
+              WidgetConfiguration.hydrationReminderIntervalRange.contains(config.hydrationReminderIntervalMinutes),
               config.hydrationEntries.allSatisfy({ $0.amountML.map { (1...20_000).contains($0) } ?? true }),
               Set(config.hydrationEntries.map(\.id)).count == config.hydrationEntries.count else {
             throw ProfileValidationError.invalid("note or hydration history exceeds supported limits")

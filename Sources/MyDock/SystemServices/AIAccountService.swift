@@ -49,28 +49,16 @@ enum AIAccountService {
         return home.appendingPathComponent(".claude", isDirectory: true)
     }
 
-    static func parseStatus(provider: AIProvider, output: BoundedSubprocessOutput) -> AIAccountStatus {
-        if provider == .claude {
-            guard let json = try? JSONSerialization.jsonObject(with: output.standardOutput) as? [String: Any],
-                  let loggedIn = json["loggedIn"] as? Bool else {
-                return .init(state: .unavailable, message: "Could not check Claude Code. Update Claude Code, then try again.")
-            }
-            let directory = (json["configDirectory"] as? String).flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
-            return .init(state: loggedIn ? .signedIn : .signedOut,
-                         message: loggedIn ? "Using the Claude Code account on this Mac" : "Sign in to Claude Code to connect this widget",
-                         configurationDirectory: directory)
+    /// Reads `claude auth status` JSON. Only fixed messages are displayed, never CLI output that could contain account details.
+    static func parseClaudeStatus(_ output: BoundedSubprocessOutput) -> AIAccountStatus {
+        guard let json = try? JSONSerialization.jsonObject(with: output.standardOutput) as? [String: Any],
+              let loggedIn = json["loggedIn"] as? Bool else {
+            return .init(state: .unavailable, message: "Could not check Claude Code. Update Claude Code, then try again.")
         }
-        let text = String(decoding: output.standardOutput + output.standardError, as: UTF8.self).lowercased()
-        // Only display a fixed status, never CLI output that could contain account details.
-        if output.terminationStatus == 0 && text.contains("logged in") {
-            return .init(state: .signedIn, message: text.contains("api key")
-                         ? "An API key is connected. Subscription limits require a ChatGPT account."
-                         : "Using the Codex account on this Mac")
-        }
-        if text.contains("not logged in") || text.contains("logged out") {
-            return .init(state: .signedOut, message: "Sign in with ChatGPT to connect this widget")
-        }
-        return .init(state: .unavailable, message: "Could not check Codex. Open Codex, then try again.")
+        let directory = (json["configDirectory"] as? String).flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
+        return .init(state: loggedIn ? .signedIn : .signedOut,
+                     message: loggedIn ? "Using the Claude Code account on this Mac" : "Sign in to Claude Code to connect this widget",
+                     configurationDirectory: directory)
     }
 
     /// The same check off the Swift-concurrency pool; cancelling the task stops a Codex check.
@@ -93,11 +81,10 @@ enum AIAccountService {
                                                            cancellation: cancellation)
                 return try parseCodexAccount(response)
             }
-            let output = try BoundedSubprocessCapture.run(executableURL: executable,
-                arguments: provider == .codex ? ["login", "status"] : ["auth", "status"],
+            let output = try BoundedSubprocessCapture.run(executableURL: executable, arguments: ["auth", "status"],
                 maximumOutputBytes: 64_000, maximumErrorBytes: 16_000, timeout: 8,
                 currentDirectoryURL: FileManager.default.homeDirectoryForCurrentUser)
-            return parseStatus(provider: provider, output: output)
+            return parseClaudeStatus(output)
         } catch AIUsageError.codexAppServerUnsupported {
             return .init(state: .unavailable, message: "This Codex version cannot report its account. Update Codex, then try again.")
         } catch {
@@ -134,6 +121,15 @@ enum AIAccountService {
         try Data(source.utf8).write(to: script, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
         guard NSWorkspace.shared.open(script) else { throw CocoaError(.executableNotLoadable) }
+    }
+}
+
+enum ClaudeLimitsSetupError: LocalizedError, Equatable {
+    /// settings.json is a symbolic link, which MyDock never rewrites.
+    case symlinkedSettings
+
+    var errorDescription: String? {
+        "Claude Code’s settings.json is a link, for example from a dotfiles repository. MyDock does not change linked settings; add the limits bridge to the linked file yourself."
     }
 }
 
@@ -277,6 +273,8 @@ enum ClaudeLimitsSetup {
 
     /// The settings file's bytes, or nil when there is none. A symlink, non-file or oversized file is refused.
     private static func readSettings(at url: URL) throws -> Data? {
+        // Checked first: fileExists follows links, and an atomic write would replace the link with a file.
+        if (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil { throw ClaudeLimitsSetupError.symlinkedSettings }
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
         guard values.isRegularFile == true, values.isSymbolicLink != true, (values.fileSize ?? Int.max) <= 1_000_000 else { throw CocoaError(.fileReadCorruptFile) }
@@ -284,7 +282,7 @@ enum ClaudeLimitsSetup {
     }
 
     private static func writeSettings(_ root: [String: Any], to url: URL) throws {
-        try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
+        try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]).write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 }

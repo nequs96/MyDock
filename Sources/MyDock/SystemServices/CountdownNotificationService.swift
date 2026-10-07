@@ -8,7 +8,7 @@ enum CountdownNotificationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .permissionDenied:
-            "Notification access is disabled. The countdown will still run, but macOS cannot alert when it finishes. Enable alerts for MyDock in System Settings."
+            "The countdown still runs, but macOS cannot alert when it finishes. " + NotificationAuthorization.deniedMessage
         case .targetExpired:
             "The countdown finished before macOS could schedule its alert. Set a new target to receive a notification."
         }
@@ -31,7 +31,6 @@ enum CountdownNotificationService {
         guard isCurrent(itemID: itemID, operationID: operationID) else { return }
         guard isFutureTarget(fireDate) else { throw CountdownNotificationError.targetExpired }
         try AppRuntimeEnvironment.requireNativeEffects()
-        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let center = UNUserNotificationCenter.current()
         var settings = await center.notificationSettings()
         guard isCurrent(itemID: itemID, operationID: operationID) else { return }
@@ -42,7 +41,7 @@ enum CountdownNotificationService {
             settings = await center.notificationSettings()
             guard isCurrent(itemID: itemID, operationID: operationID) else { return }
         }
-        guard settings.authorizationStatus == .authorized else {
+        guard NotificationAuthorization.isDeliverable(settings.authorizationStatus) else {
             throw CountdownNotificationError.permissionDenied
         }
         guard isFutureTarget(fireDate) else { throw CountdownNotificationError.targetExpired }
@@ -69,7 +68,7 @@ enum CountdownNotificationService {
     }
 
     static func cancel(itemID: UUID) {
-        generations.begin(itemID: itemID, operationID: UUID())
+        generations.end(itemID: itemID)
         let prefix = notificationID(itemID: itemID)
         guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let center = UNUserNotificationCenter.current()

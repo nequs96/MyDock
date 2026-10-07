@@ -215,13 +215,15 @@ enum GitHubCopilotBillingClient {
         guard (200..<300).contains(response.statusCode) else {
             throw GitHubCopilotBillingError.httpStatus(response.statusCode)
         }
-        var data = Data()
-        data.reserveCapacity(16_384)
-        for try await byte in bytes {
-            guard data.count < GitHubCopilotBillingParser.maximumResponseBytes else {
-                throw GitHubCopilotBillingError.responseTooLarge
-            }
-            data.append(byte)
+        let data: Data
+        do {
+            data = try await BoundedHTTPFetch.collect(bytes, expectedLength: response.expectedContentLength,
+                                                      maximumBytes: GitHubCopilotBillingParser.maximumResponseBytes,
+                                                      maximumDuration: 30)
+        } catch BoundedHTTPFetchError.tooLarge {
+            throw GitHubCopilotBillingError.responseTooLarge
+        } catch BoundedHTTPFetchError.deadlineExceeded {
+            throw URLError(.timedOut)
         }
         return try GitHubCopilotBillingParser.reading(from: data,
                                                       username: credentials.username,

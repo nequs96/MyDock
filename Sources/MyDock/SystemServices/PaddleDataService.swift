@@ -94,8 +94,8 @@ struct URLSessionPaddleDataTransport: PaddleDataTransport {
         do {
             let (data, response) = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 5000000)
             return PaddleHTTPResponse(statusCode: response.statusCode, data: data)
-        } catch is BoundedHTTPFetchError {
-            throw PaddleDataError.invalidResponse
+        } catch let error as BoundedHTTPFetchError {
+            throw PaddleDataError.transfer(error)
         }
     }
 }
@@ -110,6 +110,7 @@ enum PaddleDataError: LocalizedError {
     case rateLimited
     case currencyMismatch
     case httpStatus(Int)
+    case transfer(BoundedHTTPFetchError)
 
     var errorDescription: String? {
         switch self {
@@ -122,6 +123,7 @@ enum PaddleDataError: LocalizedError {
         case .rateLimited: "Paddle rate-limited the request. The last successful values are still shown."
         case .currencyMismatch: "Paddle returned metrics in different primary balance currencies. MyDock kept the last successful snapshot."
         case .httpStatus(let code): "Paddle is temporarily unavailable (HTTP \(code))."
+        case .transfer(let error): error.message(provider: "Paddle")
         }
     }
 }
@@ -333,29 +335,25 @@ enum PaddleAPIKeyStore {
     }
 
     static func read(accountID: String) throws -> String? {
-        guard let data = try item(accountID).readData(failure: KeychainError.init) else { return nil }
-        guard let value = String(data: data, encoding: .utf8) else { throw KeychainError(errSecDecode) }
+        guard let data = try item(accountID).readData(credential: credentialName) else { return nil }
+        guard let value = String(data: data, encoding: .utf8) else { throw IntegrationKeychainError(credential: credentialName, operation: .read, status: errSecDecode) }
         return value
     }
 
     static func write(_ value: String, accountID: String) throws {
         try AppRuntimeEnvironment.requireCredentials()
         guard isBillingKey(value) else { throw PaddleDataError.billingKeyRequired }
-        try item(accountID).write(Data(value.utf8), failure: KeychainError.init)
+        try item(accountID).write(Data(value.utf8), credential: credentialName)
     }
 
     static func delete(accountID: String) throws {
-        try item(accountID).delete(failure: KeychainError.init)
+        try item(accountID).delete(credential: credentialName)
     }
+
+    private static let credentialName = "The Paddle key"
 
     private static func item(_ accountID: String) -> IntegrationKeychainItem {
         IntegrationKeychainItem(account: "paddle.\(accountID)")
-    }
-
-    private struct KeychainError: LocalizedError {
-        var status: OSStatus
-        init(_ status: OSStatus) { self.status = status }
-        var errorDescription: String? { "The Paddle key could not be saved in Keychain (\(status))." }
     }
 }
 

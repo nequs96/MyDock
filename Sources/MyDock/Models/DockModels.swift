@@ -526,6 +526,11 @@ struct WidgetConfiguration: Codable, Hashable {
     var hydrationRemindersEnabled: Bool
     var hydrationDefaultAmountML: Int
     var hydrationReminderIntervalMinutes: Int
+    /// The one reminder-interval domain: decoding clamps to it, the validator, the stepper and the scheduler use it.
+    static let hydrationReminderIntervalRange: ClosedRange<Int> = 30...240
+    static func clampedHydrationReminderInterval(_ minutes: Int) -> Int {
+        min(max(minutes, hydrationReminderIntervalRange.lowerBound), hydrationReminderIntervalRange.upperBound)
+    }
     var hydrationEntries: [HydrationEntry]
     var hydrationLastRemovedEntry: HydrationEntry?
     var appFolderName: String
@@ -768,7 +773,8 @@ struct WidgetConfiguration: Codable, Hashable {
         hydrationTrackAmounts = try values.decodeIfPresent(Bool.self, forKey: .hydrationTrackAmounts) ?? true
         hydrationRemindersEnabled = try values.decodeIfPresent(Bool.self, forKey: .hydrationRemindersEnabled) ?? false
         hydrationDefaultAmountML = try values.decodeIfPresent(Int.self, forKey: .hydrationDefaultAmountML) ?? 250
-        hydrationReminderIntervalMinutes = try values.decodeIfPresent(Int.self, forKey: .hydrationReminderIntervalMinutes) ?? 60
+        hydrationReminderIntervalMinutes = Self.clampedHydrationReminderInterval(
+            try values.decodeIfPresent(Int.self, forKey: .hydrationReminderIntervalMinutes) ?? 60)
         hydrationEntries = try values.decodeIfPresent([HydrationEntry].self, forKey: .hydrationEntries) ?? []
         hydrationLastRemovedEntry = try values.decodeIfPresent(HydrationEntry.self, forKey: .hydrationLastRemovedEntry)
         appFolderName = try values.decodeIfPresent(String.self, forKey: .appFolderName) ?? "App Folder"

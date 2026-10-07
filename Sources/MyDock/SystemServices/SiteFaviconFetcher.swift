@@ -35,10 +35,7 @@ enum SiteFaviconFetcher {
             do {
                 try Task.checkCancellation()
                 let (data, response) = try await transport(URLRequest(url: iconURL))
-                guard !Task.isCancelled, (200..<300).contains(response.statusCode),
-                      response.mimeType?.lowercased().hasPrefix("image/") == true,
-                      response.expectedContentLength <= Int64(maximumResponseBytes),
-                      data.count <= maximumResponseBytes else { return nil }
+                guard !Task.isCancelled, accepts(response) else { return nil }
                 return normalizedPNG(from: data)
             } catch { return nil }
         }
@@ -64,20 +61,37 @@ enum SiteFaviconFetcher {
         request.setValue("image/avif,image/webp,image/png,image/x-icon,image/vnd.microsoft.icon,image/*;q=0.8",
                          forHTTPHeaderField: "Accept")
 
+        let policy = SameHostRedirectPolicy(host: host)
         do {
             let (data, response) = try await BoundedHTTPFetch.fetch(request, session: session, maximumBytes: maximumResponseBytes,
-                                                                    delegate: SameHostRedirectPolicy(host: host))
-            guard !Task.isCancelled, (200..<300).contains(response.statusCode),
-                  response.mimeType?.lowercased().hasPrefix("image/") == true else { return nil }
+                                                                    delegate: policy)
+            guard !Task.isCancelled, accepts(response), !policy.connectedToNonPublicAddress else { return nil }
             return normalizedPNG(from: data)
         } catch {
             return nil
         }
     }
 
+    /// The response checks shared by the production and fixture transports. The body size is checked
+    /// while reading and again in `normalizedPNG`.
+    static func accepts(_ response: HTTPURLResponse) -> Bool {
+        (200..<300).contains(response.statusCode)
+            && response.mimeType?.lowercased().hasPrefix("image/") == true
+            && response.expectedContentLength <= Int64(maximumResponseBytes)
+    }
+
+    /// Icon formats MyDock decodes (the ones the request's Accept header names, plus BMP); other ImageIO
+    /// formats in web or archive bytes are refused before decoding.
+    static let decodableTypeIdentifiers: Set<String> = [
+        "com.microsoft.ico", "public.png", "public.jpeg", "com.compuserve.gif", "org.webmproject.webp", "com.microsoft.bmp",
+        "public.avif"
+    ]
+
     static func normalizedPNG(from data: Data) -> Data? {
         guard data.count <= maximumResponseBytes else { return nil }
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let type = CGImageSourceGetType(source),
+              decodableTypeIdentifiers.contains(type as String) else { return nil }
         let imageCount = min(CGImageSourceGetCount(source), 64)
         guard imageCount > 0 else { return nil }
 
@@ -165,6 +179,19 @@ enum SiteFaviconFetcher {
         return foundAddress
     }
 
+    /// A numeric IPv4 or IPv6 address that is public; anything else, including a host name, is not.
+    static func isPublicAddressLiteral(_ address: String) -> Bool {
+        // A scoped IPv6 literal (fe80::1%en0) is link-local and so never public.
+        guard !address.contains("%") else { return false }
+        var ipv4 = in_addr()
+        if address.withCString({ inet_pton(AF_INET, $0, &ipv4) }) == 1 {
+            return isPublicIPv4(UInt32(bigEndian: ipv4.s_addr))
+        }
+        var ipv6 = in6_addr()
+        guard address.withCString({ inet_pton(AF_INET6, $0, &ipv6) }) == 1 else { return false }
+        return isPublicIPv6(withUnsafeBytes(of: ipv6) { Array($0) })
+    }
+
     private static func isPublicIPv4(_ address: UInt32) -> Bool {
         let first = (address >> 24) & 0xff
         let second = (address >> 16) & 0xff
@@ -191,11 +218,33 @@ enum SiteFaviconFetcher {
     }
 }
 
+/// Keeps redirects on the icon's host, and records whether a direct connection reached a non-public address,
+/// for example when DNS answered differently after MyDock's own check (DNS rebinding).
 private final class SameHostRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let host: String
+    private let lock = NSLock()
+    private var reachedNonPublicAddress = false
 
     init(host: String) {
         self.host = host
+    }
+
+    var connectedToNonPublicAddress: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return reachedNonPublicAddress
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        // Through a proxy the remote address is the proxy's, which may be on the local network.
+        let nonPublic = metrics.transactionMetrics.contains { transaction in
+            guard !transaction.isProxyConnection, let address = transaction.remoteAddress else { return false }
+            return !SiteFaviconFetcher.isPublicAddressLiteral(address)
+        }
+        guard nonPublic else { return }
+        lock.lock()
+        reachedNonPublicAddress = true
+        lock.unlock()
     }
 
     func urlSession(_ session: URLSession,

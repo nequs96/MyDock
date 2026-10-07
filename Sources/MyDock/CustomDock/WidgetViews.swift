@@ -1463,7 +1463,7 @@ private struct HydrationPopoutView: View {
                     }))
                     if configuration.hydrationRemindersEnabled {
                         WidgetStepperRow(title: "Every", value: "\(configuration.hydrationReminderIntervalMinutes) min",
-                                         amount: binding(\.hydrationReminderIntervalMinutes), range: 30...240, step: 15)
+                                         amount: binding(\.hydrationReminderIntervalMinutes), range: WidgetConfiguration.hydrationReminderIntervalRange, step: 15)
                     }
                     if reminderPermissionDenied {
                         GroupedRow("Open Notification Settings", role: .button) {
@@ -1559,7 +1559,7 @@ private struct HydrationPopoutView: View {
         let operationID = UUID()
         reminderOperationID = operationID
         if !enabled {
-            HydrationReminderService.cancel(itemID: item.id, operationID: operationID)
+            HydrationReminderService.cancel(itemID: item.id)
             update { $0.hydrationRemindersEnabled = false }
             reminderMessage = nil
             reminderPermissionDenied = false
@@ -1576,12 +1576,12 @@ private struct HydrationPopoutView: View {
                     return
                 }
                 update { $0.hydrationRemindersEnabled = true }
-                reminderMessage = "Reminder scheduled every \(min(max(interval, 30), 240)) minutes."
+                reminderMessage = "Reminder scheduled every \(WidgetConfiguration.clampedHydrationReminderInterval(interval)) minutes."
                 reminderPermissionDenied = false
             } catch {
                 guard reminderOperationID == operationID,
                       HydrationReminderService.isCurrent(itemID: item.id, operationID: operationID) else { return }
-                HydrationReminderService.cancel(itemID: item.id, operationID: operationID)
+                HydrationReminderService.cancel(itemID: item.id)
                 update { $0.hydrationRemindersEnabled = false }
                 reminderMessage = error.localizedDescription
                 reminderPermissionDenied = error is HydrationReminderError

@@ -35,13 +35,6 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable {
         case .antigravity: "Antigravity CLI provides /usage in its own interface. MyDock does not yet read a supported local allowance source."
         }
     }
-
-    var statusLineSetupCommand: String? {
-        guard self == .claude else { return nil }
-        let shell = "umask 077; tmp=$(mktemp \"$HOME/.claude/mydock-rate-limits.XXXXXX\") || exit 0; if jq -ce 'select(.rate_limits != null) | {updated_at: now, rate_limits: .rate_limits}' > \"$tmp\"; then mv \"$tmp\" \"$HOME/.claude/mydock-rate-limits.json\" && printf 'Claude limits synced to MyDock'; else rm -f \"$tmp\"; fi"
-        guard let encoded = try? JSONEncoder().encode(shell) else { return nil }
-        return String(decoding: encoded, as: UTF8.self)
-    }
 }
 
 enum AILimitLayout: String, Codable, CaseIterable, Identifiable {
@@ -89,6 +82,16 @@ struct AILimitWindow: Codable, Hashable, Identifiable {
     var resetsAt: Date?
     var durationMinutes: Int?
     var id: String { name }
+
+    /// One title per window length for every provider: "5 hours", "7 days", "1 day", "90 min".
+    static func title(forDurationMinutes minutes: Int?) -> String {
+        switch minutes {
+        case 300: "5 hours"
+        case let value? where value >= 1_440: value / 1_440 == 1 ? "1 day" : "\(value / 1_440) days"
+        case let value? where value > 0: "\(value) min"
+        default: "Limit"
+        }
+    }
 
     func isValid(for provider: AIProvider) -> Bool {
         usedPercent.map { (0...AIUsageDomain.maximumPercent(for: provider)).contains($0) } ?? true
@@ -275,14 +278,6 @@ enum AIActivityRange: String, Codable, CaseIterable, Identifiable {
     case monthToDate
 
     var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .today: "Today"
-        case .sevenDays: "L7"
-        case .thirtyDays: "L30"
-        case .monthToDate: "MTD"
-        }
-    }
 
     func interval(endingAt now: Date, calendar: Calendar) -> DateInterval {
         let today = calendar.startOfDay(for: now)
@@ -322,6 +317,7 @@ struct AIActivityDailyPoint: Codable, Hashable, Identifiable {
     var inputTokens: Int64
     var outputTokens: Int64
     var requests: Int
+    /// Reserved for a provider that reports cost; no current local reader sets it. Kept so stored snapshots decode.
     var reportedCostUSD: Decimal?
     var id: Date { date }
 
@@ -457,10 +453,10 @@ enum CodexRateLimitParser {
             let name = (bucket["limitName"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (id == "codex" ? "Included usage" : id)
             var values: [AILimitWindow] = []
             if let primary = bucket["primary"] as? [String: Any] {
-                values.append(window(name: "\(name) · \(windowTitle(primary["windowDurationMins"] as? Int))", raw: primary))
+                values.append(window(name: "\(name) · \(AILimitWindow.title(forDurationMinutes: primary["windowDurationMins"] as? Int))", raw: primary))
             }
             if let secondary = bucket["secondary"] as? [String: Any] {
-                values.append(window(name: "\(name) · \(windowTitle(secondary["windowDurationMins"] as? Int))", raw: secondary))
+                values.append(window(name: "\(name) · \(AILimitWindow.title(forDurationMinutes: secondary["windowDurationMins"] as? Int))", raw: secondary))
             }
             return values
         }
@@ -486,16 +482,6 @@ enum CodexRateLimitParser {
         }
         let duration = (raw["windowDurationMins"] as? Int).flatMap { (1...AIUsageDomain.maximumDurationMinutes).contains($0) ? $0 : nil }
         return AILimitWindow(name: name, usedPercent: used, resetsAt: reset, durationMinutes: duration)
-    }
-
-    private static func windowTitle(_ minutes: Int?) -> String {
-        switch minutes {
-        case 300: "5 hours"
-        case 10_080: "Weekly"
-        case let value? where value >= 1_440: "\(value / 1_440) days"
-        case let value? where value > 0: "\(value) min"
-        default: "Limit"
-        }
     }
 }
 
@@ -567,8 +553,8 @@ enum ClaudeStatusLineLimitParser {
                                           message: "Claude Code status-line data is stale. Use Claude Code to refresh it.")
         }
         let definitions: [(String, String, Int?)] = [
-            ("five_hour", "5 hours", 300),
-            ("seven_day", "7 days", 10_080),
+            ("five_hour", AILimitWindow.title(forDurationMinutes: 300), 300),
+            ("seven_day", AILimitWindow.title(forDurationMinutes: 10_080), 10_080),
             ("spend_limit", "Spend limit", nil)
         ]
         let windows = definitions.compactMap { key, title, duration -> AILimitWindow? in
@@ -710,7 +696,6 @@ enum AIActivityReader {
         var inputTokens: Int64 = 0
         var outputTokens: Int64 = 0
         var requests = 0
-        var reportedCostUSD: Decimal?
     }
 
     /// Reads newline-delimited records without moving the buffer for every line. A file larger than
@@ -861,18 +846,17 @@ enum AIActivityReader {
             return AIActivityDailyPoint(date: day, sessions: value.sessions, toolCalls: value.toolCalls,
                                         totalTokens: value.totalTokens, cachedInputTokens: value.cachedInputTokens,
                                         inputTokens: value.inputTokens, outputTokens: value.outputTokens,
-                                        requests: value.requests, reportedCostUSD: value.reportedCostUSD)
+                                        requests: value.requests, reportedCostUSD: nil)
         }
         let included = points.filter { interval.contains($0.date) || calendar.isDate($0.date, inSameDayAs: interval.start) }
         var totals = included.reduce(into: MutablePoint()) { total, point in
             total.sessions += point.sessions
             total.toolCalls += point.toolCalls
-            total.totalTokens += point.totalTokens
-            total.cachedInputTokens += point.cachedInputTokens
-            total.inputTokens += point.inputTokens
-            total.outputTokens += point.outputTokens
+            total.totalTokens.addClampedTokens(point.totalTokens)
+            total.cachedInputTokens.addClampedTokens(point.cachedInputTokens)
+            total.inputTokens.addClampedTokens(point.inputTokens)
+            total.outputTokens.addClampedTokens(point.outputTokens)
             total.requests += point.requests
-            if let cost = point.reportedCostUSD { total.reportedCostUSD = (total.reportedCostUSD ?? .zero) + cost }
         }
         // Range total: distinct session IDs across the included days; per-day points keep their own daily counts.
         let includedDays = Set(included.map(\.date))
@@ -901,7 +885,7 @@ enum AIActivityReader {
                                                                toolCalls: totals.toolCalls, totalTokens: totals.totalTokens,
                                                                cachedInputTokens: totals.cachedInputTokens, inputTokens: totals.inputTokens,
                                                                outputTokens: totals.outputTokens, requests: totals.requests,
-                                                               reportedCostUSD: totals.reportedCostUSD),
+                                                               reportedCostUSD: nil),
                                   sourceScope: sourceScope,
                                   possiblyOverstated: dedupe.uncertain)
     }
@@ -1015,10 +999,10 @@ enum AIActivityReader {
                 // Cumulative usage identifies a point in a session; a copied or resumed log repeats it.
                 if !hasSessionIdentity { dedupe.uncertain = true }
                 guard dedupe.codexPoints.insert("\(sessionID)|\(total)|\(input)|\(cached)|\(output)").inserted else { continue }
-                daily[day, default: MutablePoint()].totalTokens += delta
-                daily[day, default: MutablePoint()].cachedInputTokens += cachedDelta
-                daily[day, default: MutablePoint()].inputTokens += inputDelta
-                daily[day, default: MutablePoint()].outputTokens += outputDelta
+                daily[day, default: MutablePoint()].totalTokens.addClampedTokens(delta)
+                daily[day, default: MutablePoint()].cachedInputTokens.addClampedTokens(cachedDelta)
+                daily[day, default: MutablePoint()].inputTokens.addClampedTokens(inputDelta)
+                daily[day, default: MutablePoint()].outputTokens.addClampedTokens(outputDelta)
                 sessions.insert(SessionActivity(id: sessionID, day: day))
             } else if type == "item_completed", let item = payload["item"] as? [String: Any],
                       let itemType = item["type"] as? String, isToolType(itemType) {
@@ -1066,10 +1050,10 @@ enum AIActivityReader {
                     // Streaming rows can carry growing counters; add only the increase, on the original day.
                     let more = DedupeState.ClaudeUsage(day: seen.day, input: max(seen.input, input), cached: max(seen.cached, cached),
                                                        output: max(seen.output, output))
-                    daily[seen.day, default: MutablePoint()].inputTokens += more.input - seen.input
-                    daily[seen.day, default: MutablePoint()].cachedInputTokens += more.cached - seen.cached
-                    daily[seen.day, default: MutablePoint()].outputTokens += more.output - seen.output
-                    daily[seen.day, default: MutablePoint()].totalTokens += (more.input - seen.input) + (more.cached - seen.cached) + (more.output - seen.output)
+                    daily[seen.day, default: MutablePoint()].inputTokens.addClampedTokens(more.input - seen.input)
+                    daily[seen.day, default: MutablePoint()].cachedInputTokens.addClampedTokens(more.cached - seen.cached)
+                    daily[seen.day, default: MutablePoint()].outputTokens.addClampedTokens(more.output - seen.output)
+                    daily[seen.day, default: MutablePoint()].totalTokens.addClampedTokens((more.input - seen.input) + (more.cached - seen.cached) + (more.output - seen.output))
                     dedupe.claudeMessages[key] = more
                 } else {
                     dedupe.claudeMessages[key] = .init(day: day, input: input, cached: cached, output: output)
@@ -1080,10 +1064,10 @@ enum AIActivityReader {
                 if !dedupe.unidentifiedClaudeRows.insert(fingerprint).inserted { dedupe.uncertain = true }
             }
             if isNewMessage {
-                daily[day, default: MutablePoint()].totalTokens += input + cached + output
-                daily[day, default: MutablePoint()].inputTokens += input
-                daily[day, default: MutablePoint()].cachedInputTokens += cached
-                daily[day, default: MutablePoint()].outputTokens += output
+                daily[day, default: MutablePoint()].totalTokens.addClampedTokens(input + cached + output)
+                daily[day, default: MutablePoint()].inputTokens.addClampedTokens(input)
+                daily[day, default: MutablePoint()].cachedInputTokens.addClampedTokens(cached)
+                daily[day, default: MutablePoint()].outputTokens.addClampedTokens(output)
                 daily[day, default: MutablePoint()].requests += 1
             }
             if let blocks = message["content"] as? [[String: Any]] {
@@ -1110,7 +1094,7 @@ enum AIActivityReader {
             objects = contents.split(separator: 0x0A).compactMap { try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any] }
         } else if let object = try? JSONSerialization.jsonObject(with: contents) as? [String: Any] {
             objects = [object]
-        } else { throw AIUsageError.codexResponseInvalid }
+        } else { throw CocoaError(.fileReadCorruptFile) }
         var savedContext: Int64 = 0
         var preCompaction: Int64 = 0
         var total: Int64 = 0
@@ -1120,7 +1104,7 @@ enum AIActivityReader {
         let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? nil
         guard let modified, interval.contains(modified) || calendar.isDate(modified, inSameDayAs: interval.start) else { return }
         let day = calendar.startOfDay(for: modified)
-        daily[day, default: MutablePoint()].totalTokens += estimate
+        daily[day, default: MutablePoint()].totalTokens.addClampedTokens(estimate)
         sessions.insert(SessionActivity(id: file.deletingPathExtension().lastPathComponent, day: day))
     }
 
@@ -1170,5 +1154,18 @@ enum AIActivityReader {
         else { parsed = nil }
         guard let parsed, (0...1_000_000_000_000).contains(parsed) else { return nil }
         return parsed
+    }
+}
+
+extension Int64 {
+    /// Adds a token counter without trapping: local logs are untrusted, so a sum past the activity domain
+    /// saturates at its maximum instead of overflowing.
+    mutating func addClampedTokens(_ value: Int64) {
+        let (sum, overflow) = addingReportingOverflow(value)
+        if overflow {
+            self = value < 0 ? 0 : AIUsageDomain.maximumTokens
+        } else {
+            self = Swift.min(Swift.max(sum, 0), AIUsageDomain.maximumTokens)
+        }
     }
 }

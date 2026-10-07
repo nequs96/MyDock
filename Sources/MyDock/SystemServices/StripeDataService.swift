@@ -72,10 +72,10 @@ struct StripeCurrencyMetrics: Codable, Hashable, Identifiable {
     var id: String { currency }
     var arpuMinor: Decimal {
         guard payingSubscribers > 0 else { return .zero }
-        return netAfterFeesMinorDecimalDivide(mrrMinor, by: Decimal(payingSubscribers))
+        return decimalDivide(mrrMinor, by: Decimal(payingSubscribers))
     }
 
-    private func netAfterFeesMinorDecimalDivide(_ value: Decimal, by divisor: Decimal) -> Decimal {
+    private func decimalDivide(_ value: Decimal, by divisor: Decimal) -> Decimal {
         var source = value
         var denominator = divisor
         var result = Decimal.zero
@@ -130,8 +130,8 @@ struct URLSessionStripeDataTransport: StripeDataTransport {
         do {
             let (data, response) = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 5000000)
             return StripeHTTPResponse(statusCode: response.statusCode, data: data)
-        } catch is BoundedHTTPFetchError {
-            throw StripeDataError.invalidResponse
+        } catch let error as BoundedHTTPFetchError {
+            throw StripeDataError.transfer(error)
         }
     }
 }
@@ -145,6 +145,7 @@ enum StripeDataError: LocalizedError {
     case rateLimited
     case paginationLimit
     case httpStatus(Int)
+    case transfer(BoundedHTTPFetchError)
 
     var errorDescription: String? {
         switch self {
@@ -152,10 +153,11 @@ enum StripeDataError: LocalizedError {
         case .restrictedKeyRequired: "Stripe requires a restricted key beginning with rk_. Secret keys are not accepted."
         case .invalidResponse: "Stripe returned data MyDock could not read. Try again later."
         case .invalidRequest: "Stripe rejected the request. Check the key and its read permissions."
-        case .missingPermission: "This Stripe key needs read access for Core → Balance and Billing → Subscriptions."
+        case .missingPermission: "This Stripe key needs read access to \(StripeAPIKeyStore.requiredReadAccess)."
         case .rateLimited: "Stripe rate-limited the request. The last successful values are still shown."
         case .paginationLimit: "This Stripe account has more than \(StripeAPIProvider.recordBudget.formatted()) records of one kind for this period, more than MyDock loads in one refresh. MyDock did not use a partial total."
         case .httpStatus(let code): "Stripe is temporarily unavailable (HTTP \(code))."
+        case .transfer(let error): error.message(provider: "Stripe")
         }
     }
 }
@@ -271,7 +273,7 @@ struct StripeAPIProvider: Sendable {
     private func allRows(path: String, parameters: [String: String], apiKey: String) async throws -> [[String: Any]] {
         var result: [[String: Any]] = []
         var cursor: String?
-        for pageIndex in 0..<max(1, maximumPages) {
+        for _ in 0..<max(1, maximumPages) {
             var pageParameters = parameters
             pageParameters["limit"] = String(Self.pageSize)
             if let cursor { pageParameters["starting_after"] = cursor }
@@ -285,8 +287,8 @@ struct StripeAPIProvider: Sendable {
                 throw StripeDataError.invalidResponse
             }
             cursor = nextCursor
-            if pageIndex == max(1, maximumPages) - 1 { throw StripeDataError.paginationLimit }
         }
+        // Every page in the budget had more rows after it.
         throw StripeDataError.paginationLimit
     }
 
@@ -496,6 +498,8 @@ enum StripeSnapshotParser {
 }
 
 enum StripeAPIKeyStore {
+    /// The read permissions a restricted key needs, shared by the setup copy and the missing-permission error.
+    static let requiredReadAccess = "Account, Balance, Balance Transactions, and Subscriptions"
     fileprivate static let directoryKey = Product.bundleIdentifier + ".stripe-connected-accounts"
 
     static func isRestrictedKey(_ value: String) -> Bool {
@@ -503,29 +507,25 @@ enum StripeAPIKeyStore {
     }
 
     static func read(accountID: String) throws -> String? {
-        guard let data = try item(accountID).readData(failure: KeychainError.init) else { return nil }
-        guard let value = String(data: data, encoding: .utf8) else { throw KeychainError(errSecDecode) }
+        guard let data = try item(accountID).readData(credential: credentialName) else { return nil }
+        guard let value = String(data: data, encoding: .utf8) else { throw IntegrationKeychainError(credential: credentialName, operation: .read, status: errSecDecode) }
         return value
     }
 
     static func write(_ value: String, accountID: String) throws {
         try AppRuntimeEnvironment.requireCredentials()
         guard isRestrictedKey(value) else { throw StripeDataError.restrictedKeyRequired }
-        try item(accountID).write(Data(value.utf8), failure: KeychainError.init)
+        try item(accountID).write(Data(value.utf8), credential: credentialName)
     }
 
     static func delete(accountID: String) throws {
-        try item(accountID).delete(failure: KeychainError.init)
+        try item(accountID).delete(credential: credentialName)
     }
+
+    private static let credentialName = "The Stripe key"
 
     private static func item(_ accountID: String) -> IntegrationKeychainItem {
         IntegrationKeychainItem(account: "stripe.\(accountID)")
-    }
-
-    private struct KeychainError: LocalizedError {
-        var status: OSStatus
-        init(_ status: OSStatus) { self.status = status }
-        var errorDescription: String? { "The Stripe key could not be saved in Keychain (\(status))." }
     }
 }
 

@@ -145,8 +145,8 @@ struct URLSessionShopifyDataTransport: ShopifyDataTransport {
         do {
             let (data, response) = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 8000000)
             return ShopifyHTTPResponse(statusCode: response.statusCode, data: data)
-        } catch is BoundedHTTPFetchError {
-            throw ShopifyDataError.invalidResponse
+        } catch let error as BoundedHTTPFetchError {
+            throw ShopifyDataError.transfer(error)
         }
     }
 }
@@ -162,6 +162,8 @@ enum ShopifyDataError: LocalizedError, Equatable {
     case currencyMismatch
     case graphQLError(String)
     case httpStatus(Int)
+    case corruptCredential
+    case transfer(BoundedHTTPFetchError)
 
     var errorDescription: String? {
         switch self {
@@ -175,6 +177,8 @@ enum ShopifyDataError: LocalizedError, Equatable {
         case .currencyMismatch: "Shopify returned an order in a currency different from the store currency. MyDock did not combine currencies."
         case .graphQLError(let message): message
         case .httpStatus(let code): "Shopify is temporarily unavailable (HTTP \(code))."
+        case .transfer(let error): error.message(provider: "Shopify")
+        case .corruptCredential: "The saved credentials for this Shopify store could not be read. Reconnect this Shopify store in Connections."
         }
     }
 }
@@ -271,7 +275,8 @@ struct ShopifyAPIProvider: Sendable {
         } else {
             tokenCredential = try await accessToken(domain: domain,
                                                     clientID: credential.clientID,
-                                                    clientSecret: credential.clientSecret)
+                                                    clientSecret: credential.clientSecret,
+                                                    now: now)
         }
         let interval = try period.interval(endingAt: now, timeZoneID: store.timeZoneID)
         let query = Self.searchQuery(from: interval.start, through: interval.end)
@@ -280,7 +285,7 @@ struct ShopifyAPIProvider: Sendable {
         var visitedCursors = Set<String>()
         var after: String?
         var pageCount = 0
-        repeat {
+        while true {
             try Task.checkCancellation()
             pageCount += 1
             guard pageCount <= max(1, maximumPages) else { throw ShopifyDataError.incompletePagination }
@@ -297,7 +302,7 @@ struct ShopifyAPIProvider: Sendable {
                 throw ShopifyDataError.incompletePagination
             }
             after = next
-        } while orders.count < maximumOrders
+        }
 
         // Product and traffic details for the most recent orders. Totals stay exact when they cannot be read.
         if orders.contains(where: { !$0.isTest && $0.cancelledAt == nil && interval.contains($0.createdAt) }) {
@@ -321,7 +326,7 @@ struct ShopifyAPIProvider: Sendable {
         return (snapshot, tokenCredential)
     }
 
-    private func accessToken(domain: String, clientID: String, clientSecret: String) async throws -> ShopifyCredential {
+    private func accessToken(domain: String, clientID: String, clientSecret: String, now: Date = .now) async throws -> ShopifyCredential {
         guard let url = URL(string: "https://\(domain)/admin/oauth/access_token") else { throw ShopifyDataError.invalidStore }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -346,7 +351,7 @@ struct ShopifyAPIProvider: Sendable {
         return ShopifyCredential(clientID: clientID,
                                  clientSecret: clientSecret,
                                  accessToken: token,
-                                 tokenExpiresAt: Date().addingTimeInterval(expiresIn.doubleValue))
+                                 tokenExpiresAt: now.addingTimeInterval(expiresIn.doubleValue))
     }
 
     private func shopMetadata(domain: String, token: String) async throws -> (name: String, timeZoneID: String, currency: String) {
@@ -662,38 +667,41 @@ enum ShopifySnapshotParser {
 enum ShopifyCredentialStore {
     @MainActor
     static func writeRefreshed(_ credential: ShopifyCredential, replacing original: ShopifyCredential, storeID: String) throws {
+        let registered = ShopifyConnectionDirectory.stores().contains { $0.id == storeID }
+        let changedOrRemoved = EditSessionSaveError.failed("This Shopify connection changed or was removed while refreshing. Its credentials were left untouched.")
+        // A still-valid token comes back unchanged: there is nothing to write, so the Keychain is neither read nor written.
+        if credential == original {
+            guard registered, !Task.isCancelled else { throw changedOrRemoved }
+            return
+        }
         let current = try read(storeID: storeID)
         guard ShopifyCredentialUpdatePolicy.mayRefresh(original: original, current: current,
-            registered: ShopifyConnectionDirectory.stores().contains { $0.id == storeID }, cancelled: Task.isCancelled) else {
-            throw EditSessionSaveError.failed("This Shopify connection changed or was removed while refreshing. Its credentials were left untouched.")
+                                                       registered: registered, cancelled: Task.isCancelled) else {
+            throw changedOrRemoved
         }
         try write(credential, storeID: storeID)
     }
     fileprivate static var directoryKey: String { Product.bundleIdentifier + ".shopify-connected-stores" }
 
     static func read(storeID: String) throws -> ShopifyCredential? {
-        guard let data = try item(storeID).readData(failure: KeychainError.init) else { return nil }
+        guard let data = try item(storeID).readData(credential: credentialName) else { return nil }
         do { return try JSONDecoder().decode(ShopifyCredential.self, from: data) }
-        catch { throw ShopifyDataError.invalidResponse }
+        catch { throw ShopifyDataError.corruptCredential }
     }
 
     static func write(_ credential: ShopifyCredential, storeID: String) throws {
         try AppRuntimeEnvironment.requireCredentials()
-        try item(storeID).write(try JSONEncoder().encode(credential), failure: KeychainError.init)
+        try item(storeID).write(try JSONEncoder().encode(credential), credential: credentialName)
     }
 
     static func delete(storeID: String) throws {
-        try item(storeID).delete(failure: KeychainError.init)
+        try item(storeID).delete(credential: credentialName)
     }
+
+    private static let credentialName = "Shopify credentials"
 
     private static func item(_ storeID: String) -> IntegrationKeychainItem {
         IntegrationKeychainItem(account: "shopify.\(storeID)")
-    }
-
-    private struct KeychainError: LocalizedError {
-        var status: OSStatus
-        init(_ status: OSStatus) { self.status = status }
-        var errorDescription: String? { "Shopify credentials could not be saved in Keychain (\(status))." }
     }
 }
 

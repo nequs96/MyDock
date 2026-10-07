@@ -59,7 +59,7 @@ enum ShortcutsCatalog {
             throw ShortcutsServiceError.commandFailed("MyDock could not safely read the Shortcuts catalog output.")
         }
         guard captured.terminationStatus == 0 else {
-            throw ShortcutsServiceError.commandFailed(String(decoding: captured.standardError, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+            throw ShortcutsServiceError.commandFailed(ShortcutRunMessages.detail(from: captured.standardError))
         }
         return String(decoding: captured.standardOutput, as: UTF8.self)
     }
@@ -79,14 +79,19 @@ enum ShortcutRunMessages {
 
     /// A short, bounded failure message that includes the first useful stderr text.
     static func failed(exitCode: Int32, standardError: Data) -> String {
+        let stderrDetail = Self.detail(from: standardError)
+        let base = "Shortcut failed (exit code \(exitCode))."
+        return stderrDetail.isEmpty ? base : "\(base) \(stderrDetail)"
+    }
+
+    /// The first two lines of stderr on one line, at most `maximumDetailCharacters` long; empty when there is none.
+    static func detail(from standardError: Data) -> String {
         let text = String(decoding: standardError.prefix(maximumStderrBytes), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let firstLines = text.split(whereSeparator: \.isNewline).prefix(2).joined(separator: " ")
-        let detail = firstLines.count > maximumDetailCharacters
+        return firstLines.count > maximumDetailCharacters
             ? String(firstLines.prefix(maximumDetailCharacters)) + "…"
             : firstLines
-        let base = "Shortcut failed (exit code \(exitCode))."
-        return detail.isEmpty ? base : "\(base) \(detail)"
     }
 }
 
@@ -129,7 +134,8 @@ final class ShortcutExecutionService: ObservableObject {
             do {
                 let captured = try await BoundedSubprocessCapture.runCancellable(
                     executableURL: commandURL,
-                    arguments: ["run", name],
+                    // "--" ends option parsing, so a name that starts with "-" is still the shortcut's name.
+                    arguments: ["run", "--", name],
                     maximumOutputBytes: 8 * 1_024 * 1_024,
                     maximumErrorBytes: ShortcutRunMessages.maximumStderrBytes,
                     timeout: .infinity)

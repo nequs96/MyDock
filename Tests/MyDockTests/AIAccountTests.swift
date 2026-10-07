@@ -14,18 +14,14 @@ struct AIAccountTests {
     }
     @Test func accountStatusUsesProviderResponsesWithoutDisplayingSecrets() {
         let claude = BoundedSubprocessOutput(standardOutput: Data(#"{"loggedIn":true,"email":"private@example.com","configDirectory":"/tmp/Claude Config"}"#.utf8), standardError: Data(), terminationStatus: 0)
-        let status = AIAccountService.parseStatus(provider: .claude, output: claude)
+        let status = AIAccountService.parseClaudeStatus(claude)
         #expect(status.state == .signedIn)
         #expect(status.configurationDirectory?.path == "/tmp/Claude Config")
         #expect(!status.message.contains("private"))
         let signedOut = BoundedSubprocessOutput(standardOutput: Data(), standardError: Data("Not logged in".utf8), terminationStatus: 1)
-        #expect(AIAccountService.parseStatus(provider: .codex, output: signedOut).state == .signedOut)
-        let api = BoundedSubprocessOutput(standardOutput: Data(), standardError: Data("Logged in using an API key: sk-private-value".utf8), terminationStatus: 0)
-        let apiStatus = AIAccountService.parseStatus(provider: .codex, output: api)
-        #expect(apiStatus.state == .signedIn)
-        #expect(!apiStatus.message.contains("sk-"))
-        #expect(apiStatus.message.contains("ChatGPT"))
-        #expect(AIAccountService.parseStatus(provider: .claude, output: signedOut).state == .unavailable)
+        #expect(AIAccountService.parseClaudeStatus(signedOut).state == .unavailable)
+        let loggedOut = BoundedSubprocessOutput(standardOutput: Data(#"{"loggedIn":false}"#.utf8), standardError: Data(), terminationStatus: 1)
+        #expect(AIAccountService.parseClaudeStatus(loggedOut).state == .signedOut)
     }
 
     @Test func codexAccountDiscoveryUsesStructuredAccountState() throws {
@@ -34,6 +30,10 @@ struct AIAccountTests {
         #expect(!connected.message.contains("private"))
         let missing = try AIAccountService.parseCodexAccount(Data(#"{"result":{"account":null,"requiresOpenaiAuth":true}}"#.utf8))
         #expect(missing.state == .signedOut)
+        let apiKey = try AIAccountService.parseCodexAccount(Data(#"{"result":{"account":{"type":"apiKey","key":"sk-private-value"}}}"#.utf8))
+        #expect(apiKey.state == .signedIn)
+        #expect(!apiKey.message.contains("sk-"))
+        #expect(apiKey.message.contains("ChatGPT"))
         #expect(throws: (any Error).self) { try AIAccountService.parseCodexAccount(Data(#"{"error":{"message":"expired"}}"#.utf8)) }
     }
 
