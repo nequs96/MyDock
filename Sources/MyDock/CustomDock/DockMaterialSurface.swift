@@ -99,7 +99,7 @@ struct DockMaterialSurface: View {
         switch base {
         case .opaque, .solid: shape.fill(Color(nsColor: .windowBackgroundColor))
         case .frosted: shape.fill(.ultraThinMaterial)
-        case .dark: shape.fill(Color(red: 0.10, green: 0.12, blue: 0.16))
+        case .dark: shape.fill(DockDesign.Glass.midnightFill)
         case .glass(let style):
             if !snapshotRendering, #available(macOS 26.0, *) {
                 // The glass is the surface: nothing else is drawn for the Clear style.

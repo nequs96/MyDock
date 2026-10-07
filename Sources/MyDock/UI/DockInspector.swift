@@ -31,7 +31,7 @@ struct DockAppearanceInspector: View {
                 GroupedSection("Appearance", footer: profile.appearance == nil ? "Follows app defaults." : "This Dock has its own appearance.") {
                 sliderRow("Tile size") {
                     HStack(spacing: 10) {
-                        Slider(value: Binding(get: { settings.customDockSize }, set: { value in edit { $0.size = value } }), in: 0.65...1.5, onEditingChanged: { if !$0 { store.flush() } })
+                        Slider(value: Binding(get: { settings.customDockSize }, set: { value in edit { $0.size = value } }), in: DockAppearanceBounds.size, onEditingChanged: { if !$0 { store.flush() } })
                             .accessibilityLabel("Tile size")
                             .accessibilityValue("\(Int((settings.customDockSize * 100).rounded())) percent")
                         Text("\(Int((settings.customDockSize * 100).rounded()))%")

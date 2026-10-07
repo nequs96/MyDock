@@ -155,6 +155,67 @@ struct PortableDockImportSheet: View {
     }
 }
 
+/// One reviewed backup before its Docks are added. Nothing is replaced: every Dock is added as a new copy.
+struct BackupRestorePreview: Identifiable {
+    let id = UUID()
+    let report: BackupImportReport
+    /// Backup names already used by a Dock on this Mac; adding them creates a second Dock with that name.
+    let duplicateNames: Set<String>
+    /// The sheet lists at most this many missing apps or paths and counts the rest.
+    static let missingItemLimit = 50
+
+    init(report: BackupImportReport, existingNames: [String]) {
+        self.report = report
+        let existing = Set(existingNames)
+        duplicateNames = Set(report.importedProfiles.map(\.name).filter { existing.contains($0) })
+    }
+
+    var addTitle: String { "Add " + Self.docksPhrase(report.importedProfiles.count) }
+
+    static func docksPhrase(_ count: Int) -> String { count == 1 ? "1 Dock" : "\(count) Docks" }
+}
+
+struct BackupRestoreSheet: View {
+    let preview: BackupRestorePreview
+    let add: () -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Add Docks from Backup").font(DockDesign.sectionTitle).accessibilityAddTraits(.isHeader)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    GroupedSection(footer: "Each Dock is added as a new Dock. Existing Docks are not changed.") {
+                        ForEach(preview.report.importedProfiles) { profile in
+                            GroupedRow(profile.name, subtitle: profile.kind.title,
+                                       value: preview.duplicateNames.contains(profile.name) ? "Name in use" : nil)
+                        }
+                    }
+                    let missing = preview.report.missingItems
+                    if !missing.isEmpty {
+                        GroupedSection("Not on this Mac") {
+                            ForEach(Array(missing.prefix(BackupRestorePreview.missingItemLimit).enumerated()), id: \.offset) { _, item in
+                                GroupedRow(item)
+                            }
+                            if missing.count > BackupRestorePreview.missingItemLimit {
+                                GroupedRow("\(missing.count - BackupRestorePreview.missingItemLimit) more")
+                            }
+                        }
+                    }
+                }
+            }.frame(maxHeight: 420)
+            HStack {
+                Spacer()
+                Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
+                PillButton(preview.addTitle, action: add).keyboardShortcut(.defaultAction)
+                    .disabled(preview.report.importedProfiles.isEmpty)
+            }
+        }
+        .font(DockDesign.body)
+        .padding(24).frame(width: 440).background(DockDesign.page)
+    }
+}
+
 /// Identifies one export review; `profiles` holds one Dock from the editor or every Dock from Settings.
 struct PortableDockExportRequest: Identifiable {
     let id = UUID()

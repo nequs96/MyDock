@@ -22,8 +22,7 @@ extension SettingsView {
             .disabled(!store.state.settings.automaticallyHideCustomDock || store.state.settings.customDockDesktopMode)
             GroupedRow("Hide when Apple Dock appears", isOn: Binding(get: { store.state.settings.hideCustomDockWhenSystemDockAppears }, set: { value in store.updateSettings { $0.hideCustomDockWhenSystemDockAppears = value } }))
             if store.state.settings.customDockDesktopMode {
-                Text("Stays behind windows, including fullscreen apps; auto-hide is paused.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+                GroupedNote("Stays behind windows, including fullscreen apps; auto-hide is paused.")
             }
         }.id("Custom Dock behavior").help("The screen edge stays active without a handle; overlap detection uses window positions without screen capture.")
         GroupedSection("Apps and windows", footer: "Window previews stay on this Mac.") {
@@ -33,12 +32,13 @@ extension SettingsView {
                 .onChange(of: store.state.settings.showMinimizedWindows) { enabled in
                     if enabled { _ = WindowAccessibilityService.requestAccessPrompt() }
                 }
-            GroupedRow("Show window previews", subtitle: "Hover over an open app to see its windows.", isOn: Binding(get: { store.state.settings.showWindowPreviewsOnHover }, set: { value in store.updateSettings { $0.showWindowPreviewsOnHover = value } }))
-                .onChange(of: store.state.settings.showWindowPreviewsOnHover) { enabled in
-                    if enabled && !WindowAccessibilityService.isTrusted() { _ = WindowAccessibilityService.requestAccessPrompt() }
-                }
-            GroupedRow("Cache window previews", isOn: Binding(get: { store.state.settings.showWindowPreviews }, set: { value in store.updateSettings { $0.showWindowPreviews = value } }))
-                .disabled(!store.state.settings.showMinimizedWindows || !supportsScreenCaptureFreeze)
+            // Thumbnails replace the icons of minimized-window tiles, so the row sits under the
+            // setting it depends on and says why it is unavailable.
+            GroupedRow("Minimized window thumbnails",
+                       subtitle: !supportsWindowPreviewCapture ? "Requires macOS 14."
+                           : store.state.settings.showMinimizedWindows ? "Uses Screen Recording." : "Turn on Show minimized windows first.",
+                       isOn: Binding(get: { store.state.settings.showWindowPreviews }, set: { value in store.updateSettings { $0.showWindowPreviews = value } }))
+                .disabled(!store.state.settings.showMinimizedWindows || !supportsWindowPreviewCapture)
                 .onChange(of: store.state.settings.showWindowPreviews) { enabled in
                     guard enabled else { windowPreviewMessage = nil; return }
                     if !CGPreflightScreenCaptureAccess() {
@@ -49,8 +49,12 @@ extension SettingsView {
                     }
                 }
             if let windowPreviewMessage {
-                Text(windowPreviewMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+                GroupedNote(windowPreviewMessage)
             }
+            GroupedRow("Show window previews", subtitle: "Hover over an open app to see its windows.", isOn: Binding(get: { store.state.settings.showWindowPreviewsOnHover }, set: { value in store.updateSettings { $0.showWindowPreviewsOnHover = value } }))
+                .onChange(of: store.state.settings.showWindowPreviewsOnHover) { enabled in
+                    if enabled && !WindowAccessibilityService.isTrusted() { _ = WindowAccessibilityService.requestAccessPrompt() }
+                }
         }.id("Apps and windows").help("macOS 14+: previews stay local for 24 hours and are deleted when disabled; duplicates or unavailable previews use app icons.")
         GroupedSection("Dock items", footer: DockBadgeReader.isSupported ? "Notification contents stay private." : "App badge labels require macOS 14 or later.") {
             GroupedRow("Show Trash", isOn: Binding(get: { store.state.settings.showTrash }, set: { value in store.updateSettings { $0.showTrash = value } }))
@@ -61,27 +65,18 @@ extension SettingsView {
                         _ = WindowAccessibilityService.requestAccessPrompt()
                     }
                 }
-            if DockBadgeReader.isSupported, store.state.settings.showAppBadges,
-               !WindowAccessibilityService.isTrusted() {
-                HStack {
-                    Text("Allow MyDock under Privacy & Security → Accessibility to show badge labels.")
-                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
-                    Spacer()
-                    Button("Accessibility Settings…", action: openAccessibilitySettings)
-                        .controlSize(.small)
-                }
-            }
-        }.id("Dock items").help("Reads available Apple Dock badge labels through Accessibility; notification contents stay private.")
+        }.id("Dock items").help("Reads available macOS Dock badge labels through Accessibility; notification contents stay private.")
         GroupedSection("Interaction") {
             GroupedRow("Click focused app to minimize", isOn: Binding(get: { store.state.settings.clickFocusedAppToMinimize }, set: { value in store.updateSettings { $0.clickFocusedAppToMinimize = value } }))
                 .onChange(of: store.state.settings.clickFocusedAppToMinimize) { enabled in
                     if enabled { _ = WindowAccessibilityService.requestAccessPrompt() }
                 }
-            HStack {
-                Text(WindowAccessibilityService.isTrusted() ? "Accessibility access is enabled." : "Accessibility access is needed for window controls.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
-                Spacer()
-                Button("Accessibility Settings…", action: openAccessibilitySettings)
+            // One status line for the page, shown only while access is missing. It is a warning only
+            // once a feature that needs access is on; every such feature is off by default.
+            if !accessibilityTrusted {
+                GroupedNote("Accessibility access is needed for window controls and app badges.",
+                            tone: behaviorNeedsAccessibility ? .warning : .secondary,
+                            actionTitle: "Accessibility Settings…") { SystemSettingsPane.open(.accessibility) }
             }
             GroupedRow("Magnification", isOn: Binding(get: { store.state.settings.magnificationEnabled }, set: { value in store.updateSettings { $0.magnificationEnabled = value } }))
         }.id("Interaction")
@@ -98,11 +93,17 @@ extension SettingsView {
         }.id("Dock animations")
         }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
     }
+    // Access is granted in System Settings, so the status is re-read when MyDock comes back.
+    .onAppear { accessibilityTrusted = WindowAccessibilityService.isTrusted() }
+    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+        accessibilityTrusted = WindowAccessibilityService.isTrusted()
+    }
     }
 
-    private func openAccessibilitySettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
-        NSWorkspace.shared.open(url)
+    /// Whether a Behavior feature that is switched on stops working without Accessibility access.
+    private var behaviorNeedsAccessibility: Bool {
+        let settings = store.state.settings
+        return settings.showMinimizedWindows || settings.showWindowPreviewsOnHover || settings.clickFocusedAppToMinimize
+            || (DockBadgeReader.isSupported && settings.showAppBadges)
     }
-
 }

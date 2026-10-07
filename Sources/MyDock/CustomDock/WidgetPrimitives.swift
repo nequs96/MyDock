@@ -14,7 +14,7 @@ extension EnvironmentValues {
 /// Each category keeps its own hue so families stay recognisable; saturation and
 /// brightness are harmonised per appearance (deeper on light glass, lighter on dark glass).
 enum WidgetPalette {
-    /// One hue per category (matching `WidgetCategory.displayColor`), tuned per appearance:
+    /// One hue per widget category, tuned per appearance:
     /// deeper on light glass, lighter and less saturated on dark glass.
     enum Family: String, CaseIterable {
         case ai, system, business, personal, weather

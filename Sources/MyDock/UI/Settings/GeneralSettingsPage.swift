@@ -19,7 +19,8 @@ extension SettingsView {
             GroupedRow("Include personal widget data", isOn: $includePersonalBackupData)
                 .help("Personal backups include notes, lists, snippets, shelf files, history, timers, alarms and selections. Layout backups keep app, file, folder and link locations. Credentials, permissions and provider caches are always excluded; layout backups also exclude connections and personal data.")
             GroupedRow("Back Up…", role: .button) { exportBackup() }
-            GroupedRow("Restore…", role: .button) { importBackup() }
+            GroupedRow("Add Docks from Backup…", role: .button) { importBackup() }
+                .help("Preview a backup and add its Docks as new Docks. Existing Docks are not changed.")
             GroupedRow("Export Dock…", role: .button) {
                 // A shared Dock never inherits the backup toggle (on by default): personal data is opt-in in the sheet.
                 dockExportRequest = PortableDockExportRequest(profiles: store.state.profiles, selectedID: store.activeCustomProfile?.id,
@@ -29,20 +30,15 @@ extension SettingsView {
             .help("Review and export one Dock to use on another Mac or share")
             GroupedRow("Import Dock…", role: .button) { importDock() }
                 .help("Preview a Dock file and add it as a new Dock")
-            if let backupMessage { Text(backupMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }
-            GroupedRow("macOS Dock profiles", value: "\(store.nativeProfiles.count)")
-            GroupedRow("Custom Dock profiles", value: "\(store.customProfiles.count)")
+            if let backupMessage { GroupedNote(backupMessage) }
         }.id("Saved Docks")
-        PrivacyHelpSection()
+        PrivacyHelpSection().id("Privacy")
         GroupedSection("Advanced", footer: "Review a redacted report before exporting.") {
             SettingsExpansionRow(title: "Diagnostics", isExpanded: $advancedExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     GroupedRow("Export Diagnostics…", role: .button) { exportDiagnostics() }
                         .help("Includes versions, counts, appearance, save status and event codes. Names, paths, URLs, personal content, credentials and images are excluded.")
-                    if let diagnosticsMessage {
-                        Text(diagnosticsMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                    }
+                    if let diagnosticsMessage { GroupedNote(diagnosticsMessage) }
                 }
             }
         }.id("Diagnostics")
@@ -60,7 +56,7 @@ extension SettingsView {
             let profiles = includePersonalBackupData ? store.state.profiles : store.state.profiles.map { ProfileSanitizer.sanitize($0) }
             let data = try BackupManager.makeArchive(from: profiles)
             try data.write(to: url, options: .atomic)
-            backupMessage = "Saved \(store.state.profiles.count) profile(s)."
+            backupMessage = "Saved " + BackupRestorePreview.docksPhrase(store.state.profiles.count) + "."
             DiagnosticsService.shared.record(.backupExported)
         } catch {
             backupMessage = error.localizedDescription
@@ -76,12 +72,20 @@ extension SettingsView {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let report = try BackupManager.readArchive(from: url)
-            try store.importProfiles(report.importedProfiles)
-            var message = "Restored \(report.importedProfiles.count) profile(s)."
-            if !report.missingItems.isEmpty {
-                message += " Missing apps or paths: " + report.missingItems.joined(separator: "; ")
-            }
-            backupMessage = message
+            backupMessage = nil
+            backupRestorePreview = BackupRestorePreview(report: report, existingNames: store.state.profiles.map(\.name))
+        } catch {
+            backupMessage = error.localizedDescription
+            DiagnosticsService.shared.record(.backupOperationFailed)
+        }
+    }
+
+    /// Adds the previewed Docks as new copies; existing Docks are never replaced.
+    func addDocksFromBackup(_ preview: BackupRestorePreview) {
+        backupRestorePreview = nil
+        do {
+            try store.importProfiles(preview.report.importedProfiles)
+            backupMessage = "Added " + BackupRestorePreview.docksPhrase(preview.report.importedProfiles.count) + "."
             DiagnosticsService.shared.record(.backupImported)
         } catch {
             backupMessage = error.localizedDescription

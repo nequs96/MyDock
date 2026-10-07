@@ -54,13 +54,11 @@ enum DockDesign {
         }
         /// Content insets inside a module.
         static let insets = EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
-        static let compactInsets = EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
         /// Vertical gap between value and label.
         static let lineSpacing: CGFloat = 2
         enum Glyph {
             static let large: CGFloat = 22
             static let medium: CGFloat = 17
-            static let small: CGFloat = 13
         }
         enum ValueSize: CaseIterable { case large, medium, small }
         /// SF Pro semibold with tabular digits so changing numbers do not jitter.
@@ -91,6 +89,8 @@ enum DockDesign {
         static func opaqueFill(_ scheme: ColorScheme) -> Color {
             scheme == .dark ? Color(white: 0.16) : Color(white: 0.96)
         }
+        /// The Dark Dock material: one midnight fill for the live Dock, its editor and its style swatches.
+        static let midnightFill = Color(red: 0.10, green: 0.12, blue: 0.16)
         /// Strength of a tint mixed into fallback and opaque surfaces.
         static let fallbackTintOpacity: Double = 0.18
     }
@@ -117,8 +117,8 @@ enum DockDesign {
         static let input: CGFloat = 8
         static let row: CGFloat = 8
         static let group: CGFloat = 12
+        /// Large previews such as the Appearance hero.
         static let preview: CGFloat = 14
-        static let floating: CGFloat = 14
     }
     /// Keep normal outlines quiet, with stronger boundaries for Increase Contrast.
     enum Outline {
@@ -289,16 +289,22 @@ struct DockButtonStyle: ButtonStyle {
         @State private var hovered = false
         @DockAccessibilityStyle() private var accessibility
         private var contrast: ColorSchemeContrast { accessibility.contrast }
+        /// Destructive buttons read red, like destructive grouped rows and system dialogs.
+        private var destructive: Bool { !primary && configuration.role == .destructive }
+        private var outline: Color {
+            if contrast == .increased { return destructive ? Color(nsColor: .systemRed) : DockDesign.Outline.color(contrast) }
+            return primary ? Color.white.opacity(0.08) : DockDesign.hairline
+        }
         var body: some View {
             configuration.label
                 .font(.system(size: 13, weight: primary ? .semibold : .regular))
-                .foregroundStyle(primary ? Color.white : Color.primary.opacity(0.9))
+                .foregroundStyle(primary ? Color.white : destructive ? Color(nsColor: .systemRed) : Color.primary.opacity(0.9))
                 .padding(.horizontal, icon ? 8 : 12)
                 .frame(minWidth: icon ? 30 : nil, minHeight: DockDesign.controlHeight)
                 .background(primary ? DockDesign.accent : (hovered ? DockDesign.control : DockDesign.card),
                             in: RoundedRectangle(cornerRadius: DockDesign.Radius.control))
                 .overlay(RoundedRectangle(cornerRadius: DockDesign.Radius.control)
-                    .strokeBorder(contrast == .increased ? DockDesign.Outline.color(contrast) : primary ? Color.white.opacity(0.08) : DockDesign.hairline, lineWidth: DockDesign.Outline.controlWidth(contrast)))
+                    .strokeBorder(outline, lineWidth: DockDesign.Outline.controlWidth(contrast)))
                 .overlay(RoundedRectangle(cornerRadius: DockDesign.Radius.control).fill(.black.opacity(configuration.isPressed ? 0.16 : 0)))
                 .opacity(enabled ? 1 : 0.4)
                 .contentShape(RoundedRectangle(cornerRadius: DockDesign.Radius.control))
@@ -415,30 +421,6 @@ struct DockScreenHeader: View {
     }
 }
 
-struct DockSettingSection<Content: View>: View {
-    var title: String
-    @ViewBuilder var content: Content
-    var body: some View {
-        GroupedSection(title) {
-            if #available(macOS 15.0, *) {
-                Group(subviews: content) { rows in
-                    ForEach(rows) { row in
-                        row.frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12).padding(.vertical, 6)
-                    }
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 8) { content }.padding(12)
-            }
-        }
-            .toggleStyle(SettingsSwitchStyle())
-            .controlSize(.small)
-            .buttonStyle(DockButtonStyle())
-            .textFieldStyle(DockTextFieldStyle())
-            .id(title)
-    }
-}
-
 struct SettingsControlRow<Content: View>: View {
     var title: String
     @ViewBuilder var content: Content
@@ -513,11 +495,6 @@ extension DockProfileColor {
         case .red: .init(red: 0.79, green: 0.36, blue: 0.37)
         }
     }
-}
-
-extension WidgetCategory {
-    var displayColor: Color { switch self { case .utilities: .orange; case .productivity: .orange; case .system: .teal; case .time: .orange; case .personal: .pink; case .business: .green; case .ai: .purple } }
-    var symbol: String { switch self { case .utilities: "wand.and.stars"; case .productivity: "square.grid.2x2"; case .system: "desktopcomputer"; case .time: "clock"; case .personal: "person.crop.circle"; case .business: "chart.bar"; case .ai: "sparkles" } }
 }
 
 /// Native scrolling in the app. DEBUG snapshots flatten the viewport because

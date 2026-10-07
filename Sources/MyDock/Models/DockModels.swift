@@ -1288,7 +1288,7 @@ struct AppSettings: Codable, Equatable {
         activeNativeProfileID = values.lenient(UUID.self, forKey: .activeNativeProfileID)
         activeCustomProfileID = values.lenient(UUID.self, forKey: .activeCustomProfileID)
         customDockPosition = values.lenient(DockPosition.self, forKey: .customDockPosition) ?? .bottom
-        customDockSize = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockSize), default: 1, range: 0.65...1.5)
+        customDockSize = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockSize), default: 1, range: DockAppearanceBounds.size)
         customDockItemSpacing = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockItemSpacing), default: 8, range: DockAppearanceBounds.itemSpacing)
         customDockCornerRadius = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockCornerRadius), default: 24, range: DockAppearanceBounds.cornerRadius)
         customDockTintStrength = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockTintStrength), default: 0.08, range: DockAppearanceBounds.tintStrength)

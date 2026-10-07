@@ -195,6 +195,11 @@ enum MarketAPIKeyStore {
         return value
     }
 
+    /// Whether a key is saved, from its attributes only: the key itself is not decrypted.
+    static func exists() throws -> Bool {
+        try IntegrationCredentialPresence.exists(account: "alphavantage", credential: "The Alpha Vantage key")
+    }
+
     static func write(_ value: String) throws {
         try AppRuntimeEnvironment.requireCredentials()
         let data = Data(value.utf8)

@@ -42,6 +42,13 @@ struct AutomaticSwitchingSettingsSection: View {
     @ObservedObject var store: ProfileStore
     @ObservedObject var status = AutomaticSwitchingStatus.shared
     @State private var expandedRuleID: UUID?
+    /// The last deleted rule and its priority, until it is restored or another rule is deleted.
+    @State private var removedRule: RemovedRule?
+
+    private struct RemovedRule {
+        var rule: AutomaticSwitchRule
+        var index: Int
+    }
 
     private var automatic: AutomaticSwitchingSettings { store.state.settings.automaticSwitching }
 
@@ -65,7 +72,11 @@ struct AutomaticSwitchingSettingsSection: View {
                         rule: rule,
                         index: automatic.rules.firstIndex(where: { $0.id == rule.id }) ?? 0,
                         count: automatic.rules.count,
-                        expandedRuleID: $expandedRuleID)
+                        expandedRuleID: $expandedRuleID,
+                        onDelete: { deleteRule(rule.id) })
+                }
+                if removedRule != nil, automatic.canAddRule {
+                    GroupedRow("Undo Delete", role: .button) { undoDelete() }
                 }
                 GroupedRow("Rules", subtitle: store.customProfiles.isEmpty ? "Create a Custom Dock to add a rule." : nil, accessory: {
                     Menu {
@@ -83,6 +94,18 @@ struct AutomaticSwitchingSettingsSection: View {
         }
     }
 
+    private func deleteRule(_ id: UUID) {
+        guard let index = automatic.rules.firstIndex(where: { $0.id == id }) else { return }
+        removedRule = RemovedRule(rule: automatic.rules[index], index: index)
+        store.updateSettings { $0.automaticSwitching.removeRule(id) }
+    }
+
+    private func undoDelete() {
+        guard let removed = removedRule else { return }
+        removedRule = nil
+        store.updateSettings { $0.automaticSwitching.restoreRule(removed.rule, at: removed.index) }
+    }
+
     private func addRule(_ kind: AutomaticSwitchRule.Kind) {
         var newID: UUID?
         let defaultProfile = store.state.settings.activeCustomProfileID ?? store.customProfiles.first?.id
@@ -97,6 +120,7 @@ private struct AutomaticSwitchRuleRow: View {
     var index: Int
     var count: Int
     @Binding var expandedRuleID: UUID?
+    var onDelete: () -> Void
     @State private var apps: [AutomaticSwitchAppOption] = []
     @DockAccessibilityStyle() private var accessibility
 
@@ -117,6 +141,10 @@ private struct AutomaticSwitchRuleRow: View {
                         Label("Dock missing. This rule is skipped.", systemImage: "exclamationmark.triangle.fill")
                             .font(DockDesign.Grouped.subtitleFont)
                             .foregroundStyle(.orange)
+                    }
+                    if let problem = AutomaticSwitchRuleText.problem(rule) {
+                        Text(problem).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 8)
@@ -191,12 +219,6 @@ private struct AutomaticSwitchRuleRow: View {
                 SettingsControlRow(title: "Until") {
                     DatePicker("Until", selection: minuteBinding(\.endMinute), displayedComponents: .hourAndMinute)
                 }
-                if rule.startMinute == rule.endMinute {
-                    Text("Start and end are the same, so this rule never matches.")
-                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                        .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
-                        .padding(.bottom, DockDesign.Grouped.rowVerticalPadding)
-                }
             }
             SettingsControlRow(title: "Dock") {
                 Picker("Dock", selection: Binding(
@@ -261,9 +283,9 @@ private struct AutomaticSwitchRuleRow: View {
         store.updateSettings { $0.automaticSwitching.moveRule(id, by: offset) }
     }
 
+    /// The section removes the rule so it can offer Undo Delete.
     private func delete() {
-        let id = rule.id
-        if expandedRuleID == id { expandedRuleID = nil }
-        store.updateSettings { $0.automaticSwitching.removeRule(id) }
+        if expandedRuleID == rule.id { expandedRuleID = nil }
+        onDelete()
     }
 }

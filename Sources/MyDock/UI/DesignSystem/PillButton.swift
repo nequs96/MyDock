@@ -34,9 +34,9 @@ struct PillButton: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 if let systemImage {
-                    Image(systemName: systemImage).font(.system(size: 13, weight: .semibold)).accessibilityHidden(true)
+                    Image(systemName: systemImage).font(DockDesign.sectionTitle).accessibilityHidden(true)
                 }
-                Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text(title).font(DockDesign.sectionTitle).lineLimit(1)
             }
             .padding(.horizontal, 4)
         }

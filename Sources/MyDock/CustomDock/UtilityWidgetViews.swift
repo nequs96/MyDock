@@ -194,17 +194,9 @@ struct WidgetPopoutDropArea<Content: View>: View {
     }
 }
 
-/// Opens a System Settings privacy pane; disabled in isolated validation.
-enum WidgetPrivacySettings {
-    static let calendars = "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
-    static let reminders = "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders"
-    static let automation = "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
-    static let fullDiskAccess = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
-    static func open(_ address: String) {
-        guard AppRuntimeEnvironment.allowsNativeEffects, let url = URL(string: address) else { return }
-        NSWorkspace.shared.open(url)
-    }
-}
+/// The widget popouts' name for the System Settings panes (`WidgetPrivacySettings.open(.calendars)`).
+/// Each pane URL is written once, in `SystemSettingsPane`.
+typealias WidgetPrivacySettings = SystemSettingsPane
 
 // MARK: - Disk Space
 

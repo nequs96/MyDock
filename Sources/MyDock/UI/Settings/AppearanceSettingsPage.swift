@@ -49,6 +49,33 @@ enum SettingsAppearanceDefaults {
     static func restore(to settings: inout AppSettings) {
         settings = ProfileAppearance(settings: AppSettings()).applying(to: settings)
     }
+    /// Confirmation text for the app-wide reset: names how many Docks follow the app defaults and will change.
+    static func factoryResetMessage(inheritingDocks count: Int) -> String {
+        let docks = switch count {
+        case 0: "No Dock uses app defaults right now."
+        case 1: "1 Dock uses app defaults and will change."
+        default: "\(count) Docks use app defaults and will change."
+        }
+        return docks + " Docks with their own appearance are not changed."
+    }
+}
+
+extension DockProfile {
+    /// Sample Dock for the Appearance preview when no Dock is being edited. Fixed identities keep the
+    /// preview widgets (and their state) stable while sliders and pickers re-render the page.
+    @MainActor static let appearancePreviewSample: DockProfile = {
+        let samples: [(kind: String, id: String)] = [("Clock", "6D1C2A4E-0B6F-4C1E-9E7A-2F3B5C8D1A01"),
+                                                     ("Weather", "6D1C2A4E-0B6F-4C1E-9E7A-2F3B5C8D1A02"),
+                                                     ("Sticky Note", "6D1C2A4E-0B6F-4C1E-9E7A-2F3B5C8D1A03")]
+        let items = samples.map { sample -> DockItem in
+            var item = DockItem.widget(sample.kind)
+            if let id = UUID(uuidString: sample.id) { item.id = id }
+            return item
+        }
+        var profile = DockProfile(name: "Preview", kind: .custom, items: items)
+        if let id = UUID(uuidString: "6D1C2A4E-0B6F-4C1E-9E7A-2F3B5C8D1A00") { profile.id = id }
+        return profile
+    }()
 }
 
 extension SettingsView {
@@ -57,11 +84,12 @@ extension SettingsView {
             VStack(alignment: .leading, spacing: 20) {
                 SettingsPageHeader(page: .appearance)
                 appearanceHero
+                appearanceScopeSection
                 appearanceStyleSection
                 appearanceGlassSection
                 appearanceLayoutSection
                 appearanceWidgetsSection
-                appearanceScopeSection
+                appearanceResetSection
             }
             .padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -70,14 +98,14 @@ extension SettingsView {
 
     var appearanceHero: some View {
         var profile = appearanceProfileID.flatMap { id in store.customProfiles.first { $0.id == id } }
-            ?? DockProfile(name: "Preview", kind: .custom, items: [.widget("Clock"), .widget("Weather"), .widget("Sticky Note")])
+            ?? DockProfile.appearancePreviewSample
         profile.appearance = ProfileAppearance(settings: appearanceSettings)
         return ZStack {
             SwatchWallpaper()
             DockLayoutPreview(store: store, profile: profile, maximumSideLength: 180, usesLiveData: false)
                 .padding(20)
         }
-        .frame(height: 200).clipShape(RoundedRectangle(cornerRadius: 18))
+        .frame(height: 200).clipShape(RoundedRectangle(cornerRadius: DockDesign.Radius.preview, style: .continuous))
         .accessibilityLabel("Dock appearance preview, sample data").id("Preview")
     }
 
@@ -118,7 +146,7 @@ extension SettingsView {
             GroupedRow("Auto tint", isOn: Binding(get: { appearanceSettings.customDockTintMode == .auto }, set: { enabled in
                 updateAppearance { $0.customDockTintMode = enabled ? .auto : .custom }
             })).id("Auto tint")
-            appearanceSlider("Tint strength", keyPath: \.customDockTintStrength, range: 0...0.5, step: 0.01, percent: true)
+            appearanceSlider("Tint strength", keyPath: \.customDockTintStrength, range: DockAppearanceBounds.tintStrength, step: 0.01, percent: true)
                 .disabled(appearanceSettings.customDockTintMode == .auto).id("Tint strength")
             appearanceSlider("Glass opacity", keyPath: \.customDockGlassOpacity, range: 0...1, step: nil, percent: true)
                 .id("Glass opacity")
@@ -148,7 +176,7 @@ extension SettingsView {
                     ForEach(DockDensityPreset.allCases) { Text($0.title).tag(Optional($0)) }
                 }
             }
-            appearanceSlider("Tile size", keyPath: \.customDockSize, range: 0.65...1.5, step: nil, percent: true)
+            appearanceSlider("Tile size", keyPath: \.customDockSize, range: DockAppearanceBounds.size, step: nil, percent: true)
             appearanceSlider("Item spacing", keyPath: \.customDockItemSpacing, range: DockAppearanceBounds.itemSpacing)
             appearanceSlider("Corner roundness", keyPath: \.customDockCornerRadius, range: DockAppearanceBounds.cornerRadius)
             appearanceSlider("Floating inset", keyPath: \.customDockFloatingInset, range: DockAppearanceBounds.floatingInset)
@@ -174,8 +202,9 @@ extension SettingsView {
         }.id("Widgets").help("Each widget can override its layout and icon; side Docks use a narrow layout.")
     }
 
+    /// Sits under the preview so the scope is chosen before any control it governs.
     var appearanceScopeSection: some View {
-        GroupedSection("Scope", footer: appearanceProfileID != nil ? "Edits apply to this Dock." : "Defaults apply to Docks with inherited appearance.") {
+        GroupedSection(footer: appearanceScopeFooter) {
             SettingsControlRow(title: "Editing") {
                 Picker("Editing", selection: Binding(get: { appearanceProfileID != nil }, set: { thisDock in
                     appearanceProfileID = thisDock ? store.activeCustomProfile?.id ?? store.customProfiles.first?.id : nil
@@ -195,6 +224,19 @@ extension SettingsView {
                 GroupedRow("Create a custom Dock to edit its appearance.")
             }
             if let appearanceScopeMessage { GroupedRow(appearanceScopeMessage) }
+        }.id("Scope")
+    }
+
+    private var appearanceScopeFooter: String {
+        guard let id = appearanceProfileID else { return "Edits apply to every Dock that uses app defaults." }
+        return store.customProfiles.first(where: { $0.id == id })?.appearance == nil
+            ? "This Dock uses app defaults. Edits give it its own appearance."
+            : "Edits apply to this Dock."
+    }
+
+    /// Inheritance, factory reset and undo for the scope chosen at the top of the page.
+    var appearanceResetSection: some View {
+        GroupedSection("Reset") {
             if let id = appearanceProfileID {
                 GroupedRow("Use app defaults", isOn: Binding(get: {
                     store.customProfiles.first(where: { $0.id == id })?.appearance == nil
@@ -202,25 +244,29 @@ extension SettingsView {
                     rememberAppearance()
                     store.setAppearance(inherit ? nil : ProfileAppearance(settings: appearanceSettings), for: id)
                 }))
-                GroupedRow("Reset to app defaults", role: .button) {
-                    guard store.customProfiles.contains(where: { $0.id == id }) else { return }
-                    rememberAppearance(); store.setAppearance(nil, for: id)
+                // Stores the factory values as this Dock's own appearance; other Docks are unchanged.
+                GroupedRow("Restore Factory Appearance", role: .button) {
+                    updateAppearance { SettingsAppearanceDefaults.restore(to: &$0) }
                 }
             } else {
-                GroupedRow("Reset app appearance defaults", role: .button) {
-                    updateAppearance { SettingsAppearanceDefaults.restore(to: &$0) }
-                }
-            }
-            if appearanceProfileID != nil {
-                // App defaults already offer "Reset app appearance defaults", which does the same.
-                GroupedRow("Restore appearance defaults", role: .button) {
-                    updateAppearance { SettingsAppearanceDefaults.restore(to: &$0) }
+                // App defaults reach only the Docks that inherit them; the dialog says how many.
+                GroupedRow("Restore Factory Defaults…", role: .button) {
+                    confirmingAppearanceFactoryReset = true
                 }
             }
             if previousAppearance?.isAvailable(for: appearanceProfileID) == true {
-                GroupedRow("Undo last appearance change", role: .button) { undoAppearance() }
+                GroupedRow("Undo Last Appearance Change", role: .button) { undoAppearance() }
             }
-        }.id("Scope")
+        }
+        .id("Reset")
+        .confirmationDialog("Restore the factory app defaults?", isPresented: $confirmingAppearanceFactoryReset) {
+            Button("Restore Factory Defaults", role: .destructive) {
+                guard appearanceProfileID == nil else { return }
+                updateAppearance { SettingsAppearanceDefaults.restore(to: &$0) }
+            }
+        } message: {
+            Text(SettingsAppearanceDefaults.factoryResetMessage(inheritingDocks: store.customProfiles.filter { $0.appearance == nil }.count))
+        }
     }
 
     private func appearanceBinding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
@@ -229,15 +275,19 @@ extension SettingsView {
 
     private func appearanceSlider(_ title: String, keyPath: WritableKeyPath<AppSettings, Double>, range: ClosedRange<Double>, step: Double? = 1, percent: Bool = false) -> some View {
         let value = appearanceSettings[keyPath: keyPath]
+        let display = percent ? "\(Int((value * 100).rounded()))%" : "\(Int(value.rounded())) pt"
         return GroupedRow(title) {
             HStack(spacing: 10) {
                 Slider(value: Binding(get: { appearanceSettings[keyPath: keyPath] }, set: { value in
                     let adjusted = step.map { (value / $0).rounded() * $0 } ?? value
                     updateAppearance { $0[keyPath: keyPath] = min(range.upperBound, max(range.lowerBound, adjusted)) }
                 }), in: range, onEditingChanged: appearanceSliderEditingChanged)
-                    .accessibilityLabel(title).frame(minWidth: 80, maxWidth: 180)
-                Text(percent ? "\(Int((value * 100).rounded()))%" : "\(Int(value.rounded())) pt")
+                    .accessibilityLabel(title)
+                    .accessibilityValue(percent ? display : "\(Int(value.rounded())) points")
+                    .frame(minWidth: 80, maxWidth: 180)
+                Text(display)
                     .monospacedDigit().foregroundStyle(.secondary).frame(width: 52, alignment: .trailing)
+                    .accessibilityHidden(true)
             }
         }
     }

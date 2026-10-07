@@ -11,9 +11,9 @@ extension SettingsView {
     DockScrollView {
         VStack(alignment: .leading, spacing: 20) {
         SettingsPageHeader(page: selectedPage)
-            GroupedSection("Global profile shortcuts", footer: "Shortcuts stay on this Mac.") {
+            GroupedSection("Global Dock shortcuts", footer: "Shortcuts stay on this Mac.") {
                 if store.state.profiles.isEmpty {
-                    GroupedRow("Create a Dock profile in Manage Docks to assign a shortcut.")
+                    GroupedNote("Create a Dock in Manage Docks to assign a shortcut.")
                 } else {
                     ForEach(store.state.profiles) { profile in
                         SettingsShortcutRow(
@@ -26,7 +26,7 @@ extension SettingsView {
                         )
                     }
                 }
-            }.id("Global profile shortcuts").help("Shortcuts need two modifiers, work from any app, stay on this Mac and are excluded from backups; registration failures appear beside each Dock.")
+            }.id("Global Dock shortcuts").help("Shortcuts need two modifiers, work from any app, stay on this Mac and are excluded from backups; registration failures appear beside each Dock.")
         }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
     }
     }
