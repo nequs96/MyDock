@@ -543,10 +543,7 @@ struct SystemTelemetryDockFace: View {
     @Environment(\.widgetAccent) private var accent
     private let kind = "System Activity"
     private var value: String { cpu.map { "\(Int($0.rounded()))%" } ?? "—" }
-    private var stateColor: Color {
-        guard let cpu else { return .primary }
-        return cpu >= 90 ? WidgetPalette.critical : cpu >= 75 ? WidgetPalette.warning : .primary
-    }
+    private var stateColor: Color { SystemActivityState.color(cpu: cpu) }
     private var chartColor: Color { stateColor == .primary ? WidgetPalette.resolved(kind: kind, accent: accent) : stateColor }
     var body: some View {
         Group {

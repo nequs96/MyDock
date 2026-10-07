@@ -430,7 +430,7 @@ private struct WidgetPreviewReadingReader<Content: View>: View {
         var content: (Bool) -> Content
         @ObservedObject private var monitor = SystemActivityMonitor.shared
         #if DEBUG
-        @Environment(\.facesBSystemReadings) private var fixture
+        @Environment(\.systemActivityFixture) private var fixture
         #endif
         private var hasReading: Bool {
             #if DEBUG
@@ -444,7 +444,7 @@ private struct WidgetPreviewReadingReader<Content: View>: View {
         var content: (Bool) -> Content
         @ObservedObject private var monitor = NetworkActivityMonitor.shared
         #if DEBUG
-        @Environment(\.facesBNetworkReadings) private var fixture
+        @Environment(\.networkActivityFixture) private var fixture
         #endif
         private var hasReading: Bool {
             #if DEBUG

@@ -12,6 +12,8 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable {
     case antigravity
 
     var id: String { rawValue }
+    /// The providers with a local activity source; AI Activity offers and decodes only these.
+    static let localActivityProviders: [AIProvider] = [.codex, .claude, .grok]
     var title: String {
         switch self {
         case .codex: "Codex"
@@ -34,13 +36,6 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable {
         case .copilot: "For a personal Copilot plan, save a fine-grained GitHub token with Plan read permission in Settings → Integrations, then set the monthly AI-credit allowance in this widget. MyDock reads only the official GitHub billing endpoint; organization-billed plans are not included."
         case .antigravity: "Antigravity CLI provides /usage in its own interface. MyDock does not yet read a supported local allowance source."
         }
-    }
-
-    var statusLineSetupCommand: String? {
-        guard self == .claude else { return nil }
-        let shell = "umask 077; tmp=$(mktemp \"$HOME/.claude/mydock-rate-limits.XXXXXX\") || exit 0; if jq -ce 'select(.rate_limits != null) | {updated_at: now, rate_limits: .rate_limits}' > \"$tmp\"; then mv \"$tmp\" \"$HOME/.claude/mydock-rate-limits.json\" && printf 'Claude limits synced to MyDock'; else rm -f \"$tmp\"; fi"
-        guard let encoded = try? JSONEncoder().encode(shell) else { return nil }
-        return String(decoding: encoded, as: UTF8.self)
     }
 }
 

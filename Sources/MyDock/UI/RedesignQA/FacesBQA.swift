@@ -89,19 +89,19 @@ enum FacesBQA {
         return item
     }
 
-    static func system(_ state: State) -> FacesBSystemReadings {
-        guard state == .ready || state == .stale else { return FacesBSystemReadings() }
-        return FacesBSystemReadings(cpuPercentage: state == .stale ? 96 : 37, cpuHistory: [15, 21, 30, 18, 28, 37, 29, 37],
+    static func system(_ state: State) -> SystemActivityReadings {
+        guard state == .ready || state == .stale else { return SystemActivityReadings() }
+        return SystemActivityReadings(cpuPercentage: state == .stale ? 96 : 37, cpuHistory: [15, 21, 30, 18, 28, 37, 29, 37],
             perCorePercentages: [21, 35, 50, 42], memory: HostMemoryReading(usedBytes: 12_000_000_000, totalBytes: 32_000_000_000,
                 swapUsedBytes: 512_000_000, activeBytes: 5_000_000_000, wiredBytes: 3_000_000_000, compressedBytes: 1_000_000_000,
                 inactiveBytes: 2_000_000_000, freeBytes: 20_000_000_000, purgeableBytes: 1_000_000_000),
             loadAverage: SystemLoadAverage(oneMinute: 2.4, fiveMinutes: 1.9, fifteenMinutes: 1.4), thermalState: .nominal,
             systemUptime: 92_000, startupVolume: .init(name: "Startup disk", totalBytes: 500_000_000_000, availableBytes: 128_000_000_000),
-            memoryPressure: .normal, lastUpdated: state == .stale ? now.addingTimeInterval(-86_400) : now)
+            memoryPressure: .normal, storageSampledAt: state == .stale ? now.addingTimeInterval(-86_400) : now)
     }
-    static func network(_ state: State) -> FacesBNetworkReadings {
-        guard state == .ready || state == .stale else { return FacesBNetworkReadings() }
-        return FacesBNetworkReadings(interfaces: [.init(name: "en0", receivedBytesPerSecond: 2_400_000,
+    static func network(_ state: State) -> NetworkActivityReadings {
+        guard state == .ready || state == .stale else { return NetworkActivityReadings() }
+        return NetworkActivityReadings(interfaces: [.init(name: "en0", receivedBytesPerSecond: 2_400_000,
             sentBytesPerSecond: 148_000, addresses: ["192.0.2.10", "fe80::123%en0"]),
             .init(name: "awdl0", receivedBytesPerSecond: 0, sentBytesPerSecond: 0, addresses: ["fe80::456%awdl0"]),
             .init(name: "utun4", receivedBytesPerSecond: 0, sentBytesPerSecond: 0, addresses: [])], updatedAt: state == .stale ? now.addingTimeInterval(-86_400) : now,
@@ -113,7 +113,7 @@ enum FacesBQA {
         let item = item(kind, state: state)
         return WidgetProviderRegistry.provider(for: kind).compactView(store: store, item: item, profileID: profileID)
             .environment(\.widgetLayout, layout).environment(\.dockWidgetContentWidth, width)
-            .environment(\.facesBSystemReadings, system(state)).environment(\.facesBNetworkReadings, network(state))
+            .environment(\.systemActivityFixture, system(state)).environment(\.networkActivityFixture, network(state))
             .frame(width: width, height: 54)
     }
 }
@@ -186,38 +186,38 @@ extension PremiumVisualQA {
                     let naturalSize = facesBPopoutSize(store: store, item: item, profileID: profileID, state: state, scheme: scheme, fullContentForQA: true)
                     let inspectionSize = facesBPopoutSize(store: store, item: item, profileID: profileID, state: state, scheme: scheme, fullContentForQA: true)
                     try await render(FacesBQAPopout(store: store, item: item, profileID: profileID, fullContentForQA: true)
-                        .environment(\.facesBSystemReadings, FacesBQA.system(state))
-                        .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
+                        .environment(\.systemActivityFixture, FacesBQA.system(state))
+                        .environment(\.networkActivityFixture, FacesBQA.network(state)),
                         name: "facesb-popout-\(slug(kind))-\(state.rawValue)-\(suffix)",
                         size: naturalSize, scheme: scheme, directory: directory)
                     try await render(FacesBQAPopout(store: store, item: item, profileID: profileID, fullContentForQA: true)
-                        .environment(\.facesBSystemReadings, FacesBQA.system(state))
-                        .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
+                        .environment(\.systemActivityFixture, FacesBQA.system(state))
+                        .environment(\.networkActivityFixture, FacesBQA.network(state)),
                         name: "facesb-popout-content-\(slug(kind))-\(state.rawValue)-\(suffix)",
                         size: inspectionSize, scheme: scheme, directory: directory)
                     // Default-height shipping sheet, plus a taller export to inspect all embedded content.
                     try await render(WidgetConfigurationSheet(store: store, item: item, profileID: profileID)
-                        .environment(\.facesBSystemReadings, FacesBQA.system(state))
-                        .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
+                        .environment(\.systemActivityFixture, FacesBQA.system(state))
+                        .environment(\.networkActivityFixture, FacesBQA.network(state)),
                         name: "facesb-sheet-\(slug(kind))-\(state.rawValue)-\(suffix)",
                         size: NSSize(width: 504, height: 640), scheme: scheme, directory: directory)
                     try await render(WidgetConfigurationSheet(store: store, item: item, profileID: profileID, maximumHeight: 1800)
-                        .environment(\.facesBSystemReadings, FacesBQA.system(state))
-                        .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
+                        .environment(\.systemActivityFixture, FacesBQA.system(state))
+                        .environment(\.networkActivityFixture, FacesBQA.network(state)),
                         name: "facesb-sheet-content-\(slug(kind))-\(state.rawValue)-\(suffix)",
                         size: NSSize(width: 504, height: 1800), scheme: scheme, directory: directory)
                     if state == .ready {
                         for mode in ["reduce-transparency", "increase-contrast"] {
                             try await render(FacesBQAPopout(store: store, item: item, profileID: profileID, fullContentForQA: true)
-                                .environment(\.facesBSystemReadings, FacesBQA.system(state))
-                                .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
+                                .environment(\.systemActivityFixture, FacesBQA.system(state))
+                                .environment(\.networkActivityFixture, FacesBQA.network(state)),
                                 name: "facesb-popout-\(slug(kind))-\(mode)-\(suffix)",
                                 size: naturalSize, scheme: scheme, directory: directory,
                                 contrast: mode == "increase-contrast" ? .increased : .standard,
                                 reduceTransparency: mode == "reduce-transparency")
                             try await render(WidgetConfigurationSheet(store: store, item: item, profileID: profileID)
-                                .environment(\.facesBSystemReadings, FacesBQA.system(state))
-                                .environment(\.facesBNetworkReadings, FacesBQA.network(state)),
+                                .environment(\.systemActivityFixture, FacesBQA.system(state))
+                                .environment(\.networkActivityFixture, FacesBQA.network(state)),
                                 name: "facesb-sheet-\(slug(kind))-\(mode)-\(suffix)",
                                 size: NSSize(width: 504, height: 640), scheme: scheme, directory: directory,
                                 contrast: mode == "increase-contrast" ? .increased : .standard,
@@ -232,8 +232,8 @@ extension PremiumVisualQA {
     private static func facesBPopoutSize(store: ProfileStore, item: DockItem, profileID: UUID, state: FacesBQA.State,
                                          scheme: ColorScheme, fullContentForQA: Bool = false) -> NSSize {
         let host = NSHostingView(rootView: WidgetPopout(store: store, item: item, profileID: profileID)
-            .environment(\.facesBSystemReadings, FacesBQA.system(state))
-            .environment(\.facesBNetworkReadings, FacesBQA.network(state))
+            .environment(\.systemActivityFixture, FacesBQA.system(state))
+            .environment(\.networkActivityFixture, FacesBQA.network(state))
             .environment(\.dockSnapshotRendering, true).environment(\.colorScheme, scheme))
         let content = host.fittingSize
         // render() uses a titled NSWindow. Its safe area sits inside the exported bitmap;

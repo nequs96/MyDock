@@ -126,12 +126,15 @@ struct SystemDetailSurfaceTests {
         #expect(SystemDetailFormatting.freshness(updatedAt: now, failed: false, now: now, maximumAge: network) == "Updated just now")
         #expect(SystemDetailFormatting.freshness(updatedAt: now.addingTimeInterval(-4), failed: false, now: now, maximumAge: network) == "Updated just now")
         // Past three network samples the reading is stale, never "Updated".
-        #expect(SystemDetailFormatting.freshness(updatedAt: now.addingTimeInterval(-30), failed: false, now: now, maximumAge: network) == "Last reading just now")
+        // A stale reading under a minute old counts seconds instead of saying "just now".
+        let staleNetwork = SystemDetailFormatting.freshness(updatedAt: now.addingTimeInterval(-30), failed: false, now: now, maximumAge: network)
+        #expect(staleNetwork.hasPrefix("Last reading ") && !staleNetwork.contains("just now") && staleNetwork.contains("30"))
         let older = SystemDetailFormatting.freshness(updatedAt: now.addingTimeInterval(-90), failed: false, now: now, maximumAge: storage)
         #expect(older.hasPrefix("Updated ") && older != "Updated just now")
         #expect(SystemDetailFormatting.freshness(updatedAt: now.addingTimeInterval(-300), failed: false, now: now, maximumAge: storage).hasPrefix("Last reading "))
         // A failed refresh keeps the last reading and says how old it is.
-        #expect(SystemDetailFormatting.freshness(updatedAt: now.addingTimeInterval(-10), failed: true, now: now, maximumAge: storage) == "Last reading just now")
+        let failedRecent = SystemDetailFormatting.freshness(updatedAt: now.addingTimeInterval(-10), failed: true, now: now, maximumAge: storage)
+        #expect(failedRecent.hasPrefix("Last reading ") && !failedRecent.contains("just now") && failedRecent.contains("10"))
         #expect(SystemDetailSections.storageInterval == 60)
     }
 

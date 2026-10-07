@@ -24,7 +24,6 @@ final class SystemActivityMonitor: ObservableObject {
     @Published private(set) var systemUptime: TimeInterval?
     @Published private(set) var startupVolume: SystemVolumeReading?
     @Published private(set) var memoryPressure: MemoryPressureCondition = .awaitingEvent
-    @Published private(set) var lastUpdated: Date?
 
     private var subscribers = Set<UUID>()
     private var visiblePopouts = Set<UUID>()
@@ -36,6 +35,8 @@ final class SystemActivityMonitor: ObservableObject {
     private var pressureSource: (any DispatchSourceMemoryPressure)?
 
     private init() {
+        // The dispatch source reports only transitions: seed the current level so a calm Mac reads "Normal".
+        memoryPressure = MemoryPressureCondition.currentLevel() ?? .awaitingEvent
         let source = DispatchSource.makeMemoryPressureSource(eventMask: .all, queue: .main)
         pressureSource = source
         source.setEventHandler { [weak self] in
@@ -111,7 +112,6 @@ final class SystemActivityMonitor: ObservableObject {
         thermalState = reading.thermalState
         systemUptime = reading.systemUptime
         startupVolume = reading.startupVolume
-        lastUpdated = .now
     }
 }
 
@@ -129,84 +129,22 @@ enum MemoryPressureCondition {
         case .critical: "Critical"
         }
     }
-}
 
-@MainActor
-final class StorageScanMonitor: ObservableObject {
-    static let shared = StorageScanMonitor()
-
-    @Published private(set) var results: [StorageScanResult] = []
-    @Published private(set) var progress: StorageScanProgress?
-    @Published private(set) var currentPath: String?
-    @Published private(set) var warnings: [String] = []
-    @Published private(set) var isScanning = false
-
-    private var cancellation: StorageScanCancellationFlag?
-    private var scanTask: Task<Void, Never>?
-    private var scanID = UUID()
-    private var previousRoots: [ScanRoot] = []
-
-    /// One scanned location and the subtrees counted as their own location instead.
-    private struct ScanRoot: Sendable {
-        var url: URL
-        var excluding: Set<URL> = []
+    /// The kernel's current memory pressure level, or nil when it cannot be read.
+    static func currentLevel() -> MemoryPressureCondition? {
+        var level: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        guard sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &size, nil, 0) == 0 else { return nil }
+        return condition(sysctlLevel: Int(level))
     }
 
-    func scanDefaultLocations() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let library = home.appendingPathComponent("Library", isDirectory: true)
-        // Home leaves out Library, which is its own location, so the three totals are disjoint.
-        start([ScanRoot(url: home, excluding: [library]),
-               ScanRoot(url: URL(fileURLWithPath: "/Applications", isDirectory: true)),
-               ScanRoot(url: library)])
-    }
-
-    func scanFolder(_ url: URL) { start([ScanRoot(url: url)]) }
-    func scanAgain() { start(previousRoots) }
-    func cancel() { cancellation?.cancel() }
-
-    private func start(_ roots: [ScanRoot]) {
-        guard !isScanning, !roots.isEmpty else { return }
-        previousRoots = roots
-        results = []
-        warnings = []
-        progress = nil
-        isScanning = true
-        let flag = StorageScanCancellationFlag()
-        cancellation = flag
-        let identifier = UUID()
-        scanID = identifier
-
-        scanTask = Task { [weak self] in
-            guard let self else { return }
-            for scanRoot in roots {
-                guard !flag.isCancelled else { break }
-                let root = scanRoot.url, excluded = scanRoot.excluding
-                self.currentPath = root.path
-                self.progress = StorageScanProgress(visitedEntries: 0, scannedFileCount: 0, scannedBytes: 0)
-                let work = Task.detached(priority: .userInitiated) { [self] in
-                    try StorageScanner.scan(at: root, cancellation: flag, excluding: excluded) { update in
-                        Task { @MainActor [self] in
-                            guard self.scanID == identifier, self.isScanning else { return }
-                            self.progress = update
-                        }
-                    }
-                }
-                do {
-                    let result = try await work.value
-                    self.results.append(result)
-                } catch StorageScanner.ScanError.cancelled {
-                    break
-                } catch {
-                    self.warnings.append("\(root.path): \(error.localizedDescription)")
-                }
-            }
-            guard self.scanID == identifier else { return }
-            self.currentPath = nil
-            self.progress = nil
-            self.cancellation = nil
-            self.isScanning = false
-            self.scanTask = nil
+    /// `kern.memorystatus_vm_pressure_level`: 1 normal, 2 warning, 4 critical.
+    static func condition(sysctlLevel: Int) -> MemoryPressureCondition? {
+        switch sysctlLevel {
+        case 1: return MemoryPressureCondition.normal
+        case 2: return MemoryPressureCondition.warning
+        case 4: return MemoryPressureCondition.critical
+        default: return nil
         }
     }
 }
@@ -223,46 +161,38 @@ private struct SystemActivityCompactWidgetView: View {
     @StateObject private var monitor = SystemActivityMonitor.shared
     @State private var subscriptionID = UUID()
     #if DEBUG
-    @Environment(\.facesBSystemReadings) private var fixture
+    @Environment(\.systemActivityFixture) private var fixture
     #endif
-    private var cpuPercentage: Double? {
+    /// Every field comes from one reading: the live monitor, or (DEBUG render QA) a fixture.
+    private var readings: SystemActivityReadings {
         #if DEBUG
-        if let fixture { return fixture.cpuPercentage }
+        if let fixture { return fixture }
         #endif
-        return monitor.cpuPercentage
+        return SystemActivityReadings(monitor)
     }
-    private var cpuHistory: [Double] {
+    private var isFixture: Bool {
         #if DEBUG
-        if let fixture { return fixture.cpuHistory }
+        return fixture != nil
+        #else
+        return false
         #endif
-        return monitor.cpuHistory
     }
-    private var memory: HostMemoryReading? {
-        #if DEBUG
-        if let fixture { return fixture.memory }
-        #endif
-        return monitor.memory
-    }
-    private var loadAverage: SystemLoadAverage? {
-        #if DEBUG
-        if let fixture { return fixture.loadAverage }
-        #endif
-        return monitor.loadAverage
-    }
+    private var secondary: SystemSecondaryMetric { item.widgetConfiguration?.systemSecondaryMetric ?? .memory }
+
     var body: some View {
-        SystemTelemetryDockFace(cpu: cpuPercentage, history: cpuHistory, memory: memory, load: loadAverage,
-                                secondary: item.widgetConfiguration?.systemSecondaryMetric ?? .memory)
+        let reading = readings
+        SystemTelemetryDockFace(cpu: reading.cpuPercentage, history: reading.cpuHistory, memory: reading.memory, load: reading.loadAverage,
+                                secondary: secondary)
             .frame(width: contentWidth, height: 54)
             .onAppear {
-                #if DEBUG
-                if fixture != nil { return }
-                #endif
+                guard !isFixture else { return }
                 monitor.subscribe(subscriptionID)
             }
             .onDisappear { monitor.unsubscribe(subscriptionID) }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("CPU system activity")
-            .accessibilityValue(cpuPercentage.map { "\(Int($0.rounded())) percent" } ?? "Sampling")
+            .accessibilityValue(SystemActivityFormatting.accessibilityValue(cpu: reading.cpuPercentage, secondary: secondary,
+                                                                            memory: reading.memory, load: reading.loadAverage))
     }
 }
 
@@ -274,104 +204,42 @@ private struct SystemActivityPopoutWidgetView: View {
     @State private var showsSettings = false
     private var configuration: WidgetConfiguration { store.presentationConfiguration(for: item, in: profileID) }
     @StateObject private var monitor = SystemActivityMonitor.shared
-    @StateObject private var scanner = StorageScanMonitor.shared
     @State private var subscriptionID = UUID()
 
     #if DEBUG
-    @Environment(\.facesBSystemReadings) private var fixture
+    @Environment(\.systemActivityFixture) private var fixture
     #endif
-    private var cpuPercentage: Double? {
+    /// Every field comes from one reading: the live monitor, or (DEBUG render QA) a fixture.
+    private var readings: SystemActivityReadings {
         #if DEBUG
-        if let fixture { return fixture.cpuPercentage }
+        if let fixture { return fixture }
         #endif
-        return monitor.cpuPercentage
+        return SystemActivityReadings(monitor)
     }
-    private var perCorePercentages: [Double]? {
+    private var isFixture: Bool {
         #if DEBUG
-        if let fixture { return fixture.perCorePercentages }
+        return fixture != nil
+        #else
+        return false
         #endif
-        return monitor.perCorePercentages
     }
-    private var memory: HostMemoryReading? {
-        #if DEBUG
-        if let fixture { return fixture.memory }
-        #endif
-        return monitor.memory
-    }
-    private var loadAverage: SystemLoadAverage? {
-        #if DEBUG
-        if let fixture { return fixture.loadAverage }
-        #endif
-        return monitor.loadAverage
-    }
-    private var thermalState: SystemThermalState {
-        #if DEBUG
-        if let fixture { return fixture.thermalState }
-        #endif
-        return monitor.thermalState
-    }
-    private var systemUptime: TimeInterval? {
-        #if DEBUG
-        if let fixture { return fixture.systemUptime }
-        #endif
-        return monitor.systemUptime
-    }
-    private var startupVolume: SystemVolumeReading? {
-        #if DEBUG
-        if let fixture { return fixture.startupVolume }
-        #endif
-        return monitor.startupVolume
-    }
-    private var memoryPressure: MemoryPressureCondition {
-        #if DEBUG
-        if let fixture { return fixture.memoryPressure }
-        #endif
-        return monitor.memoryPressure
-    }
+
     var body: some View {
+        let reading = readings
         VStack(alignment: .leading, spacing: 14) {
             if showsHero {
-                // Sampled live every 4 seconds, so there is no manual refresh control (one pattern: content over chrome).
-                Text("Live samples every 4 seconds").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                 WidgetPopoutHero(
-                    value: cpuPercentage.map { "\(Int($0.rounded()))%" } ?? "Warming up",
-                    caption: "CPU · Memory " + memorySummary,
-                    valueColor: (cpuPercentage ?? 0) >= 90 ? WidgetPalette.critical : .primary)
-                if let perCorePercentages = perCorePercentages {
-                    GroupedSection("Logical processors") {
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
-                            ForEach(Array(perCorePercentages.enumerated()), id: \.offset) { index, percentage in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack(spacing: 2) {
-                                        Text("\(index + 1)").foregroundStyle(.secondary)
-                                        Spacer(minLength: 2)
-                                        Text("\(Int(percentage.rounded()))%").monospacedDigit()
-                                    }.font(DockDesign.Grouped.subtitleFont.weight(.medium))
-                                    ProgressView(value: percentage, total: 100).tint(.secondary).controlSize(.mini)
-                                }.accessibilityElement(children: .ignore)
-                                    .accessibilityLabel("Core \(index + 1), \(Int(percentage.rounded())) percent")
-                            }
-                        }.padding(DockDesign.Grouped.rowHorizontalPadding)
-                    }
+                    value: reading.cpuPercentage.map { "\(Int($0.rounded()))%" } ?? "Warming up",
+                    caption: "CPU · Memory " + SystemActivityFormatting.memorySummary(reading.memory),
+                    valueColor: SystemActivityState.color(cpu: reading.cpuPercentage))
+                    .help("CPU is busy time across logical processors.")
+                if let perCorePercentages = reading.perCorePercentages {
+                    coresSection(perCorePercentages)
                 }
-                GroupedSection("System health") {
-                    healthRow("Thermal state", value: thermalState.title, symbol: "thermometer.medium")
-                    healthRow("Uptime", value: uptimeSummary, symbol: "clock")
-                    healthRow("Load · 1 / 5 / 15 min", value: loadAverageSummary, symbol: "chart.bar.xaxis")
-                    healthRow("Swap used", value: swapSummary, symbol: "externaldrive")
-                    healthRow("Memory pressure", value: memoryPressure.title, symbol: "memorychip")
-                }
-                if let memory = memory {
-                    GroupedSection("Memory breakdown") {
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), alignment: .leading, spacing: 12) {
-                            memoryDetail("Active", memory.activeBytes)
-                            memoryDetail("Wired", memory.wiredBytes)
-                            memoryDetail("Compressed", memory.compressedBytes)
-                            memoryDetail("Inactive", memory.inactiveBytes)
-                            memoryDetail("Free", memory.freeBytes)
-                            memoryDetail("Purgeable", memory.purgeableBytes)
-                        }.padding(DockDesign.Grouped.rowHorizontalPadding)
-                    }
+                SystemHealthSection(thermalState: reading.thermalState, uptime: reading.systemUptime, load: reading.loadAverage,
+                                    swapUsedBytes: reading.memory?.swapUsedBytes, memoryPressure: reading.memoryPressure)
+                if let memory = reading.memory {
+                    MemoryBreakdownSection(memory: memory)
                 }
                 // PX-7: related sections, below CPU and memory. Each reads only while it is shown.
                 if SystemDetailSections.showsNetwork(configuration) {
@@ -380,66 +248,10 @@ private struct SystemActivityPopoutWidgetView: View {
                 if SystemDetailSections.showsStorage(configuration) {
                     // Storage replaces the startup-volume summary, so the popout shows one storage reading.
                     SystemDetailStorageSection()
-                } else if let volume = startupVolume {
-                    GroupedSection(volume.name) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(alignment: .firstTextBaseline) {
-                                ModuleValue(value: volume.availableBytes.formattedByteCount)
-                                Text("available").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                                Spacer()
-                            }
-                            ProgressView(value: Double(volume.totalBytes - min(volume.availableBytes, volume.totalBytes)), total: Double(max(1, volume.totalBytes))).tint(
-                                .secondary)
-                            Text("\(volume.totalBytes.formattedByteCount) total capacity").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                        }.padding(DockDesign.Grouped.rowHorizontalPadding)
-                    }
+                } else if let volume = reading.startupVolume {
+                    startupVolumeSection(volume)
                 }
-                GroupedSection("Explore storage") {
-                    Group {
-                        if scanner.isScanning {
-                            GroupedRow("Scanning…") { ProgressView().controlSize(.small) }
-                            GroupedRow("Cancel", role: .button) { scanner.cancel() }
-                        } else {
-                            GroupedRow("Scan Folders", role: .button) { scanner.scanDefaultLocations() }
-                            GroupedRow("Choose Folder…", role: .button, action: chooseFolder)
-                            if !scanner.results.isEmpty { GroupedRow("Again", role: .button) { scanner.scanAgain() } }
-                        }
-                    }.help(
-                        "Scan Home, Applications and Library, or choose a folder. Nothing is deleted or uploaded. CPU is busy time across logical processors; load is runnable tasks, not a percentage. Memory categories overlap; pressure changes when macOS reports it."
-                    )
-                    if scanner.isScanning || !scanner.warnings.isEmpty || !scanner.results.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            if scanner.isScanning {
-                                Text(scanner.currentPath ?? "Preparing scan…").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                                if let progress = scanner.progress {
-                                    Text("\(progress.scannedFileCount) files · \(progress.scannedBytes.formattedByteCount)").font(DockDesign.Grouped.subtitleFont).monospacedDigit()
-                                }
-                            }
-                            ForEach(scanner.warnings, id: \.self) { Text($0).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.orange) }
-                            if !scanner.results.isEmpty {
-                                ForEach(scanner.results, id: \.rootPath) { result in
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Text(result.rootPath).font(DockDesign.Grouped.subtitleFont.weight(.semibold)).lineLimit(1).truncationMode(.middle)
-                                        Text(storageSummary(result)).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                                        ForEach(result.largestFiles) { file in
-                                            Button {
-                                                reveal(file)
-                                            } label: {
-                                                HStack(spacing: 8) {
-                                                    Image(systemName: "doc").foregroundStyle(.secondary)
-                                                    Text(file.name).lineLimit(1).truncationMode(.middle)
-                                                    Spacer(minLength: 4)
-                                                    Text(file.byteSize.formattedByteCount).monospacedDigit().foregroundStyle(.secondary)
-                                                    Image(systemName: "arrow.up.forward.app").foregroundStyle(.secondary)
-                                                }.font(DockDesign.Grouped.subtitleFont).padding(.vertical, 4)
-                                            }.buttonStyle(.plain).help("Reveal in Finder")
-                                        }
-                                    }
-                                }
-                            }
-                        }.padding(DockDesign.Grouped.rowHorizontalPadding)
-                    }
-                }
+                SystemStorageExplorerSection()
             }
             if showsHero {
                 WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) {
@@ -466,13 +278,43 @@ private struct SystemActivityPopoutWidgetView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
-            guard showsHero else { return }
-            #if DEBUG
-                if fixture != nil { return }
-            #endif
+            guard showsHero, !isFixture else { return }
             monitor.subscribe(subscriptionID, popout: true)
         }
         .onDisappear { monitor.unsubscribe(subscriptionID) }
+    }
+
+    private func coresSection(_ percentages: [Double]) -> some View {
+        GroupedSection("Logical processors") {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                ForEach(Array(percentages.enumerated()), id: \.offset) { index, percentage in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 2) {
+                            Text("\(index + 1)").foregroundStyle(.secondary)
+                            Spacer(minLength: 2)
+                            Text("\(Int(percentage.rounded()))%").monospacedDigit()
+                        }.font(DockDesign.Grouped.subtitleFont.weight(.medium))
+                        ProgressView(value: percentage, total: 100).tint(.secondary).controlSize(.mini)
+                    }.accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Core \(index + 1), \(Int(percentage.rounded())) percent")
+                }
+            }.padding(DockDesign.Grouped.rowHorizontalPadding)
+        }
+    }
+
+    private func startupVolumeSection(_ volume: SystemVolumeReading) -> some View {
+        GroupedSection(volume.name) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    ModuleValue(value: volume.availableBytes.formattedByteCount)
+                    Text("available").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                ProgressView(value: Double(volume.totalBytes - min(volume.availableBytes, volume.totalBytes)), total: Double(max(1, volume.totalBytes))).tint(
+                    .secondary)
+                Text("\(volume.totalBytes.formattedByteCount) total capacity").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+            }.padding(DockDesign.Grouped.rowHorizontalPadding)
+        }
     }
 
     /// PX-7: which related sections the popout shows below CPU and memory.
@@ -486,65 +328,60 @@ private struct SystemActivityPopoutWidgetView: View {
                 set: { value in store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.systemShowsStorage = value } }))
         }
     }
+}
 
-    private func healthRow(_ title: String, value: String, symbol: String) -> some View {
-        GroupedRow(title, symbol: symbol, value: value)
+/// Thermal state, uptime, load, swap and memory pressure: value inputs, so it re-renders only when they change.
+private struct SystemHealthSection: View {
+    var thermalState: SystemThermalState
+    var uptime: TimeInterval?
+    var load: SystemLoadAverage?
+    var swapUsedBytes: UInt64?
+    var memoryPressure: MemoryPressureCondition
+
+    var body: some View {
+        GroupedSection("System health") {
+            GroupedRow("Thermal state", symbol: "thermometer.medium", value: thermalState.title)
+            GroupedRow("Uptime", symbol: "clock", value: uptime.map { SystemActivityFormatting.uptime($0) } ?? "Unavailable")
+            GroupedRow("Load · 1 / 5 / 15 min", symbol: "chart.bar.xaxis", value: load.map { SystemActivityFormatting.load($0) } ?? "Unavailable")
+            GroupedRow("Swap used", symbol: "externaldrive", value: swapUsedBytes?.formattedByteCount ?? "Unavailable")
+            GroupedRow("Memory pressure", symbol: "memorychip", value: memoryPressure.title)
+        }
+        .help("Load is runnable tasks, not a percentage. Memory pressure changes when macOS reports it.")
+    }
+}
+
+/// Active, wired, compressed, inactive, free and purgeable memory.
+private struct MemoryBreakdownSection: View {
+    var memory: HostMemoryReading
+
+    var body: some View {
+        GroupedSection("Memory breakdown") {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), alignment: .leading, spacing: 12) {
+                detail("Active", memory.activeBytes)
+                detail("Wired", memory.wiredBytes)
+                detail("Compressed", memory.compressedBytes)
+                detail("Inactive", memory.inactiveBytes)
+                detail("Free", memory.freeBytes)
+                detail("Purgeable", memory.purgeableBytes)
+            }.padding(DockDesign.Grouped.rowHorizontalPadding)
+        }
+        .help("Memory categories overlap.")
     }
 
-    private var memorySummary: String {
-        guard let memory = memory else { return "Unavailable" }
-        return "\(memory.usedBytes.formattedByteCount) / \(memory.totalBytes.formattedByteCount)"
-    }
-
-    private var swapSummary: String {
-        guard let swap = memory?.swapUsedBytes else { return "Unavailable" }
-        return swap.formattedByteCount
-    }
-
-    private var loadAverageSummary: String {
-        guard let load = loadAverage else { return "Unavailable" }
-        return SystemActivityFormatting.load(load)
-    }
-
-    private var uptimeSummary: String {
-        guard let uptime = systemUptime else { return "Unavailable" }
-        let seconds = max(0, Int(uptime))
-        let days = seconds / 86_400
-        let hours = (seconds % 86_400) / 3_600
-        let minutes = (seconds % 3_600) / 60
-        return days > 0 ? "\(days)d \(hours)h" : "\(hours)h \(minutes)m"
-    }
-
-    private func memoryDetail(_ title: String, _ bytes: UInt64) -> some View {
+    private func detail(_ title: String, _ bytes: UInt64) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
             Text(bytes.formattedByteCount).font(DockDesign.Grouped.subtitleFont.monospacedDigit())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
 
-    private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.title = "Choose a folder to scan"
-        panel.prompt = "Scan"
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.resolvesAliases = true
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        scanner.scanFolder(url)
-    }
-
-    private func reveal(_ file: StorageScanEntry) {
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: file.path)])
-    }
-
-    private func storageSummary(_ result: StorageScanResult) -> String {
-        let base = "\(result.scannedFileCount) files · \(result.scannedBytes.formattedByteCount)"
-        guard result.skippedEntries > 0 || result.wasCapped else { return base }
-        let skipped = result.skippedEntries > 0 ? " · \(result.skippedEntries) skipped" : ""
-        let capped = result.wasCapped ? " · scan limit reached" : ""
-        return "Partial · \(base)\(skipped)\(capped)"
+/// The CPU state colour the Dock face and the popout hero share: amber from 75%, red from 90%.
+enum SystemActivityState {
+    static func color(cpu: Double?) -> Color {
+        guard let cpu else { return .primary }
+        return cpu >= 90 ? WidgetPalette.critical : cpu >= 75 ? WidgetPalette.warning : .primary
     }
 }
 
@@ -556,14 +393,43 @@ enum SystemActivityFormatting {
     static func bytes(_ bytes: UInt64, locale: Locale = .current) -> String {
         Int64(clamping: bytes).formatted(.byteCount(style: .file).locale(locale))
     }
+    /// "12 GB / 32 GB", or "Unavailable".
+    static func memorySummary(_ memory: HostMemoryReading?, locale: Locale = .current) -> String {
+        guard let memory else { return "Unavailable" }
+        return "\(bytes(memory.usedBytes, locale: locale)) / \(bytes(memory.totalBytes, locale: locale))"
+    }
+    /// Uptime in the locale's abbreviated units, at most two of them: "1d 1h", "3h 12m".
+    static func uptime(_ seconds: TimeInterval, locale: Locale = .current) -> String {
+        let formatter = DateComponentsFormatter()
+        var calendar = Calendar.current
+        calendar.locale = locale
+        formatter.calendar = calendar
+        formatter.unitsStyle = .abbreviated
+        formatter.allowedUnits = [.day, .hour, .minute]
+        formatter.maximumUnitCount = 2
+        formatter.zeroFormattingBehavior = .dropAll
+        let clamped = seconds.isFinite ? max(0, seconds) : 0
+        return formatter.string(from: clamped < 60 ? 60 : clamped) ?? "Unavailable"
+    }
+    /// The face's VoiceOver value: the CPU reading, then the secondary metric the face can show.
+    static func accessibilityValue(cpu: Double?, secondary: SystemSecondaryMetric, memory: HostMemoryReading?, load: SystemLoadAverage?,
+                                   locale: Locale = .current) -> String {
+        let cpuText = cpu.map { "\(Int($0.rounded())) percent" } ?? "Sampling"
+        let secondaryText: String? = switch secondary {
+        case .memory: memory.map { "memory \(bytes($0.usedBytes, locale: locale)) used" }
+        case .load: load.map { "load average \($0.oneMinute.formatted(.number.precision(.fractionLength(2)).locale(locale)))" }
+        case .none: nil
+        }
+        return [cpuText, secondaryText].compactMap { $0 }.joined(separator: ", ")
+    }
 }
 
 private extension UInt64 {
     var formattedByteCount: String { SystemActivityFormatting.bytes(self) }
 }
 
-#if DEBUG
-struct FacesBSystemReadings {
+/// One System Activity sample as the views read it.
+struct SystemActivityReadings {
     var cpuPercentage: Double? = nil
     var cpuHistory: [Double] = []
     var perCorePercentages: [Double]? = nil
@@ -573,13 +439,25 @@ struct FacesBSystemReadings {
     var systemUptime: TimeInterval? = nil
     var startupVolume: SystemVolumeReading? = nil
     var memoryPressure: MemoryPressureCondition = .awaitingEvent
-    var lastUpdated: Date? = nil
+    /// When a render-QA fixture's Storage reading was taken; the live Storage section samples on its own.
+    var storageSampledAt: Date? = nil
 }
-private struct FacesBSystemReadingsKey: EnvironmentKey { static let defaultValue: FacesBSystemReadings? = nil }
+
+extension SystemActivityReadings {
+    @MainActor init(_ monitor: SystemActivityMonitor) {
+        self.init(cpuPercentage: monitor.cpuPercentage, cpuHistory: monitor.cpuHistory, perCorePercentages: monitor.perCorePercentages,
+                  memory: monitor.memory, loadAverage: monitor.loadAverage, thermalState: monitor.thermalState,
+                  systemUptime: monitor.systemUptime, startupVolume: monitor.startupVolume, memoryPressure: monitor.memoryPressure)
+    }
+}
+
+#if DEBUG
+private struct SystemActivityFixtureKey: EnvironmentKey { static let defaultValue: SystemActivityReadings? = nil }
 extension EnvironmentValues {
-    var facesBSystemReadings: FacesBSystemReadings? {
-        get { self[FacesBSystemReadingsKey.self] }
-        set { self[FacesBSystemReadingsKey.self] = newValue }
+    /// Render QA's fixed System Activity reading; the views read it in place of the live monitor.
+    var systemActivityFixture: SystemActivityReadings? {
+        get { self[SystemActivityFixtureKey.self] }
+        set { self[SystemActivityFixtureKey.self] = newValue }
     }
 }
 #endif

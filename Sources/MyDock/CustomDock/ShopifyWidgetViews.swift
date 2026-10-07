@@ -16,11 +16,13 @@ struct ShopifyCompactView: View {
     private var snapshot: ShopifySnapshot? { configuration.shopifySnapshot }
 
     var body: some View {
-        FacesBBusinessDockFace(kind: "Shopify", title: configuration.shopifyDisplayName, metric: configuration.shopifyMetric.title,
+        BusinessDockFace(kind: "Shopify", title: configuration.shopifyDisplayName, metric: configuration.shopifyMetric.title,
             amount: snapshot.flatMap { ShopifyMetricFormatter.amount(for: configuration.shopifyMetric, snapshot: $0) },
             currency: configuration.shopifyMetric == .orders ? nil : snapshot?.currency,
             fullValue: snapshot.map { ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: $0) },
-            context: configuration.shopifyPeriod.faceToken, emptyValue: snapshot != nil || !configuration.shopifyStoreID.isEmpty ? "No data" : "Connect")
+            context: configuration.shopifyPeriod.faceToken,
+            // A reading without orders has no average: a dash, not "No data".
+            emptyValue: snapshot != nil ? "—" : !configuration.shopifyStoreID.isEmpty ? "No data" : "Connect")
     }
 }
 
@@ -51,7 +53,8 @@ private struct ShopifyPopoutView: View {
                 if let snapshot {
                     WidgetPopoutHero(
                         value: ShopifyMetricFormatter.text(for: configuration.shopifyMetric, snapshot: snapshot),
-                        caption: "\(configuration.shopifyMetric.title) · \(configuration.shopifyMetric.popoutUnit(currency: snapshot.currency)) · \(snapshot.period.title)")
+                        caption: "\(configuration.shopifyMetric.title) · \(configuration.shopifyMetric.popoutUnit(currency: snapshot.currency)) · \(snapshot.period.title)",
+                        valueColor: FacesBFinancialFormatting.stateColor(ShopifyMetricFormatter.amount(for: configuration.shopifyMetric, snapshot: snapshot)))
                     if configuration.shopifyShowsChart { metricChart(snapshot) }
                     breakdowns(snapshot)
                 } else {
@@ -198,14 +201,12 @@ private struct ShopifyPopoutView: View {
     @ViewBuilder
     private func metricChart(_ snapshot: ShopifySnapshot) -> some View {
         let series = ShopifyChartAccessibility.series(snapshot, metric: configuration.shopifyMetric)
-        ZStack {
-            MicroSparkline(values: series.map(\.value), color: .secondary)
-        }
+        MicroSparkline(values: series.map(\.value), color: .secondary)
         .frame(height: 82)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(configuration.shopifyMetric.title) by store-local day")
         .accessibilityValue(FacesBChartAccessibility.valueList(series,
-            timeZone: TimeZone(identifier: snapshot.timeZoneID) ?? TimeZone(secondsFromGMT: 0)!,
+            timeZone: TimeZone(identifier: snapshot.timeZoneID) ?? .gmt,
             currency: configuration.shopifyMetric == .orders ? nil : snapshot.currency))
     }
 
@@ -214,59 +215,37 @@ private struct ShopifyPopoutView: View {
         // Line items and visits are read for the most recent orders only; totals always cover every order.
         let sampled = snapshot.breakdownSampleOrders ?? snapshot.orderCount
         if snapshot.orderCount > 0 && sampled == 0 {
-            Text("Product and traffic details are unavailable for this period.")
-                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            WidgetPopoutCaption("Product and traffic details are unavailable for this period.")
         } else {
-            VStack(alignment: .leading, spacing: 6) {
-                breakdownColumns(snapshot, sampled: sampled)
-                if sampled < snapshot.orderCount {
-                    Text("Products and traffic: the latest \(sampled.formatted()) of \(snapshot.orderCount.formatted()) orders.")
-                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                }
+            breakdownSections(snapshot, sampled: sampled)
+            if sampled < snapshot.orderCount {
+                WidgetPopoutCaption("Products and traffic: the latest \(sampled.formatted()) of \(snapshot.orderCount.formatted()) orders.")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func breakdownColumns(_ snapshot: ShopifySnapshot, sampled: Int) -> some View {
-        HStack(alignment: .top, spacing: 18) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Units by product").font(DockDesign.Grouped.subtitleFont.weight(.semibold))
-                if snapshot.productBreakdown.isEmpty {
-                    Text("No product details in this period").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                } else {
-                    ForEach(snapshot.productBreakdown.prefix(5)) { row in
-                        HStack {
-                            Text(row.name).lineLimit(1)
-                            Spacer(minLength: 5)
-                            Text(row.units.formatted()).monospacedDigit()
-                        }.font(DockDesign.Grouped.subtitleFont)
-                    }
-                }
-                if snapshot.productBreakdownIncompleteOrders > 0 {
-                    Text("Some orders have more than \(ShopifyAPIProvider.detailLineItemLimit) line items; product counts are incomplete.")
-                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.orange)
-                }
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Order traffic").font(DockDesign.Grouped.subtitleFont.weight(.semibold))
-                if snapshot.trafficBreakdown.isEmpty {
-                    Text("Shopify provided no attribution for this period.").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                } else {
-                    ForEach(snapshot.trafficBreakdown.prefix(5)) { row in
-                        HStack {
-                            Text(row.name).lineLimit(1)
-                            Spacer(minLength: 5)
-                            Text(row.orders.formatted()).monospacedDigit()
-                        }.font(DockDesign.Grouped.subtitleFont)
-                    }
-                    Text("Attributed orders: \(snapshot.trafficAttributedOrders) of \(sampled)")
-                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                }
+    /// Products and traffic as grouped rows, like the Stripe and Paddle popouts.
+    @ViewBuilder
+    private func breakdownSections(_ snapshot: ShopifySnapshot, sampled: Int) -> some View {
+        GroupedSection("Units by product") {
+            if snapshot.productBreakdown.isEmpty {
+                GroupedRow("No product details in this period")
+            } else {
+                ForEach(snapshot.productBreakdown.prefix(5)) { row in GroupedRow(row.name, value: row.units.formatted()) }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        if snapshot.productBreakdownIncompleteOrders > 0 {
+            WidgetPopoutCaption("Some orders have more than \(ShopifyAPIProvider.detailLineItemLimit) line items; product counts are incomplete.",
+                                color: WidgetPalette.warning)
+        }
+        GroupedSection("Order traffic", footer: snapshot.trafficBreakdown.isEmpty ? nil
+                       : "Attributed orders: \(snapshot.trafficAttributedOrders.formatted()) of \(sampled.formatted())") {
+            if snapshot.trafficBreakdown.isEmpty {
+                GroupedRow("No attribution in this period")
+            } else {
+                ForEach(snapshot.trafficBreakdown.prefix(5)) { row in GroupedRow(row.name, value: row.orders.formatted()) }
+            }
+        }
     }
 
     private var accountBinding: Binding<String> {
@@ -335,6 +314,8 @@ private struct ShopifyPopoutView: View {
                 $0.shopifyColor = account.color
                 $0.shopifySnapshot = nil
             }
+            // Like the Connections Center: cached figures and errors from an earlier connection are dropped.
+            store.widgetData.connectionsDidChange()
         } catch {
             guard !Task.isCancelled else { return }
             DiagnosticsService.shared.record(.shopifyConnectionFailed)
@@ -349,6 +330,7 @@ private struct ShopifyPopoutView: View {
             try ShopifyConnectionDirectory.remove(storeID: selectedID)
             reloadStores()
             store.clearConnectionReferences(.shopify(selectedID))
+            store.widgetData.connectionsDidChange()
             errorMessage = nil
         } catch {
             DiagnosticsService.shared.record(.shopifyDisconnectionFailed)

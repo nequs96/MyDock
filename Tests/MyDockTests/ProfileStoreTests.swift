@@ -2289,10 +2289,11 @@ struct ProfileStoreTests {
         #expect(reading.availability == .available)
         #expect(reading.windows.first?.usedPercent == 24)
 
-        let commandValue = try #require(AIProvider.claude.statusLineSetupCommand)
-        let shellCommand = try JSONDecoder().decode(String.self, from: Data(commandValue.utf8))
-        #expect(shellCommand.contains("mydock-rate-limits.json"))
-        #expect(shellCommand.contains("rate_limits"))
+        // The status-line bridge MyDock installs writes the same file through plutil, never jq.
+        let bridge = ClaudeLimitsSetup.bridgeCommand(directory: directory, previousCommand: nil)
+        #expect(bridge.contains("mydock-rate-limits.json"))
+        #expect(bridge.contains("plutil -extract rate_limits"))
+        #expect(!bridge.contains("jq "))
     }
 
     @Test func codexActivityCountsUsageDeltasAndActiveSessionDaysWithoutRetainingTranscript() throws {

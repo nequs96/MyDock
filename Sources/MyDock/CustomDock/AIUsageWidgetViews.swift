@@ -319,7 +319,9 @@ private struct AILimitsPopoutView: View {
         Binding(get: { configuration.aiLimitsRepresentation }, set: { value in update { $0.aiLimitsRepresentation = value } })
     }
     private var compactProviderBinding: Binding<AIProvider> {
-        Binding(get: { configuration.aiLimitsCompactProvider }, set: { value in update { $0.aiLimitsCompactProvider = value } })
+        // The face falls back to the first visible provider; the picker shows that same provider rather than blank.
+        Binding(get: { AIFacePresentation.selectedProvider(configuration: configuration) ?? configuration.aiLimitsCompactProvider },
+                set: { value in update { $0.aiLimitsCompactProvider = value } })
     }
     private var copilotAllowanceBinding: Binding<Int> {
         Binding(get: { configuration.aiCopilotMonthlyCreditAllowance ?? 0 }, set: { value in
@@ -540,7 +542,7 @@ private struct AIActivitySummary: View {
                 GroupedSection(footer: provenanceFooter) {
                     GroupedRow("Provider") {
                         Picker("Provider", selection: $provider) {
-                            ForEach([AIProvider.codex, .claude, .grok]) { Text($0.title).tag($0) }
+                            ForEach(AIProvider.localActivityProviders) { Text($0.title).tag($0) }
                         }.labelsHidden().accessibilityLabel("Activity provider").accessibilityValue(provider.title)
                     }
                     GroupedRow("Activity range") {
@@ -619,7 +621,7 @@ private struct AIActivitySummary: View {
         if status.refreshing && snapshot == nil { return "Reading session counters from this Mac." }
         if status.failed { return "Local records couldn’t be read. Try refreshing." }
         if let account, account.state != .signedIn { return "Open \(provider.title) to connect. Activity will appear here as you use it." }
-        if ![AIProvider.codex, .claude, .grok].contains(provider) { return "This provider has no supported local activity source. Choose another provider." }
+        if !AIProvider.localActivityProviders.contains(provider) { return "This provider has no supported local activity source. Choose another provider." }
         return "Use \(provider.title) on this Mac, then refresh to see your local activity."
     }
 }

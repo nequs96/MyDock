@@ -321,7 +321,7 @@ enum WidgetSheetHeroPolicy {
     /// Heroes that are a tool's output rather than the reading the Dock face shows.
     static let toolOutputHeroes: Set<String> = ["Unit Converter"]
     /// Families whose popout content is only their hero: the sheet shows no Content for them.
-    static let heroOnlyContent: Set<String> = ["Clock", "Audio Output"]
+    static let heroOnlyContent: Set<String> = ["Clock", "Audio Output", "Network Activity"]
 
     static func showsHero(kind: String, inSheet: Bool) -> Bool {
         !inSheet || toolOutputHeroes.contains(kind)

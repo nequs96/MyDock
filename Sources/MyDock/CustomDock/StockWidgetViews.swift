@@ -387,7 +387,10 @@ private struct WatchlistPopoutView: View {
         store.state.profiles.first(where: { $0.id == profileID })?.items
             .first(where: { $0.id == item.id && $0.widgetKind == "Watchlist" })?.widgetConfiguration
     }
-    private var selected: WatchlistStock? { configuration.watchlistStocks.first { $0.symbol == configuration.watchlistSelectedSymbol } }
+    /// The saved selection, or the first ticker when it is empty or missing: the same stock the Dock face shows.
+    private var selected: WatchlistStock? {
+        configuration.watchlistStocks.first { $0.symbol == configuration.watchlistSelectedSymbol } ?? configuration.watchlistStocks.first
+    }
     private var interval: Int { configuration.stockRefreshIntervalMinutes }
 
     var body: some View {
@@ -407,11 +410,11 @@ private struct WatchlistPopoutView: View {
             if configuration.watchlistStocks.isEmpty { controls } else { WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) { controls } }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .task(id: "\(configuration.watchlistSelectedSymbol)|\(selected?.currency ?? "")|\(interval)") {
-            guard !snapshotRendering, !configuration.watchlistSelectedSymbol.isEmpty else { return }
+        .task(id: "\(selected?.symbol ?? "")|\(selected?.currency ?? "")|\(interval)") {
+            guard !snapshotRendering, selected != nil else { return }
             await refreshWatchlist()
         }
-        .onChange(of: "\(configuration.watchlistSelectedSymbol)|\(selected?.currency ?? "")") { _ in
+        .onChange(of: "\(selected?.symbol ?? "")|\(selected?.currency ?? "")") { _ in
             errorMessage = nil
         }
         .onChange(of: searchText) { _ in
@@ -468,7 +471,7 @@ private struct WatchlistPopoutView: View {
                         .frame(width: 112, alignment: .leading)
                         .padding(.horizontal, 9).padding(.vertical, 7)
                         .overlay(alignment: .bottom) {
-                            if configuration.watchlistSelectedSymbol == stock.symbol {
+                            if selected?.symbol == stock.symbol {
                                 Capsule().fill(Color.primary).frame(height: 2)
                             }
                         }
@@ -476,7 +479,11 @@ private struct WatchlistPopoutView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("\(stock.displayName), \(stock.symbol)")
-                    .accessibilityAddTraits(configuration.watchlistSelectedSymbol == stock.symbol ? .isSelected : [])
+                    .accessibilityAddTraits(selected?.symbol == stock.symbol ? .isSelected : [])
+                    // The context menu's commands, named for VoiceOver's Actions rotor.
+                    .accessibilityAction(named: "Move Earlier") { move(stock.symbol, by: -1) }
+                    .accessibilityAction(named: "Move Later") { move(stock.symbol, by: 1) }
+                    .accessibilityAction(named: "Remove \(stock.symbol)") { remove(stock.symbol) }
                     .contextMenu {
                         Button("Move Earlier", systemImage: "arrow.left") { move(stock.symbol, by: -1) }
                             .disabled(configuration.watchlistStocks.first?.symbol == stock.symbol)
@@ -553,6 +560,8 @@ private struct WatchlistPopoutView: View {
                         .textFieldStyle(.plain).multilineTextAlignment(.trailing)
                         .accessibilityLabel("Display name for \(selected.symbol)")
                 }
+                // Removing is also reachable without the tab's context menu, for keyboard users.
+                GroupedRow("Remove \(selected.symbol)", role: .destructive, symbol: "trash") { remove(selected.symbol) }
             }
             if !searchResults.isEmpty { searchResultsList }
 

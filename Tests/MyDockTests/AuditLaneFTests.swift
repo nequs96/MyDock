@@ -399,6 +399,113 @@ import Testing
         #expect(path("BRK.B") == "/quote/BRK.B")
     }
 
+    // MARK: Part 3: pickers, weather, system and business
+
+    @Test func decodedPickerValuesAlwaysHaveAMatchingOption() throws {
+        func decode(_ json: String) throws -> WidgetConfiguration { try JSONDecoder().decode(WidgetConfiguration.self, from: Data(json.utf8)) }
+        #expect(try decode(#"{"stockRefreshIntervalMinutes":90}"#).stockRefreshIntervalMinutes == 60)
+        #expect(try decode(#"{"stockRefreshIntervalMinutes":500}"#).stockRefreshIntervalMinutes == 360)
+        #expect(try decode(#"{"stockRefreshIntervalMinutes":5000}"#).stockRefreshIntervalMinutes == 1_440)
+        #expect(try decode(#"{"stockRefreshIntervalMinutes":720}"#).stockRefreshIntervalMinutes == 720)
+        #expect(try decode("{}").stockRefreshIntervalMinutes == 360)
+        for minutes in [-5, 0, 59, 61, 100, 1_000, 99_999] {
+            #expect(WidgetConfiguration.stockRefreshIntervalOptions.contains(WidgetConfiguration.snappedStockRefreshInterval(minutes)))
+        }
+        // AI Activity offers only providers with a local activity source.
+        #expect(try decode(#"{"aiActivityProvider":"cursor"}"#).aiActivityProvider == .codex)
+        #expect(try decode(#"{"aiActivityProvider":"grok"}"#).aiActivityProvider == .grok)
+        #expect(AIProvider.localActivityProviders == [.codex, .claude, .grok])
+    }
+
+    @Test func weatherConditionsUseTheTemperatureUnitsSystem() {
+        let us = Locale(identifier: "en_US")
+        let mph = WeatherConditionsFormatting.wind(kilometersPerHour: 16.09344, unit: .fahrenheit, locale: us)
+        #expect(mph.hasPrefix("10") && mph.hasSuffix("mph"))
+        let kmh = WeatherConditionsFormatting.wind(kilometersPerHour: 12.4, unit: .celsius, locale: us)
+        #expect(kmh.hasPrefix("12") && kmh.hasSuffix("km/h"))
+        let inches = WeatherConditionsFormatting.precipitation(millimeters: 2.54, unit: .fahrenheit, locale: us)
+        #expect(inches.hasPrefix("0.1") && inches.hasSuffix("in"))
+        let millimeters = WeatherConditionsFormatting.precipitation(millimeters: 0.2, unit: .celsius, locale: us)
+        #expect(millimeters.hasPrefix("0.2") && millimeters.hasSuffix("mm"))
+    }
+
+    @Test func cachedWeatherHourFormattersKeepTheirPlace() {
+        let date = Date(timeIntervalSince1970: 1_790_000_000)
+        let uk = Locale(identifier: "en_GB")
+        let utc = WeatherHourLabel.text(for: date, timeZoneIdentifier: "UTC", locale: uk)
+        #expect(WeatherHourLabel.text(for: date, timeZoneIdentifier: "UTC", locale: uk) == utc)
+        #expect(WeatherHourLabel.text(for: date, timeZoneIdentifier: "Asia/Tokyo", locale: uk) != utc)
+    }
+
+    @Test func memoryPressureSeedsFromTheKernelLevel() {
+        #expect(MemoryPressureCondition.condition(sysctlLevel: 1) == .normal)
+        #expect(MemoryPressureCondition.condition(sysctlLevel: 2) == .warning)
+        #expect(MemoryPressureCondition.condition(sysctlLevel: 4) == .critical)
+        #expect(MemoryPressureCondition.condition(sysctlLevel: 0) == nil)
+    }
+
+    @Test func systemFaceAndHeroShareStateColourAndSpeakTheSecondaryMetric() {
+        #expect(SystemActivityState.color(cpu: nil) == Color.primary)
+        #expect(SystemActivityState.color(cpu: 40) == Color.primary)
+        #expect(SystemActivityState.color(cpu: 80) == WidgetPalette.warning)
+        #expect(SystemActivityState.color(cpu: 95) == WidgetPalette.critical)
+        let us = Locale(identifier: "en_US")
+        let memory = HostMemoryReading(usedBytes: 9_000_000_000, totalBytes: 16_000_000_000, swapUsedBytes: nil, activeBytes: 0, wiredBytes: 0,
+                                       compressedBytes: 0, inactiveBytes: 0, freeBytes: 0, purgeableBytes: 0)
+        let load = SystemLoadAverage(oneMinute: 2.4, fiveMinutes: 2, fifteenMinutes: 1)
+        let withMemory = SystemActivityFormatting.accessibilityValue(cpu: 42, secondary: .memory, memory: memory, load: load, locale: us)
+        #expect(withMemory.hasPrefix("42 percent, memory ") && withMemory.hasSuffix(" used"))
+        #expect(SystemActivityFormatting.accessibilityValue(cpu: 42, secondary: .load, memory: memory, load: load, locale: us) == "42 percent, load average 2.40")
+        #expect(SystemActivityFormatting.accessibilityValue(cpu: nil, secondary: .none, memory: memory, load: load, locale: us) == "Sampling")
+    }
+
+    @Test func uptimeAndFileCountsFollowTheLocale() {
+        let us = Locale(identifier: "en_US"), de = Locale(identifier: "de_DE")
+        #expect(SystemActivityFormatting.uptime(92_000, locale: us).hasPrefix("1d"))
+        #expect(SystemActivityFormatting.uptime(3 * 3_600 + 12 * 60, locale: us).hasPrefix("3h"))
+        let result = StorageScanResult(rootPath: "/", scannedFileCount: 12_345, scannedBytes: 1_000, largestFiles: [], skippedEntries: 0, wasCapped: false)
+        #expect(SystemStorageExplorerFormatting.summary(result, locale: us).hasPrefix("12,345 files · "))
+        #expect(SystemStorageExplorerFormatting.summary(result, locale: de).hasPrefix("12.345 files · "))
+        var single = result; single.scannedFileCount = 1; single.wasCapped = true
+        let partial = SystemStorageExplorerFormatting.summary(single, locale: us)
+        #expect(partial.hasPrefix("Partial · 1 file · ") && partial.hasSuffix("scan limit reached"))
+    }
+
+    @Test func staleNetworkFooterNeverSaysJustNow() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let footer = SystemDetailFormatting.freshness(updatedAt: now.addingTimeInterval(-20), failed: false, now: now,
+                                                      maximumAge: SystemDetailSections.networkMaximumAge)
+        #expect(footer.hasPrefix("Last reading ") && !footer.contains("just now"))
+        // A failed read is stale at once, even for a reading taken this second.
+        let failed = SystemDetailFormatting.freshness(updatedAt: now, failed: true, now: now, maximumAge: SystemDetailSections.networkMaximumAge)
+        #expect(failed.hasPrefix("Last reading ") && !failed.contains("just now"))
+        // Network Activity has no content without its hero, so the settings sheet shows none.
+        #expect(!WidgetSheetHeroPolicy.showsContent(kind: "Network Activity", inSheet: true))
+    }
+
+    @Test func compactCurrencyFollowsTheLocaleAndPromotesAfterRounding() {
+        let us = Locale(identifier: "en_US"), de = Locale(identifier: "de_DE")
+        #expect(FacesBFinancialFormatting.compact(-2_400, currency: "USD", narrow: false, locale: us) == "-$2.4K")
+        #expect(FacesBFinancialFormatting.compact(2_400, currency: "USD", narrow: false, locale: us) == "$2.4K")
+        let euros = FacesBFinancialFormatting.compact(2_400, currency: "EUR", narrow: false, locale: de)
+        #expect(euros.hasPrefix("2,4K") && euros.hasSuffix("€"))
+        #expect(FacesBFinancialFormatting.compact(999_960, currency: nil, narrow: true, locale: us) == "1M")
+        #expect(FacesBFinancialFormatting.compact(Decimal(string: "999.999")!, currency: nil, narrow: true, locale: us) == "1K")
+        #expect(FacesBFinancialFormatting.compact(999_000, currency: nil, narrow: true, locale: us) == "999K")
+    }
+
+    @Test func pointInTimeMetricsDoNotClaimAPeriod() {
+        #expect(!StripeMetric.revenue.isPointInTime && !StripeMetric.netAfterFees.isPointInTime)
+        #expect(StripeMetric.allCases.filter(\.isPointInTime) == [.mrr, .arr, .payingSubscribers, .arpu, .availableBalance, .pendingBalance])
+        #expect(PaddleMetric.allCases.filter(\.isPointInTime) == [.mrr, .arr, .activeSubscribers])
+    }
+
+    @Test func claudeLimitsBridgeUsesPlutil() {
+        let bridge = ClaudeLimitsSetup.bridgeCommand(directory: URL(fileURLWithPath: "/tmp/mydock-test", isDirectory: true), previousCommand: nil)
+        #expect(bridge.hasPrefix(ClaudeLimitsSetup.marker))
+        #expect(bridge.contains("/usr/bin/plutil -extract rate_limits json"))
+    }
+
     // MARK: Helpers
 
     @MainActor private func waitUntil(timeout: Duration = .seconds(5), _ condition: @MainActor () -> Bool) async throws {

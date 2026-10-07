@@ -16,11 +16,11 @@ struct PaddleCompactView: View {
     private var snapshot: PaddleSnapshot? { configuration.paddleSnapshot }
 
     var body: some View {
-        FacesBBusinessDockFace(kind: "Paddle", title: configuration.paddleDisplayName, metric: configuration.paddleMetric.title,
+        BusinessDockFace(kind: "Paddle", title: configuration.paddleDisplayName, metric: configuration.paddleMetric.title,
             amount: snapshot.map { PaddleMetricFormatter.amount(for: configuration.paddleMetric, snapshot: $0) },
             currency: configuration.paddleMetric == .activeSubscribers ? nil : snapshot?.currency,
             fullValue: snapshot.map { PaddleMetricFormatter.text(for: configuration.paddleMetric, snapshot: $0) },
-            context: configuration.paddlePeriod.faceToken, emptyValue: configuration.paddleAccountID.isEmpty ? "Connect" : "No data")
+            context: configuration.paddleMetric.isPointInTime ? "Now" : configuration.paddlePeriod.faceToken, emptyValue: configuration.paddleAccountID.isEmpty ? "Connect" : "No data")
     }
 }
 
@@ -49,9 +49,11 @@ private struct PaddlePopoutView: View {
         VStack(alignment: .leading, spacing: 16) {
             if showsHero {
                 if let snapshot {
+                    // MRR, ARR and subscribers are read now; only net revenue covers the chosen period.
                     WidgetPopoutHero(
                         value: PaddleMetricFormatter.text(for: configuration.paddleMetric, snapshot: snapshot),
-                        caption: "\(configuration.paddleMetric.title) · \(configuration.paddleMetric.popoutUnit(currency: snapshot.currency)) · \(snapshot.period.title)")
+                        caption: "\(configuration.paddleMetric.title) · \(configuration.paddleMetric.popoutUnit(currency: snapshot.currency)) · \(configuration.paddleMetric.isPointInTime ? "Now" : snapshot.period.title)",
+                        valueColor: FacesBFinancialFormatting.stateColor(PaddleMetricFormatter.amount(for: configuration.paddleMetric, snapshot: snapshot)))
                     if configuration.paddleShowsChart { metricChart(snapshot) }
                 } else {
                     WidgetPopoutHero(
@@ -178,13 +180,11 @@ private struct PaddlePopoutView: View {
     @ViewBuilder
     private func metricChart(_ snapshot: PaddleSnapshot) -> some View {
         let series = PaddleChartAccessibility.series(snapshot, metric: configuration.paddleMetric)
-        ZStack {
-            MicroSparkline(values: series.map(\.value), color: .secondary)
-        }
+        MicroSparkline(values: series.map(\.value), color: .secondary)
         .frame(height: 82)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(configuration.paddleMetric.title) by UTC day")
-        .accessibilityValue(FacesBChartAccessibility.valueList(series, timeZone: TimeZone(secondsFromGMT: 0)!,
+        .accessibilityValue(FacesBChartAccessibility.valueList(series, timeZone: .gmt,
             currency: configuration.paddleMetric == .activeSubscribers ? nil : snapshot.currency))
     }
 
@@ -248,6 +248,8 @@ private struct PaddlePopoutView: View {
                 $0.paddleColor = account.color
                 $0.paddleSnapshot = nil
             }
+            // Like the Connections Center: cached figures and errors from an earlier connection are dropped.
+            store.widgetData.connectionsDidChange()
         } catch {
             guard !Task.isCancelled else { return }
             DiagnosticsService.shared.record(.paddleConnectionFailed)
@@ -262,6 +264,7 @@ private struct PaddlePopoutView: View {
             try PaddleConnectionDirectory.remove(accountID: selectedID)
             reloadConnections()
             store.clearConnectionReferences(.paddle(selectedID))
+            store.widgetData.connectionsDidChange()
             errorMessage = nil
         } catch {
             DiagnosticsService.shared.record(.paddleDisconnectionFailed)

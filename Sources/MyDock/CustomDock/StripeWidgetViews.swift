@@ -16,11 +16,11 @@ struct StripeCompactView: View {
     private var values: StripeCurrencyMetrics? { configuration.stripeSnapshot?.metrics(for: configuration.stripeCurrency) }
 
     var body: some View {
-        FacesBBusinessDockFace(kind: "Stripe", title: configuration.stripeDisplayName, metric: configuration.stripeMetric.title,
+        BusinessDockFace(kind: "Stripe", title: configuration.stripeDisplayName, metric: configuration.stripeMetric.title,
             amount: values.map { StripeMetricFormatter.amount(for: configuration.stripeMetric, values: $0) },
             currency: configuration.stripeMetric == .payingSubscribers ? nil : configuration.stripeCurrency,
             fullValue: values.map { StripeMetricFormatter.text(for: configuration.stripeMetric, values: $0) },
-            context: configuration.stripePeriod.faceToken,
+            context: configuration.stripeMetric.isPointInTime ? "Now" : configuration.stripePeriod.faceToken,
             emptyValue: configuration.stripeSnapshot != nil || !configuration.stripeAccountID.isEmpty ? "No data" : "Connect")
     }
 }
@@ -51,10 +51,13 @@ private struct StripePopoutView: View {
         VStack(alignment: .leading, spacing: 16) {
             if showsHero {
                 if let currencyMetrics {
+                    // A run rate or balance is read now; only revenue and net cover the chosen period.
+                    let period = configuration.stripeMetric.isPointInTime ? "Now" : snapshot?.period.title ?? configuration.stripePeriod.title
                     WidgetPopoutHero(
                         value: StripeMetricFormatter.text(for: configuration.stripeMetric, values: currencyMetrics),
                         caption:
-                            "\(configuration.stripeMetric.title) · \(configuration.stripeMetric.popoutUnit(currency: configuration.stripeCurrency)) · \(snapshot?.period.title ?? configuration.stripePeriod.title)"
+                            "\(configuration.stripeMetric.title) · \(configuration.stripeMetric.popoutUnit(currency: configuration.stripeCurrency)) · \(period)",
+                        valueColor: FacesBFinancialFormatting.stateColor(StripeMetricFormatter.amount(for: configuration.stripeMetric, values: currencyMetrics))
                     )
                 } else {
                     WidgetPopoutHero(
@@ -129,7 +132,7 @@ private struct StripePopoutView: View {
                     ForEach(StripePeriod.allCases) { Text($0.title).tag($0) }
                 }
                 .labelsHidden()
-                .disabled([.revenue, .netAfterFees].contains(configuration.stripeMetric) == false)
+                .disabled(configuration.stripeMetric.isPointInTime)
             }
         }
         .help(metricExplanation)
@@ -268,6 +271,8 @@ private struct StripePopoutView: View {
                 $0.stripeCurrency = "USD"
                 $0.stripeSnapshot = nil
             }
+            // Like the Connections Center: cached figures and errors from an earlier connection are dropped.
+            store.widgetData.connectionsDidChange()
         } catch {
             guard !Task.isCancelled else { return }
             DiagnosticsService.shared.record(.stripeConnectionFailed)
@@ -282,6 +287,7 @@ private struct StripePopoutView: View {
             try StripeConnectionDirectory.remove(accountID: id)
             reloadConnections()
             store.clearConnectionReferences(.stripe(id))
+            store.widgetData.connectionsDidChange()
             errorMessage = nil
         } catch {
             DiagnosticsService.shared.record(.stripeDisconnectionFailed)
@@ -337,20 +343,42 @@ enum FacesBFinancialFormatting {
     static func compact(_ amount: Decimal, currency: String?, narrow: Bool, locale: Locale = .current) -> String {
         let number = NSDecimalNumber(decimal: amount).doubleValue
         guard number.isFinite else { return "—" }
-        let scales: [(Double, String)] = [(1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")]
-        let scale = scales.first { abs(number) >= $0.0 } ?? (1, "")
-        let text = (number / scale.0).formatted(.number.locale(locale).precision(.fractionLength(0...(scale.0 == 1 ? 2 : 1)))) + scale.1
-        guard let currency, !narrow else { return text }
+        let magnitude = abs(number)
+        let scales: [(divisor: Double, suffix: String)] = [(1, ""), (1e3, "K"), (1e6, "M"), (1e9, "B"), (1e12, "T")]
+        var index = scales.lastIndex { magnitude >= $0.divisor } ?? 0
+        func digits(_ index: Int) -> Int { index == 0 ? 2 : 1 }
+        // Rounded first, then promoted, so a value just under a boundary never reads "1,000K".
+        let factor = pow(10, Double(digits(index)))
+        if index < scales.count - 1, (magnitude / scales[index].divisor * factor).rounded() / factor >= 1_000 { index += 1 }
+        let scaled = magnitude / scales[index].divisor
+        let style = FloatingPointFormatStyle<Double>(locale: locale).precision(.fractionLength(0...digits(index)))
+        guard let currency, !narrow else { return (number < 0 ? -scaled : scaled).formatted(style) + scales[index].suffix }
+        // The locale places the sign and the symbol: "-$2.4K" in en_US, "2,4K €" in de_DE.
+        let formatter = currencyFormatter(currency: currency, locale: locale)
+        let prefix: String = (number < 0 ? formatter.negativePrefix : formatter.positivePrefix) ?? ""
+        let suffix: String = (number < 0 ? formatter.negativeSuffix : formatter.positiveSuffix) ?? ""
+        return prefix + scaled.formatted(style) + scales[index].suffix + suffix
+    }
+
+    /// One currency formatter per locale and currency: every business face formats on each render.
+    nonisolated(unsafe) private static let formatters: NSCache<NSString, NumberFormatter> = {
+        let cache = NSCache<NSString, NumberFormatter>(); cache.countLimit = 16; return cache
+    }()
+
+    private static func currencyFormatter(currency: String, locale: Locale) -> NumberFormatter {
+        let key = NSString(string: locale.identifier + "|" + currency)
+        if let cached = formatters.object(forKey: key) { return cached }
         let formatter = NumberFormatter()
         formatter.locale = locale
         formatter.numberStyle = .currency
         formatter.currencyCode = currency
-        return (formatter.currencySymbol ?? currency) + text
+        formatters.setObject(formatter, forKey: key)
+        return formatter
     }
     static func stateColor(_ amount: Decimal?) -> Color { amount.map { $0 < 0 ? WidgetPalette.critical : Color.primary } ?? .primary }
 }
 
-struct FacesBBusinessDockFace: View {
+struct BusinessDockFace: View {
     var kind: String
     var title: String
     var metric: String
