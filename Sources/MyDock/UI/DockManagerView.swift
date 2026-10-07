@@ -170,11 +170,13 @@ struct DockManagerView: View {
                 WidgetConfigurationSheet(store: store, item: target.item, profileID: target.profileID,
                                          maximumHeight: workspaceSize.height - DockDesign.Space.section * 2)
             } else {
-                DockItemInspector(item: target.item, update: { replacement in
+                // The live item, so the inspector shows (and edits) a Replace or Locate repair at once.
+                let live = selectedProfile?.items.first { $0.id == target.item.id } ?? target.item
+                DockItemInspector(item: live, update: { replacement in
                     updateDraft { draft in
                         if let index = draft.items.firstIndex(where: { $0.id == target.item.id }) { draft.items[index] = replacement }
                     }
-                }, replace: { replaceItem(target.item) }, close: { configurationTarget = nil })
+                }, replace: { replaceItem(live) }, close: { configurationTarget = nil })
             }
         }
         .sheet(item: $libraryMode) { mode in

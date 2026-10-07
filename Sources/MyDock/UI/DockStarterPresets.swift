@@ -45,29 +45,24 @@ enum DockStarterPreset: String, CaseIterable, Identifiable {
         case .monitor: ["System Activity", "Network Activity", "Battery"]
         }
     }
-    @MainActor func resolve() -> Resolution {
-        let candidates: [[String]]
-        let widgets = widgetKinds
+    /// Bundle identifiers per app slot, preferred first. Apple's iWork apps use `com.apple.iWork.*`.
+    var applicationCandidates: [[String]] {
         switch self {
-        case .everyday:
-            candidates = [["com.apple.finder"], ["com.apple.Safari"], ["com.apple.mail"], ["com.apple.Notes"]]
-        case .focus:
-            candidates = [["com.apple.finder"], ["com.apple.Notes"], ["com.apple.Safari"]]
-        case .create:
-            candidates = [["com.apple.finder"], ["com.figma.Desktop", "com.apple.Preview"], ["com.adobe.Photoshop", "com.apple.Photos"], ["com.apple.Safari"]]
-        case .develop:
-            candidates = [["com.apple.finder"], ["com.microsoft.VSCode", "com.apple.dt.Xcode", "com.apple.TextEdit"], ["com.googlecode.iterm2", "com.apple.Terminal"], ["com.apple.Safari"]]
-        case .commerce:
-            candidates = [["com.apple.Safari"], ["com.apple.Numbers"]]
-        case .homeOffice:
-            candidates = [["com.apple.mail"], ["us.zoom.xos", "com.apple.FaceTime"], ["com.apple.Notes"]]
-        case .travel:
-            candidates = [["com.apple.Safari"], ["com.apple.Maps"]]
-        case .ai:
-            candidates = [["com.openai.codex", "com.apple.Terminal"], ["com.apple.Safari"]]
-        case .monitor:
-            candidates = [["com.apple.ActivityMonitor"], ["com.apple.Terminal"]]
+        case .everyday: [["com.apple.finder"], ["com.apple.Safari"], ["com.apple.mail"], ["com.apple.Notes"]]
+        case .focus: [["com.apple.finder"], ["com.apple.Notes"], ["com.apple.Safari"]]
+        case .create: [["com.apple.finder"], ["com.figma.Desktop", "com.apple.Preview"], ["com.adobe.Photoshop", "com.apple.Photos"], ["com.apple.Safari"]]
+        case .develop: [["com.apple.finder"], ["com.microsoft.VSCode", "com.apple.dt.Xcode", "com.apple.TextEdit"], ["com.googlecode.iterm2", "com.apple.Terminal"], ["com.apple.Safari"]]
+        case .commerce: [["com.apple.Safari"], ["com.apple.iWork.Numbers"]]
+        case .homeOffice: [["com.apple.mail"], ["us.zoom.xos", "com.apple.FaceTime"], ["com.apple.Notes"]]
+        case .travel: [["com.apple.Safari"], ["com.apple.Maps"]]
+        case .ai: [["com.openai.codex", "com.apple.Terminal"], ["com.apple.Safari"]]
+        case .monitor: [["com.apple.ActivityMonitor"], ["com.apple.Terminal"]]
         }
+    }
+
+    @MainActor func resolve() -> Resolution {
+        let candidates = applicationCandidates
+        let widgets = widgetKinds
         var apps: [DockItem] = []
         var notes: [String] = []
         let names = ["com.figma.Desktop": "Figma", "com.adobe.Photoshop": "Photoshop",

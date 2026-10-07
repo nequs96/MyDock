@@ -130,6 +130,23 @@ import Testing
         #expect(configuration.nowPlayingEnabledSources == [.spotify] && configuration.nowPlayingSource == .spotify)
     }
 
+    /// S16-001: every starter app slot names a real bundle identifier (Numbers is com.apple.iWork.Numbers), so a
+    /// typo can never again make a preset claim an installed app is missing.
+    @Test func starterPresetsNameRealBundleIdentifiers() {
+        let reviewed: Set<String> = [
+            "com.apple.finder", "com.apple.Safari", "com.apple.mail", "com.apple.Notes", "com.apple.Preview",
+            "com.apple.Photos", "com.apple.dt.Xcode", "com.apple.TextEdit", "com.apple.Terminal", "com.apple.iWork.Numbers",
+            "com.apple.FaceTime", "com.apple.Maps", "com.apple.ActivityMonitor", "com.figma.Desktop", "com.adobe.Photoshop",
+            "com.microsoft.VSCode", "com.googlecode.iterm2", "us.zoom.xos", "com.openai.codex"
+        ]
+        for preset in DockStarterPreset.allCases {
+            for identifier in preset.applicationCandidates.joined() {
+                #expect(reviewed.contains(identifier), "\(preset): \(identifier)")
+            }
+        }
+        #expect(DockStarterPreset.commerce.applicationCandidates.joined().contains("com.apple.iWork.Numbers"))
+    }
+
     @Test func mainDisplayIsThePrimaryDisplayNotTheFocusedOne() {
         // AppKit lists the primary display (menu bar, origin at zero) first.
         let displays: [UInt32] = [7, 8, 9]

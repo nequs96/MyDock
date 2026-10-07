@@ -79,14 +79,17 @@ struct DockAppearanceInspector: View {
 }
 
 struct DockItemInspector: View {
+    /// The live item from the Dock being edited. Each edit changes one field of it, so a Replace or Locate repair
+    /// made while the inspector is open is never overwritten by an older copy.
     let item: DockItem
     let update: (DockItem) -> Void
     let replace: () -> Void
     let close: () -> Void
-    @State private var draft: DockItem
-    init(item: DockItem, update: @escaping (DockItem) -> Void, replace: @escaping () -> Void, close: @escaping () -> Void) {
-        self.item = item; self.update = update; self.replace = replace; self.close = close
-        _draft = State(initialValue: item)
+
+    private func edit(_ change: (inout DockItem) -> Void) {
+        var next = item
+        change(&next)
+        if next != item { update(next) }
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -96,19 +99,19 @@ struct DockItemInspector: View {
             }.overlay { Text(item.displayName).font(DockDesign.sectionTitle).allowsHitTesting(false) }
             GroupedSection("Item") {
             if item.type == .folder {
-                GroupedRow("Folder name") { inspectorField("Folder name", placeholder: "Original name", text: Binding(get: { draft.folderCustomName ?? "" }, set: { draft.folderCustomName = $0 })) }
-                GroupedRow("Show name in Dock", isOn: Binding(get: { draft.showFolderLabel ?? false }, set: { draft.showFolderLabel = $0 }))
+                GroupedRow("Folder name") { inspectorField("Folder name", placeholder: "Original name", text: Binding(get: { item.folderCustomName ?? "" }, set: { value in edit { $0.folderCustomName = value } })) }
+                GroupedRow("Show name in Dock", isOn: Binding(get: { item.showFolderLabel ?? false }, set: { value in edit { $0.showFolderLabel = value } }))
                 GroupedRow("Icon color") {
-                Picker("Icon color", selection: Binding(get: { draft.folderIconColor?.rawValue ?? "" }, set: { draft.folderIconColor = DockProfileColor(rawValue: $0) })) {
+                Picker("Icon color", selection: Binding(get: { item.folderIconColor?.rawValue ?? "" }, set: { value in edit { $0.folderIconColor = DockProfileColor(rawValue: value) } })) {
                     Text("Original icon").tag("")
                     ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
                 }.labelsHidden()
                 }
-                GroupedRow("Icon letter") { inspectorField("Icon letter", placeholder: "None", text: Binding(get: { draft.folderIconLetter ?? "" }, set: { draft.folderIconLetter = String($0.prefix(1)) })) }
-                GroupedRow("Icon number") { inspectorField("Icon number", placeholder: "None", text: Binding(get: { draft.folderIconNumber ?? "" }, set: { draft.folderIconNumber = String($0.prefix(3)) })) }
+                GroupedRow("Icon letter") { inspectorField("Icon letter", placeholder: "None", text: Binding(get: { item.folderIconLetter ?? "" }, set: { value in edit { $0.folderIconLetter = String(value.prefix(1)) } })) }
+                GroupedRow("Icon number") { inspectorField("Icon number", placeholder: "None", text: Binding(get: { item.folderIconNumber ?? "" }, set: { value in edit { $0.folderIconNumber = String(value.prefix(3)) } })) }
             } else if item.type == .spacer {
                 GroupedRow("Width") {
-                Picker("Width", selection: Binding(get: { draft.spacerKind ?? .small }, set: { draft.spacerKind = $0 })) {
+                Picker("Width", selection: Binding(get: { item.spacerKind ?? .small }, set: { value in edit { $0.spacerKind = value } })) {
                     ForEach(SpacerKind.allCases) { Text($0.title).tag($0) }
                 }.labelsHidden()
                 }
@@ -122,7 +125,6 @@ struct DockItemInspector: View {
             }
             }
         }.padding(24).frame(width: 420).background(DockDesign.page)
-            .onChange(of: draft) { update($0) }
     }
 
     /// Borderless, trailing-aligned field so every value lines up at the row's trailing edge,
