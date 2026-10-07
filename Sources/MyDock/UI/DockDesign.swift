@@ -13,6 +13,7 @@ enum DockDesign {
         static let positive = WidgetPalette.positive
     }
     enum Space {
+        static let xxs: CGFloat = 4
         static let xs: CGFloat = 6
         static let small: CGFloat = 8
         static let medium: CGFloat = 12

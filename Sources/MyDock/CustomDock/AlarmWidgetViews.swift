@@ -406,16 +406,20 @@ private struct AlarmPopoutWidgetView: View {
     }
 
     /// Undo puts the alarm back where it was and schedules it again if it is still armed.
-    private func restoreAlarms(_ removed: RemovedEntries<DockAlarm>) {
+    /// Puts removed alarms back and re-arms the armed ones. False when nothing came back (a rejected write or a full
+    /// list), so the undo notice says so.
+    private func restoreAlarms(_ removed: RemovedEntries<DockAlarm>) -> Bool {
+        var restoredCount = 0
         do {
             try store.updateWidgetConfigurationAndPersist(itemID: item.id, in: profileID) {
-                removed.restore(into: &$0.alarms, capacity: AlarmCopy.capacity)
+                restoredCount = removed.restore(into: &$0.alarms, capacity: AlarmCopy.capacity)
             }
-        } catch { report("Couldn't restore the alarm.", detail: error.localizedDescription); return }
+        } catch { report("Couldn't restore the alarm.", detail: error.localizedDescription); return false }
         for slot in removed.slots where AlarmFacePresentation.isArmed(slot.entry, now: .now) {
             guard let restored = alarms.first(where: { $0.id == slot.entry.id }) else { continue }
             scheduleSavedAlarm(restored, clearFormOnSuccess: false)
         }
+        return restoredCount > 0
     }
 
     private func report(_ message: String?, detail: String? = nil) {
