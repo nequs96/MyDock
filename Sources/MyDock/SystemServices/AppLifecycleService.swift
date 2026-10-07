@@ -20,7 +20,7 @@ enum LoginItemState: Equatable {
     /// The one copy of the login status, shown as the Application section footer in Settings.
     var message: String {
         switch self {
-        case .unavailable: "Login launch is unavailable in this session."
+        case .unavailable: "Launch at login is not available in this session."
         case .notRegistered: "Not registered to launch at login."
         case .enabled: "Allowed to launch at login."
         case .requiresApproval: "macOS approval is required in Login Items."
