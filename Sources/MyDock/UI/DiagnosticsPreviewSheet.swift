@@ -25,21 +25,21 @@ struct DiagnosticsPreviewSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Review diagnostics").font(.title2.weight(.semibold))
-            Text("Includes app/build versions, item counts, settings and recent event codes. Excludes profile names, file paths, widget content and credentials. Nothing is uploaded. Save writes exactly the report shown below.")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            DockSheetHeader(title: "Review Diagnostics",
+                            subtitle: "Includes app/build versions, item counts, settings and recent event codes. Excludes Dock names, file paths, widget content and credentials. Nothing is uploaded. Save writes exactly the report shown below.")
             ScrollView {
                 Text(payload.text).font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(12)
-            }.frame(minHeight: 240).background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-            if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
+            }.frame(minHeight: 240).background(DockDesign.input, in: RoundedRectangle(cornerRadius: DockDesign.Radius.input))
+            if let errorMessage { Text(errorMessage).font(DockDesign.caption).foregroundStyle(.orange).textSelection(.enabled) }
             HStack {
-                Text("\(payload.data.count.formatted()) bytes").font(.caption).foregroundStyle(.secondary)
+                Text("\(payload.data.count.formatted()) bytes").font(DockDesign.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
                 Button("Save Reviewed Report…", action: save).keyboardShortcut(.defaultAction)
+                    .buttonStyle(DockButtonStyle(primary: true))
             }
-        }.padding(24).frame(width: 620, height: 540)
+        }.padding(24).frame(width: 620, height: 540).buttonStyle(DockButtonStyle())
     }
 
     private func save() {

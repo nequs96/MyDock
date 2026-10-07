@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// The Add Item window. Browser mode is a Control Center–style gallery (Widgets · Apps · More)
-/// with an in-place widget detail; command mode (⌘K) is `CommandLibrary`, unchanged.
+/// with an in-place widget detail; command mode (⌘K) is `CommandLibrary`.
 struct AddLibrary: View {
     @ObservedObject var store: ProfileStore
     let profile: DockProfile
@@ -37,6 +37,9 @@ struct AddLibrary: View {
     /// True while focus is being handed back to `detailOrigin`, so the search field that
     /// reappears does not take focus.
     @State private var returningFocus = false
+    /// A tile the arrow keys move to: scrolled into view first, so LazyVGrid has built it
+    /// before it takes focus.
+    @State private var focusRequest: String?
     /// Frozen when the window opens so a tile does not vanish the moment it is added.
     @State private var suggestions: [WidgetDefinition]
     @State private var contentWidth: CGFloat = 780
@@ -157,7 +160,7 @@ struct AddLibrary: View {
     var body: some View {
         Group {
             if commandMode {
-                CommandLibrary(store: store, profile: profile, commandMode: true, allowsAdding: allowsAdding,
+                CommandLibrary(store: store, profile: profile, allowsAdding: allowsAdding,
                                add: add, switchProfile: switchProfile, newDock: newDock, settings: settings, browse: browse, close: close)
             } else { browser }
         }
@@ -255,7 +258,7 @@ struct AddLibrary: View {
                     GallerySearchPill(placeholder: tab.searchPlaceholder, text: $query,
                                       move: moveSelection, choose: performSelected, cancel: escape,
                                       focusOnAppear: !returningFocus, tab: focusTiles,
-                                      didBeginEditing: { focusedTile = nil })
+                                      didFocus: { focusedTile = nil })
                         .frame(maxWidth: WidgetGalleryMetrics.searchMaximumWidth)
                         .padding(.horizontal, 64)
                     HStack {
@@ -341,6 +344,14 @@ struct AddLibrary: View {
                 guard let id else { return }
                 DockDesign.Motion.perform(DockDesign.Motion.appear, reduceMotion: accessibility.reduceMotion) {
                     proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            .onChange(of: focusRequest) { id in
+                guard let id else { return }
+                proxy.scrollTo(id, anchor: .center)
+                // Focus on the next pass, once the scrolled-to tile exists.
+                DispatchQueue.main.async {
+                    if focusRequest == id { focusedTile = id; focusRequest = nil }
                 }
             }
         }
@@ -586,7 +597,7 @@ struct AddLibrary: View {
         let rows = WidgetGalleryModel.gridRows(heroIDs: heroIDs, heroColumns: heroColumns,
                                                sections: sections.map { $0.widgets.map { "widget:" + $0.name } }, columns: columns)
         guard let target = WidgetGalleryModel.movedID(from: id, direction: move, rows: rows) else { return }
-        focusedTile = target
+        focusRequest = target
     }
     private func stepDetailLayout(_ offset: Int) {
         guard let detail else { return }

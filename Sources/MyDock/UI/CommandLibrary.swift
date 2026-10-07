@@ -1,10 +1,10 @@
 import AppKit
 import SwiftUI
 
+/// The ⌘K window: switch Docks, run commands, find saved content and add items.
 struct CommandLibrary: View {
     @ObservedObject var store: ProfileStore
     let profile: DockProfile
-    var commandMode = false
     var allowsAdding = true
     let add: (DockItem) -> Void
     let switchProfile: (UUID) -> Void
@@ -13,28 +13,17 @@ struct CommandLibrary: View {
     let browse: (DockBrowseAction) -> Void
     let close: () -> Void
     @State private var query = ""
-    @State private var category: LibraryCategory = .all
     @State private var apps: [DockItem] = []
     @State private var selected = 0
-    @State private var recentlyAdded = Set<String>()
     @Environment(\.workspaceStartHandler) private var workspaceStartHandler
 
-    init(store: ProfileStore, profile: DockProfile, commandMode: Bool = false, allowsAdding: Bool = true,
-         initialQuery: String = "", initialCategory: String = "All",
+    init(store: ProfileStore, profile: DockProfile, allowsAdding: Bool = true,
          add: @escaping (DockItem) -> Void, switchProfile: @escaping (UUID) -> Void,
          newDock: @escaping () -> Void, settings: @escaping () -> Void,
          browse: @escaping (DockBrowseAction) -> Void, close: @escaping () -> Void) {
-        self.store = store; self.profile = profile; self.commandMode = commandMode; self.allowsAdding = allowsAdding
+        self.store = store; self.profile = profile; self.allowsAdding = allowsAdding
         self.add = add; self.switchProfile = switchProfile; self.newDock = newDock
         self.settings = settings; self.browse = browse; self.close = close
-        _query = State(initialValue: initialQuery)
-        _category = State(initialValue: LibraryCategory(rawValue: initialCategory) ?? .all)
-    }
-
-    private enum LibraryCategory: String, CaseIterable, Hashable {
-        case all = "All", apps = "Apps", widgets = "Widgets", system = "System"
-        static func available(for kind: DockProfileKind) -> [LibraryCategory] { kind == .custom ? allCases : [.all, .apps, .system] }
-        func includes(_ other: LibraryCategory) -> Bool { self == .all || self == other }
     }
 
     private struct Entry: Identifiable {
@@ -54,8 +43,7 @@ struct CommandLibrary: View {
     private var entries: [Entry] { commandEntries + savedEntries }
     /// Explicitly saved snippets, links and shelf files from every Dock. Absent unless the query matches something.
     private var savedEntries: [Entry] {
-        guard commandMode else { return [] }
-        return SavedCollectionSearch.results(in: store.state.profiles, query: query).map(savedEntry)
+        SavedCollectionSearch.results(in: store.state.profiles, query: query).map(savedEntry)
     }
     private func savedEntry(_ saved: SavedCollectionResult) -> Entry {
         let native = AppRuntimeEnvironment.allowsNativeEffects
@@ -66,7 +54,7 @@ struct CommandLibrary: View {
             entry.action = { if let text = saved.snippetText, copyUtilityText(text) { close() } }
         case .link:
             guard let url = saved.linkURL else { return entry }
-            entry.action = { guard native, NSWorkspace.shared.open(url) else { return }; close() }
+            entry.action = { openSaved(url, native: native) }
             entry.secondary = ("Copy Link", "doc.on.doc", { if copyUtilityText(url.absoluteString) { close() } })
         case .file:
             guard let url = saved.fileURL else { return entry }
@@ -80,27 +68,30 @@ struct CommandLibrary: View {
                     Task { @MainActor [store] in SavedCollectionActions.locate(target, store: store) }
                 }
             } else {
-                entry.action = { guard native, NSWorkspace.shared.open(url) else { return }; close() }
+                entry.action = { openSaved(url, native: native) }
                 entry.secondary = ("Reveal in Finder", "folder", { guard native else { return }; NSWorkspace.shared.activateFileViewerSelecting([url]); close() })
             }
         }
         return entry
     }
+    /// Opens a saved link or file; a refused open beeps and keeps the window open.
+    private func openSaved(_ url: URL, native: Bool) {
+        guard native else { return }
+        guard NSWorkspace.shared.open(url) else { NSSound.beep(); return }
+        close()
+    }
     private var commandEntries: [Entry] {
-        var result: [Entry] = []
-        if commandMode {
-            result += store.state.profiles.map { p in
-                Entry(id: p.id.uuidString, title: "Switch to " + p.name, detail: "Dock", symbol: "dock.rectangle", action: { switchProfile(p.id); close() })
-            }
-            if let workspaceStartHandler {
-                result += store.state.profiles.filter(\.hasWorkspace).map { p in
-                    Entry(id: "workspace:" + p.id.uuidString, title: "Start Workspace: " + p.name, detail: "Workspace", symbol: "play.circle", action: { close(); workspaceStartHandler.start(p.id) })
-                }
-            }
-            result += [Entry(id: "new", title: "Create New Dock", detail: "⌘N", symbol: "plus", action: { close(); newDock() }),
-                       Entry(id: "settings", title: "Open Settings", detail: "⌘,", symbol: "gearshape", action: { close(); settings() })]
+        var result: [Entry] = store.state.profiles.map { p in
+            Entry(id: p.id.uuidString, title: "Switch to " + p.name, detail: "Dock", symbol: "dock.rectangle", action: { switchProfile(p.id); close() })
         }
-        if allowsAdding && category.includes(.apps) {
+        if let workspaceStartHandler {
+            result += store.state.profiles.filter(\.hasWorkspace).map { p in
+                Entry(id: "workspace:" + p.id.uuidString, title: "Start Workspace: " + p.name, detail: "Workspace", symbol: "play.circle", action: { close(); workspaceStartHandler.start(p.id) })
+            }
+        }
+        result += [Entry(id: "new", title: "Create New Dock", detail: "⌘N", symbol: "plus", action: { close(); newDock() }),
+                   Entry(id: "settings", title: "Open Settings", detail: "⌘,", symbol: "gearshape", action: { close(); settings() })]
+        if allowsAdding {
             // One key set per pass, and only apps whose text can match are resolved: each app is a
             // set lookup instead of a symlink resolution for every Dock item.
             let dockKeys = Set(profile.items.compactMap(WidgetDiscovery.applicationKey))
@@ -109,20 +100,20 @@ struct CommandLibrary: View {
                 guard query.isEmpty || (item.displayName + " Application · " + folder).localizedStandardContains(query)
                         || (item.displayName + " Application · Already added").localizedStandardContains(query) else { return nil }
                 let key = WidgetDiscovery.applicationKey(item)
-                let added = key.map { dockKeys.contains($0) || recentlyAdded.contains($0) } ?? false
+                let added = key.map { dockKeys.contains($0) } ?? false
                 return Entry(id: key ?? item.id.uuidString, title: item.displayName,
                              detail: added ? "Application · Already added" : "Application · " + folder,
                              symbol: "app", item: item, enabled: !added,
-                             action: { guard !added else { return }; if let key { recentlyAdded.insert(key) }; add(item); close() })
+                             action: { guard !added else { return }; add(item); close() })
             }
         }
-        if allowsAdding && profile.kind == .custom && category.includes(.widgets) {
+        if allowsAdding && profile.kind == .custom {
             result += WidgetRegistry.all.map { widget in
                 let item = DockItem.widget(widget.name)
                 return Entry(id: widget.name, title: (profile.items.contains { $0.widgetKind == widget.name } ? "Add another " : "Add ") + widget.name, detail: widget.description, symbol: widget.symbol, item: item, action: { add(item); close() })
             }
         }
-        if allowsAdding && category.includes(.system) {
+        if allowsAdding {
             result += SpacerKind.allCases.map { kind in
                 Entry(id: kind.rawValue, title: kind.title + " spacer", detail: "Separate groups of items", symbol: "rectangle.split.2x1", action: { add(.spacer(kind)); close() })
             }
@@ -145,21 +136,12 @@ struct CommandLibrary: View {
         return VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-                LibrarySearchField(placeholder: commandMode ? "Search MyDock…" : (profile.kind == .custom ? "Search apps, widgets, and actions…" : "Search apps and spacers…"),
+                LibrarySearchField(placeholder: "Search MyDock…",
                                    text: $query, move: { offset in moveSelection(by: offset, in: rows) },
                                    choose: { performSelected(in: rows) }, cancel: close,
                                    secondary: { if rows.indices.contains(selected), let run = rows[selected].secondary?.run { run() } }).frame(height: 24)
                 Button(action: close) { Image(systemName: "xmark").frame(width: DockDesign.controlHeight, height: DockDesign.controlHeight).contentShape(Rectangle()) }.buttonStyle(.plain).help("Close").accessibilityLabel("Close library")
             }.padding(24)
-            if !commandMode {
-                HStack(spacing: 16) {
-                    Text("Add to Dock").font(DockDesign.sectionTitle)
-                    Spacer()
-                    Picker("Category", selection: $category) {
-                        ForEach(LibraryCategory.available(for: profile.kind), id: \.self) { Text($0.rawValue).tag($0) }
-                    }.pickerStyle(.segmented).labelsHidden().frame(width: 280)
-                }.padding(.horizontal, 24).padding(.bottom, 16)
-            }
             Divider()
             ScrollViewReader { proxy in
                 ScrollView {
@@ -179,28 +161,28 @@ struct CommandLibrary: View {
                                         Image(nsImage: AppLauncher.icon(for: item, size: 32)).resizable().scaledToFit().frame(width: 32, height: 32)
                                     } else { Image(systemName: entry.warning ? "exclamationmark.triangle.fill" : entry.symbol).frame(width: 32).foregroundStyle(entry.warning ? Color.orange : Color.secondary) }
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(entry.title).font(.system(size: 13, weight: .medium))
-                                        Text(entry.detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                                        Text(entry.title).font(DockDesign.body.weight(.medium))
+                                        Text(entry.detail).font(DockDesign.Grouped.footerFont).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                     Spacer()
                                     if let trailing = entry.trailing {
-                                        Text(trailing).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                                        Text(trailing).font(DockDesign.Grouped.footerFont).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                     if index == selected, let secondary = entry.secondary {
-                                        Text("⌥↩ " + secondary.label).font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+                                        Text("⌥↩ " + secondary.label).font(DockDesign.Grouped.footerFont).foregroundStyle(.tertiary).lineLimit(1)
                                             .accessibilityHidden(true)
                                     }
                                     if let item = entry.item, item.type == .widget {
                                         VStack(alignment: .trailing, spacing: 2) {
                                             WidgetCardPreview(kind: item.widgetKind ?? "", width: 144, displayScale: 0.7)
                                                 .frame(width: 108, height: 40).allowsHitTesting(false).accessibilityHidden(true)
-                                            Text("Example").font(.system(size: 11)).foregroundStyle(.secondary)
+                                            Text("Example").font(DockDesign.Grouped.footerFont).foregroundStyle(.secondary)
                                                 .accessibilityLabel("Example preview for \(entry.title)")
                                         }
                                     }
                                     if index == selected { Image(systemName: "return").font(.system(size: 11)).foregroundStyle(.tertiary).accessibilityHidden(true) }
                                 }.padding(.horizontal, 12).padding(.vertical, 8)
-                                    .background(index == selected ? DockDesign.hover : .clear, in: RoundedRectangle(cornerRadius: 8))
+                                    .background(index == selected ? DockDesign.hover : .clear, in: RoundedRectangle(cornerRadius: DockDesign.Radius.row))
                                     .contentShape(Rectangle())
                             }.buttonStyle(.plain).disabled(!entry.enabled).id(entry.id)
                                 .accessibilityAddTraits(index == selected ? .isSelected : [])
@@ -236,7 +218,6 @@ struct CommandLibrary: View {
         }.frame(width: 580, height: 540).background(DockDesign.page)
             .task { apps = await InstalledAppCatalog.load() }
             .onChange(of: query) { _ in selected = 0 }
-            .onChange(of: category) { _ in selected = 0 }
             .onChange(of: rows.count) { count in selected = min(selected, max(0, count - 1)) }
             .onMoveCommand { direction in
                 if direction == .down { moveSelection(by: 1, in: rows) }
@@ -259,15 +240,37 @@ struct CommandLibrary: View {
 @MainActor
 enum SavedCollectionActions {
     /// Reuses the File Shelf repair rules: the entry keeps its identity and a duplicate target is refused.
+    /// A refused or unsaved repair is reported, never shown as success.
     static func locate(_ saved: SavedCollectionResult, store: ProfileStore) {
         guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let panel = NSOpenPanel()
         panel.title = "Locate \(saved.title)"; panel.prompt = "Use This File"
         panel.canChooseFiles = true; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let chosen = panel.url else { return }
-        store.updateWidgetConfiguration(itemID: saved.itemID, in: saved.profileID) { configuration in
-            if case let .relocated(updated) = FileShelfPolicy.relocating(saved.entryID, to: chosen, in: configuration.shelfFiles) {
-                configuration.shelfFiles = updated
+        var relocation: FileShelfPolicy.RelocationResult?
+        let update = store.updateWidgetConfiguration(itemID: saved.itemID, in: saved.profileID) { configuration in
+            let result = FileShelfPolicy.relocating(saved.entryID, to: chosen, in: configuration.shelfFiles)
+            relocation = result
+            if case let .relocated(updated) = result { configuration.shelfFiles = updated }
+        }
+        guard let failure = locateFailure(relocation: relocation, update: update) else { return }
+        let alert = NSAlert()
+        alert.messageText = "Could not locate \(saved.title)"
+        alert.informativeText = failure
+        alert.runModal()
+    }
+
+    /// Why a Locate… repair changed nothing, or nil when the shelf now points to the chosen file.
+    static func locateFailure(relocation: FileShelfPolicy.RelocationResult?, update: WidgetConfigurationUpdateResult) -> String? {
+        switch relocation {
+        case .duplicate(let name)?: return "\(name) is already on this shelf, so the missing item was left unchanged."
+        case .notFound?: return "That file could not be found. The shelf item was left unchanged."
+        case .notFileURL?: return "Choose a file on this Mac. The shelf item was left unchanged."
+        case .relocated?, nil:
+            switch update {
+            case .accepted, .unchanged: return nil
+            case .rejected(let reason): return reason
+            case .missingTarget: return "This File Shelf was removed. Nothing was changed."
             }
         }
     }

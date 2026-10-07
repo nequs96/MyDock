@@ -52,7 +52,7 @@ struct PortableDockExportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Export Dock").font(DockDesign.sectionTitle).accessibilityAddTraits(.isHeader)
+            DockSheetHeader(title: "Export Dock")
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if profiles.count > 1 {
@@ -116,7 +116,7 @@ struct PortableDockImportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Import Dock").font(DockDesign.sectionTitle).accessibilityAddTraits(.isHeader)
+            DockSheetHeader(title: "Import Dock")
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     GroupedSection(footer: "Will be added as a new Dock. Existing Docks are not changed.") {

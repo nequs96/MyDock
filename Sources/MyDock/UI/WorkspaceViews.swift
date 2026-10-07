@@ -79,10 +79,7 @@ struct WorkspaceStartSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Start Workspace").font(DockDesign.sectionTitle).accessibilityAddTraits(.isHeader)
-                Text(request.profile.name).font(DockDesign.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
+            DockSheetHeader(title: "Start Workspace", subtitle: request.profile.name)
             ScrollView {
                 GroupedSection {
                     ForEach(run.results) { result in
@@ -93,7 +90,7 @@ struct WorkspaceStartSheet: View {
                 }
             }.frame(maxHeight: 340)
             if run.phase == .preview && !request.isCurrentDock {
-                Toggle("Also switch to this Dock", isOn: $alsoSwitch).toggleStyle(.checkbox)
+                GroupedSection { GroupedRow("Also switch to this Dock", isOn: $alsoSwitch) }
             }
             HStack {
                 if run.phase == .cancelled {

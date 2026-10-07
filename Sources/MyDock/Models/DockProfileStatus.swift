@@ -44,7 +44,7 @@ enum DockProfileStatus: Equatable {
 
     static func actionHelp(for kind: DockProfileKind) -> String {
         kind == .native
-            ? "Apply this layout to Apple's Dock now. It stays until you apply another layout, including after you quit MyDock."
+            ? "Apply to the macOS Dock now. It stays until you apply another Dock, including after you quit MyDock."
             : "Show this Custom Dock on screen."
     }
 
@@ -59,16 +59,16 @@ enum DockProfileStatus: Equatable {
         case (.native, .applied(let hidden)):
             hidden ? "Last applied to the macOS Dock, which is hidden while MyDock replaces it."
                    : "Last applied to the macOS Dock."
-        case (.native, _): "Editing a saved layout. Apply changes Apple's Dock now and stays after you quit."
+        case (.native, _): "Editing a saved macOS Dock. Apply changes the macOS Dock now and stays after you quit."
         }
     }
 
     /// What each setup mode does to Apple's Dock.
     static func nativeConsequence(for mode: SetupMode) -> String {
         switch mode {
-        case .nativeOnly: "Apple's Dock stays as it is. It changes only when you apply a saved layout, and that stays after you quit."
-        case .both: "Apple's Dock stays visible. It changes only when you apply a saved layout; your Custom Dock appears separately."
-        case .customMain: "Apple's Dock is hidden while MyDock runs, and its settings are restored when you change modes or quit."
+        case .nativeOnly: "The macOS Dock stays as it is. It changes only when you apply a saved Dock, and that stays after you quit."
+        case .both: "The macOS Dock stays visible. It changes only when you apply a saved Dock; your Custom Dock appears separately."
+        case .customMain: "The macOS Dock is hidden while MyDock runs, and its settings are restored when you change modes or quit."
         }
     }
 }

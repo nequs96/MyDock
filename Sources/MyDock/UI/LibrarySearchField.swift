@@ -17,14 +17,15 @@ struct LibrarySearchField: NSViewRepresentable {
     var focusOnAppear = true
     /// Tab out of the field; return true when the caller moved focus itself.
     var tab: (() -> Bool)? = nil
-    /// The user started typing in the field.
-    var didBeginEditing: (() -> Void)? = nil
+    /// The field became first responder (by click, Tab or on appear), before any typing.
+    var didFocus: (() -> Void)? = nil
     /// Option-Return: the selected result's secondary action, when it has one.
     var secondary: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+    func makeNSView(context: Context) -> FocusReportingTextField {
+        let field = FocusReportingTextField()
+        field.onFocus = didFocus
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = compact ? .default : .none
@@ -42,8 +43,9 @@ struct LibrarySearchField: NSViewRepresentable {
         }
         return field
     }
-    func updateNSView(_ field: NSTextField, context: Context) {
+    func updateNSView(_ field: FocusReportingTextField, context: Context) {
         context.coordinator.parent = self
+        field.onFocus = didFocus
         field.placeholderString = placeholder
         field.setAccessibilityLabel(placeholder)
         if field.stringValue != text { field.stringValue = text }
@@ -54,7 +56,6 @@ struct LibrarySearchField: NSViewRepresentable {
         func controlTextDidChange(_ notification: Notification) {
             if let field = notification.object as? NSTextField { parent.text = field.stringValue }
         }
-        func controlTextDidBeginEditing(_ notification: Notification) { parent.didBeginEditing?() }
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.moveDown(_:)): parent.move(1)
@@ -69,5 +70,16 @@ struct LibrarySearchField: NSViewRepresentable {
             }
             return true
         }
+    }
+}
+
+/// Reports when it becomes first responder, so window-level shortcuts that belong to
+/// another control can step aside before the first keystroke reaches the field.
+final class FocusReportingTextField: NSTextField {
+    var onFocus: (() -> Void)?
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocus?() }
+        return accepted
     }
 }

@@ -20,7 +20,7 @@ extension SettingsView {
                 set: { value in store.updateSettings { $0.showRevealHandle = value } }
             ))
             .disabled(!store.state.settings.automaticallyHideCustomDock || store.state.settings.customDockDesktopMode)
-            GroupedRow("Hide when Apple Dock appears", isOn: Binding(get: { store.state.settings.hideCustomDockWhenSystemDockAppears }, set: { value in store.updateSettings { $0.hideCustomDockWhenSystemDockAppears = value } }))
+            GroupedRow("Hide when macOS Dock appears", isOn: Binding(get: { store.state.settings.hideCustomDockWhenSystemDockAppears }, set: { value in store.updateSettings { $0.hideCustomDockWhenSystemDockAppears = value } }))
             if store.state.settings.customDockDesktopMode {
                 Text("Stays behind windows, including fullscreen apps; auto-hide is paused.")
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
@@ -71,7 +71,7 @@ extension SettingsView {
                         .controlSize(.small)
                 }
             }
-        }.id("Dock items").help("Reads available Apple Dock badge labels through Accessibility; notification contents stay private.")
+        }.id("Dock items").help("Reads available macOS Dock badge labels through Accessibility; notification contents stay private.")
         GroupedSection("Interaction") {
             GroupedRow("Click focused app to minimize", isOn: Binding(get: { store.state.settings.clickFocusedAppToMinimize }, set: { value in store.updateSettings { $0.clickFocusedAppToMinimize = value } }))
                 .onChange(of: store.state.settings.clickFocusedAppToMinimize) { enabled in

@@ -120,7 +120,7 @@ final class MyDockVisualPreviewUITests: XCTestCase {
 
     private func renameField(in app: XCUIApplication) -> XCUIElement {
         let more = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == %@", "Profile actions")).firstMatch
+            .matching(NSPredicate(format: "label == %@", "Dock actions")).firstMatch
         XCTAssertTrue(more.waitForExistence(timeout: 5))
         more.click()
         let rename = app.menuItems["Rename…"]

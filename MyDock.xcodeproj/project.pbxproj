@@ -119,7 +119,6 @@
 		7F93771555BCA1C2B5891D25 /* ModeClarityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79467C5F6AEA792EC8E38F30 /* ModeClarityTests.swift */; };
 		7FF0EBA818C13C7FCF67B004 /* CalendarRemindersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8103CF2D1F157F4F2FDBA1E0 /* CalendarRemindersService.swift */; };
 		80300E28E77CA752219DE531 /* WidgetGalleryTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 070DBCF6E0F4D0660BC396FE /* WidgetGalleryTile.swift */; };
-		80D900876DC403B00FB0EA86 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD754067A5466BDC46784D7D /* MenuBarView.swift */; };
 		8107C3C7DAEC1A795364C5D6 /* HydrationReminderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EB7EFB4157FEEF3A5299039 /* HydrationReminderService.swift */; };
 		81E3A442675305C40BA66FC4 /* RuntimeIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BFF9B73C085230A3EAC20D6 /* RuntimeIsolationTests.swift */; };
 		84CC98A44263A1287326815C /* GroupedForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 902E58C49824FBB1B6EA777A /* GroupedForm.swift */; };
@@ -457,7 +456,6 @@
 		C789579CDA445F5D2B826E1C /* SettingsQA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsQA.swift; sourceTree = "<group>"; };
 		C9BD2DD6D0CACDD0441DDB85 /* DockUtilityWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockUtilityWidgetViews.swift; sourceTree = "<group>"; };
 		CBD047A40FA67EF37700303C /* FX09Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FX09Tests.swift; sourceTree = "<group>"; };
-		CD754067A5466BDC46784D7D /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		D0EAC99F647903727CCB39C8 /* PrivacyHelpSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyHelpSection.swift; sourceTree = "<group>"; };
 		D1C9671A2DACBE584516FF0B /* LibrarySearchField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySearchField.swift; sourceTree = "<group>"; };
 		D3D0A97FC33578ACEF3480AE /* ProfileLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileLibrary.swift; sourceTree = "<group>"; };
@@ -812,7 +810,6 @@
 				EAA3D3A3F0C1DCBC454A3AAA /* KeyboardShortcutEditor.swift */,
 				D1C9671A2DACBE584516FF0B /* LibrarySearchField.swift */,
 				3DDEB8903C269E742496D5AF /* MenuBarProfileTitle.swift */,
-				CD754067A5466BDC46784D7D /* MenuBarView.swift */,
 				4B29E430F23BFAB12E20829E /* OnboardingView.swift */,
 				262E66F3B0C1253FAC08FACC /* PersonalPresetPicker.swift */,
 				AAF85853BEDADC21B497AF3A /* PremiumVisualQA.swift */,
@@ -1151,7 +1148,6 @@
 				116A1DA4F039E0AD50117B8D /* LocalClockFormatter.swift in Sources */,
 				FFCD24641D5936E4031BFA69 /* MarketDataService.swift in Sources */,
 				1CC95F826106745B33070E61 /* MenuBarProfileTitle.swift in Sources */,
-				80D900876DC403B00FB0EA86 /* MenuBarView.swift in Sources */,
 				45B3C38D209E8A86C8603941 /* MotionQA.swift in Sources */,
 				BF7E9EE081899935E28D7561 /* MyDockApp.swift in Sources */,
 				9CF1EF762D9DF815E91D2DB4 /* NativeDockAutoHideController.swift in Sources */,

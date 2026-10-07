@@ -34,31 +34,44 @@ final class ProfileLibrary: ObservableObject {
         } catch { errorMessage = "Could not read this library. The original file was kept. \(error.localizedDescription)" }
     }
 
-    func record(_ profile: DockProfile, reason: String) {
-        guard errorMessage == nil else { return }
+    /// Returns false when the library could not keep the entry (it needs recovery or could not be written).
+    @discardableResult
+    func record(_ profile: DockProfile, reason: String) -> Bool {
+        guard errorMessage == nil else { return false }
         let sanitized = ProfileSanitizer.sanitize(profile, includeNotes: includeNotes)
-        if entries.first?.profile == sanitized { return }
+        if entries.first?.profile == sanitized { return true }
         entries.insert(ProfileLibraryEntry(reason: reason, profile: sanitized), at: 0)
         trim(); persist()
+        return errorMessage == nil
     }
 
     func remove(_ id: UUID) { entries.removeAll { $0.id == id }; persist() }
     func clear() { entries = []; persist() }
 
+    /// Accepts a Dock export (the format presets are exported in) or a legacy bare-profile preset.
     func importPreset(_ data: Data) throws {
         guard errorMessage == nil else { throw EditSessionSaveError.failed(errorMessage ?? "The preset library needs recovery.") }
         guard data.count <= Self.maximumBytes else { throw ProfileValidationError.invalid("preset is too large") }
-        let profile = try JSONDecoder().decode(DockProfile.self, from: data)
-        _ = try BackupManager.makeArchive(from: [profile])
+        let profile: DockProfile
+        if let package = try? PortableDockPackage.preview(data, existingNames: [], targetExists: { _ in true }) {
+            profile = package.profile
+        } else {
+            do { profile = try JSONDecoder().decode(DockProfile.self, from: data) }
+            catch is DecodingError { throw EditSessionSaveError.failed(Self.unreadablePreset) }
+            _ = try BackupManager.makeArchive(from: [profile])
+        }
         guard profile.kind == .custom else { throw EditSessionSaveError.failed("Personal presets must be Custom Dock profiles.") }
         record(ProfileSanitizer.newIdentity(ProfileSanitizer.sanitize(profile)), reason: "Imported preset")
         if let errorMessage { throw EditSessionSaveError.failed(errorMessage) }
     }
 
+    /// A sanitized Dock export, so a preset file also opens with Import Dock….
     func exportPreset(_ id: UUID) throws -> Data {
         guard let entry = entries.first(where: { $0.id == id }) else { throw ProfileDraftMergeError.profileRemoved }
-        return try JSONEncoder().encode(ProfileSanitizer.sanitize(entry.profile))
+        return try PortableDockPackage.makePackage(from: entry.profile, includePersonalData: false)
     }
+
+    static let unreadablePreset = "This file is not a MyDock preset or Dock export."
 
     private func trim() {
         if let retentionDays { entries.removeAll { $0.recordedAt < Date.now.addingTimeInterval(-Double(retentionDays) * 86_400) } }

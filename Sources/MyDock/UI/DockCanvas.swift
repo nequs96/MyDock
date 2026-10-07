@@ -85,7 +85,7 @@ struct DockCanvas: View {
         }
         .overlay(alignment: .bottom) {
             if contentLength > geometry.size.width {
-                Text("Scroll to see all items").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Scroll to see all items").font(DockDesign.Grouped.footerFont).foregroundStyle(.secondary)
             }
         }
         }
@@ -124,6 +124,8 @@ struct DockCanvas: View {
             settledOrder = order
             settle(moved)
         }
+        // A container, so each tile keeps its own label inside it.
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Dock workspace. Select items to edit, or drag to reorder.")
     }
 
@@ -170,7 +172,7 @@ struct DockCanvas: View {
         }.buttonStyle(.plain).focusable().focused($focusedItem, equals: ItemFocus(itemID: item.id, requestID: focusRequestID))
             .help(item.displayName + (missing ? " · Saved location missing" : "") + " · Drag to reorder")
             .accessibilityLabel(DockItemAccessibility.label(for: item, missing: missing))
-            .accessibilityHint(missing ? "Saved location missing. Use Replace to reconnect this item." : "Select to edit. Drag to reorder.")
+            .accessibilityHint(missing ? "Saved location missing. Use Locate… to reconnect this item." : "Select to edit. Drag to reorder.")
             .accessibilityAddTraits(selection.contains(item.id) ? .isSelected : [])
             .accessibilityAction(named: "Configure") { configure(item) }
             .accessibilityAction(named: "Move earlier") {
@@ -185,7 +187,7 @@ struct DockCanvas: View {
             .accessibilityAction(named: "Move to end") { move([item.id], nil) }
             .contextMenu {
                 Button("Configure…") { configure(item) }
-                if [.application, .file, .folder, .link].contains(item.type) { Button("Replace…") { replace(item) } }
+                if [.application, .file, .folder, .link].contains(item.type) { Button(missing ? "Locate…" : "Replace…") { replace(item) } }
                 Button("Duplicate") { duplicate(item) }
                 Divider()
                 Button("Remove from Dock", role: .destructive) { remove(item) }

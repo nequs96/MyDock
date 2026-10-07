@@ -9,11 +9,11 @@ struct RecoveryCenterView: View {
     @State private var confirmingClear = false
 
     var body: some View {
-        GroupedSection("Recovery & history", footer: "Restoring creates a new profile.") {
+        GroupedSection("Recovery & history", footer: "Restoring creates a new Dock.") {
             GroupedRow("Include private text for this session", isOn: $history.includeNotes)
                 .help("Includes Sticky Note text, Quick Checklist tasks, and Text Snippets in new history entries until MyDock quits. File Shelf references and Quick Links are always omitted. Turning this off does not remove text from existing history entries.")
             if let error = history.errorMessage { GroupedRow(error).foregroundStyle(.orange) }
-            if history.entries.isEmpty { GroupedRow("No previous layouts yet.") }
+            if history.entries.isEmpty { GroupedRow("No earlier versions yet.") }
             ForEach(history.entries) { entry in
                 GroupedRow(entry.profile.name, subtitle: "\(entry.reason) · \(entry.recordedAt.formatted(date: .abbreviated, time: .shortened)) · \(entry.profile.items.count) items") {
                     HStack {
@@ -26,8 +26,8 @@ struct RecoveryCenterView: View {
             if let message { GroupedRow(message).textSelection(.enabled) }
         }
         .id("Recovery & history")
-        .help("Previous profile layouts are kept locally for 14 days, up to 25 entries and 8 MB. Credentials, connected account references, cached usage, hydration history, and running sessions are removed.")
-        .confirmationDialog("Clear local profile history?", isPresented: $confirmingClear) {
+        .help("Earlier versions of your Docks are kept locally for 14 days, up to 25 entries and 8 MB. Credentials, connected account references, cached usage, hydration history, and running sessions are removed.")
+        .confirmationDialog("Clear local Dock history?", isPresented: $confirmingClear) {
             Button("Clear History", role: .destructive) { history.clear() }
         }
         .sheet(item: $selected) { entry in
@@ -43,7 +43,7 @@ struct RecoveryCenterView: View {
     private func restore(_ entry: ProfileLibraryEntry) {
         do {
             let id = try store.createProfile(ProfileSanitizer.newIdentity(entry.profile))
-            message = "Restored \(store.state.profiles.first(where: { $0.id == id })?.name ?? "profile")."
+            message = "Restored \(store.state.profiles.first(where: { $0.id == id })?.name ?? "Dock")."
         } catch { message = error.localizedDescription }
     }
 }

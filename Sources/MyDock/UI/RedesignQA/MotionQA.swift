@@ -45,11 +45,9 @@ enum MotionQA {
                                                                          reduceMotion: reduceMotion))
     }
 
-    /// The profile the Dock presets sheet creates for `preset` (same construction as `DockManagerView`).
+    /// The profile the Dock presets sheet creates for `preset`.
     static func presetProfile(_ preset: DockStarterPreset, settings: AppSettings) -> DockProfile {
-        var profile = DockProfile(name: preset.title, kind: .custom, color: preset.color.rawValue, items: preset.resolve().items)
-        profile.appearance = preset.appearance(basedOn: settings)
-        return profile
+        preset.profile(settings: settings).profile
     }
 
     static func presetSheet(store: ProfileStore) -> some View {

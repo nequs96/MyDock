@@ -375,7 +375,7 @@ final class ProfileStore: ObservableObject {
                           customDockDisplayID: UInt32?,
                           importedNativeItems: [DockItem],
                           starterWidgets: [String],
-                          starterApplications: [DockItem] = []) {
+                          starterApplications: [DockItem] = []) throws {
         var nextState = state
         nextState.settings.setupMode = setupMode
         nextState.settings.customDockPosition = customDockPosition
@@ -411,7 +411,7 @@ final class ProfileStore: ObservableObject {
 
         nextState.settings.onboardingComplete = true
         nextState.settings.lastSeenWhatsNewVersion = Product.marketingVersion
-        do { try persistCandidate(nextState) } catch { }
+        try persistCandidate(nextState)
     }
 
     func updateSettings(immediately: Bool = false, _ update: (inout AppSettings) -> Void) {
@@ -435,7 +435,7 @@ final class ProfileStore: ObservableObject {
 
     /// A direct Dock resize follows the active profile's existing inheritance choice.
     func previewDockSize(_ size: Double, for profileID: UUID) {
-        guard size.isFinite, (0.65...1.5).contains(size), customProfiles.contains(where: { $0.id == profileID }) else { return }
+        guard size.isFinite, DockAppearanceBounds.size.contains(size), customProfiles.contains(where: { $0.id == profileID }) else { return }
         let preview = DockResizePreview(profileID: profileID, size: size)
         if preview != dockResizePreview { dockResizePreview = preview }
     }
@@ -448,7 +448,7 @@ final class ProfileStore: ObservableObject {
     }
 
     func setDockSize(_ size: Double, for profileID: UUID, recordHistory: Bool = false) {
-        guard size.isFinite, (0.65...1.5).contains(size),
+        guard size.isFinite, DockAppearanceBounds.size.contains(size),
               let profile = customProfiles.first(where: { $0.id == profileID }) else { return }
         if var appearance = profile.appearance {
             appearance.size = size

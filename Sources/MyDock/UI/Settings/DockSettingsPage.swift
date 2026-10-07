@@ -18,16 +18,16 @@ extension SettingsView {
                     ForEach(SetupMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
             }
-            GroupedRow("Show active profile name in menu bar", subtitle: "Both active Dock names appear beside the menu-bar icon.", isOn: Binding(
+            GroupedRow("Show active Dock names in menu bar", subtitle: "Both active Dock names appear beside the menu-bar icon.", isOn: Binding(
                 get: { store.state.settings.showActiveProfileNameInMenuBar },
                 set: { enabled in store.updateSettings { $0.showActiveProfileNameInMenuBar = enabled } }
             ))
             if store.state.settings.setupMode == .customMain {
                 if store.activeCustomProfile == nil {
-                    Text("Create or select a Custom Dock first; Apple’s Dock remains available until then.")
+                    Text("Create or select a Custom Dock first; the macOS Dock remains available until then.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    Text("Apple’s Dock stays hidden; MyDock restores its settings on mode change or quit.")
+                    Text("The macOS Dock stays hidden; MyDock restores its settings on mode change or quit.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -119,8 +119,8 @@ extension SettingsView {
                        value: FocusFilterAvailability.hasIntentMetadata() ? "Available" : "Unavailable")
         }.id("Focus filters")
         AutomaticSwitchingSettingsSection(store: store).id("Automatic switching")
-        GroupedSection("Native Dock switching") {
-            GroupedRow("Automatically save Dock changes", subtitle: "Saves Apple Dock edits to the selected profile, checking every five seconds.", isOn: Binding(
+        GroupedSection("macOS Dock switching") {
+            GroupedRow("Automatically save Dock changes", subtitle: "Saves macOS Dock edits to the selected Dock, checking every five seconds.", isOn: Binding(
                 get: { store.state.settings.automaticallySaveNativeDockChanges },
                 set: { enabled in store.updateSettings { $0.automaticallySaveNativeDockChanges = enabled } }
             ))
@@ -150,7 +150,7 @@ extension SettingsView {
                             ? "Allow MyDock in System Settings → Privacy & Security → Screen Recording. Relaunch MyDock after granting access."
                             : "Allow MyDock in System Settings → Privacy & Security → Screen Recording. Dock switching remains available without the effect."
                     } else {
-                        screenCaptureMessage = "The desktop freeze will be used for the next native Dock switch."
+                        screenCaptureMessage = "The desktop freeze will be used for the next macOS Dock switch."
                     }
                 }
             ))
@@ -164,7 +164,7 @@ extension SettingsView {
     }
 
     private func selectNativeProfile(_ id: UUID?) {
-        guard store.allowsSystemChanges else { nativeProfileSwitchMessage = "Native Dock changes are disabled in the visual preview."; return }
+        guard store.allowsSystemChanges else { nativeProfileSwitchMessage = "macOS Dock changes are disabled in the visual preview."; return }
         guard !isApplyingNativeProfile else { return }
         nativeProfileSwitchMessage = nil
         nativeProfileSwitchFailedID = nil

@@ -45,7 +45,7 @@ struct GallerySearchPill: View {
     var cancel: () -> Void = {}
     var focusOnAppear = true
     var tab: (() -> Bool)? = nil
-    var didBeginEditing: (() -> Void)? = nil
+    var didFocus: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 7) {
@@ -55,7 +55,7 @@ struct GallerySearchPill: View {
                 .accessibilityHidden(true)
             LibrarySearchField(placeholder: placeholder, text: $text, move: move, choose: choose, cancel: cancel,
                                compact: false, fontSize: 14, focusOnAppear: focusOnAppear, tab: tab,
-                               didBeginEditing: didBeginEditing)
+                               didFocus: didFocus)
                 .frame(height: 20)
             if !text.isEmpty {
                 Button { text = "" } label: {

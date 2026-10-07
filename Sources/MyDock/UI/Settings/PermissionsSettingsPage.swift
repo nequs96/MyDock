@@ -37,7 +37,7 @@ extension SettingsView {
                                   status: WindowAccessibilityService.isTrusted() ? "Allowed — window controls are available." : "Not allowed — minimized-window controls are unavailable.",
                                   settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"),
             PermissionOverviewRow(name: "Screen Recording",
-                                  status: CGPreflightScreenCaptureAccess() ? "Allowed — the optional switch effect can capture displays." : "Not allowed — native Dock switches continue without the visual freeze.",
+                                  status: CGPreflightScreenCaptureAccess() ? "Allowed — the optional switch effect can capture displays." : "Not allowed — macOS Dock switches continue without the visual freeze.",
                                   settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"),
             PermissionOverviewRow(name: "Notifications",
                                   status: notificationSettings.map { notificationStatus($0.authorizationStatus) } ?? "Unavailable in this isolated run.",

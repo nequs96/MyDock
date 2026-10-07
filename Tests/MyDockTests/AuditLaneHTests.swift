@@ -119,4 +119,115 @@ import Testing
         #expect(WidgetGalleryModel.isAdded(.widget("Weather"), addedIdentities: keys, recentlyAdded: ["widget:Weather"]))
         #expect(!WidgetGalleryModel.isAdded(.spacer(.small), addedIdentities: keys, recentlyAdded: []))
     }
+
+    // MARK: Part 2
+
+    private func temporaryFolder() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    // S16-003
+    @Test func aSetupSaveThatThrowsIsReportedEvenWhenSetupWasCompletedBefore() {
+        let (store, directory) = fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        store.updateSettings(immediately: true) { $0.onboardingComplete = true }
+        let result = OnboardingCompletion.finish(store: store, appliesClearStyle: false) {
+            throw EditSessionSaveError.failed("Disk full")
+        }
+        #expect(result == OnboardingCompletion.Result(error: "Disk full", appliedClearStyle: false))
+    }
+
+    // S16-012
+    @Test func aReplacementDockStartsWithTrash() {
+        #expect(OnboardingView.starterWidgetKinds(["Clock", "Battery"], for: .customMain) == ["Battery", "Clock", "Trash"])
+        #expect(OnboardingView.starterWidgetKinds(["Trash"], for: .customMain) == ["Trash"])
+        #expect(OnboardingView.starterWidgetKinds(["Clock"], for: .both) == ["Clock"])
+        #expect(OnboardingView.starterWidgetKinds([], for: .nativeOnly).isEmpty)
+    }
+
+    // S16-005
+    @Test func shortcutLabelsNameSpecialKeysAndIgnoreShift() {
+        #expect(DockShortcut.label(keyCode: 124, characters: "\u{F703}") == "→")
+        #expect(DockShortcut.label(keyCode: 126, characters: "\u{F700}") == "↑")
+        #expect(DockShortcut.label(keyCode: 122, characters: "\u{F704}") == "F1")
+        #expect(DockShortcut.label(keyCode: 111, characters: "\u{F70F}") == "F12")
+        #expect(DockShortcut.label(keyCode: 18, characters: "1") == "1")
+        #expect(DockShortcut.label(keyCode: 0, characters: "a") == "A")
+        #expect(DockShortcut.label(keyCode: 49, characters: " ") == "Space")
+        #expect(DockShortcut.label(keyCode: 200, characters: "\u{F730}") == "Key 200")
+    }
+
+    // S16-009
+    @Test func presetsShareTheDockExportFormatAndStillReadOldPresets() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let profile = DockProfile(name: "Studio", kind: .custom, items: [.widget("Clock")])
+        let library = ProfileLibrary(fileURL: folder.appendingPathComponent("presets.json"))
+        #expect(library.record(profile, reason: "Test"))
+        let entry = try #require(library.entries.first)
+        let exported = try library.exportPreset(entry.id)
+        // A preset file also opens with Import Dock….
+        let preview = try PortableDockPackage.preview(exported, existingNames: [], targetExists: { _ in true })
+        #expect(preview.profile.name == "Studio")
+
+        let other = ProfileLibrary(fileURL: folder.appendingPathComponent("other.json"))
+        try other.importPreset(exported)
+        try other.importPreset(try PortableDockPackage.makePackage(from: profile, includePersonalData: false))
+        try other.importPreset(try JSONEncoder().encode(profile))
+        #expect(other.entries.count == 3)
+        #expect(other.entries.allSatisfy { $0.profile.name == "Studio" && $0.profile.items.count == 1 })
+        do {
+            try other.importPreset(Data("{}".utf8))
+            Issue.record("An unrelated file must not import")
+        } catch {
+            #expect(error.localizedDescription == ProfileLibrary.unreadablePreset)
+        }
+    }
+
+    // S14-031
+    @Test func savingAPresetReportsALibraryThatCannotBeWritten() throws {
+        let blocked = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: blocked) }
+        try Data("blocked".utf8).write(to: blocked)
+        let library = ProfileLibrary(fileURL: blocked.appendingPathComponent("presets.json"))
+        #expect(!library.record(DockProfile(name: "Studio", kind: .custom, items: [.widget("Clock")]), reason: "Test"))
+        #expect(library.errorMessage != nil)
+    }
+
+    @Test func locateReportsEveryRepairThatChangedNothing() {
+        #expect(SavedCollectionActions.locateFailure(relocation: .relocated([]), update: .accepted) == nil)
+        #expect(SavedCollectionActions.locateFailure(relocation: .duplicate(existingName: "Plan.pdf"), update: .unchanged)?.contains("Plan.pdf") == true)
+        #expect(SavedCollectionActions.locateFailure(relocation: .notFound, update: .unchanged) != nil)
+        #expect(SavedCollectionActions.locateFailure(relocation: nil, update: .rejected("Saving is disabled.")) == "Saving is disabled.")
+        #expect(SavedCollectionActions.locateFailure(relocation: .relocated([]), update: .missingTarget) != nil)
+    }
+
+    // S14-023
+    @Test func droppedURLsAreClassifiedBySchemeAndDockKind() {
+        let web = URL(string: "https://example.com/downloads/Tool.app")!
+        let app = URL(fileURLWithPath: "/Applications/MyDock Audit Example.APP")
+        #expect(!DockDropInsertionPolicy.isApplication(web))
+        #expect(DockDropInsertionPolicy.isApplication(app))
+        #expect(DockDropInsertionPolicy.items(for: [web], kind: .custom).map(\.type) == [.link])
+        #expect(DockDropInsertionPolicy.items(for: [web], kind: .native).isEmpty)
+        #expect(DockDropInsertionPolicy.items(for: [app], kind: .native).map(\.type) == [.application])
+    }
+
+    // S14-029
+    @Test func tileSizeBoundsAreShared() throws {
+        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"customDockSize": 9}"#.utf8))
+        #expect(settings.customDockSize == DockAppearanceBounds.size.upperBound)
+    }
+
+    // S20-003
+    @Test func settingsCopyCallsASavedArrangementADock() {
+        for entry in SettingsSearchCatalog.entries {
+            #expect(!(entry.title + " " + entry.section).localizedCaseInsensitiveContains("profile"), "\(entry.title)")
+            #expect(!entry.title.contains("Apple Dock"), "\(entry.title)")
+        }
+        for page in MyDockSettingsPage.allCases {
+            #expect(!page.designDescription.localizedCaseInsensitiveContains("profile"))
+            #expect(!page.designDescription.localizedCaseInsensitiveContains("layouts"))
+        }
+    }
 }

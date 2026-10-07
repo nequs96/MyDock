@@ -31,17 +31,17 @@ struct DockAppearanceInspector: View {
             HStack {
                 Spacer()
                 Button("Done", action: close).buttonStyle(GalleryGlassButtonStyle()).keyboardShortcut(.cancelAction)
-                    .help("Close inspector").accessibilityLabel("Close inspector")
+                    .help("Close inspector")
             }.overlay { Text("Dock").font(DockDesign.sectionTitle).allowsHitTesting(false) }
             if profile.kind == .custom {
                 GroupedSection("Appearance", footer: savedAppearance == nil ? "Follows app defaults." : "This Dock has its own appearance.") {
                 sliderRow("Tile size") {
                     HStack(spacing: 10) {
-                        Slider(value: Binding(get: { settings.customDockSize }, set: { value in edit { $0.size = value } }), in: 0.65...1.5, onEditingChanged: { if !$0 { store.flush() } })
+                        Slider(value: Binding(get: { settings.customDockSize }, set: { value in edit { $0.size = value } }), in: DockAppearanceBounds.size, onEditingChanged: { if !$0 { store.flush() } })
                             .accessibilityLabel("Tile size")
                             .accessibilityValue("\(Int((settings.customDockSize * 100).rounded())) percent")
                         Text("\(Int((settings.customDockSize * 100).rounded()))%")
-                            .monospacedDigit().frame(width: 40, alignment: .trailing)
+                            .monospacedDigit().frame(width: 40, alignment: .trailing).accessibilityHidden(true)
                     }
                 }
                 GroupedRow("Position on this Mac") {
@@ -74,7 +74,7 @@ struct DockAppearanceInspector: View {
                 }
                 }
             } else {
-                Text("This layout is applied to Apple’s Dock. Widgets and appearance belong to custom Docks.")
+                Text("A macOS Dock holds apps and spacers. Widgets and appearance belong to Custom Docks.")
                     .font(DockDesign.caption).foregroundStyle(.secondary)
             }
             if let workspace { workspace }
@@ -127,7 +127,7 @@ struct DockItemInspector: View {
                     .foregroundStyle(.secondary).font(DockDesign.body)
             }
             if [.application, .file, .folder].contains(item.type) {
-                GroupedRow(AppLauncher.isMissingTarget(item) ? "Locate Missing Item…" : "Replace…", role: .button, action: replace)
+                GroupedRow(AppLauncher.isMissingTarget(item) ? "Locate…" : "Replace…", role: .button, action: replace)
             }
             }
         }.padding(24).frame(width: 420).background(DockDesign.page)

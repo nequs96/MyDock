@@ -148,7 +148,7 @@ extension SettingsView {
                     ForEach(DockDensityPreset.allCases) { Text($0.title).tag(Optional($0)) }
                 }
             }
-            appearanceSlider("Tile size", keyPath: \.customDockSize, range: 0.65...1.5, step: nil, percent: true)
+            appearanceSlider("Tile size", keyPath: \.customDockSize, range: DockAppearanceBounds.size, step: nil, percent: true)
             appearanceSlider("Item spacing", keyPath: \.customDockItemSpacing, range: DockAppearanceBounds.itemSpacing)
             appearanceSlider("Corner roundness", keyPath: \.customDockCornerRadius, range: DockAppearanceBounds.cornerRadius)
             appearanceSlider("Floating inset", keyPath: \.customDockFloatingInset, range: DockAppearanceBounds.floatingInset)

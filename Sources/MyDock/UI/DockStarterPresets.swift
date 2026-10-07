@@ -103,4 +103,18 @@ extension DockStarterPreset {
         quickStyle.apply(to: &styled)
         return ProfileAppearance(settings: styled)
     }
+
+    /// The Dock the presets sheet creates: this Mac's resolved apps and the preset's widgets,
+    /// colour and style snapshot, with notes about substituted or missing apps.
+    @MainActor func profile(settings: AppSettings) -> (profile: DockProfile, notes: [String]) {
+        let resolution = resolve()
+        return (profile(items: resolution.items, settings: settings), resolution.notes)
+    }
+
+    /// The same construction for given items, so tests need not resolve apps on this Mac.
+    func profile(items: [DockItem], settings: AppSettings) -> DockProfile {
+        var dock = DockProfile(name: title, kind: .custom, color: color.rawValue, items: items)
+        dock.appearance = appearance(basedOn: settings)
+        return dock
+    }
 }

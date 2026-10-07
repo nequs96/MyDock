@@ -1,6 +1,8 @@
 import Foundation
 
 enum DockAppearanceBounds {
+    /// Tile size as a scale of the standard tile.
+    static let size: ClosedRange<Double> = 0.65...1.5
     static let itemSpacing: ClosedRange<Double> = 0...30
     static let cornerRadius: ClosedRange<Double> = 0...50
     static let tintStrength: ClosedRange<Double> = 0...0.5
@@ -59,7 +61,7 @@ struct ProfileAppearance: Codable, Hashable {
         let defaults = AppSettings()
         material = values.lenient(CustomDockMaterial.self, forKey: .material) ?? defaults.customDockMaterial
         theme = values.lenient(CustomDockTheme.self, forKey: .theme) ?? defaults.customDockTheme
-        size = DockAppearanceBounds.clamped(values.lenient(Double.self, forKey: .size), default: defaults.customDockSize, to: 0.65...1.5)
+        size = DockAppearanceBounds.clamped(values.lenient(Double.self, forKey: .size), default: defaults.customDockSize, to: DockAppearanceBounds.size)
         spacing = DockAppearanceBounds.clamped(values.lenient(Double.self, forKey: .spacing),
                                                default: defaults.customDockItemSpacing, to: DockAppearanceBounds.itemSpacing)
         cornerRadius = DockAppearanceBounds.clamped(values.lenient(Double.self, forKey: .cornerRadius),
@@ -98,7 +100,7 @@ struct ProfileAppearance: Codable, Hashable {
     func validate() throws {
         let opacity = glassOpacity ?? 0
         let inset = floatingInset ?? 0
-        guard size.isFinite, (0.65...1.5).contains(size), spacing.isFinite, DockAppearanceBounds.itemSpacing.contains(spacing),
+        guard size.isFinite, DockAppearanceBounds.size.contains(size), spacing.isFinite, DockAppearanceBounds.itemSpacing.contains(spacing),
               cornerRadius.isFinite, DockAppearanceBounds.cornerRadius.contains(cornerRadius),
               tintStrength.isFinite, DockAppearanceBounds.tintStrength.contains(tintStrength),
               opacity.isFinite, (0...1).contains(opacity),
