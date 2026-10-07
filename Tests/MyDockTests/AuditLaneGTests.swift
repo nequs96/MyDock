@@ -1,5 +1,8 @@
+import CoreLocation
+import EventKit
 import Foundation
 import Testing
+import UserNotifications
 @testable import MyDock
 
 @Suite struct AuditLaneGTests {
@@ -79,5 +82,95 @@ import Testing
     @Test func tileSizeBoundsAreShared() {
         #expect(DockAppearanceBounds.size == 0.65...1.5)
         #expect(DockAppearanceBounds.clamped(3, default: 1, to: DockAppearanceBounds.size) == 1.5)
+    }
+
+    // S13-020, S19-019: permission rows carry an explicit state; the summary never depends on copy.
+    @Test func permissionRowsDeriveSummaryFromState() {
+        #expect(PermissionOverviewRow.accessibility(trusted: true).summary == "Granted")
+        #expect(PermissionOverviewRow.accessibility(trusted: false).summary == "Not granted")
+        #expect(PermissionOverviewRow.accessibility(trusted: false).explanation.contains("previews"))
+        #expect(PermissionOverviewRow.screenRecording(allowed: false).explanation.contains("Previews"))
+        #expect(PermissionOverviewRow.screenRecording(allowed: true).state == .granted)
+        #expect(PermissionOverviewRow.notifications(nil).state == .unavailable)
+        #expect(PermissionOverviewRow.notifications(.notDetermined).summary == "Not requested")
+        #expect(PermissionOverviewRow.notifications(.denied).summary == "Not granted")
+        #expect(PermissionOverviewRow.notifications(.authorized).granted)
+        #expect(PermissionOverviewRow.events(.event, status: .notDetermined).state == .notRequested)
+        #expect(PermissionOverviewRow.events(.reminder, status: .denied).state == .denied)
+        #expect(PermissionOverviewRow.events(.reminder, status: .denied).name == "Reminders")
+        if #available(macOS 14.0, *) {
+            #expect(PermissionOverviewRow.events(.event, status: .fullAccess).granted)
+            #expect(PermissionOverviewRow.events(.event, status: .writeOnly).state == .denied)
+        }
+        #expect(PermissionOverviewRow.location(.authorizedWhenInUse).granted)
+        #expect(PermissionOverviewRow.location(.restricted).summary == "Not granted")
+        #expect(PermissionOverviewRow.automation.summary == "Per-app")
+        #expect(PermissionOverviewRow.events(.event, status: .denied).pane == .calendars)
+        #expect(PermissionOverviewRow.events(.reminder, status: .denied).pane == .reminders)
+    }
+
+    // S20-017: every System Settings pane is written once and parses as a URL.
+    @Test func systemSettingsPanesAreUniqueURLs() {
+        let addresses = SystemSettingsPane.allCases.map(\.address)
+        #expect(Set(addresses).count == addresses.count)
+        for pane in SystemSettingsPane.allCases {
+            #expect(pane.url?.scheme == "x-apple.systempreferences", "\(pane)")
+        }
+    }
+
+    // S13-020: connection kinds are exhaustive and map to their widget kind and reference.
+    @Test func connectionKindsMapToWidgetKindsAndReferences() {
+        #expect(ConnectionKind.allCases.map(\.rawValue) == ["Stripe", "Paddle", "Shopify"])
+        for kind in ConnectionKind.allCases {
+            let reference = kind.reference("id-\(kind.rawValue)")
+            #expect(reference.identifier == "id-\(kind.rawValue)")
+            switch (kind, reference) {
+            case (.stripe, .stripe), (.paddle, .paddle), (.shopify, .shopify): break
+            default: Issue.record("\(kind) maps to the wrong reference")
+            }
+        }
+        #expect(ConnectionError.differentShopifyStore.errorDescription?.contains("Shopify") == true)
+        #expect(ConnectionError.changedWhileTesting.errorDescription != nil)
+    }
+
+    // S13-022: rules that can never match say why.
+    @Test func automaticSwitchRuleProblemsAreReported() {
+        #expect(AutomaticSwitchRuleText.problem(AutomaticSwitchRule(kind: .appFrontmost)) != nil)
+        #expect(AutomaticSwitchRuleText.problem(AutomaticSwitchRule(kind: .appFrontmost, bundleIdentifier: "com.apple.Notes")) == nil)
+        #expect(AutomaticSwitchRuleText.problem(AutomaticSwitchRule(kind: .timeWindow)) == nil)
+        #expect(AutomaticSwitchRuleText.problem(AutomaticSwitchRule(kind: .timeWindow, weekdays: []))?.contains("No days") == true)
+        #expect(AutomaticSwitchRuleText.problem(AutomaticSwitchRule(kind: .timeWindow, startMinute: 600, endMinute: 600))?.contains("same") == true)
+    }
+
+    // S13-022: a deleted rule comes back at its old priority, once.
+    @Test func deletedAutomaticSwitchRuleIsRestoredInPlace() {
+        var settings = AutomaticSwitchingSettings()
+        let first = settings.addRule(.timeWindow, defaultProfileID: nil)
+        let second = settings.addRule(.appFrontmost, defaultProfileID: nil)
+        let third = settings.addRule(.timeWindow, defaultProfileID: nil)
+        let removed = settings.rules[1]
+        settings.removeRule(removed.id)
+        #expect(settings.restoreRule(removed, at: 1))
+        #expect(settings.rules.map(\.id) == [first, second, third].compactMap { $0 })
+        #expect(!settings.restoreRule(removed, at: 0))
+        #expect(settings.rules.count == 3)
+        settings.removeRule(removed.id)
+        #expect(settings.restoreRule(removed, at: 99))
+        #expect(settings.rules.last?.id == removed.id)
+    }
+
+    @Test func restoringARuleRespectsTheCap() {
+        var settings = AutomaticSwitchingSettings()
+        for _ in 0..<AutomaticSwitchingSettings.maximumRules { settings.addRule(.timeWindow, defaultProfileID: nil) }
+        #expect(!settings.restoreRule(AutomaticSwitchRule(kind: .timeWindow), at: 0))
+        #expect(settings.rules.count == AutomaticSwitchingSettings.maximumRules)
+    }
+
+    // S13-021, S13-023, S13-024: search lands on the card that holds the control, in Dock terms.
+    @Test func searchEntriesPointAtTheRightCards() {
+        #expect(SettingsSearchCatalog.results("auto-save").contains { $0.page == .dock && $0.section == "Native Dock switching" })
+        #expect(SettingsSearchCatalog.results("thumbnails").contains { $0.page == .behavior && $0.section == "Apps and windows" })
+        #expect(SettingsSearchCatalog.results("shortcuts").contains { $0.page == .shortcuts && $0.section == "Dock shortcuts" })
+        #expect(!SettingsSearchCatalog.entries.contains { $0.title.localizedCaseInsensitiveContains("profile") })
     }
 }

@@ -44,7 +44,7 @@ struct AIAccountConnectionView: View {
                 }
                 Spacer(minLength: 0)
                 if checking { ProgressView().controlSize(.small) }
-                else if status?.state == .signedIn { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                else if status?.state == .signedIn { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Signed in") }
             }
             accountActions
             if provider == .claude, showsLimitsSetup {
@@ -77,6 +77,7 @@ struct AIAccountConnectionView: View {
                 .disabled(!allowsAccountActions || checking)
                 Button("Find Account") { Task { await findAccount(refreshData: true) } }
                     .disabled(!allowsAccountActions || checking)
+                    .accessibilityInputLabels([Text("Find Account")])
                     .accessibilityLabel("Find \(provider.title) account on this Mac")
                 if !settingsPresentation, provider == .claude, showsLimitsSetup, status?.state == .signedIn, !limitsEnabled {
                     Button("Enable Limits") { enableLimits() }.disabled(!allowsAccountActions)
@@ -92,7 +93,7 @@ struct AIAccountConnectionView: View {
                        subtitle: checking ? "Looking for an account on this Mac…" : status?.message ?? "Find an account already signed in on this Mac",
                        symbol: provider == .codex ? "terminal" : "sparkle", color: .gray) {
                 if checking { ProgressView().controlSize(.small) }
-                else if status?.state == .signedIn { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                else if status?.state == .signedIn { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Signed in") }
             }
             accountActions.padding(12).frame(maxWidth: .infinity, alignment: .leading)
             if provider == .claude, showsLimitsSetup {

@@ -15,6 +15,8 @@ struct SettingsView: View {
     private let initialPage: MyDockSettingsPage?
     @State var selectedPage: MyDockSettingsPage
     @State private var settingsSearch = ""
+    /// The section a search result opens; scrolled to once its page is in the hierarchy.
+    @State private var pendingSearchAnchor: String?
     @State var appearanceProfileID: UUID?
     @State var previousAppearance: SettingsAppearanceEditing.Undo?
     @State var appearanceScopeMessage: String?
@@ -42,6 +44,7 @@ struct SettingsView: View {
     @State var permissionRows: [PermissionOverviewRow] = []
     @State var screenCaptureMessage: String?
     @State var windowPreviewMessage: String?
+    @State var accessibilityTrusted: Bool
     @State var nativeProfileSwitchMessage: String?
     @State var nativeProfileSwitchFailedID: UUID?
     @State var nativeProfileSwitchTargetID: UUID?
@@ -58,6 +61,7 @@ struct SettingsView: View {
         self.sidebarVisible = sidebarVisible
         _selectedPage = State(initialValue: initialPage ?? store.state.settings.lastSettingsPage)
         _appearanceProfileID = State(initialValue: store.activeCustomProfile?.id)
+        _accessibilityTrusted = State(initialValue: WindowAccessibilityService.isTrusted())
     }
 
     private var visiblePages: [MyDockSettingsPage] {
@@ -139,17 +143,13 @@ struct SettingsView: View {
                     Rectangle().fill(DockDesign.hairline).frame(width: 1)
                 }
             ScrollViewReader { settingsProxy in
+            Group {
             if !settingsSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 SettingsSearchResults(query: settingsSearch) { result in
                     selectedPage = result.page
                     settingsSearch = ""
                     // A page-title result has no section anchor: the page opens at its top.
-                    if !result.section.isEmpty {
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(100))
-                            settingsProxy.scrollTo(result.section, anchor: .top)
-                        }
-                    }
+                    pendingSearchAnchor = result.section.isEmpty ? nil : result.section
                 }
             } else if selectedPage == .dock {
                 dockPage
@@ -165,6 +165,16 @@ struct SettingsView: View {
                 permissionsPage
             } else if selectedPage == .integrations {
                 integrationsPage
+            }
+            }
+            // The page replaces the results in the same update that sets the anchor, so the
+            // scroll runs right after that update is committed instead of after a guessed delay.
+            .onChange(of: pendingSearchAnchor) { anchor in
+                guard let anchor else { return }
+                Task { @MainActor in
+                    settingsProxy.scrollTo(anchor, anchor: .top)
+                    pendingSearchAnchor = nil
+                }
             }
             }
         }

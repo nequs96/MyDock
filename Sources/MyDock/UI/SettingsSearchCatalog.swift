@@ -31,9 +31,10 @@ enum SettingsSearchCatalog {
         .init(title: "Mode", section: "Dock setup", page: .dock, keywords: "native custom main apple"),
         .init(title: "Display and edge", section: "Dock setup", page: .dock, keywords: "monitor screen bottom left right position"),
         .init(title: "Automatic switching", section: "Automatic switching", page: .dock, keywords: "rules automatic frontmost app time window schedule priority dock switch custom"),
-        .init(title: "Native profile and auto-save", section: "Dock setup", page: .dock, keywords: "apply switch macos save profiles"),
-        .init(title: "Custom Dock profile", section: "Dock setup", page: .dock, keywords: "active profiles select"),
-        .init(title: "Show active profile name in menu bar", section: "Dock setup", page: .dock, keywords: "menu bar status name"),
+        .init(title: "macOS Dock", section: "Dock setup", page: .dock, keywords: "native apply switch profiles"),
+        .init(title: "Automatically save Dock changes", section: "Native Dock switching", page: .dock, keywords: "auto-save autosave native macos save profiles"),
+        .init(title: "Custom Dock", section: "Dock setup", page: .dock, keywords: "active profiles select"),
+        .init(title: "Show active Dock name in menu bar", section: "Dock setup", page: .dock, keywords: "menu bar status name profile"),
         .init(title: "Focus filters", section: "Focus filters", page: .dock, keywords: "focus mode filter"),
         .init(title: "Freeze desktop during Dock restart", section: "Native Dock switching", page: .dock, keywords: "freeze screen recording smooth"),
         .init(title: "Appearance scope", section: "Scope", page: .appearance, keywords: "editing this dock app defaults profile global override"),
@@ -62,12 +63,12 @@ enum SettingsSearchCatalog {
         .init(title: "Hide when Apple Dock appears", section: "Custom Dock behavior", page: .behavior, keywords: "overlap native"),
         .init(title: "Running apps and minimized windows", section: "Apps and windows", page: .behavior, keywords: "applications restore"),
         .init(title: "Show recent apps", section: "Apps and windows", page: .behavior, keywords: "recent suggested used applications"),
-        .init(title: "Window previews", section: "Apps and windows", page: .behavior, keywords: "screen recording cache capture"),
+        .init(title: "Minimized window thumbnails", section: "Apps and windows", page: .behavior, keywords: "window previews screen recording cache capture"),
         .init(title: "Show window previews", section: "Apps and windows", page: .behavior, keywords: "hover thumbnails windows open app switch"),
         .init(title: "Click focused app to minimize", section: "Interaction", page: .behavior, keywords: "accessibility window controls"),
         .init(title: "Magnification", section: "Interaction", page: .behavior, keywords: "hover zoom animation motion"),
         .init(title: "Trash and app badges", section: "Dock items", page: .behavior, keywords: "notifications count"),
-        .init(title: "Keyboard shortcuts", section: "Global profile shortcuts", page: .shortcuts, keywords: "hotkeys global switch"),
+        .init(title: "Keyboard shortcuts", section: "Dock shortcuts", page: .shortcuts, keywords: "hotkeys global switch profile"),
         .init(title: "Backup and restore", section: "Saved Docks", page: .general, keywords: "export import json saved docks"),
         .init(title: "Export or import a Dock", section: "Saved Docks", page: .general, keywords: "share portable package another mac"),
         .init(title: "Recovery and history", section: "Recovery & history", page: .general, keywords: "undo snapshot previous revision"),
@@ -108,7 +109,7 @@ struct SettingsSearchResults: View {
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Image(systemName: "chevron.right")
+                            Image(systemName: "chevron.right").accessibilityHidden(true)
                         }.padding(.vertical, 8)
                     } action: { select(entry) }
                 }

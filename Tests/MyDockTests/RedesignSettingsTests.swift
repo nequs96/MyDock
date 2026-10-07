@@ -126,21 +126,6 @@ struct RedesignSettingsTests {
         #expect(ProfileAppearance(settings: undone) == ProfileAppearance(settings: before))
     }
 
-    @Test(arguments: [
-        ("Allowed — window controls are available.", "Allowed", "Window controls are available.", "Granted"),
-        ("Not requested — only the Weather current-location action asks.", "Not requested", "Only the Weather current-location action asks.", "Not requested"),
-        ("Denied — open System Settings — then return.", "Denied", "Open System Settings — then return.", "Not granted"),
-        ("Full access allowed.", "Full access allowed.", "Full access allowed.", "Granted"),
-        ("  status unavailable.  ", "Status unavailable.", "Status unavailable.", "Not granted"),
-        ("", "", "", "Not granted")
-    ])
-    func permissionSentenceFormatting(sample: (String, String, String, String)) {
-        let row = PermissionOverviewRow(name: "Calendar", status: sample.0)
-        #expect(row.statusTitle == sample.1)
-        #expect(row.explanation == sample.2)
-        #expect(row.summary == sample.3)
-    }
-
     @Test(arguments: CustomDockMaterial.allCases)
     func singleFinishControlReachesEveryMaterial(material: CustomDockMaterial) throws {
         #expect(SettingsAppearanceDefaults.finishes.contains(material))

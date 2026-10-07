@@ -32,7 +32,7 @@ extension SettingsView {
         ConnectionsCenterView(store: store)
         PrivacyHelpSection()
         GroupedSection("Market data") {
-            integrationSummary("Alpha Vantage", symbol: "chart.line.uptrend.xyaxis", connected: marketAPIKeySaved)
+            integrationSummary("Alpha Vantage", symbol: "chart.line.uptrend.xyaxis", savedValue: marketAPIKeySaved ? "Key saved" : nil)
             SettingsExpansionRow(title: "Manage API key", isExpanded: $marketConnectionExpanded) {
             VStack(alignment: .leading, spacing: 12) {
             Text("Stock and Watchlist use Alpha Vantage end-of-day data with free-tier limits; your personal key stays in Keychain, outside backups.")
@@ -54,10 +54,10 @@ extension SettingsView {
             if let marketAPIKeyMessage { GroupedNote(marketAPIKeyMessage) }
         }.id("Market data")
         GroupedSection("GitHub Copilot usage") {
-            integrationSummary("GitHub Copilot", symbol: "sparkles", connected: copilotCredentialsSaved)
+            integrationSummary("GitHub Copilot", symbol: "sparkles", savedValue: copilotCredentialsSaved ? "Credentials saved" : nil)
             SettingsExpansionRow(title: "Manage credentials", isExpanded: $copilotConnectionExpanded) {
             VStack(alignment: .leading, spacing: 12) {
-            Text("Personal Copilot AI-credit usage uses read-only billing; organization and enterprise usage are excluded. Give the token Plan: read access; it stays in Keychain, outside profiles and backups.")
+            Text("Personal Copilot AI-credit usage uses read-only billing; organization and enterprise usage are excluded. Give the token Plan: read access; it stays in Keychain, outside Docks and backups.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             TextField("GitHub username", text: $copilotUsernameDraft)
                 .textFieldStyle(DockTextFieldStyle())
@@ -111,8 +111,9 @@ extension SettingsView {
     } message: { Text("Widgets using it stop updating.") }
     }
 
-    private func integrationSummary(_ title: String, symbol: String, connected: Bool) -> some View {
-        GroupedRow(title, symbol: symbol, color: .green, value: connected ? "Connected" : "Not connected")
+    /// Saved is all MyDock knows here: the credential is not tested until a widget uses it.
+    private func integrationSummary(_ title: String, symbol: String, savedValue: String?) -> some View {
+        GroupedRow(title, symbol: symbol, color: .green, value: savedValue ?? "Not set up")
     }
 
     private func clearCredentialDrafts() {

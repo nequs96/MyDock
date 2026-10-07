@@ -7,7 +7,14 @@ import UserNotifications
 import UniformTypeIdentifiers
 
 extension SettingsView {
+    /// The Dock-switch freeze captures displays with ScreenCaptureKit, which it uses from macOS 14.
     var supportsScreenCaptureFreeze: Bool {
+        if #available(macOS 14.0, *) { return true }
+        return false
+    }
+
+    /// Minimized-window thumbnails are captured with ScreenCaptureKit, which MyDock uses from macOS 14.
+    var supportsWindowPreviewCapture: Bool {
         if #available(macOS 14.0, *) { return true }
         return false
     }
@@ -45,41 +52,105 @@ enum DockDensityPreset: String, CaseIterable, Identifiable {
     }
 }
 
-struct PermissionOverviewRow: Identifiable {
-    var name: String
-    let statusTitle: String
-    let explanation: String
-    var settingsURL: String?
-    var id: String { name }
-    var granted: Bool { statusTitle.hasPrefix("Allowed") || statusTitle.hasPrefix("Full access") }
+/// What a permission row reports. The summary shown in the row comes from here, never from the copy.
+enum PermissionState: Equatable, Sendable {
+    case granted, notRequested, perApp, denied, unavailable
+
     var summary: String {
-        if granted { return "Granted" }
-        if statusTitle.hasPrefix("Not requested") { return "Not requested" }
-        if statusTitle.hasPrefix("Per-app") { return "Per-app" }
-        return "Not granted"
-    }
-    init(name: String, status: String, settingsURL: String? = nil) {
-        self.name = name
-        self.settingsURL = settingsURL
-        if let separator = status.range(of: " — ") {
-            statusTitle = Self.sentenceCase(String(status[..<separator.lowerBound]))
-            explanation = Self.sentenceCase(String(status[separator.upperBound...]))
-        } else {
-            statusTitle = Self.sentenceCase(status)
-            explanation = Self.sentenceCase(status)
+        switch self {
+        case .granted: "Granted"
+        case .notRequested: "Not requested"
+        case .perApp: "Per-app"
+        case .denied: "Not granted"
+        case .unavailable: "Unavailable"
         }
     }
-    private static func sentenceCase(_ text: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let first = trimmed.first else { return "" }
-        return String(first).uppercased() + trimmed.dropFirst()
-    }
+}
+
+/// One row of the Permissions page: an explicit state, one short sentence on what it means for
+/// MyDock, and the System Settings pane that changes it.
+struct PermissionOverviewRow: Identifiable, Equatable {
+    var name: String
+    var state: PermissionState
+    var explanation: String
+    var pane: SystemSettingsPane?
+    var id: String { name }
+    var granted: Bool { state == .granted }
+    var summary: String { state.summary }
+
     var symbol: String {
         switch name {
         case "Accessibility": "accessibility"; case "Screen Recording": "rectangle.on.rectangle"
         case "Notifications": "bell"; case "Calendar": "calendar"; case "Reminders": "checklist"
         case "Location": "location"; default: "gearshape.2"
         }
+    }
+
+    static func accessibility(trusted: Bool) -> Self {
+        Self(name: "Accessibility", state: trusted ? .granted : .denied,
+             explanation: trusted ? "Window controls, previews and app badges are available."
+                : "Window controls, previews and app badges are unavailable.",
+             pane: .accessibility)
+    }
+
+    static func screenRecording(allowed: Bool) -> Self {
+        Self(name: "Screen Recording", state: allowed ? .granted : .denied,
+             explanation: allowed ? "Window thumbnails and the optional switch freeze can capture the screen."
+                : "Previews show window titles only; Dock switching still works.",
+             pane: .screenCapture)
+    }
+
+    /// `nil` when notification status cannot be read (isolated validation sessions).
+    static func notifications(_ status: UNAuthorizationStatus?) -> Self {
+        var row = Self(name: "Notifications", state: .unavailable, explanation: "Status unavailable.", pane: .notifications)
+        switch status {
+        case nil: row.explanation = "Unavailable in this isolated run."
+        case .notDetermined?: row.state = .notRequested; row.explanation = "Alarms, countdowns, and hydration reminders ask when enabled."
+        case .denied?: row.state = .denied; row.explanation = "Scheduled alerts will not appear."
+        case .authorized?, .provisional?, .ephemeral?: row.state = .granted; row.explanation = "Scheduled alerts can appear."
+        case _?: break
+        }
+        return row
+    }
+
+    /// Calendar or Reminders access.
+    static func events(_ entity: EKEntityType, status: EKAuthorizationStatus) -> Self {
+        let isCalendar = entity == .event
+        var result = Self(name: isCalendar ? "Calendar" : "Reminders", state: .granted, explanation: "Allowed.",
+                          pane: isCalendar ? .calendars : .reminders)
+        if #available(macOS 14.0, *) {
+            if status == .fullAccess { result.explanation = "Full access allowed."; return result }
+            if status == .writeOnly {
+                result.state = .denied
+                result.explanation = "Write-only access; MyDock needs read access for this widget."
+                return result
+            }
+        }
+        switch status {
+        case .notDetermined: result.state = .notRequested; result.explanation = "Access is requested when the widget opens."
+        case .restricted: result.state = .denied; result.explanation = "Restricted by macOS or device policy."
+        case .denied: result.state = .denied; result.explanation = "Open System Settings to allow access."
+        default: break
+        }
+        return result
+    }
+
+    static func location(_ status: CLAuthorizationStatus) -> Self {
+        var row = Self(name: "Location", state: .unavailable, explanation: "Status unavailable.", pane: .location)
+        switch status {
+        case .notDetermined: row.state = .notRequested; row.explanation = "Only the Weather current-location action asks."
+        case .restricted: row.state = .denied; row.explanation = "Restricted by macOS or device policy."
+        case .denied: row.state = .denied; row.explanation = "City search still works without location access."
+        case .authorizedAlways, .authorized: row.state = .granted; row.explanation = "Allowed."
+        case .authorizedWhenInUse: row.state = .granted; row.explanation = "Allowed while using MyDock."
+        @unknown default: break
+        }
+        return row
+    }
+
+    static var automation: Self {
+        Self(name: "Automation", state: .perApp,
+             explanation: "Approval appears when you use Now Playing or confirm Empty Trash.", pane: .automation)
     }
 }
 
@@ -96,7 +167,7 @@ struct SettingsShortcutRow: View {
                     Text(shortcut?.displayString ?? "—").font(.system(size: 13, weight: .medium).monospaced())
                         .foregroundStyle(shortcut == nil ? Color.secondary : Color.primary)
                     Button(shortcut == nil ? "Set…" : "Change…", action: edit)
-                        .accessibilityLabel("\(shortcut == nil ? "Set" : "Edit") keyboard shortcut for \(profile.name)")
+                        .accessibilityLabel("\(shortcut == nil ? "Set" : "Change") keyboard shortcut for \(profile.name)")
                 }
             }
             if let registrationMessage {

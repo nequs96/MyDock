@@ -289,16 +289,22 @@ struct DockButtonStyle: ButtonStyle {
         @State private var hovered = false
         @DockAccessibilityStyle() private var accessibility
         private var contrast: ColorSchemeContrast { accessibility.contrast }
+        /// Destructive buttons read red, like destructive grouped rows and system dialogs.
+        private var destructive: Bool { !primary && configuration.role == .destructive }
+        private var outline: Color {
+            if contrast == .increased { return destructive ? Color(nsColor: .systemRed) : DockDesign.Outline.color(contrast) }
+            return primary ? Color.white.opacity(0.08) : DockDesign.hairline
+        }
         var body: some View {
             configuration.label
                 .font(.system(size: 13, weight: primary ? .semibold : .regular))
-                .foregroundStyle(primary ? Color.white : Color.primary.opacity(0.9))
+                .foregroundStyle(primary ? Color.white : destructive ? Color(nsColor: .systemRed) : Color.primary.opacity(0.9))
                 .padding(.horizontal, icon ? 8 : 12)
                 .frame(minWidth: icon ? 30 : nil, minHeight: DockDesign.controlHeight)
                 .background(primary ? DockDesign.accent : (hovered ? DockDesign.control : DockDesign.card),
                             in: RoundedRectangle(cornerRadius: DockDesign.Radius.control))
                 .overlay(RoundedRectangle(cornerRadius: DockDesign.Radius.control)
-                    .strokeBorder(contrast == .increased ? DockDesign.Outline.color(contrast) : primary ? Color.white.opacity(0.08) : DockDesign.hairline, lineWidth: DockDesign.Outline.controlWidth(contrast)))
+                    .strokeBorder(outline, lineWidth: DockDesign.Outline.controlWidth(contrast)))
                 .overlay(RoundedRectangle(cornerRadius: DockDesign.Radius.control).fill(.black.opacity(configuration.isPressed ? 0.16 : 0)))
                 .opacity(enabled ? 1 : 0.4)
                 .contentShape(RoundedRectangle(cornerRadius: DockDesign.Radius.control))

@@ -144,6 +144,7 @@ struct GroupedRow<Accessory: View>: View {
                 rowContent(showsAccessory: true) { EmptyView() }
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel(title)
+                    .accessibilityHint(subtitle ?? "")
             } else {
                 rowContent(showsAccessory: true) { EmptyView() }
                     .accessibilityElement(children: .ignore)
@@ -190,7 +191,7 @@ struct GroupedRow<Accessory: View>: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .accessibilityHidden(isToggle)
+            .accessibilityHidden(titleIsContainerLabel)
             Spacer(minLength: 8)
             if showsAccessory { trailingView }
             control()
@@ -202,7 +203,14 @@ struct GroupedRow<Accessory: View>: View {
         .opacity(isEnabled ? 1 : 0.45)
     }
 
-    private var isToggle: Bool { if case .toggle = trailing { true } else { false } }
+    /// Switch and custom-accessory rows carry the title on the container, so the visible text
+    /// is hidden to keep VoiceOver from reading it twice.
+    private var titleIsContainerLabel: Bool {
+        switch trailing {
+        case .toggle, .custom: true
+        default: false
+        }
+    }
 
     @ViewBuilder private var trailingView: some View {
         switch trailing {

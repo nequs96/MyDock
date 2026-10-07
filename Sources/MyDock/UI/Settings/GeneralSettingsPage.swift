@@ -31,8 +31,6 @@ extension SettingsView {
             GroupedRow("Import Dock…", role: .button) { importDock() }
                 .help("Preview a Dock file and add it as a new Dock")
             if let backupMessage { GroupedNote(backupMessage) }
-            GroupedRow("macOS Dock profiles", value: "\(store.nativeProfiles.count)")
-            GroupedRow("Custom Dock profiles", value: "\(store.customProfiles.count)")
         }.id("Saved Docks")
         PrivacyHelpSection().id("Privacy")
         GroupedSection("Advanced", footer: "Review a redacted report before exporting.") {

@@ -18,7 +18,7 @@ extension SettingsView {
                     ForEach(SetupMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
             }
-            GroupedRow("Show active profile name in menu bar", subtitle: "Both active Dock names appear beside the menu-bar icon.", isOn: Binding(
+            GroupedRow("Show active Dock name in menu bar", subtitle: "Both active Dock names appear beside the menu-bar icon.", isOn: Binding(
                 get: { store.state.settings.showActiveProfileNameInMenuBar },
                 set: { enabled in store.updateSettings { $0.showActiveProfileNameInMenuBar = enabled } }
             ))
@@ -38,8 +38,8 @@ extension SettingsView {
                     }
                 }
             }
-            SettingsControlRow(title: "macOS Dock profile") {
-                Picker("macOS Dock profile", selection: Binding(
+            SettingsControlRow(title: "macOS Dock") {
+                Picker("macOS Dock", selection: Binding(
                     get: {
                         isApplyingNativeProfile
                             ? nativeProfileSwitchTargetID
@@ -47,13 +47,13 @@ extension SettingsView {
                     },
                     set: { selectNativeProfile($0) }
                 )) {
-                    Text("No profile").tag(Optional<UUID>.none)
+                    Text("None").tag(Optional<UUID>.none)
                     ForEach(store.nativeProfiles) { Text($0.name).tag(Optional($0.id)) }
                 }
             }
             .disabled(isApplyingNativeProfile)
             if isApplyingNativeProfile {
-                GroupedNote("Applying \(store.nativeProfiles.first(where: { $0.id == nativeProfileSwitchTargetID })?.name ?? "macOS Dock profile")…",
+                GroupedNote("Applying \(store.nativeProfiles.first(where: { $0.id == nativeProfileSwitchTargetID })?.name ?? "macOS Dock")…",
                             showsProgress: true)
             }
             if let nativeProfileSwitchMessage {
@@ -64,8 +64,8 @@ extension SettingsView {
                     GroupedNote(nativeProfileSwitchMessage)
                 }
             }
-            SettingsControlRow(title: "Custom Dock profile") {
-                Picker("Custom Dock profile", selection: Binding(
+            SettingsControlRow(title: "Custom Dock") {
+                Picker("Custom Dock", selection: Binding(
                     get: { store.state.settings.activeCustomProfileID },
                     set: { store.setActiveCustomProfile($0) }
                 )) {
@@ -101,13 +101,13 @@ extension SettingsView {
         }.id("Focus filters")
         AutomaticSwitchingSettingsSection(store: store).id("Automatic switching")
         GroupedSection("Native Dock switching") {
-            GroupedRow("Automatically save Dock changes", subtitle: "Saves Apple Dock edits to the selected profile, checking every five seconds.", isOn: Binding(
+            GroupedRow("Automatically save Dock changes", subtitle: "Saves Apple Dock edits to the selected macOS Dock, checking every five seconds.", isOn: Binding(
                 get: { store.state.settings.automaticallySaveNativeDockChanges },
                 set: { enabled in store.updateSettings { $0.automaticallySaveNativeDockChanges = enabled } }
             ))
             if store.state.settings.automaticallySaveNativeDockChanges,
                store.state.settings.activeNativeProfileID == nil {
-                GroupedNote("Select a macOS Dock profile to start automatic saving.")
+                GroupedNote("Select a macOS Dock to start automatic saving.")
             }
             if let message = nativeDockAutoSave.errorMessage, store.state.settings.automaticallySaveNativeDockChanges {
                 GroupedNote(message, tone: .warning)
@@ -151,7 +151,7 @@ extension SettingsView {
         }
         guard let profile = store.nativeProfiles.first(where: { $0.id == id }) else {
             nativeProfileSwitchFailedID = nil
-            nativeProfileSwitchMessage = "That macOS Dock profile is no longer available. Refresh the profile list and try again."
+            nativeProfileSwitchMessage = "That macOS Dock is no longer available. Choose another one."
             return
         }
 

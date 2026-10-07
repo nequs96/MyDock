@@ -105,6 +105,14 @@ struct AutomaticSwitchingSettings: Codable, Equatable, Sendable {
         rules.removeAll { $0.id == id }
     }
 
+    /// Puts a deleted rule back at its old priority. Ignored at the cap or when the rule is still present.
+    @discardableResult
+    mutating func restoreRule(_ rule: AutomaticSwitchRule, at index: Int) -> Bool {
+        guard canAddRule, !rules.contains(where: { $0.id == rule.id }) else { return false }
+        rules.insert(rule, at: min(max(index, 0), rules.count))
+        return true
+    }
+
     /// Moves a rule up (`-1`) or down (`+1`) in priority; out-of-range moves are ignored.
     mutating func moveRule(_ id: UUID, by offset: Int) {
         guard let index = rules.firstIndex(where: { $0.id == id }) else { return }
@@ -236,6 +244,19 @@ enum AutomaticSwitchRuleText {
             return "When \(appName(rule)) is frontmost"
         case .timeWindow:
             return "\(weekdaySummary(rule.weekdays, calendar: calendar)) \(timeString(rule.startMinute))–\(timeString(rule.endMinute))"
+        }
+    }
+
+    /// Why a rule can never match, or `nil`. A missing Dock is reported separately.
+    static func problem(_ rule: AutomaticSwitchRule) -> String? {
+        switch rule.kind {
+        case .appFrontmost:
+            guard let identifier = rule.bundleIdentifier, !identifier.isEmpty else { return "No app chosen, so this rule never matches." }
+            return nil
+        case .timeWindow:
+            if rule.weekdays.isEmpty { return "No days chosen, so this rule never matches." }
+            if rule.startMinute == rule.endMinute { return "Start and end are the same, so this rule never matches." }
+            return nil
         }
     }
 
