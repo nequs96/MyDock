@@ -7,3 +7,5 @@ xcuserdata/
 *.xcworkspace/xcuserdata/
 __pycache__/
 .claude/worktrees/
+# Pasted session transcripts stay out of the repository.
+history.md

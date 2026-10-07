@@ -1205,7 +1205,7 @@ System and Network sample live every 4 s, so their in-content "Refresh" buttons 
 **Session limit and recovery.**
 - The FX-10 worker (`general-purpose`, model opus) launched at the end of the previous session stopped on an HTTP 429 session limit (resets 22:50 Europe/Warsaw). None of its work reached the repository.
 - FX-10 was redone in a Claude Code cloud session (Linux container, 2026-10-05) on branch `claude/task-r1r0jo`.
-- The conversation was restored from `history.md`, pushed to `redesign/integration` as `2e7883c` and fast-forwarded into the branch.
+- The conversation was restored from `history.md`, pushed to `redesign/integration` as `2e7883c` and fast-forwarded into the branch. (That transcript was removed from the repository on 7 October because it contained local paths; [SESSION_LOG_2026-10-05.md](SESSION_LOG_2026-10-05.md) summarizes it.)
 - The original FX-10 brief was not in the repository. The work followed final-review items 10, 14 and 15 and the Permissions taste note, as recorded in that history.
 
 **Model routing to save usage:**
