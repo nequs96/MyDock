@@ -31,11 +31,24 @@ enum MarketDataError: LocalizedError {
 }
 
 enum MarketFinanceURL {
+    /// Alpha Vantage's exchange suffixes and Yahoo Finance's for the same listing (London, Toronto, TSX Venture,
+    /// XETRA, Bombay, Shanghai, Shenzhen). Other symbols are the same on both.
+    static let yahooSuffixes: [(alphaVantage: String, yahoo: String)] = [
+        (".LON", ".L"), (".TRT", ".TO"), (".TRV", ".V"), (".DEX", ".DE"), (".BSE", ".BO"), (".SHH", ".SS"), (".SHZ", ".SZ")
+    ]
+
+    static func yahooSymbol(_ symbol: String) -> String {
+        for suffix in yahooSuffixes where symbol.hasSuffix(suffix.alphaVantage) && symbol.count > suffix.alphaVantage.count {
+            return String(symbol.dropLast(suffix.alphaVantage.count)) + suffix.yahoo
+        }
+        return symbol
+    }
+
     static func url(for symbol: String) -> URL? {
         let normalized = symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard MarketDataParser.isValidSymbol(normalized),
               var components = URLComponents(string: "https://finance.yahoo.com") else { return nil }
-        components.path = "/quote/\(normalized)"
+        components.path = "/quote/\(yahooSymbol(normalized))"
         return components.url
     }
 }

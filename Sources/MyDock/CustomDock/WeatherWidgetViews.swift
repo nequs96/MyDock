@@ -47,7 +47,6 @@ private struct WeatherCompactWidgetView: View {
     var profileID: UUID
     @State private var errorMessage: String?
     @State private var refreshRequestID = UUID()
-    @ObservedObject private var accessibility = AccessibilityDisplayState.shared
 
     private var configuration: WidgetConfiguration {
         store.presentationConfiguration(for: item, in: profileID)
@@ -160,7 +159,7 @@ private struct WeatherPopoutWidgetView: View {
                 }
             }
             if let errorMessage {
-                WidgetPopoutCaption(forecast == nil ? errorMessage : "Showing saved forecast. \(errorMessage)", color: .orange)
+                WidgetPopoutCaption(forecast == nil ? errorMessage : "Showing saved forecast. \(errorMessage)", color: WidgetPalette.warning)
             }
 
             // Without a city, choosing one is the primary action; afterwards it is setup like the options.
@@ -324,7 +323,7 @@ private struct WeatherPopoutWidgetView: View {
             }
             // Only the hourly forecast has a length; other layouts show no disabled control for it.
             if WeatherCopy.showsForecastLength(configuration.weatherLayout) {
-                WidgetStepperRow(title: "Forecast", value: "\(forecastHours) hours", amount: $forecastHours, range: 1...6, step: 1)
+                WidgetStepperRow(title: "Forecast", value: forecastHours == 1 ? "1 hour" : "\(forecastHours) hours", amount: $forecastHours, range: 1...6, step: 1)
             }
         }
     }

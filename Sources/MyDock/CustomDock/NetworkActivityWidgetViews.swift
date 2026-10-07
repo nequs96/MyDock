@@ -140,7 +140,7 @@ private struct NetworkActivityCompactWidgetView: View {
             }
             .onDisappear { monitor.unsubscribe(subscriptionID) }
             .accessibilityElement(children: .ignore).accessibilityLabel("Network Activity")
-            .accessibilityValue("Download \(rateText(aggregateDownloadRate)), upload \(rateText(aggregateUploadRate))")
+            .accessibilityValue("Download \(NetworkRateText.full(aggregateDownloadRate)), upload \(NetworkRateText.full(aggregateUploadRate))")
     }
 }
 
@@ -233,7 +233,7 @@ private struct NetworkActivityPopoutWidgetView: View {
     private func interfaceRow(_ interface: NetworkInterfaceRate) -> some View {
         GroupedRow(interface.name, subtitle: NetworkInterfacePresentation.addresses(interface.addresses).isEmpty ? nil : NetworkInterfacePresentation.addresses(interface.addresses).joined(separator: " · "),
             symbol: "cable.connector") {
-            Text("↓ \(rateText(interface.receivedBytesPerSecond))   ↑ \(rateText(interface.sentBytesPerSecond))")
+            Text("↓ \(NetworkRateText.full(interface.receivedBytesPerSecond))   ↑ \(NetworkRateText.full(interface.sentBytesPerSecond))")
                 .font(DockDesign.Grouped.subtitleFont.monospacedDigit()).foregroundStyle(.secondary)
         }
     }
@@ -242,7 +242,7 @@ private struct NetworkActivityPopoutWidgetView: View {
         guard !interfaces.isEmpty else { return "No interfaces" }
         let values = interfaces.compactMap { $0[keyPath: keyPath] }
         guard values.count == interfaces.count else { return hasCompletedRateSample ? "Unavailable" : "Warming up" }
-        return rateText(values.reduce(0, +))
+        return NetworkRateText.full(values.reduce(0, +))
     }
 }
 
@@ -267,12 +267,6 @@ struct NetworkRateSparkline: View {
             .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
         }
     }
-}
-
-private func rateText(_ bytesPerSecond: Double?) -> String {
-    guard let bytesPerSecond, bytesPerSecond.isFinite, bytesPerSecond >= 0 else { return "—" }
-    let bytes = Int64(min(bytesPerSecond, Double(Int64.max)))
-    return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) + "/s"
 }
 
 #if DEBUG

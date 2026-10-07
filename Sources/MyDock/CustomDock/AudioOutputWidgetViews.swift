@@ -81,7 +81,7 @@ private struct AudioOutputPopoutView: View {
                 controlsSection
                 if let error = service.lastError {
                     Label(error.message, systemImage: "exclamationmark.triangle")
-                        .font(DockDesign.Grouped.footerFont).foregroundStyle(.secondary)
+                        .font(DockDesign.Grouped.footerFont).foregroundStyle(WidgetPalette.warning)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)

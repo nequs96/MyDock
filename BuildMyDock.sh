@@ -106,6 +106,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>NSRemindersUsageDescription</key><string>MyDock reads and updates reminders when you use the Reminders widget.</string>
   <key>NSLocationWhenInUseUsageDescription</key><string>MyDock uses your location only when you choose current-location weather.</string>
   <key>NSAppleEventsUsageDescription</key><string>MyDock reads and controls Music or Spotify while you use the Now Playing widget, or asks Finder to empty Trash after you confirm.</string>
+  <key>NSDesktopFolderUsageDescription</key><string>MyDock measures file sizes here only when you scan storage. Nothing is uploaded or deleted.</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>MyDock measures file sizes here only when you scan storage. Nothing is uploaded or deleted.</string>
+  <key>NSDownloadsFolderUsageDescription</key><string>MyDock measures file sizes here only when you scan storage. Nothing is uploaded or deleted.</string>
 </dict></plist>
 PLIST
 sed -i '' "s/__PRODUCT_NAME__/$PRODUCT_NAME/g; s/__BUNDLE_IDENTIFIER__/$BUNDLE_IDENTIFIER/g; s/__PRODUCT_VERSION__/$PRODUCT_VERSION/g" "$APP/Contents/Info.plist"

@@ -609,14 +609,15 @@ struct SystemTelemetryDockFace: View {
 }
 
 enum NetworkRateText {
+    /// One clamp for every rate surface: the Dock face, the popout and the related rows agree.
     static func full(_ value: Double?) -> String {
-        guard let value, value.isFinite else { return "—" }
-        return ByteCountFormatter.string(fromByteCount: Int64(min(Double(Int64.max / 2), max(0, value))), countStyle: .file) + "/s"
+        SystemDetailFormatting.rate(value) ?? "—"
     }
     /// Narrow faces: "2.4M", "148K", "0".
     static func short(_ value: Double?) -> String {
         guard let value, value.isFinite else { return "—" }
-        let bytes = max(0, value)
+        // Bounded so Int(_:) below cannot trap on a pathological reading.
+        let bytes = min(max(0, value), 9.0e18)
         let units: [(Double, String)] = [(1e9, "G"), (1e6, "M"), (1e3, "K")]
         for (scale, suffix) in units where bytes >= scale {
             let scaled = bytes / scale

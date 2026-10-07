@@ -128,7 +128,7 @@ struct WidgetPopout: View {
         store.presentationItem(store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id } ?? item)
     }
     private var kind: String { item.widgetKind ?? item.title }
-    private var showsFreshness: Bool { showsData && item.widgetKind != "AI Activity" }
+    private var showsFreshness: Bool { showsData }
 
     var body: some View {
         Group {

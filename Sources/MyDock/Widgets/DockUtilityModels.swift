@@ -57,6 +57,13 @@ enum FileShelfPolicy {
         }
         return result
     }
+
+    /// One short line when some chosen files were not kept: duplicates are skipped and the shelf holds `capacity`.
+    static func skippedMessage(chosen: Int, added: Int) -> String? {
+        let skipped = chosen - added
+        guard skipped > 0 else { return nil }
+        return "\(skipped) \(skipped == 1 ? "file was" : "files were") not added: already on the shelf, or the shelf is full."
+    }
 }
 
 extension FileShelfPolicy {

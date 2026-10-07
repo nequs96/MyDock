@@ -22,9 +22,21 @@ enum NowPlayingQAFixture {
 
 /// Pure helpers for the Now Playing popout.
 enum NowPlayingPresentation {
+    /// "1:14", or "1:15:30" from an hour on, as Apple's players show long podcasts and audiobooks.
     static func timeString(_ time: TimeInterval) -> String {
-        let seconds = time.isFinite ? max(0, Int(time.rounded())) : 0
+        let seconds = time.isFinite ? max(0, Int(min(time, 359_999).rounded())) : 0
+        if seconds >= 3600 {
+            return String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
+        }
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+    /// The position now: a playing track advances from its last poll, so the popout ticks every second
+    /// instead of stepping by the poll interval; it never passes the track's end.
+    static func position(_ snapshot: NowPlayingSnapshot, now: Date) -> TimeInterval {
+        guard snapshot.isPlaying, snapshot.position.isFinite else { return snapshot.position }
+        let advanced = snapshot.position + max(0, now.timeIntervalSince(snapshot.updatedAt))
+        guard snapshot.duration.isFinite, snapshot.duration > 0 else { return advanced }
+        return min(snapshot.duration, advanced)
     }
     static func progress(position: TimeInterval, duration: TimeInterval) -> Double {
         guard position.isFinite, duration.isFinite, duration > 0 else { return 0 }
@@ -103,18 +115,18 @@ private struct NowPlayingPopoutWidgetView: View {
     var item: DockItem
     var profileID: UUID
     @ObservedObject private var monitor = NowPlayingMonitor.shared
-    @State private var sourceSelection = NowPlayingSource.appleMusic.rawValue
-    @State private var layoutSelection = NowPlayingLayout.full.rawValue
-    @State private var skipSeconds = 15
-    @State private var hideWhenClosed = false
-    @State private var showsTrackControls = true
-    @State private var showsSeekControls = true
     @State private var subscriptionIDs: [NowPlayingSource: UUID] = [:]
     /// Players and controls sit behind a final disclosure; it starts open only when no player is enabled.
     @State private var settingsExpanded = false
+    /// Why the last settings change was not kept, for example while saving is disabled.
+    @State private var settingsError: String?
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-    private var preferredSource: NowPlayingSource { NowPlayingSource(rawValue: sourceSelection) ?? .appleMusic }
+    private var preferredSource: NowPlayingSource { configuration.nowPlayingSource }
+    private var skipSeconds: Int { configuration.nowPlayingSkipSeconds }
+    private var hideWhenClosed: Bool { configuration.nowPlayingHidesWhenClosed }
+    private var showsTrackControls: Bool { configuration.nowPlayingShowsTrackControls }
+    private var showsSeekControls: Bool { configuration.nowPlayingShowsSeekControls }
     private var enabledSources: Set<NowPlayingSource> { Set(configuration.nowPlayingEnabledSources) }
     private var activeSource: NowPlayingSource? {
         #if DEBUG
@@ -125,7 +137,7 @@ private struct NowPlayingPopoutWidgetView: View {
                                                    snapshots: monitor.snapshots)
     }
     private var source: NowPlayingSource { activeSource ?? preferredSource }
-    private var layout: NowPlayingLayout { NowPlayingLayout(rawValue: layoutSelection) ?? .full }
+    private var layout: NowPlayingLayout { configuration.nowPlayingLayout }
     private var snapshot: NowPlayingSnapshot? {
         #if DEBUG
         if let fixture = NowPlayingQAFixture.override { return fixture.snapshot }
@@ -163,7 +175,7 @@ private struct NowPlayingPopoutWidgetView: View {
                                    ? (installed ? "Start something in \(source.title) to control it here." : "\(source.title) is not installed on this Mac.")
                                    : nil,
                                symbol: errorMessage == nil ? "music.note" : "exclamationmark.triangle.fill",
-                               color: errorMessage == nil ? .gray : .orange)
+                               color: errorMessage == nil ? .gray : WidgetPalette.warning)
                     if installed {
                         GroupedRow("Open \(source.title)", role: .button, action: openPlayer)
                     }
@@ -174,7 +186,7 @@ private struct NowPlayingPopoutWidgetView: View {
             }
 
             if let errorMessage {
-                WidgetPopoutCaption(errorMessage, color: .orange)
+                WidgetPopoutCaption(errorMessage, color: WidgetPalette.warning)
             }
 
             WidgetPopoutSettingsDisclosure(summary: enabledSources.isEmpty ? "No players" : nil, isExpanded: $settingsExpanded) {
@@ -183,13 +195,13 @@ private struct NowPlayingPopoutWidgetView: View {
                         let running = runningSources.contains(option)
                         GroupedRow(option.title, subtitle: running ? "Open" : "Closed",
                                    symbol: option == .appleMusic ? "music.note" : "headphones",
-                                   color: running ? .green : .gray, isOn: enabledSourceBinding(for: option))
+                                   color: running ? WidgetPalette.positive : .gray, isOn: enabledSourceBinding(for: option))
                             .help("\(option.title) is \(running ? "open" : "closed")")
                     }
                     GroupedRow("Preferred when paused") {
-                        Picker("Preferred when paused", selection: $sourceSelection) {
+                        Picker("Preferred when paused", selection: setting(\.nowPlayingSource)) {
                             ForEach(NowPlayingSource.allCases.filter(enabledSources.contains)) { option in
-                                Text(option.title).tag(option.rawValue)
+                                Text(option.title).tag(option)
                             }
                         }
                         .labelsHidden().fixedSize()
@@ -202,63 +214,41 @@ private struct NowPlayingPopoutWidgetView: View {
                                footer: hideWhenClosed ? "The tile returns when an enabled player opens." : nil,
                                separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
                     GroupedRow("Popover") {
-                        Picker("Popover controls", selection: $layoutSelection) {
-                            ForEach(NowPlayingLayout.allCases) { option in Text(option.title).tag(option.rawValue) }
+                        Picker("Popover controls", selection: setting(\.nowPlayingLayout)) {
+                            ForEach(NowPlayingLayout.allCases) { option in Text(option.title).tag(option) }
                         }
                         .pickerStyle(.segmented).labelsHidden().fixedSize()
                         .accessibilityLabel("Popover controls")
                     }
-                    GroupedRow("Show previous/next controls", isOn: $showsTrackControls)
-                    GroupedRow("Show seek controls", isOn: $showsSeekControls)
+                    GroupedRow("Show previous/next controls", isOn: setting(\.nowPlayingShowsTrackControls))
+                    GroupedRow("Show seek controls", isOn: setting(\.nowPlayingShowsSeekControls))
                     if showsSeekControls {
-                        WidgetStepperRow(title: "Seek interval", value: "\(skipSeconds) sec", amount: $skipSeconds, range: 5...60, step: 5)
+                        WidgetStepperRow(title: "Seek interval", value: "\(skipSeconds) sec",
+                                         amount: Binding(get: { skipSeconds },
+                                                         set: { value in updateConfiguration { $0.nowPlayingSkipSeconds = min(max(value, 5), 60) } }),
+                                         range: 5...60, step: 5)
                     }
-                    GroupedRow("Hide tile when all enabled players are closed", isOn: $hideWhenClosed)
+                    GroupedRow("Hide tile when all enabled players are closed", isOn: setting(\.nowPlayingHidesWhenClosed))
                         .help("If the tile is hidden because every enabled player is closed, change this in Manage Docks.")
                 }
+                if let settingsError { WidgetPopoutCaption(settingsError, color: WidgetPalette.warning) }
             }
         }
         .onAppear {
             if enabledSources.isEmpty { settingsExpanded = true }
-            sourceSelection = configuration.nowPlayingSource.rawValue
-            layoutSelection = configuration.nowPlayingLayout.rawValue
-            skipSeconds = configuration.nowPlayingSkipSeconds
-            hideWhenClosed = configuration.nowPlayingHidesWhenClosed
-            showsTrackControls = configuration.nowPlayingShowsTrackControls
-            showsSeekControls = configuration.nowPlayingShowsSeekControls
             synchronizeSubscriptions()
         }
         .onDisappear {
             subscriptionIDs.values.forEach(monitor.unsubscribe)
             subscriptionIDs.removeAll()
         }
-        .onChange(of: sourceSelection) { rawValue in
-            guard let value = NowPlayingSource(rawValue: rawValue) else { return }
-            updateConfiguration { $0.nowPlayingSource = value }
-        }
-        .onChange(of: layoutSelection) { rawValue in
-            guard let value = NowPlayingLayout(rawValue: rawValue) else { return }
-            updateConfiguration { $0.nowPlayingLayout = value }
-        }
-        .onChange(of: skipSeconds) { value in
-            updateConfiguration { $0.nowPlayingSkipSeconds = min(max(value, 5), 60) }
-        }
-        .onChange(of: hideWhenClosed) { value in
-            updateConfiguration { $0.nowPlayingHidesWhenClosed = value }
-        }
-        .onChange(of: showsTrackControls) { value in
-            updateConfiguration { $0.nowPlayingShowsTrackControls = value }
-        }
-        .onChange(of: showsSeekControls) { value in
-            updateConfiguration { $0.nowPlayingShowsSeekControls = value }
-        }
         .onChange(of: item.widgetConfiguration?.nowPlayingEnabledSources) { _ in synchronizeSubscriptions() }
-        .onChange(of: item.widgetConfiguration?.nowPlayingSource) { value in sourceSelection = (value ?? .appleMusic).rawValue }
-        .onChange(of: item.widgetConfiguration?.nowPlayingLayout) { value in layoutSelection = (value ?? .full).rawValue }
-        .onChange(of: item.widgetConfiguration?.nowPlayingSkipSeconds) { value in skipSeconds = value ?? 15 }
-        .onChange(of: item.widgetConfiguration?.nowPlayingHidesWhenClosed) { value in hideWhenClosed = value ?? false }
-        .onChange(of: item.widgetConfiguration?.nowPlayingShowsTrackControls) { value in showsTrackControls = value ?? true }
-        .onChange(of: item.widgetConfiguration?.nowPlayingShowsSeekControls) { value in showsSeekControls = value ?? true }
+    }
+
+    /// A setting read from and written straight to the saved configuration: no local copy to keep in sync.
+    private func setting<Value>(_ keyPath: WritableKeyPath<WidgetConfiguration, Value>) -> Binding<Value> {
+        Binding(get: { configuration[keyPath: keyPath] },
+                set: { value in updateConfiguration { $0[keyPath: keyPath] = value } })
     }
 
     private func synchronizeSubscriptions() {
@@ -271,7 +261,7 @@ private struct NowPlayingPopoutWidgetView: View {
             monitor.subscribe(id, to: source, kind: .popout)
         }
         if !enabledSources.contains(preferredSource), let fallback = NowPlayingSource.allCases.first(where: enabledSources.contains) {
-            sourceSelection = fallback.rawValue
+            updateConfiguration { $0.nowPlayingSource = fallback }
         }
     }
 
@@ -320,29 +310,47 @@ private struct NowPlayingPopoutWidgetView: View {
                 Spacer(minLength: 0)
             }
             if layout == .full {
-                VStack(spacing: 4) {
-                    GeometryReader { geometry in
-                        Capsule().fill(Color.primary.opacity(0.12))
-                            .overlay(alignment: .leading) {
-                                Capsule().fill(Color.primary.opacity(0.7))
-                                    .frame(width: geometry.size.width * NowPlayingPresentation.progress(position: snapshot.position, duration: snapshot.duration))
-                            }
+                if ticksPosition(snapshot) {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        progressLine(snapshot, position: NowPlayingPresentation.position(snapshot, now: context.date))
                     }
-                    .frame(height: 4)
-                    .accessibilityElement()
-                    .accessibilityLabel("Playback position")
-                    .accessibilityValue("\(NowPlayingPresentation.timeString(snapshot.position)) of \(NowPlayingPresentation.timeString(snapshot.duration))")
-                    HStack {
-                        Text(NowPlayingPresentation.timeString(snapshot.position))
-                        Spacer()
-                        Text(NowPlayingPresentation.timeString(snapshot.duration))
-                    }
-                    .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
+                } else {
+                    progressLine(snapshot, position: snapshot.position)
                 }
             }
         }
         .padding(.horizontal, 4)
+    }
+
+    /// Render QA keeps its fixed position, so captures do not depend on when they run.
+    private func ticksPosition(_ snapshot: NowPlayingSnapshot) -> Bool {
+        #if DEBUG
+        if NowPlayingQAFixture.override != nil { return false }
+        #endif
+        return snapshot.isPlaying
+    }
+
+    private func progressLine(_ snapshot: NowPlayingSnapshot, position: TimeInterval) -> some View {
+        VStack(spacing: 4) {
+            GeometryReader { geometry in
+                Capsule().fill(Color.primary.opacity(0.12))
+                    .overlay(alignment: .leading) {
+                        Capsule().fill(Color.primary.opacity(0.7))
+                            .frame(width: geometry.size.width * NowPlayingPresentation.progress(position: position, duration: snapshot.duration))
+                    }
+            }
+            .frame(height: 4)
+            .accessibilityElement()
+            .accessibilityLabel("Playback position")
+            .accessibilityValue("\(NowPlayingPresentation.timeString(position)) of \(NowPlayingPresentation.timeString(snapshot.duration))")
+            HStack {
+                Text(NowPlayingPresentation.timeString(position))
+                Spacer()
+                Text(NowPlayingPresentation.timeString(snapshot.duration))
+            }
+            .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+            .accessibilityHidden(true)
+        }
     }
 
     private func playbackControls(_ snapshot: NowPlayingSnapshot) -> some View {
@@ -392,8 +400,9 @@ private struct NowPlayingPopoutWidgetView: View {
         NSWorkspace.shared.open(url)
     }
 
+    /// A rejected change leaves the setting as it was, and says why.
     private func updateConfiguration(_ update: (inout WidgetConfiguration) -> Void) {
-        store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: update)
+        settingsError = WidgetConfigurationLookup.rejection(store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: update))
     }
 }
 

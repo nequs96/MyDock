@@ -210,6 +210,195 @@ import Testing
         #expect(!disjoint.largestFiles.contains { $0.name == "b.bin" })
     }
 
+    // MARK: Part 2: system rates and Now Playing
+
+    @Test func networkRatesShareOneClampAndNeverTrap() {
+        #expect(NetworkRateText.full(2_048) == SystemDetailFormatting.rate(2_048))
+        #expect(NetworkRateText.full(nil) == "—")
+        #expect(NetworkRateText.full(-1) == "—")
+        #expect(NetworkRateText.full(.nan) == "—")
+        #expect(NetworkRateText.full(1e19).hasSuffix("/s"))
+        #expect(NetworkRateText.full(.greatestFiniteMagnitude).hasSuffix("/s"))
+        #expect(NetworkRateText.short(.greatestFiniteMagnitude).hasSuffix("G"))
+        #expect(NetworkRateText.short(-5) == "0")
+    }
+
+    @Test func nowPlayingTicksAndShowsHours() {
+        #expect(NowPlayingPresentation.timeString(74) == "1:14")
+        #expect(NowPlayingPresentation.timeString(4_530) == "1:15:30")
+        #expect(NowPlayingPresentation.timeString(3_600) == "1:00:00")
+        let polled = Date(timeIntervalSince1970: 1_000)
+        let playing = NowPlayingSnapshot(title: "T", artist: "A", album: "", isPlaying: true, position: 30, duration: 35,
+                                         updatedAt: polled, artworkURL: nil)
+        #expect(NowPlayingPresentation.position(playing, now: polled.addingTimeInterval(3)) == 33)
+        // Never past the end, and never backwards for a clock that is behind the poll.
+        #expect(NowPlayingPresentation.position(playing, now: polled.addingTimeInterval(60)) == 35)
+        #expect(NowPlayingPresentation.position(playing, now: polled.addingTimeInterval(-5)) == 30)
+        var paused = playing
+        paused.isPlaying = false
+        #expect(NowPlayingPresentation.position(paused, now: polled.addingTimeInterval(3)) == 30)
+    }
+
+    // MARK: Part 2: Calendar and Reminders
+
+    @Test func calendarModuleAsksForAccessBeforeItWasRequested() {
+        let empty = CalendarFacePresentation.emptyState(errorMessage: nil, accessAvailable: false)
+        #expect(empty.title == "Calendar" && empty.detail == "Allow access")
+        #expect(CalendarFacePresentation.emptyState(errorMessage: "denied", accessAvailable: false).title == "Unavailable")
+    }
+
+    @Test func ongoingMultiDayEventsNameTheirEndDay() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 5, hour: 9))!
+        let conference = CalendarEventSnapshot(id: "c", title: "Conference", startDate: now.addingTimeInterval(-3_600),
+                                               endDate: now.addingTimeInterval(56 * 3_600), isAllDay: false,
+                                               calendarID: "w", calendarTitle: "Work", meetingURL: nil)
+        let end = NextMeeting.dayAndTime(conference.endDate, now: now, calendar: calendar)
+        #expect(end != NextMeeting.time(conference.endDate, calendar: calendar))
+        #expect(CalendarFacePresentation.compactStatus(conference, now: now, calendar: calendar) == "Now · ends " + end)
+        #expect(CalendarEventRowPresentation.detail(conference, now: now, calendar: calendar) == "Now · ends \(end) · Work")
+    }
+
+    @Test func calendarHeroEventLeadsTheRows() {
+        func event(_ id: String) -> CalendarEventSnapshot {
+            CalendarEventSnapshot(id: id, title: id, startDate: .now, endDate: .now.addingTimeInterval(60), isAllDay: false,
+                                  calendarID: "c", calendarTitle: "", meetingURL: nil)
+        }
+        let rows = [event("declined"), event("next"), event("later")]
+        #expect(CalendarEventListPresentation.rows(events: rows, hero: event("next")).map(\.id) == ["next", "declined", "later"])
+        #expect(CalendarEventListPresentation.rows(events: rows, hero: nil).map(\.id) == ["declined", "next", "later"])
+        #expect(CalendarEventListPresentation.rows(events: rows, hero: event("other")).map(\.id) == ["declined", "next", "later"])
+    }
+
+    @Test func calendarReadScopeChangesOnlyForWhatIsRead() {
+        var configuration = WidgetConfiguration()
+        let initial = CalendarReadScope(configuration)
+        configuration.widgetAccent = .mono
+        #expect(CalendarReadScope(configuration) == initial)
+        configuration.calendarShowsAllDayEvents.toggle()
+        #expect(CalendarReadScope(configuration) != initial)
+    }
+
+    @Test func remindersModuleNamesItsList() {
+        let lists = [ReminderListSnapshot(id: "a", title: "Errands")]
+        #expect(RemindersFacePresentation.listTitle(selectedID: "", lists: []) == "All lists")
+        #expect(RemindersFacePresentation.listTitle(selectedID: "a", lists: lists) == "Errands")
+        #expect(RemindersFacePresentation.listTitle(selectedID: "gone", lists: lists) == "Reminders")
+    }
+
+    @Test func rejectedConfigurationChangesAreReported() {
+        #expect(WidgetConfigurationLookup.rejection(.rejected("Saving is disabled.")) == "Saving is disabled.")
+        #expect(WidgetConfigurationLookup.rejection(.accepted) == nil)
+        #expect(WidgetConfigurationLookup.rejection(.unchanged) == nil)
+    }
+
+    #if DEBUG
+    @Test func calendarFixtureAllDayEventSpansWholeDays() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        for hour in [1, 9, 23] {
+            let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 5, hour: hour))!
+            let events = CalendarQAFixture.meetings.events(now: now, calendar: calendar)
+            let holiday = try #require(events.first { $0.id == "qa-holiday" })
+            #expect(holiday.startDate == calendar.startOfDay(for: now))
+            #expect(holiday.endDate == calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)))
+            // The production selection hides it when all-day events are off.
+            #expect(!CalendarEventOrdering.select(events, calendarIDs: [], includeAllDay: false, now: now).contains { $0.isAllDay })
+            #expect(CalendarEventOrdering.select(events, calendarIDs: ["qa-home"], includeAllDay: true, now: now).map(\.id) == ["qa-holiday"])
+        }
+    }
+
+    @Test func remindersFixtureStatesMatchTheirNames() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let list = RemindersQAFixture.list.reminders(now: now)
+        #expect(list.count == 3)
+        #expect(RemindersFacePresentation.overdueCount(list, now: now) == 1)
+        #expect(Set(list.map(\.calendarID)).isSubset(of: Set(RemindersQAFixture.list.lists.map(\.id))))
+        #expect(RemindersQAFixture.empty.reminders(now: now).isEmpty && !RemindersQAFixture.empty.lists.isEmpty)
+        #expect(RemindersQAFixture.denied.reminders(now: now).isEmpty && RemindersQAFixture.denied.lists.isEmpty)
+    }
+    #endif
+
+    // MARK: Part 2: saved collections and alarms
+
+    @Test func savedCollectionNamesAreClampedByBytes() {
+        #expect(SavedCollectionLimits.clamped("abc", bytes: 2) == "ab")
+        let thumbs = SavedCollectionLimits.clamped(String(repeating: "👍", count: 200), bytes: SavedCollectionLimits.titleBytes)
+        #expect(thumbs.utf8.count == 400 && thumbs.count == 100)
+        // A character is never cut in half.
+        #expect(SavedCollectionLimits.clamped("👨‍👩‍👧", bytes: 10).isEmpty)
+        #expect(SavedCollectionLimits.snippetUsage(String(repeating: "a", count: 100)) == nil)
+        #expect(SavedCollectionLimits.snippetUsage(String(repeating: "a", count: 36_001)) != nil)
+        // The limits are the validator's.
+        var configuration = WidgetConfiguration()
+        configuration.textSnippets = [TextSnippet(title: thumbs, text: String(repeating: "a", count: SavedCollectionLimits.snippetTextBytes))]
+        #expect((try? ProfileSemanticValidator.validate(configuration)) != nil)
+        configuration.textSnippets = [TextSnippet(title: thumbs + "a", text: "a")]
+        #expect((try? ProfileSemanticValidator.validate(configuration)) == nil)
+    }
+
+    @Test func shelfReportsFilesItDidNotAdd() {
+        #expect(FileShelfPolicy.skippedMessage(chosen: 3, added: 3) == nil)
+        #expect(FileShelfPolicy.skippedMessage(chosen: 5, added: 3)?.hasPrefix("2 files were not added") == true)
+        #expect(FileShelfPolicy.skippedMessage(chosen: 1, added: 0)?.hasPrefix("1 file was not added") == true)
+    }
+
+    @Test func removedAlarmRestoresInPlace() throws {
+        let alarms = [DockAlarm(title: "A", hour: 7, minute: 0, repeatWeekdays: [], isEnabled: true),
+                      DockAlarm(title: "B", hour: 8, minute: 0, repeatWeekdays: [2], isEnabled: true)]
+        let removed = try #require(RemovedEntries.capture([alarms[0].id], from: alarms, message: "Removed A."))
+        var remaining = Array(alarms.dropFirst())
+        #expect(removed.restore(into: &remaining, capacity: AlarmCopy.capacity) == 1)
+        #expect(remaining.map(\.title) == ["A", "B"])
+    }
+
+    // MARK: Part 2: AI and markets
+
+    @Test func narrowTokenValuesPromoteAtScaleBoundaries() {
+        let us = Locale(identifier: "en_US")
+        #expect(AIFacePresentation.compactTokens(12, locale: us) == "12")
+        #expect(AIFacePresentation.compactTokens(999_499, locale: us) == "999K")
+        #expect(AIFacePresentation.compactTokens(999_500, locale: us) == "1M")
+        #expect(AIFacePresentation.compactTokens(999_999_999, locale: us) == "1B")
+        #expect(AIFacePresentation.compactTokens(1_500_000_000_000, locale: us) == "1500B")
+    }
+
+    @Test func limitWindowTitlesAreWholeWords() {
+        func title(_ name: String, _ minutes: Int?) -> String {
+            AIFacePresentation.compactWindowTitle(for: AILimitWindow(name: name, usedPercent: 10, durationMinutes: minutes))
+        }
+        #expect(title("Spend limit", nil) == "Spend")
+        #expect(title("Session", nil) == "Session")
+        #expect(title("Monthly AI credits", nil) == "Month")
+        #expect(title("x", 60) == "1h")
+        #expect(title("x", 120) == "2h")
+        #expect(title("x", 300) == "5h")
+        #expect(title("x", 10_080) == "7d")
+        #expect(title("x", 45) == "45m")
+    }
+
+    @Test func marketHeroLabelsItsCloseAndColoursByRange() {
+        let day: TimeInterval = 86_400
+        let points = [100.0, 104, 103].enumerated().map { StockMarketPoint(date: Date(timeIntervalSince1970: Double($0.offset) * day), close: $0.element, volume: 0) }
+        #expect(StockFaceFormatting.rangeChange(points) == 3)
+        #expect(StockFaceFormatting.rangeChange(Array(points.prefix(1))) == nil)
+        #expect(StockFaceFormatting.closeCaption(points[2].date).hasPrefix("Close · "))
+    }
+
+    @Test func yahooLinksUseYahooExchangeSuffixes() {
+        func path(_ symbol: String) -> String? { MarketFinanceURL.url(for: symbol)?.path }
+        #expect(path("TSCO.LON") == "/quote/TSCO.L")
+        #expect(path("SHOP.TRT") == "/quote/SHOP.TO")
+        #expect(path("ABC.TRV") == "/quote/ABC.V")
+        #expect(path("SAP.DEX") == "/quote/SAP.DE")
+        #expect(path("RELIANCE.BSE") == "/quote/RELIANCE.BO")
+        #expect(path("600000.SHH") == "/quote/600000.SS")
+        #expect(path("000001.SHZ") == "/quote/000001.SZ")
+        #expect(path("aapl") == "/quote/AAPL")
+        #expect(path("BRK.B") == "/quote/BRK.B")
+    }
+
     // MARK: Helpers
 
     @MainActor private func waitUntil(timeout: Duration = .seconds(5), _ condition: @MainActor () -> Bool) async throws {

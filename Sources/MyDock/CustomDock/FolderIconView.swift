@@ -43,17 +43,8 @@ struct DockFolderIconView: View {
             .accessibilityHidden(true)
     }
 
-    private var color: Color {
-        switch item.folderIconColor ?? .blue {
-        case .blue: .blue
-        case .purple: .purple
-        case .teal: .teal
-        case .green: .green
-        case .orange: .orange
-        case .pink: .pink
-        case .red: .red
-        }
-    }
+    /// The profile palette, so a folder colour matches the same colour everywhere else in MyDock.
+    private var color: Color { (item.folderIconColor ?? .blue).displayColor }
 
     private var accessibilityLabel: String {
         var parts = [item.displayName, "folder"]

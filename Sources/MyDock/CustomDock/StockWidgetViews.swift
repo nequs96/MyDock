@@ -56,6 +56,15 @@ enum StockFaceFormatting {
         guard let change, change.isFinite, change < 0 else { return .secondary }
         return WidgetPalette.critical
     }
+    /// The one line under the price: an end-of-day close, and a change that compares one session, not the range.
+    static func closeCaption(_ date: Date, locale: Locale = .current) -> String {
+        "Close · " + sessionDate(date, locale: locale) + " · 1-day change"
+    }
+    /// The shown range's own change, which colours its chart: the last close against the first.
+    static func rangeChange(_ points: [StockMarketPoint]) -> Double? {
+        guard points.count > 1, let first = points.first?.close, let last = points.last?.close else { return nil }
+        return last - first
+    }
 }
 
 /// What the Stock and Watchlist popouts share: the key read, the Yahoo Finance link, the display options and the copy.
@@ -240,10 +249,12 @@ private struct StockPopoutView: View {
                     }
                 }
                 .widgetPopoutHeroAligned()
+                Text(StockFaceFormatting.closeCaption(latest.date))
+                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).widgetPopoutHeroAligned()
                 let visiblePoints = Array(snapshot.points.suffix(configuration.stockRange.pointCount))
                 MarketSparkline(points: visiblePoints,
-                                color: StockFaceFormatting.changeColor(snapshot.change),
-                                currency: snapshot.currency)
+                                color: StockFaceFormatting.changeColor(StockFaceFormatting.rangeChange(visiblePoints)),
+                                currency: snapshot.currency, showsVolume: configuration.stockShowsVolume)
                     .frame(height: 100)
                 HStack {
                     Text(visiblePoints.first.map { StockFaceFormatting.sessionDate($0.date) } ?? "")
@@ -491,15 +502,19 @@ private struct WatchlistPopoutView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(latest.close.formatted(.currency(code: snapshot.currency))).font(DockDesign.Module.valueLarge)
-                        if let change = snapshot.changePercent {
-                            Text(StockFaceFormatting.percentText(change)).font(DockDesign.Grouped.subtitleFont.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
+                        // The same change and percent as the Stock popout.
+                        if let change = snapshot.change, let percent = snapshot.changePercent {
+                            Text(StockFaceFormatting.changeText(change, percent: percent))
+                                .font(DockDesign.Grouped.subtitleFont.weight(.medium)).foregroundStyle(StockFaceFormatting.changeColor(change))
                         }
                     }
                     .widgetPopoutHeroAligned()
+                    Text(StockFaceFormatting.closeCaption(latest.date))
+                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).widgetPopoutHeroAligned()
                     let visiblePoints = Array(snapshot.points.suffix(configuration.stockRange.pointCount))
                     MarketSparkline(points: visiblePoints,
-                                    color: StockFaceFormatting.changeColor(snapshot.change),
-                                    currency: snapshot.currency)
+                                    color: StockFaceFormatting.changeColor(StockFaceFormatting.rangeChange(visiblePoints)),
+                                    currency: snapshot.currency, showsVolume: configuration.stockShowsVolume)
                         .frame(height: 72)
                     Text("\(visiblePoints.count) trading sessions · \(visiblePoints.first.map { StockFaceFormatting.sessionDate($0.date) } ?? "")–\(StockFaceFormatting.sessionDate(latest.date))")
                         .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
@@ -635,8 +650,11 @@ private struct WatchlistPopoutView: View {
 
 private struct MarketSparkline: View {
     var points: [StockMarketPoint]
+    /// The shown range's direction, not the last session's.
     var color: Color
     var currency: String
+    /// Volume shows in the tooltip and for VoiceOver only when the Volume setting is on.
+    var showsVolume: Bool
     @State private var selectedIndex: Int?
 
     var body: some View {
@@ -669,7 +687,7 @@ private struct MarketSparkline: View {
                         Text(StockFaceFormatting.sessionDate(point.date))
                         Text(point.close.formatted(.currency(code: currency)))
                             .fontWeight(.semibold)
-                        Text("Volume \(point.volume.formatted())")
+                        if showsVolume { Text("Volume \(point.volume.formatted())") }
                     }
                     .font(DockDesign.Module.label)
                     .padding(.horizontal, 5).padding(.vertical, 3)
@@ -700,7 +718,8 @@ private struct MarketSparkline: View {
         .accessibilityElement()
         .accessibilityLabel("Stock price chart")
         .accessibilityValue(accessibilityValue)
-        .accessibilityHint("Use the increment and decrement actions to inspect dates, closing prices, and volume.")
+        .accessibilityHint(showsVolume ? "Use the increment and decrement actions to inspect dates, closing prices, and volume."
+                                       : "Use the increment and decrement actions to inspect dates and closing prices.")
         .accessibilityAdjustableAction { direction in
             guard !points.isEmpty else { return }
             let current = selectedIndex ?? (points.count - 1)
@@ -715,10 +734,14 @@ private struct MarketSparkline: View {
     private var accessibilityValue: String {
         guard let selectedIndex, points.indices.contains(selectedIndex) else {
             guard let latest = points.last else { return "No chart data" }
-            return "Latest: \(StockFaceFormatting.sessionDate(latest.date)), \(latest.close.formatted(.currency(code: currency))), volume \(latest.volume.formatted())"
+            return "Latest: " + describe(latest)
         }
-        let point = points[selectedIndex]
-        return "\(StockFaceFormatting.sessionDate(point.date)), \(point.close.formatted(.currency(code: currency))), volume \(point.volume.formatted())"
+        return describe(points[selectedIndex])
+    }
+
+    private func describe(_ point: StockMarketPoint) -> String {
+        "\(StockFaceFormatting.sessionDate(point.date)), \(point.close.formatted(.currency(code: currency)))"
+            + (showsVolume ? ", volume \(point.volume.formatted())" : "")
     }
 }
 
