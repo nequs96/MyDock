@@ -109,6 +109,12 @@ import UserNotifications
         #expect(PermissionOverviewRow.events(.reminder, status: .denied).pane == .reminders)
     }
 
+    // S13-012: a failed presence check names the credential, without reading the secret.
+    @Test func credentialPresenceErrorNamesTheCredential() {
+        let error = IntegrationCredentialPresence.LookupError(credential: "The Alpha Vantage key", status: -25308)
+        #expect(error.errorDescription == "The Alpha Vantage key could not be checked in Keychain (-25308).")
+    }
+
     // S20-017: every System Settings pane is written once and parses as a URL.
     @Test func systemSettingsPanesAreUniqueURLs() {
         let addresses = SystemSettingsPane.allCases.map(\.address)
