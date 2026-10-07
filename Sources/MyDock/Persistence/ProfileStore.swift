@@ -45,6 +45,8 @@ final class ProfileStore: ObservableObject {
     private let logger = Logger(subsystem: Product.bundleIdentifier, category: "persistence")
     private var storageWritable = true
     private var stateLoadedIntact = true
+    /// False when some saved Docks were set aside at launch: their widgets' drafts must survive until they are recovered.
+    private var everySavedDockLoaded = true
     private let writer: RevisionedStateWriter
     private var revision: UInt64 = 0
     @Published private(set) var isSaving = false
@@ -75,6 +77,7 @@ final class ProfileStore: ObservableObject {
                 var state = loaded.state
                 state.schemaVersion = Product.stateSchemaVersion
                 self.state = state
+                self.everySavedDockLoaded = loaded.setAside.isEmpty
                 if let recoveryURL {
                     self.persistenceWarning = PersistentStateLoader.warning(for: loaded, preservedAt: recoveryURL.path)
                     logger.error("Some saved Docks could not be read and were set aside; the original file was preserved")
@@ -206,9 +209,9 @@ final class ProfileStore: ObservableObject {
     }
 
     /// Opens the private utility drafts once at launch: prunes drafts whose widget or profile no longer exists
-    /// (only when the saved state itself loaded intact) and surfaces a notice if an unreadable file was set aside.
+    /// (only when every saved Dock loaded) and surfaces a notice if an unreadable file was set aside.
     private func loadUtilityDrafts() {
-        if stateLoadedIntact && storageWritable { utilityDrafts.discardTargets(notIn: state.profiles) }
+        if stateLoadedIntact && everySavedDockLoaded && storageWritable { utilityDrafts.discardTargets(notIn: state.profiles) }
         if let notice = utilityDrafts.recoveryNotice {
             persistenceWarning = [persistenceWarning, notice].compactMap { $0 }.joined(separator: " ")
         }

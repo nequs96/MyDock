@@ -13,12 +13,12 @@ struct StripeWidgetProvider: DockWidgetProvider {
 struct StripeCompactView: View {
     var item: DockItem
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-    private var values: StripeCurrencyMetrics? { configuration.stripeSnapshot?.metrics(for: configuration.stripeCurrency) }
+    private var values: StripeCurrencyMetrics? { configuration.stripeSnapshot?.metrics(for: configuration.stripeDisplayCurrency) }
 
     var body: some View {
         FacesBBusinessDockFace(kind: "Stripe", title: configuration.stripeDisplayName, metric: configuration.stripeMetric.title,
             amount: values.map { StripeMetricFormatter.amount(for: configuration.stripeMetric, values: $0) },
-            currency: configuration.stripeMetric == .payingSubscribers ? nil : configuration.stripeCurrency,
+            currency: configuration.stripeMetric == .payingSubscribers ? nil : configuration.stripeDisplayCurrency,
             fullValue: values.map { StripeMetricFormatter.text(for: configuration.stripeMetric, values: $0) },
             context: configuration.stripePeriod.faceToken,
             emptyValue: configuration.stripeSnapshot != nil || !configuration.stripeAccountID.isEmpty ? "No data" : "Connect")
@@ -46,8 +46,13 @@ private struct StripePopoutView: View {
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var snapshot: StripeSnapshot? { configuration.stripeSnapshot }
-    private var currencyMetrics: StripeCurrencyMetrics? { snapshot?.metrics(for: configuration.stripeCurrency) }
+    private var currencyMetrics: StripeCurrencyMetrics? { snapshot?.metrics(for: configuration.stripeDisplayCurrency) }
     private var setupDraft: StripeConnectionDraft { setupDrafts.stripeDraft(for: item.id) }
+    /// A reading always shows a currency the account reported, so a reading without figures reported nothing at all.
+    private var emptyCaption: String? {
+        if snapshot != nil { return "Stripe reported nothing for this period." }
+        return configuration.stripeAccountID.isEmpty ? "Use a restricted, read-only key." : nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -56,12 +61,12 @@ private struct StripePopoutView: View {
                     WidgetPopoutHero(
                         value: StripeMetricFormatter.text(for: configuration.stripeMetric, values: currencyMetrics),
                         caption:
-                            "\(configuration.stripeMetric.title) · \(configuration.stripeMetric.popoutUnit(currency: configuration.stripeCurrency)) · \(snapshot?.period.title ?? configuration.stripePeriod.title)"
+                            "\(configuration.stripeMetric.title) · \(configuration.stripeMetric.popoutUnit(currency: configuration.stripeDisplayCurrency)) · \(snapshot?.period.title ?? configuration.stripePeriod.title)"
                     )
                 } else {
                     WidgetPopoutHero(
-                        value: snapshot == nil ? (configuration.stripeAccountID.isEmpty ? "Connect Stripe" : "No data") : "No currency data",
-                        caption: snapshot == nil && configuration.stripeAccountID.isEmpty ? "Use a restricted, read-only key." : "Choose a currency reported by this account.")
+                        value: snapshot == nil && configuration.stripeAccountID.isEmpty ? "Connect Stripe" : "No data",
+                        caption: emptyCaption)
                 }
                 if let count = snapshot?.unsupportedSubscriptionItems, count > 0 {
                     GroupedSection {
@@ -189,7 +194,8 @@ private struct StripePopoutView: View {
 
     private var currencyOptions: [String] {
         let options = snapshot?.currencyCodes ?? []
-        return options.contains(configuration.stripeCurrency) ? options : [configuration.stripeCurrency] + options
+        let shown = configuration.stripeDisplayCurrency
+        return options.contains(shown) ? options : [shown] + options
     }
 
     private var displayNameBinding: Binding<String> {
@@ -221,7 +227,7 @@ private struct StripePopoutView: View {
     }
 
     private var currencyBinding: Binding<String> {
-        Binding(get: { configuration.stripeCurrency }, set: { value in update { $0.stripeCurrency = value } })
+        Binding(get: { configuration.stripeDisplayCurrency }, set: { value in update { $0.stripeCurrency = value } })
     }
 
     private var periodBinding: Binding<StripePeriod> {

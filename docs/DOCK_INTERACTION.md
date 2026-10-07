@@ -25,7 +25,7 @@ A widget click toggles its tab in the shared popout. Clicking another widget sel
 
 The menu bar item remains the entry point for **Manage Docks…**, **Settings…**, profile selection and **Quit MyDock**. Dock context menus also provide **Settings…**. These commands do not require the manager window to be open.
 
-Settings shows **Restore Previous Dock** when a native layout transaction reports recovery required. That repairs an interrupted native-layout transaction. Replacement-mode visibility restoration is separate: normal quit or leaving replacement mode restores the saved visibility preferences. If restoration fails, quitting is cancelled and its recovery record remains for retry. See [removal instructions](UNINSTALL.md). A successful previous Apply is not automatically reversed on quit.
+Settings shows **Restore Previous Dock** and **Keep Current Dock** when a native layout transaction reports recovery required. At launch MyDock repairs an interrupted transaction by itself only while the Dock still shows the interrupted change; if the Dock has changed since, it asks instead. **Restore Previous Dock** returns to the layout from before that change; **Keep Current Dock** leaves the Dock as it is and forgets the change, so macOS Dock layouts can be applied again. Replacement-mode visibility restoration is separate: normal quit or leaving replacement mode restores the saved visibility preferences. If restoration fails, quitting is cancelled and its recovery record remains for retry. See [removal instructions](UNINSTALL.md). A successful previous Apply is not automatically reversed on quit.
 
 ## Replacement ownership and display fallback
 

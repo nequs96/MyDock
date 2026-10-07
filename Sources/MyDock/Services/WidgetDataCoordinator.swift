@@ -50,14 +50,9 @@ enum WidgetDataValue {
 
     func apply(to c: inout WidgetConfiguration, now: Date = .now, sourceScope: String? = nil) {
         switch self {
-        case .stripe(let snapshot):
-            // A new connection starts on USD. An account that has never reported the selected currency shows its
-            // own main currency instead of "No data"; a currency the account did report stays the user's choice.
-            if snapshot.metrics(for: c.stripeCurrency) == nil, c.stripeSnapshot?.metrics(for: c.stripeCurrency) == nil,
-               let primary = snapshot.primaryCurrency {
-                c.stripeCurrency = primary
-            }
-            c.stripeSnapshot = snapshot
+        // Readings only: `publish` keeps nothing else, so an authored setting changed here would be dropped. The shown
+        // Stripe currency is resolved at display time (`WidgetConfiguration.stripeDisplayCurrency`).
+        case .stripe(let snapshot): c.stripeSnapshot = snapshot
         case .paddle(let snapshot): c.paddleSnapshot = snapshot
         case .shopify(let snapshot): c.shopifySnapshot = snapshot
         case .stock(let snapshot): c.stockSnapshot = snapshot

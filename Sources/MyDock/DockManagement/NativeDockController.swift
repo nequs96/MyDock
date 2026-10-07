@@ -235,7 +235,8 @@ final class NativeDockController: ObservableObject {
 
     /// Puts back the layout from before an interrupted change. At launch (`automatic`) it does so only while the Dock
     /// still shows that change; when the Dock already shows the earlier layout the journal is simply cleared, and when
-    /// the Dock has changed since, restoring would overwrite those changes, so Restore Previous Dock decides.
+    /// the Dock has changed since, restoring would overwrite those changes, so the user decides: Restore Previous Dock
+    /// or Keep Current Dock (`discardInterruptedTransaction`).
     func recoverInterruptedTransaction(automatic: Bool = false) async throws {
         await gate.acquire()
         health = .recovering
@@ -271,6 +272,25 @@ final class NativeDockController: ObservableObject {
             }
             health = .ready
             recoveryError = nil
+            await gate.release()
+        } catch {
+            health = .recoveryRequired
+            recoveryError = error.localizedDescription
+            await gate.release()
+            throw error
+        }
+    }
+
+    /// Keep Current Dock: leaves the Dock as it is and forgets the interrupted change, so macOS Dock layouts can be
+    /// applied again. Without it, a Dock changed since the interruption could only be overwritten by Restore Previous
+    /// Dock, an unreadable journal could not be cleared at all, and every macOS Dock switch stayed blocked meanwhile.
+    func discardInterruptedTransaction() async throws {
+        await gate.acquire()
+        do {
+            try journal.clear()
+            health = .ready
+            recoveryError = nil
+            logger.notice("Kept the current native Dock; the interrupted transaction was discarded")
             await gate.release()
         } catch {
             health = .recoveryRequired

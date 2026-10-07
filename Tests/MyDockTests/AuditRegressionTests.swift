@@ -198,23 +198,36 @@ import Testing
     }
 
     /// S12-002: a EUR-only Stripe account shows EUR instead of "No data" for the USD a new connection starts on,
-    /// while a currency the account did report stays the user's choice.
-    @Test func stripeShowsTheAccountsOwnCurrencyWhenItNeverReportedTheSelectedOne() {
+    /// and a reported currency the user chose stays shown. Checked through the coordinator: provider readings never
+    /// change authored settings, so the shown currency is resolved at display time.
+    @MainActor
+    @Test func stripeShowsTheAccountsOwnCurrencyWhenTheReadingLacksTheSelectedOne() async throws {
         func metrics(_ currency: String, revenue: Decimal) -> StripeCurrencyMetrics {
             StripeCurrencyMetrics(currency: currency, revenueMinor: revenue, netAfterFeesMinor: revenue, mrrMinor: 0,
                                   payingSubscribers: 0, availableBalanceMinor: 0, pendingBalanceMinor: 0)
         }
         func snapshot(_ currencies: [StripeCurrencyMetrics]) -> StripeSnapshot {
-            StripeSnapshot(accountID: "acct", accountName: "Shop", fetchedAt: .now, period: .thirtyDays, periodStart: .now,
+            StripeSnapshot(accountID: "acct_audit", accountName: "Shop", fetchedAt: .now, period: .thirtyDays, periodStart: .now,
                            periodEnd: .now, currencies: currencies, unsupportedSubscriptionItems: 0)
         }
-        var configuration = WidgetConfiguration()
-        configuration.stripeCurrency = "USD"
-        WidgetDataValue.stripe(snapshot([metrics("EUR", revenue: 900), metrics("GBP", revenue: 100)])).apply(to: &configuration)
-        #expect(configuration.stripeCurrency == "EUR")
-        configuration.stripeCurrency = "GBP"
-        WidgetDataValue.stripe(snapshot([metrics("EUR", revenue: 950)])).apply(to: &configuration)
-        #expect(configuration.stripeCurrency == "GBP", "a currency the account reported before stays selected")
+        let reading = snapshot([metrics("GBP", revenue: 100), metrics("EUR", revenue: 900)])
+        #expect(reading.displayCurrency(for: "USD") == "EUR")
+        #expect(reading.displayCurrency(for: "GBP") == "GBP" && reading.displayCurrency(for: "gbp") == "GBP")
+        #expect(snapshot([]).displayCurrency(for: "USD") == "USD")
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"), allowsSystemChanges: false)
+        var stripe = DockItem.widget("Stripe")
+        stripe.widgetConfiguration?.stripeAccountID = "acct_audit"
+        let profileID = try store.createProfile(DockProfile(name: "Revenue", kind: .custom, items: [stripe]))
+        let eurOnly = snapshot([metrics("EUR", revenue: 900)])
+        let coordinator = WidgetDataCoordinator(store: store) { _, _ in WidgetDataValue.stripe(eurOnly) }
+        await coordinator.refresh(item: stripe, profileID: profileID)
+        let shown = store.presentationConfiguration(for: stripe, in: profileID)
+        #expect(shown.stripeSnapshot != nil)
+        #expect(shown.stripeCurrency == "USD", "a reading never changes the authored choice")
+        #expect(shown.stripeDisplayCurrency == "EUR")
     }
 
     /// S11-001: a trading session stored as UTC midnight keeps its own day wherever the Mac is.
@@ -280,9 +293,73 @@ import Testing
         model.entries = [.item(item, pinned: true), .item(item, pinned: false)]
         #expect(model.positionedEntries(settings: AppSettings(), scale: 1).count == 2)
     }
+
+    /// S01-002 follow-up: a Dock set aside at launch keeps its widgets' unfinished drafts until it is recovered; only
+    /// a launch that read every Dock prunes the drafts of widgets that no longer exist.
+    @MainActor
+    @Test func draftsOfASetAsideDockSurviveTheLaunch() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let snippets = DockItem.widget("Text Snippets")
+        let setAside = DockProfile(name: "Studio", kind: .custom, items: [snippets])
+        var state = PersistentState()
+        state.profiles = [DockProfile(name: "Work", kind: .custom, items: [.widget("Clock")]), setAside]
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        var profiles = try #require(json["profiles"] as? [[String: Any]])
+        profiles[1]["kind"] = "a-kind-from-a-newer-build"
+        json["profiles"] = profiles
+        let file = directory.appendingPathComponent("state.json")
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        let draftsFile = directory.appendingPathComponent("utility-drafts", isDirectory: true).appendingPathComponent("drafts.json")
+        let drafts = DockUtilityDraftStore(fileURL: draftsFile)
+        try drafts.update(DockUtilityFormDraft(editingID: nil, title: "Half-written", body: "Keep me"),
+                          itemID: snippets.id, in: setAside.id, kind: .snippet)
+        #expect(drafts.flush())
+
+        let store = ProfileStore(fileURL: file, allowsSystemChanges: false)
+        #expect(store.state.profiles.map(\.name) == ["Work"])
+        #expect(store.utilityDrafts.draft(itemID: snippets.id, in: setAside.id, kind: .snippet)?.body == "Keep me")
+        #expect(DockUtilityDraftStore(fileURL: draftsFile).draft(itemID: snippets.id, in: setAside.id, kind: .snippet) != nil)
+    }
+
+    /// S07-005 follow-up: when the Dock changed after an interrupted change, Keep Current Dock forgets that change
+    /// without touching the Dock, so macOS Dock switches work again.
+    @MainActor
+    @Test func keepCurrentDockDiscardsAnInterruptedChangeWithoutTouchingTheDock() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let journal = FileDockTransactionJournal(fileURL: folder.appendingPathComponent("native-dock.json"))
+        try journal.begin(snapshot: [["tile-type": "spacer-tile"]], target: [["tile-type": "small-spacer-tile"]], profileID: UUID())
+        let backend = ChangedSinceDockBackend()
+        let relauncher = CountingDockRelauncher()
+        let controller = NativeDockController(backend: backend, relauncher: relauncher, journal: journal,
+                                              gate: DockSystemOperationGate())
+        try await controller.recoverInterruptedTransaction(automatic: true)
+        #expect(controller.health == .recoveryRequired)
+        try await controller.discardInterruptedTransaction()
+        #expect(controller.health == .ready && controller.recoveryError == nil)
+        #expect(try journal.pendingSnapshot() == nil)
+        #expect(backend.writes == 0 && relauncher.calls == 0 && backend.tiles.count == 2)
+    }
 }
 
 private actor LoadCounter {
     private(set) var count = 0
     func increment() { count += 1 }
+}
+
+/// The Dock as the user left it after an interrupted change: neither the layout before it nor the one it applied.
+@MainActor
+private final class ChangedSinceDockBackend: DockPreferencesBackend {
+    var tiles: [[String: Any]] = [["tile-type": "spacer-tile"], ["tile-type": "small-spacer-tile"]]
+    var writes = 0
+    func readCurrentTiles() throws -> [[String: Any]] { tiles }
+    func writeTiles(_ tiles: [[String: Any]]) throws { writes += 1; self.tiles = tiles }
+}
+
+@MainActor
+private final class CountingDockRelauncher: DockRelaunching {
+    var calls = 0
+    func restartDock() async throws { calls += 1 }
 }

@@ -101,11 +101,27 @@ struct StripeSnapshot: Codable, Hashable {
     }
 
     /// The account's main currency in this period: the most revenue, then the larger available balance, then
-    /// alphabetical. Used when an account does not report the selected currency at all.
+    /// alphabetical. Shown when the reading does not report the selected currency.
     var primaryCurrency: String? {
         currencies.max { lhs, rhs in
             (lhs.revenueMinor, lhs.availableBalanceMinor, rhs.currency) < (rhs.revenueMinor, rhs.availableBalanceMinor, lhs.currency)
         }?.currency
+    }
+
+    /// The currency the widget shows for the selected one: the selection while this reading reports it, otherwise the
+    /// account's main currency, so a new connection (which starts on USD) on a EUR-only account shows EUR instead of
+    /// "No data". Resolved at display time because provider readings never change authored settings: the selection
+    /// stays as the user chose it and shows again once the account reports it.
+    func displayCurrency(for selected: String) -> String {
+        let code = selected.uppercased()
+        return metrics(for: code) == nil ? (primaryCurrency ?? code) : code
+    }
+}
+
+extension WidgetConfiguration {
+    /// The currency Stripe faces and popouts show and the Currency picker selects; see `StripeSnapshot.displayCurrency`.
+    var stripeDisplayCurrency: String {
+        stripeSnapshot?.displayCurrency(for: stripeCurrency) ?? stripeCurrency
     }
 }
 
