@@ -68,11 +68,18 @@ final class ProfileStore: ObservableObject {
                     loadUtilityDrafts()
                     return
                 }
-                var loaded = try JSONDecoder().decode(PersistentState.self, from: data)
-                try ProfileSemanticValidator.validate(loaded.profiles)
-                try ProfileAppearance(settings: loaded.settings).validate()
-                loaded.schemaVersion = Product.stateSchemaVersion
-                self.state = loaded
+                let loaded = try PersistentStateLoader.load(data)
+                // The readable Docks stay in use; a copy of the file as it was keeps the rest recoverable.
+                let recoveryURL = loaded.isPartial ? self.fileURL.appendingPathExtension("recovery-\(UUID().uuidString)") : nil
+                if let recoveryURL { try FileManager.default.copyItem(at: self.fileURL, to: recoveryURL) }
+                var state = loaded.state
+                state.schemaVersion = Product.stateSchemaVersion
+                self.state = state
+                if let recoveryURL {
+                    self.persistenceWarning = PersistentStateLoader.warning(for: loaded, preservedAt: recoveryURL.path)
+                    logger.error("Some saved Docks could not be read and were set aside; the original file was preserved")
+                    DiagnosticsService.shared.record(.stateRecovered)
+                }
             } catch BackupError.tooLarge {
                 self.state = PersistentState()
                 self.storageWritable = false

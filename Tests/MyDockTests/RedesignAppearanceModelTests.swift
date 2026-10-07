@@ -142,11 +142,12 @@ import Testing
         #expect(widget.glassTint == nil)
         #expect(widget.showsLabel == false)
         #expect(try decode(WidgetConfiguration.self, "{\"widgetAccent\":\"future\"}").widgetAccent == .auto)
-        // Existing enums continue to reject unknown raw values.
-        #expect(throws: DecodingError.self) { try decode(AppSettings.self, "{\"customDockMaterial\":\"future\"}") }
-        #expect(throws: DecodingError.self) { try decode(WidgetConfiguration.self, "{\"iconStyle\":\"future\"}") }
+        // S01-002: every stored choice this build does not know falls back to its default, so a file saved by a
+        // newer MyDock never makes the saved data unreadable.
+        #expect(try decode(AppSettings.self, "{\"customDockMaterial\":\"future\"}").customDockMaterial == .frosted)
+        #expect(try decode(WidgetConfiguration.self, "{\"iconStyle\":\"future\"}").iconStyle == .live)
         let existingUnknown = try replacing(Self.oldProfileAppearance, with: ["material": "future"])
-        #expect(throws: DecodingError.self) { try decode(ProfileAppearance.self, existingUnknown) }
+        #expect(try decode(ProfileAppearance.self, existingUnknown).material == AppSettings().customDockMaterial)
     }
 
     @Test func backupAndSanitizerPreserveAppearanceAndWidgetOverrides() throws {

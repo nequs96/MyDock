@@ -1,5 +1,19 @@
 import Foundation
 
+extension KeyedDecodingContainer {
+    /// A setting that does not decode (a choice written by a newer MyDock, or a changed type) falls back to its
+    /// default instead of failing the whole file. User content (items, collections, notes) stays strict.
+    func lenient<T: Decodable>(_ type: T.Type, forKey key: Key) -> T? {
+        try? decodeIfPresent(type, forKey: key)
+    }
+
+    /// The choices this build knows, in stored order; unknown ones are skipped.
+    func lenientChoices<T: RawRepresentable & Decodable>(_ type: T.Type, forKey key: Key) -> [T]? where T.RawValue == String {
+        guard let raw = try? decodeIfPresent([String].self, forKey: key) else { return nil }
+        return raw.compactMap(T.init(rawValue:))
+    }
+}
+
 enum SetupMode: String, Codable, CaseIterable, Identifiable {
     case nativeOnly
     case both
@@ -673,18 +687,18 @@ struct WidgetConfiguration: Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        cardWidth = try values.decodeIfPresent(WidgetCardWidth.self, forKey: .cardWidth) ?? .standard
-        iconStyle = try values.decodeIfPresent(WidgetIconStyle.self, forKey: .iconStyle) ?? .live
-        iconAppearance = try values.decodeIfPresent(WidgetIconAppearance.self, forKey: .iconAppearance) ?? WidgetIconAppearance(legacy: iconStyle)
+        cardWidth = values.lenient(WidgetCardWidth.self, forKey: .cardWidth) ?? .standard
+        iconStyle = values.lenient(WidgetIconStyle.self, forKey: .iconStyle) ?? .live
+        iconAppearance = values.lenient(WidgetIconAppearance.self, forKey: .iconAppearance) ?? WidgetIconAppearance(legacy: iconStyle)
         widgetAccent = try? values.decodeIfPresent(WidgetAccent.self, forKey: .widgetAccent)
         showsLabel = try values.decodeIfPresent(Bool.self, forKey: .showsLabel)
         glassTint = try? values.decodeIfPresent(WidgetGlassTint.self, forKey: .glassTint)
-        widgetLayout = try values.decodeIfPresent(WidgetLayout.self, forKey: .widgetLayout)
+        widgetLayout = values.lenient(WidgetLayout.self, forKey: .widgetLayout)
         if widgetLayout == nil, !values.contains(.iconAppearance), values.contains(.cardWidth) {
             widgetLayout = cardWidth == .compact ? .compact : cardWidth == .wide ? .wide : .standard
         }
-        aiActivitySecondaryMetric = try values.decodeIfPresent(AIActivitySecondaryMetric.self, forKey: .aiActivitySecondaryMetric) ?? .sessions
-        systemSecondaryMetric = try values.decodeIfPresent(SystemSecondaryMetric.self, forKey: .systemSecondaryMetric) ?? .memory
+        aiActivitySecondaryMetric = values.lenient(AIActivitySecondaryMetric.self, forKey: .aiActivitySecondaryMetric) ?? .sessions
+        systemSecondaryMetric = values.lenient(SystemSecondaryMetric.self, forKey: .systemSecondaryMetric) ?? .memory
         systemShowsNetwork = try? values.decodeIfPresent(Bool.self, forKey: .systemShowsNetwork)
         systemShowsStorage = try? values.decodeIfPresent(Bool.self, forKey: .systemShowsStorage)
         shelfFiles = try values.decodeIfPresent([ShelfFile].self, forKey: .shelfFiles) ?? []
@@ -693,7 +707,7 @@ struct WidgetConfiguration: Codable, Hashable {
         savedColors = try values.decodeIfPresent([String].self, forKey: .savedColors) ?? []
         checklistEntries = try values.decodeIfPresent([QuickChecklistEntry].self, forKey: .checklistEntries) ?? []
         noteText = try values.decodeIfPresent(String.self, forKey: .noteText) ?? ""
-        noteBackground = try values.decodeIfPresent(NoteBackground.self, forKey: .noteBackground) ?? .yellow
+        noteBackground = values.lenient(NoteBackground.self, forKey: .noteBackground) ?? .yellow
         focusDurationSeconds = try values.decodeIfPresent(Int.self, forKey: .focusDurationSeconds) ?? 25 * 60
         focusElapsedBeforeStart = try values.decodeIfPresent(TimeInterval.self, forKey: .focusElapsedBeforeStart) ?? 0
         focusStartedAt = try values.decodeIfPresent(Date.self, forKey: .focusStartedAt)
@@ -702,54 +716,54 @@ struct WidgetConfiguration: Codable, Hashable {
         stockSymbol = try values.decodeIfPresent(String.self, forKey: .stockSymbol) ?? ""
         stockName = try values.decodeIfPresent(String.self, forKey: .stockName) ?? ""
         stockCurrency = try values.decodeIfPresent(String.self, forKey: .stockCurrency) ?? "USD"
-        stockRange = try values.decodeIfPresent(StockChartRange.self, forKey: .stockRange) ?? .month
+        stockRange = values.lenient(StockChartRange.self, forKey: .stockRange) ?? .month
         stockRefreshIntervalMinutes = min(max(try values.decodeIfPresent(Int.self, forKey: .stockRefreshIntervalMinutes) ?? 360, 60), 1_440)
         stockShowsVolume = try values.decodeIfPresent(Bool.self, forKey: .stockShowsVolume) ?? false
-        stockSnapshot = try values.decodeIfPresent(StockMarketSnapshot.self, forKey: .stockSnapshot)
+        stockSnapshot = values.lenient(StockMarketSnapshot.self, forKey: .stockSnapshot)
         watchlistStocks = try values.decodeIfPresent([WatchlistStock].self, forKey: .watchlistStocks) ?? []
         watchlistSelectedSymbol = try values.decodeIfPresent(String.self, forKey: .watchlistSelectedSymbol) ?? ""
         stripeDisplayName = String((try values.decodeIfPresent(String.self, forKey: .stripeDisplayName) ?? "Stripe").prefix(80))
         stripeColor = try values.decodeIfPresent(String.self, forKey: .stripeColor) ?? "purple"
         stripeAccountID = try values.decodeIfPresent(String.self, forKey: .stripeAccountID) ?? ""
-        stripeMetric = try values.decodeIfPresent(StripeMetric.self, forKey: .stripeMetric) ?? .revenue
+        stripeMetric = values.lenient(StripeMetric.self, forKey: .stripeMetric) ?? .revenue
         stripeCurrency = try values.decodeIfPresent(String.self, forKey: .stripeCurrency) ?? "USD"
-        stripePeriod = try values.decodeIfPresent(StripePeriod.self, forKey: .stripePeriod) ?? .thirtyDays
-        stripeSnapshot = try values.decodeIfPresent(StripeSnapshot.self, forKey: .stripeSnapshot)
+        stripePeriod = values.lenient(StripePeriod.self, forKey: .stripePeriod) ?? .thirtyDays
+        stripeSnapshot = values.lenient(StripeSnapshot.self, forKey: .stripeSnapshot)
         paddleDisplayName = String((try values.decodeIfPresent(String.self, forKey: .paddleDisplayName) ?? "Paddle").prefix(80))
         paddleColor = try values.decodeIfPresent(String.self, forKey: .paddleColor) ?? "blue"
         paddleAccountID = try values.decodeIfPresent(String.self, forKey: .paddleAccountID) ?? ""
-        paddleMetric = try values.decodeIfPresent(PaddleMetric.self, forKey: .paddleMetric) ?? .netRevenue
-        paddlePeriod = try values.decodeIfPresent(PaddlePeriod.self, forKey: .paddlePeriod) ?? .thirtyDays
+        paddleMetric = values.lenient(PaddleMetric.self, forKey: .paddleMetric) ?? .netRevenue
+        paddlePeriod = values.lenient(PaddlePeriod.self, forKey: .paddlePeriod) ?? .thirtyDays
         paddleShowsChart = try values.decodeIfPresent(Bool.self, forKey: .paddleShowsChart) ?? true
-        paddleSnapshot = try values.decodeIfPresent(PaddleSnapshot.self, forKey: .paddleSnapshot)
+        paddleSnapshot = values.lenient(PaddleSnapshot.self, forKey: .paddleSnapshot)
         shopifyDisplayName = String((try values.decodeIfPresent(String.self, forKey: .shopifyDisplayName) ?? "Shopify").prefix(80))
         shopifyColor = try values.decodeIfPresent(String.self, forKey: .shopifyColor) ?? "green"
         shopifyStoreID = try values.decodeIfPresent(String.self, forKey: .shopifyStoreID) ?? ""
-        shopifyMetric = try values.decodeIfPresent(ShopifyMetric.self, forKey: .shopifyMetric) ?? .orderValue
-        shopifyPeriod = try values.decodeIfPresent(ShopifyPeriod.self, forKey: .shopifyPeriod) ?? .thirtyDays
+        shopifyMetric = values.lenient(ShopifyMetric.self, forKey: .shopifyMetric) ?? .orderValue
+        shopifyPeriod = values.lenient(ShopifyPeriod.self, forKey: .shopifyPeriod) ?? .thirtyDays
         shopifyShowsChart = try values.decodeIfPresent(Bool.self, forKey: .shopifyShowsChart) ?? true
-        shopifySnapshot = try values.decodeIfPresent(ShopifySnapshot.self, forKey: .shopifySnapshot)
-        aiLimitsLayout = try values.decodeIfPresent(AILimitLayout.self, forKey: .aiLimitsLayout) ?? .numbers
-        aiLimitsRepresentation = try values.decodeIfPresent(AIUsageRepresentation.self, forKey: .aiLimitsRepresentation) ?? .remaining
-        aiLimitsVisibleProviders = try values.decodeIfPresent([AIProvider].self, forKey: .aiLimitsVisibleProviders) ?? [.codex, .claude, .grok]
-        aiLimitsProviderOrder = try values.decodeIfPresent([AIProvider].self, forKey: .aiLimitsProviderOrder) ?? AIProvider.allCases
-        aiLimitsCompactProvider = try values.decodeIfPresent(AIProvider.self, forKey: .aiLimitsCompactProvider) ?? .codex
-        aiLimitsSnapshot = try values.decodeIfPresent(AILimitsSnapshot.self, forKey: .aiLimitsSnapshot)
+        shopifySnapshot = values.lenient(ShopifySnapshot.self, forKey: .shopifySnapshot)
+        aiLimitsLayout = values.lenient(AILimitLayout.self, forKey: .aiLimitsLayout) ?? .numbers
+        aiLimitsRepresentation = values.lenient(AIUsageRepresentation.self, forKey: .aiLimitsRepresentation) ?? .remaining
+        aiLimitsVisibleProviders = values.lenientChoices(AIProvider.self, forKey: .aiLimitsVisibleProviders) ?? [.codex, .claude, .grok]
+        aiLimitsProviderOrder = values.lenientChoices(AIProvider.self, forKey: .aiLimitsProviderOrder) ?? AIProvider.allCases
+        aiLimitsCompactProvider = values.lenient(AIProvider.self, forKey: .aiLimitsCompactProvider) ?? .codex
+        aiLimitsSnapshot = values.lenient(AILimitsSnapshot.self, forKey: .aiLimitsSnapshot)
         aiCopilotMonthlyCreditAllowance = try values.decodeIfPresent(Int.self, forKey: .aiCopilotMonthlyCreditAllowance)
             .flatMap { (1...1_000_000).contains($0) ? $0 : nil }
-        aiActivityProvider = try values.decodeIfPresent(AIProvider.self, forKey: .aiActivityProvider) ?? .codex
-        aiActivityRange = try values.decodeIfPresent(AIActivityRange.self, forKey: .aiActivityRange) ?? .today
-        aiActivityChartStyle = try values.decodeIfPresent(AIActivityChartStyle.self, forKey: .aiActivityChartStyle) ?? .sparkline
-        aiActivitySnapshot = try values.decodeIfPresent(AIActivitySnapshot.self, forKey: .aiActivitySnapshot)
+        aiActivityProvider = values.lenient(AIProvider.self, forKey: .aiActivityProvider) ?? .codex
+        aiActivityRange = values.lenient(AIActivityRange.self, forKey: .aiActivityRange) ?? .today
+        aiActivityChartStyle = values.lenient(AIActivityChartStyle.self, forKey: .aiActivityChartStyle) ?? .sparkline
+        aiActivitySnapshot = values.lenient(AIActivitySnapshot.self, forKey: .aiActivitySnapshot)
         stopwatchElapsedBeforeStart = try values.decodeIfPresent(TimeInterval.self, forKey: .stopwatchElapsedBeforeStart) ?? 0
         stopwatchStartedAt = try values.decodeIfPresent(Date.self, forKey: .stopwatchStartedAt)
-        stopwatchClockStart = try values.decodeIfPresent(StopwatchClockSample.self, forKey: .stopwatchClockStart)
+        stopwatchClockStart = values.lenient(StopwatchClockSample.self, forKey: .stopwatchClockStart)
         countdownDurationSeconds = try values.decodeIfPresent(Int.self, forKey: .countdownDurationSeconds) ?? 5 * 60
         countdownElapsedBeforeStart = try values.decodeIfPresent(TimeInterval.self, forKey: .countdownElapsedBeforeStart) ?? 0
         countdownStartedAt = try values.decodeIfPresent(Date.self, forKey: .countdownStartedAt)
-        countdownMode = try values.decodeIfPresent(CountdownMode.self, forKey: .countdownMode) ?? .duration
+        countdownMode = values.lenient(CountdownMode.self, forKey: .countdownMode) ?? .duration
         countdownTargetDate = try values.decodeIfPresent(Date.self, forKey: .countdownTargetDate)
-        timeProgressPeriod = try values.decodeIfPresent(TimeProgressPeriod.self, forKey: .timeProgressPeriod) ?? .day
+        timeProgressPeriod = values.lenient(TimeProgressPeriod.self, forKey: .timeProgressPeriod) ?? .day
         hydrationSaveHistory = try values.decodeIfPresent(Bool.self, forKey: .hydrationSaveHistory) ?? true
         hydrationTrackAmounts = try values.decodeIfPresent(Bool.self, forKey: .hydrationTrackAmounts) ?? true
         hydrationRemindersEnabled = try values.decodeIfPresent(Bool.self, forKey: .hydrationRemindersEnabled) ?? false
@@ -763,28 +777,28 @@ struct WidgetConfiguration: Codable, Hashable {
         appFolderApplications = try values.decodeIfPresent([AppFolderApplication].self, forKey: .appFolderApplications) ?? []
         selectedShortcutName = try values.decodeIfPresent(String.self, forKey: .selectedShortcutName) ?? ""
         selectedCalendarIDs = try values.decodeIfPresent([String].self, forKey: .selectedCalendarIDs) ?? []
-        calendarLayout = try values.decodeIfPresent(CalendarWidgetLayout.self, forKey: .calendarLayout) ?? .dateAndNextEvent
+        calendarLayout = values.lenient(CalendarWidgetLayout.self, forKey: .calendarLayout) ?? .dateAndNextEvent
         calendarShowsAllDayEvents = try values.decodeIfPresent(Bool.self, forKey: .calendarShowsAllDayEvents) ?? false
         selectedReminderCalendarID = try values.decodeIfPresent(String.self, forKey: .selectedReminderCalendarID) ?? ""
-        remindersLayout = try values.decodeIfPresent(RemindersWidgetLayout.self, forKey: .remindersLayout) ?? .list
+        remindersLayout = values.lenient(RemindersWidgetLayout.self, forKey: .remindersLayout) ?? .list
         alarms = try values.decodeIfPresent([DockAlarm].self, forKey: .alarms) ?? []
-        nowPlayingSource = try values.decodeIfPresent(NowPlayingSource.self, forKey: .nowPlayingSource) ?? .appleMusic
-        let enabledSources = try values.decodeIfPresent([NowPlayingSource].self, forKey: .nowPlayingEnabledSources) ?? [.appleMusic]
+        nowPlayingSource = values.lenient(NowPlayingSource.self, forKey: .nowPlayingSource) ?? .appleMusic
+        let enabledSources = values.lenientChoices(NowPlayingSource.self, forKey: .nowPlayingEnabledSources) ?? [.appleMusic]
         nowPlayingEnabledSources = NowPlayingSource.allCases.filter(enabledSources.contains)
         nowPlayingSource = nowPlayingEnabledSources.contains(nowPlayingSource)
             ? nowPlayingSource
             : (nowPlayingEnabledSources.first ?? nowPlayingSource)
-        nowPlayingLayout = try values.decodeIfPresent(NowPlayingLayout.self, forKey: .nowPlayingLayout) ?? .full
+        nowPlayingLayout = values.lenient(NowPlayingLayout.self, forKey: .nowPlayingLayout) ?? .full
         nowPlayingSkipSeconds = min(max(try values.decodeIfPresent(Int.self, forKey: .nowPlayingSkipSeconds) ?? 15, 5), 60)
         nowPlayingHidesWhenClosed = try values.decodeIfPresent(Bool.self, forKey: .nowPlayingHidesWhenClosed) ?? false
         nowPlayingShowsTrackControls = try values.decodeIfPresent(Bool.self, forKey: .nowPlayingShowsTrackControls) ?? true
         nowPlayingShowsSeekControls = try values.decodeIfPresent(Bool.self, forKey: .nowPlayingShowsSeekControls) ?? true
-        weatherLocation = try values.decodeIfPresent(WeatherLocation.self, forKey: .weatherLocation)
-        weatherUnit = try values.decodeIfPresent(WeatherTemperatureUnit.self, forKey: .weatherUnit) ?? .celsius
-        weatherLayout = try values.decodeIfPresent(WeatherWidgetLayout.self, forKey: .weatherLayout) ?? .current
+        weatherLocation = values.lenient(WeatherLocation.self, forKey: .weatherLocation)
+        weatherUnit = values.lenient(WeatherTemperatureUnit.self, forKey: .weatherUnit) ?? .celsius
+        weatherLayout = values.lenient(WeatherWidgetLayout.self, forKey: .weatherLayout) ?? .current
         weatherForecastHours = min(max(try values.decodeIfPresent(Int.self, forKey: .weatherForecastHours) ?? 3, 1), 6)
-        weatherBackground = try values.decodeIfPresent(WeatherBackground.self, forKey: .weatherBackground) ?? .themed
-        cachedWeatherForecast = try values.decodeIfPresent(WeatherForecast.self, forKey: .cachedWeatherForecast)
+        weatherBackground = values.lenient(WeatherBackground.self, forKey: .weatherBackground) ?? .themed
+        cachedWeatherForecast = values.lenient(WeatherForecast.self, forKey: .cachedWeatherForecast)
         try ProfileSemanticValidator.validate(self)
     }
 
@@ -1097,6 +1111,22 @@ struct DockProfile: Codable, Identifiable, Hashable {
     var workspace: DockWorkspace?
 }
 
+extension DockProfile {
+    /// Fields that have defaults may be absent; settings that no longer decode fall back. The identity, name, kind
+    /// and items stay strict, so a Dock that cannot be read is set aside on its own (see `PersistentStateLoader`).
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        kind = try values.decode(DockProfileKind.self, forKey: .kind)
+        color = values.lenient(String.self, forKey: .color) ?? "blue"
+        items = try values.decodeIfPresent([DockItem].self, forKey: .items) ?? []
+        createdAt = values.lenient(Date.self, forKey: .createdAt) ?? .now
+        appearance = values.lenient(ProfileAppearance.self, forKey: .appearance)
+        workspace = values.lenient(DockWorkspace.self, forKey: .workspace)
+    }
+}
+
 struct DockProfileDraft: Equatable {
     private(set) var original: DockProfile
     private(set) var profile: DockProfile
@@ -1235,14 +1265,14 @@ struct AppSettings: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        customDockTheme = try values.decodeIfPresent(CustomDockTheme.self, forKey: .customDockTheme) ?? .system
+        customDockTheme = values.lenient(CustomDockTheme.self, forKey: .customDockTheme) ?? .system
         customDockGlassOpacity = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockGlassOpacity), default: 0, range: 0...1)
         dockAnimationsEnabled = try values.decodeIfPresent(Bool.self, forKey: .dockAnimationsEnabled) ?? true
         dockAnimationStyle = (try? values.decodeIfPresent(DockAnimationStyle.self, forKey: .dockAnimationStyle)) ?? .slide
-        setupMode = try values.decodeIfPresent(SetupMode.self, forKey: .setupMode) ?? .both
-        activeNativeProfileID = try values.decodeIfPresent(UUID.self, forKey: .activeNativeProfileID)
-        activeCustomProfileID = try values.decodeIfPresent(UUID.self, forKey: .activeCustomProfileID)
-        customDockPosition = try values.decodeIfPresent(DockPosition.self, forKey: .customDockPosition) ?? .bottom
+        setupMode = values.lenient(SetupMode.self, forKey: .setupMode) ?? .both
+        activeNativeProfileID = values.lenient(UUID.self, forKey: .activeNativeProfileID)
+        activeCustomProfileID = values.lenient(UUID.self, forKey: .activeCustomProfileID)
+        customDockPosition = values.lenient(DockPosition.self, forKey: .customDockPosition) ?? .bottom
         customDockSize = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockSize), default: 1, range: 0.65...1.5)
         customDockItemSpacing = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockItemSpacing), default: 8, range: DockAppearanceBounds.itemSpacing)
         customDockCornerRadius = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockCornerRadius), default: 24, range: DockAppearanceBounds.cornerRadius)
@@ -1251,14 +1281,14 @@ struct AppSettings: Codable, Equatable {
         customDockWidgetSurface = (try? values.decodeIfPresent(DockWidgetSurface.self, forKey: .customDockWidgetSurface)) ?? .tile
         customDockFloatingInset = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .customDockFloatingInset), default: 0, range: DockAppearanceBounds.floatingInset)
         customDockTintMode = (try? values.decodeIfPresent(DockTintMode.self, forKey: .customDockTintMode)) ?? .custom
-        customDockWidgetStyle = try values.decodeIfPresent(CustomDockWidgetStyle.self, forKey: .customDockWidgetStyle) ?? .cards
+        customDockWidgetStyle = values.lenient(CustomDockWidgetStyle.self, forKey: .customDockWidgetStyle) ?? .cards
         showWidgetLabels = try values.decodeIfPresent(Bool.self, forKey: .showWidgetLabels) ?? true
-        customDockDisplayID = try values.decodeIfPresent(UInt32.self, forKey: .customDockDisplayID)
+        customDockDisplayID = values.lenient(UInt32.self, forKey: .customDockDisplayID)
         automaticallyHideCustomDock = try values.decodeIfPresent(Bool.self, forKey: .automaticallyHideCustomDock) ?? false
         showRevealHandle = try values.decodeIfPresent(Bool.self, forKey: .showRevealHandle) ?? true
         hideCustomDockWhenSystemDockAppears = try values.decodeIfPresent(Bool.self, forKey: .hideCustomDockWhenSystemDockAppears) ?? false
         customDockDesktopMode = try values.decodeIfPresent(Bool.self, forKey: .customDockDesktopMode) ?? false
-        customDockMaterial = try values.decodeIfPresent(CustomDockMaterial.self, forKey: .customDockMaterial) ?? .frosted
+        customDockMaterial = values.lenient(CustomDockMaterial.self, forKey: .customDockMaterial) ?? .frosted
         smoothNativeDockSwitches = try values.decodeIfPresent(Bool.self, forKey: .smoothNativeDockSwitches) ?? false
         showRunningApps = try values.decodeIfPresent(Bool.self, forKey: .showRunningApps) ?? true
         showRecentApps = try values.decodeIfPresent(Bool.self, forKey: .showRecentApps) ?? false
@@ -1272,14 +1302,13 @@ struct AppSettings: Codable, Equatable {
         automaticallySaveNativeDockChanges = try values.decodeIfPresent(Bool.self, forKey: .automaticallySaveNativeDockChanges) ?? false
         showActiveProfileNameInMenuBar = try values.decodeIfPresent(Bool.self, forKey: .showActiveProfileNameInMenuBar) ?? false
         onboardingComplete = try values.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? false
-        lastSettingsPage = try values.decodeIfPresent(MyDockSettingsPage.self, forKey: .lastSettingsPage) ?? .dock
+        lastSettingsPage = values.lenient(MyDockSettingsPage.self, forKey: .lastSettingsPage) ?? .dock
         lastSeenWhatsNewVersion = try? values.decodeIfPresent(String.self, forKey: .lastSeenWhatsNewVersion)
         automaticSwitching = (try? values.decodeIfPresent(AutomaticSwitchingSettings.self, forKey: .automaticSwitching)) ?? AutomaticSwitchingSettings()
     }
 
     private static func bounded(_ value: Double?, default fallback: Double, range: ClosedRange<Double>) -> Double {
-        guard let value, value.isFinite else { return fallback }
-        return min(max(value, range.lowerBound), range.upperBound)
+        DockAppearanceBounds.clamped(value, default: fallback, to: range)
     }
 }
 

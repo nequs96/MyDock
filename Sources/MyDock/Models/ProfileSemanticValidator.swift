@@ -10,9 +10,11 @@ enum ProfileValidationError: LocalizedError {
 enum ProfileSemanticValidator {
     static let maximumTimerDuration = 366 * 86_400
     static let maximumElapsed: TimeInterval = 100 * 366 * 86_400
+    static let maximumProfiles = 500
+    static let maximumItems = 20_000
 
     static func validate(_ profiles: [DockProfile]) throws {
-        guard profiles.count <= 500, Set(profiles.map(\.id)).count == profiles.count else {
+        guard profiles.count <= maximumProfiles, Set(profiles.map(\.id)).count == profiles.count else {
             throw ProfileValidationError.invalid("too many profiles or duplicate profile identities")
         }
         var itemIDs = Set<UUID>()
@@ -22,7 +24,7 @@ enum ProfileSemanticValidator {
             guard profile.name.count <= 500 else { throw ProfileValidationError.invalid("profile name is too long") }
             for item in profile.items {
                 count += 1
-                guard count <= 20_000, itemIDs.insert(item.id).inserted else {
+                guard count <= maximumItems, itemIDs.insert(item.id).inserted else {
                     throw ProfileValidationError.invalid("too many items or duplicate item identities")
                 }
                 if let configuration = item.widgetConfiguration { try validate(configuration) }

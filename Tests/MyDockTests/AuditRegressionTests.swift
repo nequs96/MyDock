@@ -85,6 +85,51 @@ import Testing
         #expect(AirDropDroppedItemLoader.validatedShareURL(URL(string: "javascript:alert(1)")!) == nil)
     }
 
+    /// S01-002 / S02-002: one Dock that no longer decodes or validates is set aside on its own; the other Docks
+    /// and the settings load, and the file as it was is preserved.
+    @MainActor
+    @Test func oneUnreadableDockIsSetAsideWhileTheOthersLoad() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var state = PersistentState()
+        state.profiles = [DockProfile(name: "Work", kind: .custom, items: [.widget("Clock")]),
+                          DockProfile(name: "Studio", kind: .custom, items: [.widget("Countdown")])]
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        var profiles = try #require(json["profiles"] as? [[String: Any]])
+        var items = try #require(profiles[1]["items"] as? [[String: Any]])
+        var configuration = try #require(items[0]["widgetConfiguration"] as? [String: Any])
+        configuration["countdownDurationSeconds"] = -5
+        items[0]["widgetConfiguration"] = configuration
+        profiles[1]["items"] = items
+        profiles.append(["id": UUID().uuidString, "name": "Future", "kind": "a-kind-from-a-newer-build"])
+        json["profiles"] = profiles
+        var settings = try #require(json["settings"] as? [String: Any])
+        settings["customDockMaterial"] = "a-material-from-a-newer-build"
+        settings["onboardingComplete"] = true
+        json["settings"] = settings
+        let file = directory.appendingPathComponent("state.json")
+        let original = try JSONSerialization.data(withJSONObject: json)
+        try original.write(to: file)
+
+        let store = ProfileStore(fileURL: file, allowsSystemChanges: false)
+        #expect(store.state.profiles.map(\.name) == ["Work"])
+        #expect(store.state.settings.onboardingComplete && store.state.settings.customDockMaterial == .frosted)
+        let warning = try #require(store.persistenceWarning)
+        #expect(warning.contains("Studio") && warning.contains("Future"))
+        let preserved = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("state.json.recovery-") }
+        #expect(preserved.count == 1)
+        #expect(try preserved.first.map { try Data(contentsOf: $0) } == original)
+    }
+
+    @Test func unknownChoicesInListsAreSkippedRatherThanFailingTheWidget() throws {
+        let json = #"{"aiLimitsVisibleProviders":["codex","a-provider-from-a-newer-build","claude"],"nowPlayingEnabledSources":["future","spotify"]}"#
+        let configuration = try JSONDecoder().decode(WidgetConfiguration.self, from: Data(json.utf8))
+        #expect(configuration.aiLimitsVisibleProviders == [.codex, .claude])
+        #expect(configuration.nowPlayingEnabledSources == [.spotify] && configuration.nowPlayingSource == .spotify)
+    }
+
     @Test func mainDisplayIsThePrimaryDisplayNotTheFocusedOne() {
         // AppKit lists the primary display (menu bar, origin at zero) first.
         let displays: [UInt32] = [7, 8, 9]

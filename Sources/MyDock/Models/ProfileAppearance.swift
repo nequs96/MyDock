@@ -6,6 +6,12 @@ enum DockAppearanceBounds {
     static let tintStrength: ClosedRange<Double> = 0...0.5
     static let floatingInset: ClosedRange<Double> = 0...24
     static let autoTintStrength: Double = 0.06
+
+    /// A stored value outside its range is pulled back into it; a missing or non-finite one takes the default.
+    static func clamped(_ value: Double?, default fallback: Double, to range: ClosedRange<Double>) -> Double {
+        guard let value, value.isFinite else { return fallback }
+        return min(max(value, range.lowerBound), range.upperBound)
+    }
 }
 
 /// A profile either inherits global appearance or stores its own appearance snapshot.
@@ -46,22 +52,29 @@ struct ProfileAppearance: Codable, Hashable {
         tintMode = settings.customDockTintMode
     }
 
+    /// Like `AppSettings`, choices this build does not know fall back to the defaults and numbers are pulled into
+    /// their ranges, so one Dock's appearance never makes the saved data unreadable.
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        material = try values.decode(CustomDockMaterial.self, forKey: .material)
-        theme = try values.decode(CustomDockTheme.self, forKey: .theme)
-        size = try values.decode(Double.self, forKey: .size)
-        spacing = try values.decode(Double.self, forKey: .spacing)
-        cornerRadius = try values.decode(Double.self, forKey: .cornerRadius)
-        tintStrength = try values.decode(Double.self, forKey: .tintStrength)
-        widgetStyle = try values.decode(CustomDockWidgetStyle.self, forKey: .widgetStyle)
-        showWidgetLabels = try values.decode(Bool.self, forKey: .showWidgetLabels)
-        glassOpacity = try values.decodeIfPresent(Double.self, forKey: .glassOpacity)
+        let defaults = AppSettings()
+        material = values.lenient(CustomDockMaterial.self, forKey: .material) ?? defaults.customDockMaterial
+        theme = values.lenient(CustomDockTheme.self, forKey: .theme) ?? defaults.customDockTheme
+        size = DockAppearanceBounds.clamped(values.lenient(Double.self, forKey: .size), default: defaults.customDockSize, to: 0.65...1.5)
+        spacing = DockAppearanceBounds.clamped(values.lenient(Double.self, forKey: .spacing),
+                                               default: defaults.customDockItemSpacing, to: DockAppearanceBounds.itemSpacing)
+        cornerRadius = DockAppearanceBounds.clamped(values.lenient(Double.self, forKey: .cornerRadius),
+                                                    default: defaults.customDockCornerRadius, to: DockAppearanceBounds.cornerRadius)
+        tintStrength = DockAppearanceBounds.clamped(values.lenient(Double.self, forKey: .tintStrength),
+                                                    default: defaults.customDockTintStrength, to: DockAppearanceBounds.tintStrength)
+        widgetStyle = values.lenient(CustomDockWidgetStyle.self, forKey: .widgetStyle) ?? defaults.customDockWidgetStyle
+        showWidgetLabels = values.lenient(Bool.self, forKey: .showWidgetLabels) ?? defaults.showWidgetLabels
+        glassOpacity = values.lenient(Double.self, forKey: .glassOpacity).map { DockAppearanceBounds.clamped($0, default: 0, to: 0...1) }
         // Unknown future choices inherit the same defaults as absent older fields.
-        edgeStyle = try? values.decodeIfPresent(DockEdgeStyle.self, forKey: .edgeStyle)
-        widgetSurface = try? values.decodeIfPresent(DockWidgetSurface.self, forKey: .widgetSurface)
-        floatingInset = try values.decodeIfPresent(Double.self, forKey: .floatingInset)
-        tintMode = try? values.decodeIfPresent(DockTintMode.self, forKey: .tintMode)
+        edgeStyle = values.lenient(DockEdgeStyle.self, forKey: .edgeStyle)
+        widgetSurface = values.lenient(DockWidgetSurface.self, forKey: .widgetSurface)
+        floatingInset = values.lenient(Double.self, forKey: .floatingInset)
+            .map { DockAppearanceBounds.clamped($0, default: 0, to: DockAppearanceBounds.floatingInset) }
+        tintMode = values.lenient(DockTintMode.self, forKey: .tintMode)
     }
 
     func applying(to global: AppSettings) -> AppSettings {
