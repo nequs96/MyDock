@@ -61,7 +61,7 @@ extension PremiumVisualQA {
             try await renderSampleVersusLive(store: store, scheme: scheme, schemeName: schemeName, directory: directory)
         }
         // Layout coverage only; setup states are covered by MYDOCK_WIDGET_QA.
-        let missingLayouts = matrix.missing().filter { !$0.hasSuffix(WidgetQAState.setup.description) }
+        let missingLayouts = matrix.missing(states: { $0.isLayout })
         if !missingLayouts.isEmpty { throw WidgetQAMatrix.Failure(missing: missingLayouts) }
     }
 

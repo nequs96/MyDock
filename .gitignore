@@ -7,5 +7,12 @@ MyDock.xcodeproj/
 *.xcuserstate
 xcuserdata/
 *.xcworkspace/xcuserdata/
+# SwiftPM and Xcode local state
+.swiftpm/
+*.xcresult
+# The Swift extension regenerates debug configurations for SwiftPM intermediates; use the tasks instead
+.vscode/launch.json
+# Local Claude Code settings
+.claude/settings.local.json
 __pycache__/
 .claude/worktrees/

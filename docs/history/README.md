@@ -4,6 +4,9 @@ These reports preserve the observations and hashes from their original dates. Cu
 
 | Report | Evidence |
 | --- | --- |
+| [Implementation status through 5 October 2026](IMPLEMENTATION_STATUS_THROUGH_2026-10-05.md) | Earlier wave records and the T01–T30 roadmap table, moved from the current status on 7 October 2026 |
+| [Acceptance evidence through 1 October 2026](ACCEPTANCE_EVIDENCE_THROUGH_2026-10-01.md) | Dated results moved from the acceptance checklist |
+| [Parity matrix, 30 September](PARITY_MATRIX_2026-09-30.md) | [Visual parity notes, 30 September](VISUAL_PARITY_2026-09-30.md) |
 | [Dock workspace rebuild](DOCK_WORKSPACE_REBUILD_2026-10-01.md) | [Directive acceptance ledger](PRODUCT_DESIGN_ACCEPTANCE_2026-10-01.md) |
 | [Account and interface follow-up](ACCOUNT_AND_INTERFACE_FOLLOWUP_2026-10-01.md) | [Verification](ACCOUNT_AND_INTERFACE_VERIFICATION_2026-10-01.json) |
 | [Canonical consolidation baseline](CANONICAL_BASELINE_2026-09-30.md) | [Verification](CANONICAL_BASELINE_VERIFICATION_2026-09-30.json) |

@@ -18,6 +18,16 @@ case "$OUTPUT_APP" in
   /*) APP=$OUTPUT_APP ;;
   *) APP=$ROOT_DIR/$OUTPUT_APP ;;
 esac
+# The source uses Liquid Glass APIs from the macOS 26 SDK (the app itself still runs on macOS 13).
+SDK_VERSION=$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)
+SDK_MAJOR=${SDK_VERSION%%.*}
+case "$SDK_MAJOR" in
+  ''|*[!0-9]*) SDK_MAJOR=0 ;;
+esac
+if [ "$SDK_MAJOR" -lt 26 ]; then
+  printf 'MyDock needs the macOS 26 SDK (Xcode 26 or Command Line Tools 26); found %s.\n' "${SDK_VERSION:-none}" >&2
+  exit 1
+fi
 mkdir -p "$(dirname "$APP")"
 APP=$(CDPATH= cd -- "$(dirname "$APP")" && pwd -P)/$(basename "$APP")
 
@@ -79,8 +89,8 @@ STAGE="$ROOT_DIR/.build/app-stage/MyDock.app"
 rm -rf "$STAGE"
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
 cp "$UNIVERSAL_BINARY" "$STAGE/Contents/MacOS/MyDock"
-swift "$ROOT_DIR/Tools/GenerateAppIcon.swift" "$ROOT_DIR/.build/AppIcon.iconset"
-iconutil -c icns "$ROOT_DIR/.build/AppIcon.iconset" -o "$STAGE/Contents/Resources/AppIcon.icns"
+# The checked-in icon is the one the Xcode project ships too; Scripts/RegenerateAppIcon.sh rebuilds it.
+cp "$ROOT_DIR/Resources/AppIcon.icns" "$STAGE/Contents/Resources/AppIcon.icns"
 # Xcode/MyDock-Info.plist (generated from project.yml) is the one Info.plist definition; fill in the
 # build settings Xcode would expand.
 PLIST="$STAGE/Contents/Info.plist"

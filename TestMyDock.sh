@@ -20,6 +20,19 @@ if [ ! -d "$FRAMEWORKS/Testing.framework" ]; then
 fi
 mkdir -p .build/module-cache .build/swiftpm-module-cache .build/swiftpm-test
 VALIDATION_ROOT=$(mktemp -d "$PWD/.build/isolated-tests.XXXXXX")
+# Each run gets a fresh private root. Remove it afterwards; MYDOCK_KEEP_VALIDATION_ROOT=1 keeps it to inspect.
+remove_validation_root() {
+  status=$?
+  if [ "${MYDOCK_KEEP_VALIDATION_ROOT:-0}" = 1 ]; then
+    printf 'Kept the validation root at %s\n' "$VALIDATION_ROOT" >&2
+  else
+    rm -rf "$VALIDATION_ROOT"
+  fi
+  exit "$status"
+}
+trap remove_validation_root EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 MYDOCK_VALIDATION_ROOT="$VALIDATION_ROOT" \
 MYDOCK_UNIT_TEST_HOST=1 \
 MYDOCK_TEST_BUILD=1 \

@@ -1,4 +1,6 @@
-# Visual parity notes
+# Visual parity notes (dated, 30 September 2026)
+
+Moved from `docs/reference/VISUAL_PARITY.md` on 7 October 2026. These are 30 September preview observations, not current geometry.
 
 The current implementation/preview evidence is recorded in [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md). Prior dated captures below remain historical. The 30 September preview uses live render geometry with inert samples; it does not establish production OS behavior or matched Dockset parity.
 
@@ -16,7 +18,7 @@ Target reference: Dockset public site/manual and v0.2.6 changelog. No Dockset ex
 
 The public site does not provide enough screen coverage for a pixel-perfect comparison of the manager, onboarding, and every widget. Their design is an original interpretation of the reference direction.
 
-## MyDock current geometry
+## MyDock geometry, 30 September 2026
 
 These are implementation values and observations from a safe live preview build:
 

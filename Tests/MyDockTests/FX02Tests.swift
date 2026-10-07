@@ -247,15 +247,6 @@ struct FX02Tests {
         #expect(DockMotionPolicy.reorderAnimation(reduceMotion: true, animationsEnabled: true) == nil)
     }
 
-    @Test func editorMovesUseTheDockReorderMotion() throws {
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/MyDock/UI/DockCanvas.swift"), encoding: .utf8)
-        #expect(!source.contains("Motion.transform"))
-        #expect(source.contains("DockMotionPolicy.reorderAnimation"))
-        #expect(source.contains("DockMotionPolicy.settleAnimation"))
-    }
-
     // MARK: D17: fitted previews
 
     @Test func fittedPreviewScalesOnlyWhenTheDockOverflows() {

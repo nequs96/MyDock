@@ -10,7 +10,7 @@ let destination = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: tr
 try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
 
 func color(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat, _ alpha: CGFloat = 1) -> NSColor {
-    NSColor(calibratedRed: red, green: green, blue: blue, alpha: alpha)
+    NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
 }
 
 func rounded(_ rect: NSRect, radius: CGFloat, fill: NSColor) {
@@ -19,12 +19,14 @@ func rounded(_ rect: NSRect, radius: CGFloat, fill: NSColor) {
 }
 
 func render(pixelSize: Int) throws -> Data {
-    guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
-                                        pixelsWide: pixelSize, pixelsHigh: pixelSize,
-                                        bitsPerSample: 8, samplesPerPixel: 4,
-                                        hasAlpha: true, isPlanar: false,
-                                        colorSpaceName: .deviceRGB,
-                                        bytesPerRow: 0, bitsPerPixel: 0),
+    // Tagged sRGB before drawing, so the sRGB colours are stored unconverted and the PNGs carry a profile.
+    guard let blank = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                       pixelsWide: pixelSize, pixelsHigh: pixelSize,
+                                       bitsPerSample: 8, samplesPerPixel: 4,
+                                       hasAlpha: true, isPlanar: false,
+                                       colorSpaceName: .calibratedRGB,
+                                       bytesPerRow: 0, bitsPerPixel: 0),
+          let bitmap = blank.retagging(with: .sRGB),
           let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
         throw CocoaError(.fileWriteUnknown)
     }

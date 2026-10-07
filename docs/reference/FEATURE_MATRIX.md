@@ -1,6 +1,6 @@
 # MyDock feature matrix
 
-Current ticket-level implementation and remaining acceptance are recorded in [the canonical ledger](../IMPLEMENTATION_STATUS.md), updated 30 September 2026. This capability matrix retains narrower provider and OS limitations.
+Current build and test evidence: see [RELEASE_AUDIT.md](../RELEASE_AUDIT.md); open acceptance is in [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md). This capability matrix retains narrower provider and OS limitations, and is the one per-feature status table. Its research baseline and row statuses date from 24–30 September 2026 unless a row says otherwise (dated, 30 Sep 2026).
 
 
 Research baseline: Dockset's public site, manual, and changelog as published on September 24, 2026. The target snapshot is v0.2.6 (September 22, 2026). The links below identify the primary reference page; detailed widget behavior not present in the public manual is sourced from the user's master prompt and is labelled accordingly rather than presented as Dockset documentation.
@@ -64,4 +64,4 @@ Implementation update (29 September 2026): the current source adds a Dock-surfac
 - The public manual documents the user-visible setup, custom Dock, app/folder/file/link, spacers, appearance, calendar/reminders, weather, music, Shortcuts, business integrations, AI usage, and backups. The homepage and changelog extend that to the remaining widgets and v0.2.6 refinements.
 - For widgets named only in the user master prompt (Clock, World Clock, Stopwatch, Countdown, Alarm, Time Progress, Battery, Network Activity, and some provider details), requirements above are explicitly attributed to that prompt where the reference gives no detailed behavior.
 - Native Dock layout modification is described by the reference as saved pinned-app and spacer state. The public manual notes that Apple does not expose a first-party spacer API; implementation must isolate preference-format coupling and verify/rollback changes.
-- The Dockset homepage and public Stock preview were inspected; see [VISUAL_PARITY.md](VISUAL_PARITY.md). A pre-draft MyDock Dock Manager screenshot verified selection mode and visible selection state. A full side-by-side visual comparison, latest manager layout, widget popout placement, animation, and dark-mode parity remain unassessed.
+- The Dockset homepage and public Stock preview were inspected; see [the dated visual parity notes](../history/VISUAL_PARITY_2026-09-30.md). A pre-draft MyDock Dock Manager screenshot verified selection mode and visible selection state. A full side-by-side visual comparison, latest manager layout, widget popout placement, animation, and dark-mode parity remain unassessed.

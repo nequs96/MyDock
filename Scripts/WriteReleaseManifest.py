@@ -26,9 +26,11 @@ def sha256(path):
 
 def command(*args, required=True):
     result = subprocess.run(args, capture_output=True, text=True)
+    output = (result.stdout + result.stderr).strip()
     if required and result.returncode:
-        raise RuntimeError(f"{args[0]} failed ({result.returncode})")
-    return result.returncode, (result.stdout + result.stderr).strip()
+        # The tool's own message (bounded) is what tells the operator why a release step failed.
+        raise RuntimeError(f"{' '.join(args[:2])} failed ({result.returncode}): {output[-2000:]}")
+    return result.returncode, output
 
 
 def inventory(root):

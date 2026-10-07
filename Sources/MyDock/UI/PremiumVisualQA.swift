@@ -14,6 +14,25 @@ enum PremiumVisualQA {
         return stride(from: 0, to: kinds.count, by: size).map { Array(kinds[$0..<min($0 + size, kinds.count)]) }
     }
 
+    /// A fixed application list for Add Item renders. The paths are apps every supported macOS ships;
+    /// renders never scan, show or export the inventory of the Mac they run on.
+    static var fixtureAppScan: InstalledAppScan {
+        let apps: [(String, String, String)] = [
+            ("Calculator", "com.apple.calculator", "/System/Applications/Calculator.app"),
+            ("Calendar", "com.apple.iCal", "/System/Applications/Calendar.app"),
+            ("Finder", "com.apple.finder", "/System/Library/CoreServices/Finder.app"),
+            ("Maps", "com.apple.Maps", "/System/Applications/Maps.app"),
+            ("Music", "com.apple.Music", "/System/Applications/Music.app"),
+            ("Notes", "com.apple.Notes", "/System/Applications/Notes.app"),
+            ("Photos", "com.apple.Photos", "/System/Applications/Photos.app"),
+            ("Reminders", "com.apple.reminders", "/System/Applications/Reminders.app"),
+            ("TextEdit", "com.apple.TextEdit", "/System/Applications/TextEdit.app"),
+        ]
+        return InstalledAppScan(applications: apps.map {
+            InstalledApplication(url: URL(fileURLWithPath: $0.2), bundleIdentifier: $0.1, name: $0.0, version: "1.0")
+        })
+    }
+
     private static func exportToolsUI(to directory: URL, store: ProfileStore) async throws {
         let kinds = ["File Shelf", "Text Snippets", "Quick Links", "Unit Converter", "Color Picker"]
         let file = directory.appendingPathComponent("Example.txt")
@@ -56,51 +75,52 @@ enum PremiumVisualQA {
         }
     }
 
+    /// The DEBUG render modes. `MYDOCK_RENDER_QA=<directory>` plus at most one of these flags set to `1`
+    /// selects an exporter; no flag selects the default editor matrix.
+    enum RenderMode: String, CaseIterable {
+        case facesA = "MYDOCK_FACESA_QA", facesB = "MYDOCK_FACESB_QA", settings = "MYDOCK_SETTINGS_QA"
+        case surfaces = "MYDOCK_SURFACES_QA", interaction = "MYDOCK_INTERACTION_QA", tools = "MYDOCK_TOOLS_QA"
+        case glass = "MYDOCK_GLASS_QA", adaptive = "MYDOCK_ADAPTIVE_QA", widget = "MYDOCK_WIDGET_QA"
+        case focused = "MYDOCK_FOCUSED_QA", redesign = "MYDOCK_REDESIGN_QA", dockStyle = "MYDOCK_DOCKSTYLE_QA"
+        case widgetSurface = "MYDOCK_WIDGETSURFACE_QA", gallery = "MYDOCK_GALLERY_QA"
+        case widgetSheet = "MYDOCK_WIDGETSHEET_QA", motion = "MYDOCK_MOTION_QA"
+
+        /// Two flags at once would silently run only one of them, so that is an error.
+        static func selected(in environment: [String: String]) throws -> RenderMode? {
+            let modes = allCases.filter { environment[$0.rawValue] == "1" }
+            guard modes.count <= 1 else {
+                throw NSError(domain: "MyDockRenderQA", code: 3, userInfo: [NSLocalizedDescriptionKey:
+                    "Set one render mode at a time, not " + modes.map(\.rawValue).joined(separator: " and ")])
+            }
+            return modes.first
+        }
+    }
+
     static func export(to directory: URL, store: ProfileStore) async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        if ProcessInfo.processInfo.environment["MYDOCK_FACESB_QA"] == "1" { try await exportFacesBUI(to: directory, store: store); return }
-        if ProcessInfo.processInfo.environment["MYDOCK_SETTINGS_QA"] == "1" { try await exportSettingsUI(to: directory, store: store); return }
-        if ProcessInfo.processInfo.environment["MYDOCK_SURFACES_QA"] == "1" {
-            try await exportChangedSurfacesUI(to: directory, store: store)
-            return
+        switch try RenderMode.selected(in: ProcessInfo.processInfo.environment) {
+        case .facesA: try await exportFacesAUI(to: directory, store: store)
+        case .facesB: try await exportFacesBUI(to: directory, store: store)
+        case .settings: try await exportSettingsUI(to: directory, store: store)
+        case .surfaces: try await exportChangedSurfacesUI(to: directory, store: store)
+        case .interaction: try await exportInteractionUI(to: directory, store: store)
+        case .tools: try await exportToolsUI(to: directory, store: store)
+        case .glass: try await exportGlassUI(to: directory, store: store)
+        case .adaptive: try await exportAdaptiveUI(to: directory, store: store)
+        case .widget: try await exportWidgetUI(to: directory, store: store)
+        case .focused: try await exportFocusedUI(to: directory, store: store)
+        case .redesign: try await exportRedesignUI(to: directory)
+        case .dockStyle: try await exportDockStyleUI(to: directory, store: store)
+        case .widgetSurface: try await exportWidgetSurfaceUI(to: directory, store: store)
+        case .gallery: try await exportGalleryUI(to: directory, store: store)
+        case .widgetSheet: try await exportWidgetSheetUI(to: directory, store: store)
+        case .motion: try await exportMotionUI(to: directory, store: store)
+        case nil: try await exportEditorUI(to: directory, store: store)
         }
-        if ProcessInfo.processInfo.environment["MYDOCK_INTERACTION_QA"] == "1" {
-            try await exportInteractionUI(to: directory, store: store)
-            return
-        }
-        if ProcessInfo.processInfo.environment["MYDOCK_TOOLS_QA"] == "1" {
-            try await exportToolsUI(to: directory, store: store)
-            return
-        }
-        if ProcessInfo.processInfo.environment["MYDOCK_GLASS_QA"] == "1" {
-            try await exportGlassUI(to: directory, store: store)
-            return
-        }
-        if ProcessInfo.processInfo.environment["MYDOCK_ADAPTIVE_QA"] == "1" {
-            try await exportAdaptiveUI(to: directory, store: store)
-            return
-        }
-        if ProcessInfo.processInfo.environment["MYDOCK_WIDGET_QA"] == "1" {
-            try await exportWidgetUI(to: directory, store: store)
-            return
-        }
-        if ProcessInfo.processInfo.environment["MYDOCK_FOCUSED_QA"] == "1" {
-            try await exportFocusedUI(to: directory, store: store)
-            return
-        }
-        if ProcessInfo.processInfo.environment["MYDOCK_REDESIGN_QA"] == "1" {
-            try await exportRedesignUI(to: directory)
-            return
-        }
-        if ProcessInfo.processInfo.environment["MYDOCK_DOCKSTYLE_QA"] == "1" {
-            try await exportDockStyleUI(to: directory, store: store)
-            return
-        }
-        if ProcessInfo.processInfo.environment["MYDOCK_WIDGETSURFACE_QA"] == "1" { try await exportWidgetSurfaceUI(to: directory, store: store); return }
-        if ProcessInfo.processInfo.environment["MYDOCK_GALLERY_QA"] == "1" { try await exportGalleryUI(to: directory, store: store); return }
-        if ProcessInfo.processInfo.environment["MYDOCK_WIDGETSHEET_QA"] == "1" { try await exportWidgetSheetUI(to: directory, store: store); return }
-        if ProcessInfo.processInfo.environment["MYDOCK_MOTION_QA"] == "1" { try await exportMotionUI(to: directory, store: store); return }
-        if ProcessInfo.processInfo.environment["MYDOCK_FACESA_QA"] == "1" { try await exportFacesAUI(to: directory, store: store); return }
+    }
+
+    /// The default matrix: the Dock workspace, inspectors, Add Item, Settings, onboarding and Dock positions.
+    private static func exportEditorUI(to directory: URL, store: ProfileStore) async throws {
         let names = ["System Activity", "Clock", "AI Limits"]
         let everyday = try store.createProfileAndPersist(kind: .custom, name: "Everyday")
         for bundle in ["com.apple.finder", "com.microsoft.VSCode", "com.apple.Terminal"] {
@@ -297,7 +317,7 @@ enum PremiumVisualQA {
             try await renderTransparentDock(store: store, profile: profile, name: "glass-\(material.rawValue)-corners", directory: directory)
         }
         store.updateSettings { $0.customDockMaterial = .liquidGlass }
-        try await render(DockLayoutPreview(store: store, profile: profile).padding(24), name: "glass-reduce-transparency", size: NSSize(width: 660, height: 160), scheme: .light, directory: directory, contrast: .increased, reduceTransparency: true)
+        try await render(DockLayoutPreview(store: store, profile: profile).padding(24), name: "glass-contrast-opaque", size: NSSize(width: 660, height: 160), scheme: .light, directory: directory, contrast: .increased, reduceTransparency: true)
         try await render(SettingsView(store: store, initialPage: .appearance), name: "glass-appearance-settings", size: NSSize(width: 1100, height: 900), scheme: .light, directory: directory)
     }
 
@@ -600,21 +620,21 @@ enum PremiumVisualQA {
         let id = try store.createProfileAndPersist(kind: .custom, name: "Everyday")
         store.add(.widget("Clock"), to: id)
         store.updateSettings { $0.onboardingComplete = true; $0.showRunningApps = false; $0.showTrash = false }
-        let scan = await InstalledAppCatalog.scan()
-        let inventory = scan.applications.map { ["name": $0.name, "path": $0.url.path, "bundleIdentifier": $0.bundleIdentifier, "version": $0.version] }
-        try JSONSerialization.data(withJSONObject: inventory, options: [.prettyPrinted, .sortedKeys]).write(to: directory.appendingPathComponent("installed-apps.json"))
         let profile = store.state.profiles.first { $0.id == id }!
+        // The fixed app list keeps the renders identical on every Mac and never exports this Mac's inventory.
+        let apps = AddLibraryPreviewState(scan: fixtureAppScan)
+        let settle = Duration.milliseconds(800)
         for scheme in [ColorScheme.dark, .light] {
             let suffix = scheme == .dark ? "dark" : "light"
             for category in ["All", "Applications", "Widgets", "System"] {
                 try await render(AddLibrary(store: store, profile: profile, initialCategory: category,
-                    add: { _ in }, switchProfile: { _ in }, newDock: {}, settings: {}, browse: { _ in }, close: {}),
-                    name: "add-" + category.lowercased() + "-" + suffix, size: NSSize(width: 820, height: 560), scheme: scheme, directory: directory)
+                    add: { _ in }, switchProfile: { _ in }, newDock: {}, settings: {}, browse: { _ in }, close: {}).environment(\.addLibraryPreview, apps),
+                    name: "add-" + category.lowercased() + "-" + suffix, size: NSSize(width: 820, height: 560), scheme: scheme, directory: directory, settle: settle)
             }
-            try await render(AddLibrary(store: store, profile: profile, initialQuery: "no-matches-xyz", add: { _ in }, switchProfile: { _ in }, newDock: {}, settings: {}, browse: { _ in }, close: {}),
-                name: "add-empty-" + suffix, size: NSSize(width: 740, height: 500), scheme: scheme, directory: directory)
-            try await render(AddLibrary(store: store, profile: profile, initialQuery: "Clock", add: { _ in }, switchProfile: { _ in }, newDock: {}, settings: {}, browse: { _ in }, close: {}),
-                name: "add-search-" + suffix, size: NSSize(width: 740, height: 500), scheme: scheme, directory: directory)
+            try await render(AddLibrary(store: store, profile: profile, initialQuery: "no-matches-xyz", add: { _ in }, switchProfile: { _ in }, newDock: {}, settings: {}, browse: { _ in }, close: {}).environment(\.addLibraryPreview, apps),
+                name: "add-empty-" + suffix, size: NSSize(width: 740, height: 500), scheme: scheme, directory: directory, settle: settle)
+            try await render(AddLibrary(store: store, profile: profile, initialQuery: "Clock", add: { _ in }, switchProfile: { _ in }, newDock: {}, settings: {}, browse: { _ in }, close: {}).environment(\.addLibraryPreview, apps),
+                name: "add-search-" + suffix, size: NSSize(width: 740, height: 500), scheme: scheme, directory: directory, settle: settle)
             for state in ["connected", "partial", "disconnected", "empty", "failure", "updating"] {
                 let item = activityFixture(state: state)
                 // Even a future fixture refresh must return the authored state, never read
@@ -625,12 +645,16 @@ enum PremiumVisualQA {
                     return .activity(snapshot)
                 })
                 store.add(item, to: id)
+                var refresh: Task<Void, Never>?
                 if state == "updating" {
-                    Task { await store.widgetData.refresh(item: item, profileID: id) }
+                    refresh = Task { await store.widgetData.refresh(item: item, profileID: id) }
                 }
                 let account = AIAccountStatus(state: state == "disconnected" ? .unavailable : .signedIn, message: "Preview")
                 try await render(AIActivityPopoutView(store: store, item: item, profileID: id, accountOverride: account).padding(16).background(DockDesign.page),
-                    name: "ai-" + state + "-" + suffix, size: NSSize(width: 404, height: state == "connected" || state == "partial" || state == "updating" ? 390 : 320), scheme: scheme, directory: directory)
+                    name: "ai-" + state + "-" + suffix, size: NSSize(width: 404, height: state == "connected" || state == "partial" || state == "updating" ? 390 : 320), scheme: scheme, directory: directory, settle: settle)
+                // The refresh must not outlive its render and write into the next fixture.
+                refresh?.cancel()
+                await refresh?.value
                 store.removeItem(item.id, from: id)
             }
             var tile = AIActivityPreviewData.item()
@@ -643,7 +667,7 @@ enum PremiumVisualQA {
                     AppleWidgetCard(item: tile, width: width, showsLabels: true, fallback: AnyView(AIActivityCompactView(item: tile)))
                 }
                 AppleWidgetCard(item: setup, width: 144, showsLabels: true, fallback: AnyView(AIActivityCompactView(item: setup)))
-            }.padding(20).background(DockDesign.page), name: "ai-tiles-" + suffix, size: NSSize(width: 786, height: 100), scheme: scheme, directory: directory)
+            }.padding(20).background(DockDesign.page), name: "ai-tiles-" + suffix, size: NSSize(width: 786, height: 100), scheme: scheme, directory: directory, settle: settle)
         }
     }
 
@@ -690,10 +714,11 @@ enum PremiumVisualQA {
     }
 
     /// `fitsContentHeight` grows the canvas to the content's height (plus the title-bar safe area) instead
-    /// of trusting `size.height`, for pages whose row count varies.
+    /// of trusting `size.height`, for pages whose row count varies. `settle` is how long SwiftUI's
+    /// appearance and state tasks get before the capture.
     static func render<Content: View>(_ view: Content, name: String, size: NSSize,
                                               scheme: ColorScheme, directory: URL, contrast: ColorSchemeContrast = .standard,
-                                              reduceTransparency: Bool = false, fixtureClick: NSPoint? = nil,
+                                              reduceTransparency: Bool = false, settle: Duration = .milliseconds(350),
                                               fitsContentHeight: Bool = false) async throws {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
@@ -710,7 +735,6 @@ enum PremiumVisualQA {
             .environment(\.dockAccessibilityPreview, DockAccessibilityPreview(contrast: contrast, reduceTransparency: reduceTransparency)))
         host.frame = NSRect(origin: .zero, size: size)
         window.contentView = host
-        if fixtureClick != nil { window.orderFrontRegardless() }
         host.layoutSubtreeIfNeeded()
         if fitsContentHeight, host.fittingSize.height.isFinite {
             let height = max(size.height, ceil(host.fittingSize.height + host.safeAreaInsets.top))
@@ -719,24 +743,8 @@ enum PremiumVisualQA {
             host.layoutSubtreeIfNeeded()
         }
         // Settle SwiftUI's appearance/state tasks before caching the native view.
-        try await Task.sleep(for: .milliseconds(ProcessInfo.processInfo.environment["MYDOCK_FOCUSED_QA"] == "1" ? 800 : 350))
+        try await Task.sleep(for: settle)
         host.layoutSubtreeIfNeeded()
-        if let fixtureClick {
-            // Only the fixed 460×520 synthetic Alarm fixture uses this point: its
-            // pencil was located in the pre-edit bitmap. Events stay in this window;
-            // the fixture never clicks Save, toggles an alarm or requests scheduling.
-            let point = NSPoint(x: fixtureClick.x, y: host.isFlipped ? fixtureClick.y : host.bounds.height - fixtureClick.y)
-            let location = host.convert(point, to: nil)
-            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                guard let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0,
-                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else {
-                    throw CocoaError(.coderInvalidValue)
-                }
-                window.sendEvent(event)
-            }
-            try await Task.sleep(for: .milliseconds(350))
-            host.layoutSubtreeIfNeeded()
-        }
         warnIfClipped(host, name: name)
         guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { throw CocoaError(.fileWriteUnknown) }
         host.cacheDisplay(in: host.bounds, to: bitmap)

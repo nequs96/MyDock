@@ -186,6 +186,18 @@ class ReleaseManifestTests(unittest.TestCase):
                 self.run_manifest("release")
             self.assertFalse(self.output.exists())
 
+    def test_failing_required_command_reports_its_output(self):
+        script = "import sys; sys.stdout.write('x' * 5000); sys.stderr.write('stapler: The staple failed'); sys.exit(3)"
+        with self.assertRaises(RuntimeError) as raised:
+            manifest.command(sys.executable, "-c", script)
+        message = str(raised.exception)
+        self.assertIn("failed (3)", message)
+        self.assertIn("The staple failed", message)
+        self.assertLess(len(message), 2200)
+        code, output = manifest.command(sys.executable, "-c", script, required=False)
+        self.assertEqual(code, 3)
+        self.assertIn("The staple failed", output)
+
 
 if __name__ == "__main__":
     unittest.main()

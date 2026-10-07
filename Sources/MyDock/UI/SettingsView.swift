@@ -47,6 +47,10 @@ struct SettingsView: View {
     @ObservedObject var nativeDockAutoSave = NativeDockAutoSaveMonitor.shared
     @ObservedObject var nativeDockVisibility = NativeDockAutoHideController.shared
     @ObservedObject private var nativeDock = NativeDockController.shared
+    #if DEBUG
+    /// Render QA only: the Appearance page shows just this section, still inside the installed page.
+    var renderedAppearanceSection: SettingsAppearanceSection?
+    #endif
 
     init(store: ProfileStore, initialPage: MyDockSettingsPage? = nil,
          embeddedInWorkspace: Bool = false, sidebarVisible: Bool = true) {

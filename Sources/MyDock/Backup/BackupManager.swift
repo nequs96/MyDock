@@ -27,7 +27,7 @@ enum BackupError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedVersion(let version): "This backup uses unsupported schema version \(version)."
-        case .tooLarge: "This backup is larger than the supported 25 MB limit."
+        case .tooLarge: "This backup is larger than the supported 25 MiB limit."
         case .notRegularFile: "Choose a regular JSON backup file."
         case .invalidLink(let title): "The link for “\(title)” must use HTTP or HTTPS and include a host."
         case .invalidLinkIcon(let title): "The site icon for “\(title)” is not a supported image."
