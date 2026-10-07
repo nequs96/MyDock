@@ -219,7 +219,7 @@ struct DockCanvasItem: View {
             }
         }.overlay(alignment: .bottomTrailing) {
             if missing {
-                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(DockDesign.Status.warning)
             }
         }.allowsHitTesting(false).accessibilityHidden(true)
     }

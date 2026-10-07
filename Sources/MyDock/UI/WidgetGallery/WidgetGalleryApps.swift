@@ -46,7 +46,7 @@ struct WidgetGalleryAppRow: View {
         .onHover { hovered = $0 }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.title + (entry.detail.isEmpty ? "" : ", " + entry.detail) + WidgetGalleryRowAccessory(added: added).labelSuffix)
-        .accessibilityHint(added ? "Already in this Dock." : "Adds the app to this Dock.")
+        .accessibilityHint(added ? "Already in this Dock." : enabled ? "Adds the app to this Dock." : WidgetGalleryModel.noDockMessage)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .help(entry.application.url.path)
     }
@@ -58,7 +58,6 @@ enum WidgetGalleryRowAccessory: Equatable {
     case add, added
     init(added: Bool) { self = added ? .added : .add }
     var symbol: String { self == .added ? "checkmark" : "plus.circle.fill" }
-    var drawsFilledCircle: Bool { self == .add }
     /// Appended to the row's VoiceOver label.
     var labelSuffix: String { self == .added ? ", Added" : "" }
 }

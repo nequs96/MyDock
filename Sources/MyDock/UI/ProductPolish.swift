@@ -19,15 +19,22 @@ enum WhatsNew {
         Entry(symbol: "command", title: "Faster to find and switch", subtitle: "Search saved items with \u{2318}K. Docks can switch automatically."),
     ]
 
-    /// Never on the first launch (setup is still pending), once after the version changes,
-    /// and once for existing users who have never seen the sheet.
-    static func shouldShow(lastSeenVersion: String?, currentVersion: String, onboardingComplete: Bool) -> Bool {
+    /// The release the table above describes. Raise it to the shipping version whenever the
+    /// table changes; a patch release that leaves the table alone does not show it again.
+    static let contentVersion = "0.1.0"
+
+    /// Never on the first launch (setup is still pending), once when the table is newer than the
+    /// version last seen, and once for existing users who have never seen the sheet. The seen
+    /// stamp stays the marketing version, so versions compare numerically ("0.10" after "0.9").
+    static func shouldShow(lastSeenVersion: String?, contentVersion: String = WhatsNew.contentVersion,
+                           onboardingComplete: Bool) -> Bool {
         guard onboardingComplete else { return false }
-        return lastSeenVersion != currentVersion
+        guard let lastSeenVersion else { return true }
+        return lastSeenVersion.compare(contentVersion, options: .numeric) == .orderedAscending
     }
 
-    static func shouldShow(settings: AppSettings, currentVersion: String = Product.marketingVersion) -> Bool {
-        shouldShow(lastSeenVersion: settings.lastSeenWhatsNewVersion, currentVersion: currentVersion,
+    static func shouldShow(settings: AppSettings, contentVersion: String = WhatsNew.contentVersion) -> Bool {
+        shouldShow(lastSeenVersion: settings.lastSeenWhatsNewVersion, contentVersion: contentVersion,
                    onboardingComplete: settings.onboardingComplete)
     }
 }
@@ -58,7 +65,9 @@ struct WhatsNewView: View {
     }
 }
 
-/// The app's real keyboard shortcuts, read from the code that defines them.
+/// Hand-maintained list of the app's shortcuts for Help > Keyboard Shortcuts. Keep it in sync
+/// with the `.keyboardShortcut` call sites (DockManagerView, AddLibrary, the gallery chrome and
+/// detail, and the app menu in MyDockApp).
 enum KeyboardShortcutCatalog {
     struct Entry: Identifiable, Equatable {
         var title: String
@@ -88,7 +97,12 @@ enum KeyboardShortcutCatalog {
         ShortcutGroup(title: "Popouts and sheets", entries: [
             Entry(title: "Close a popout", keys: "\u{2318}W"),
             Entry(title: "Close a popout, search or sheet", keys: "\u{238B}"),
-            Entry(title: "Add in the widget gallery", keys: "\u{2318}\u{21A9}"),
+        ]),
+        ShortcutGroup(title: "Add Item gallery", entries: [
+            Entry(title: "Switch between Widgets, Apps and More", keys: "\u{2318}1 \u{2318}2 \u{2318}3"),
+            Entry(title: "Show sizes of the focused widget", keys: "\u{21A9} Space"),
+            Entry(title: "Previous or next size", keys: "\u{2190} \u{2192}"),
+            Entry(title: "Add the focused or highlighted item", keys: "\u{2318}\u{21A9}"),
         ]),
     ]
 

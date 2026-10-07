@@ -60,16 +60,24 @@ enum DockStarterPreset: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The name a fallback note uses for each preferred (first-choice) app; never derived from
+    /// the bundle identifier, which gives "finder" or "ActivityMonitor".
+    static let displayNames: [String: String] = [
+        "com.apple.finder": "Finder", "com.apple.Safari": "Safari", "com.apple.mail": "Mail",
+        "com.apple.Notes": "Notes", "com.apple.iWork.Numbers": "Numbers", "com.apple.Maps": "Maps",
+        "com.apple.ActivityMonitor": "Activity Monitor", "com.apple.Terminal": "Terminal",
+        "com.figma.Desktop": "Figma", "com.adobe.Photoshop": "Photoshop",
+        "com.microsoft.VSCode": "Visual Studio Code", "com.googlecode.iterm2": "iTerm",
+        "us.zoom.xos": "Zoom", "com.openai.codex": "Codex",
+    ]
+
     @MainActor func resolve() -> Resolution {
         let candidates = applicationCandidates
         let widgets = widgetKinds
         var apps: [DockItem] = []
         var notes: [String] = []
-        let names = ["com.figma.Desktop": "Figma", "com.adobe.Photoshop": "Photoshop",
-                     "com.microsoft.VSCode": "Visual Studio Code", "com.googlecode.iterm2": "iTerm",
-                     "us.zoom.xos": "Zoom", "com.openai.codex": "Codex"]
         for group in candidates {
-            let preferred = names[group[0]] ?? group[0].split(separator: ".").last.map(String.init) ?? "Preferred app"
+            let preferred = group.first.flatMap { Self.displayNames[$0] } ?? "The preferred app"
             if let match = group.enumerated().compactMap({ index, id in
                 NSWorkspace.shared.urlForApplication(withBundleIdentifier: id).map { (index, $0) }
             }).first {

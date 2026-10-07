@@ -181,6 +181,7 @@
 		BD77F54C93E754BCB7E0575D /* DockCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F2D5CF7119B738044D6287 /* DockCanvas.swift */; };
 		BDDA29AD5147C004A88D0319 /* FolderContentsReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC62EC3F8ABE5C0D8808C9FA /* FolderContentsReader.swift */; };
 		BE288BCB25796B456800E4DD /* PersonalPresetPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 262E66F3B0C1253FAC08FACC /* PersonalPresetPicker.swift */; };
+		B8D2F1E35C4A6079F2E3D4C5 /* PresetLibraryTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C1E0D24B3F5968E1D2C3B4 /* PresetLibraryTile.swift */; };
 		BE5DE7BFD6FF0825DB7D30CC /* AIUsageWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C48ECB2A627715F75BC2A1EB /* AIUsageWidgetViews.swift */; };
 		BF4C42464E31828585B4A79B /* ReliabilityLastGoodLimitsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2405228EBFD806F8BAB34CE5 /* ReliabilityLastGoodLimitsTests.swift */; };
 		BF5F5C06E6F5111926C1D324 /* ProductVisualFixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E287C0BEFE53EC935A37C9AB /* ProductVisualFixTests.swift */; };
@@ -302,6 +303,7 @@
 		24ABA3638B2E0C7B99351E5C /* ConnectionTenantBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionTenantBinding.swift; sourceTree = "<group>"; };
 		24E3E2FA59D04DFB52AFDA50 /* MarketDataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketDataService.swift; sourceTree = "<group>"; };
 		262E66F3B0C1253FAC08FACC /* PersonalPresetPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalPresetPicker.swift; sourceTree = "<group>"; };
+		A7C1E0D24B3F5968E1D2C3B4 /* PresetLibraryTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetLibraryTile.swift; sourceTree = "<group>"; };
 		2683184ECD83EC69D51DC097 /* CurrentLocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentLocationService.swift; sourceTree = "<group>"; };
 		2716D3E6095934E2E93EC1B1 /* ReliabilityDemandCancellationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReliabilityDemandCancellationTests.swift; sourceTree = "<group>"; };
 		275281B3E72E0F15E417CEA3 /* WidgetGalleryChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetGalleryChrome.swift; sourceTree = "<group>"; };
@@ -813,6 +815,7 @@
 				4B29E430F23BFAB12E20829E /* OnboardingView.swift */,
 				262E66F3B0C1253FAC08FACC /* PersonalPresetPicker.swift */,
 				AAF85853BEDADC21B497AF3A /* PremiumVisualQA.swift */,
+				A7C1E0D24B3F5968E1D2C3B4 /* PresetLibraryTile.swift */,
 				D0EAC99F647903727CCB39C8 /* PrivacyHelpSection.swift */,
 				8A03D094E02B011AB14C1DA2 /* RecoveryCenterView.swift */,
 				09BA2BF07784809BEFCAC863 /* SettingsAppearanceEditing.swift */,
@@ -1166,6 +1169,7 @@
 				BE288BCB25796B456800E4DD /* PersonalPresetPicker.swift in Sources */,
 				71BE13811F54F74E343B561F /* PillButton.swift in Sources */,
 				0E60ADF75B5706F345E1C898 /* PremiumVisualQA.swift in Sources */,
+				B8D2F1E35C4A6079F2E3D4C5 /* PresetLibraryTile.swift in Sources */,
 				8C232B2D83C40029B966026E /* PrivacyHelpCopy.swift in Sources */,
 				02693AA7355443220B440CE4 /* PrivacyHelpSection.swift in Sources */,
 				DEEBC09A48DCBD61544C70FB /* Product.swift in Sources */,

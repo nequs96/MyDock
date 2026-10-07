@@ -142,22 +142,20 @@ struct GallerySegmentedControl<Value: Hashable>: View {
     }
 }
 
-/// Small glass header buttons: Done, Back and the capability filter.
+/// Small glass capsule buttons: the gallery's Done and Back, sheet Done buttons and popout actions.
 struct GalleryGlassButtonStyle: ButtonStyle {
-    var circular = false
     func makeBody(configuration: Configuration) -> some View {
-        GlassButtonBody(configuration: configuration, circular: circular)
+        GlassButtonBody(configuration: configuration)
     }
     private struct GlassButtonBody: View {
         let configuration: ButtonStyle.Configuration
-        var circular: Bool
         @Environment(\.isEnabled) private var isEnabled
         @State private var hovered = false
         var body: some View {
             configuration.label
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.primary)
-                .padding(.horizontal, circular ? 0 : 14)
+                .padding(.horizontal, 14)
                 .frame(minWidth: WidgetGalleryMetrics.controlHeight, minHeight: WidgetGalleryMetrics.controlHeight)
                 .contentShape(Capsule())
                 .dockGlass(.regular, in: Capsule(), interactive: true)
@@ -172,37 +170,32 @@ struct GalleryGlassButtonStyle: ButtonStyle {
 /// opaque under Reduce Transparency, with a visible edge under Increase Contrast.
 struct GalleryBackdrop: ViewModifier {
     var radius: CGFloat
-    var highlighted = false
     func body(content: Content) -> some View {
         content
             .dockGlass(.regular, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .overlay {
-                if highlighted {
-                    RoundedRectangle(cornerRadius: radius + 4, style: .continuous)
-                        .strokeBorder(DockDesign.accent, lineWidth: 2.5)
-                        .padding(-4)
-                        .allowsHitTesting(false)
-                }
-            }
     }
 }
 
 extension View {
     /// Reports the viewport's width minus the page insets. Measured outside the content so
     /// fixed-width tiles can never widen what they are sized from.
+    /// An always-visible (legacy) scroller takes its width inside the viewport, so it is left out too.
     func galleryContentWidth(_ width: Binding<CGFloat>) -> some View {
         background {
             GeometryReader { proxy in
-                let inner = max(200, proxy.size.width - 2 * WidgetGalleryMetrics.pageInset)
+                let inner = WidgetGalleryMetrics.contentWidth(viewport: proxy.size.width)
                 Color.clear
                     .onAppear { width.wrappedValue = inner }
                     .onChange(of: inner) { width.wrappedValue = $0 }
+                    .onReceive(NotificationCenter.default.publisher(for: NSScroller.preferredScrollerStyleDidChangeNotification)) { _ in
+                        width.wrappedValue = WidgetGalleryMetrics.contentWidth(viewport: proxy.size.width)
+                    }
             }
         }
     }
 
-    func galleryBackdrop(radius: CGFloat = WidgetGalleryMetrics.tileRadius, highlighted: Bool = false) -> some View {
-        modifier(GalleryBackdrop(radius: radius, highlighted: highlighted))
+    func galleryBackdrop(radius: CGFloat = WidgetGalleryMetrics.tileRadius) -> some View {
+        modifier(GalleryBackdrop(radius: radius))
     }
 
     /// The area behind a widget tile's floating preview: nothing at rest, a soft highlight on
@@ -219,6 +212,16 @@ extension View {
         } else {
             focusable(enabled)
         }
+    }
+}
+
+extension WidgetGalleryMetrics {
+    /// The grid width inside a scroll viewport: the page insets and, when scrollers are always
+    /// shown (legacy style), the scroller's own width are left out.
+    @MainActor static func contentWidth(viewport: CGFloat) -> CGFloat {
+        let scroller = NSScroller.preferredScrollerStyle == .legacy
+            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        return max(200, viewport - 2 * pageInset - scroller)
     }
 }
 

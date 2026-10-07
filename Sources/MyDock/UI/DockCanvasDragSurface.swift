@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -125,9 +126,10 @@ final class DockCanvasDragView: NSView {
         liftedImage?.setFrameOrigin(CGPoint(x: point.x - imageOffset.x, y: point.y - imageOffset.y - 3))
         showInsertion(insertion(at: point, excluding: draggedIDs), bounds.contains(point))
     }
+    /// Escape cancels a lift here; ⌘. and other window-level cancels arrive as cancelOperation.
     override func cancelOperation(_ sender: Any?) { cancelDrag() }
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { cancelDrag() } else { super.keyDown(with: event) }
+        if event.keyCode == UInt16(kVK_Escape) { cancelDrag() } else { super.keyDown(with: event) }
     }
     private func cancelDrag(restorePreviousResponder: Bool = true) {
         if restorePreviousResponder, window?.firstResponder === self { window?.makeFirstResponder(previousResponder) }

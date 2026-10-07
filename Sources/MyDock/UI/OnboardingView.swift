@@ -200,6 +200,8 @@ struct OnboardingView: View {
                     .font(DockDesign.body).foregroundStyle(.secondary)
             } else {
                 Text("Choose the Custom Dock placement.").font(DockDesign.sectionTitle)
+                // Screens are listed once per pass, for the picker and the summary alike.
+                let options = displayOptions
                 SettingsControlRow(title: "Position") {
                     Picker("Edge", selection: $dockPosition) {
                         ForEach(DockPosition.allCases) { Text($0.title).tag($0) }
@@ -208,10 +210,14 @@ struct OnboardingView: View {
                 SettingsControlRow(title: "Display") {
                     Picker("Display", selection: $displayID) {
                         Text("Main display").tag(Optional<UInt32>.none)
-                        ForEach(displayOptions) { option in Text(option.title).tag(Optional(option.id)) }
+                        ForEach(options) { option in Text(option.title).tag(Optional(option.id)) }
+                        // A replayed setup can keep a display that is unplugged now; it stays visible and valid.
+                        if let displayID, !options.contains(where: { $0.id == displayID }) {
+                            Text("Disconnected display").tag(Optional(displayID))
+                        }
                     }
                 }
-                placementPreview
+                placementPreview(options)
                 Text("Placement, display, size, and auto-hide can be changed later in Settings.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -219,7 +225,7 @@ struct OnboardingView: View {
         }
     }
 
-    private var placementPreview: some View {
+    private func placementPreview(_ options: [DisplayChoice]) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Placement preview").font(DockDesign.sectionTitle)
             ZStack(alignment: dockPosition == .bottom ? .bottom : (dockPosition == .left ? .leading : .trailing)) {
@@ -237,7 +243,7 @@ struct OnboardingView: View {
                 .padding(14)
             }
             .frame(height: 160)
-            Text(previewSummary).font(.caption).foregroundStyle(.secondary)
+            Text(previewSummary(options)).font(.caption).foregroundStyle(.secondary)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -269,9 +275,7 @@ struct OnboardingView: View {
                 }
             }
             Divider()
-            Text("Permissions are optional and requested only when you use a feature that needs them.")
-                .font(DockDesign.sectionTitle)
-            Text("Hydration reminders may request Notifications. Calendar, Reminders, Weather location, Accessibility, and Screen Recording are not needed for this setup. You can review optional permissions in Settings.")
+            Text("Permissions are asked for only when a widget needs them.")
                 .font(DockDesign.body).foregroundStyle(.secondary)
             Spacer()
             Label(DockProfileStatus.nativeConsequence(for: setupMode), systemImage: "lock.shield")
@@ -286,9 +290,10 @@ struct OnboardingView: View {
         }
     }
 
-    private var previewSummary: String {
-        let screen = displayOptions.first(where: { $0.id == displayID })?.title ?? "Main display"
-        let profileSummary = store.customProfiles.isEmpty ? "\(Self.starterWidgetKinds(starterWidgets, for: setupMode).count) starter widget(s)" : "existing Dock"
+    private func previewSummary(_ options: [DisplayChoice]) -> String {
+        let screen = displayID.map { id in options.first(where: { $0.id == id })?.title ?? "Disconnected display" } ?? "Main display"
+        let count = Self.starterWidgetKinds(starterWidgets, for: setupMode).count
+        let profileSummary = store.customProfiles.isEmpty ? (count == 1 ? "1 starter widget" : "\(count) starter widgets") : "existing Dock"
         return "\(dockPosition.title) · \(screen) · \(profileSummary)"
     }
 

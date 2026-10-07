@@ -230,4 +230,68 @@ import Testing
             #expect(!page.designDescription.localizedCaseInsensitiveContains("layouts"))
         }
     }
+
+    // MARK: Part 3
+
+    // S15-016
+    @Test func appsAndMoreMatchEveryQueryWordLikeWidgets() {
+        #expect(WidgetDiscovery.matchesTerms("Visual Studio Code", query: "visual code"))
+        #expect(WidgetDiscovery.matchesTerms("Visual Studio Code", query: ""))
+        #expect(!WidgetDiscovery.matchesTerms("Visual Studio Code", query: "visual xcode"))
+        let apps = [
+            InstalledApplication(url: URL(fileURLWithPath: "/Applications/Visual Studio Code.app"), bundleIdentifier: "com.microsoft.VSCode", name: "Visual Studio Code", version: "1.0"),
+            InstalledApplication(url: URL(fileURLWithPath: "/Applications/Maps.app"), bundleIdentifier: "com.apple.Maps", name: "Maps", version: "3.0")
+        ]
+        #expect(WidgetGalleryModel.applicationEntries(apps, query: "code visual").map(\.title) == ["Visual Studio Code"])
+        #expect(WidgetGalleryModel.applicationEntries(apps, query: "vscode").map(\.title) == ["Visual Studio Code"])
+        let spacers = WidgetGalleryModel.moreEntries(kind: .custom, query: "gap slim")
+        #expect(spacers.count == 1 && spacers.first?.item?.spacerKind == .small)
+    }
+
+    // S15-017
+    @Test func duplicateAppsWithoutAVersionShowOnlyTheirFolder() {
+        let apps = [
+            InstalledApplication(url: URL(fileURLWithPath: "/Applications/Tool.app"), bundleIdentifier: "a", name: "Tool", version: ""),
+            InstalledApplication(url: URL(fileURLWithPath: "/Volumes/Old/Tool.app"), bundleIdentifier: "b", name: "Tool", version: "2.0")
+        ]
+        #expect(WidgetGalleryModel.applicationEntries(apps, query: "").map(\.detail) == ["Applications", "Version 2.0 · Old"])
+    }
+
+    // S15-023
+    @Test func galleryPreviewsFallBackInsteadOfIndexingAnEmptyFamily() {
+        let unknown = WidgetGalleryModel.layoutOption(for: "MyDock Audit Unknown Family", layout: .wide)
+        #expect(unknown == WidgetLayoutPresets.generic[0])
+        #expect(!WidgetGalleryModel.layoutOptions(for: "MyDock Audit Unknown Family").isEmpty)
+        for definition in WidgetRegistry.all {
+            let first = WidgetGalleryModel.layoutOptions(for: definition.name)[0]
+            let supported = definition.capabilities.layouts.map(\.layout)
+            for layout in WidgetLayout.allCases {
+                let option = WidgetGalleryModel.layoutOption(for: definition.name, layout: layout)
+                #expect(option.layout == (supported.contains(layout) ? layout : first.layout), "\(definition.name)")
+            }
+        }
+    }
+
+    // S15-021, S15-022
+    @Test func galleryCopyMatchesSingleClickOpeningAndOneNoDockLine() {
+        #expect(!WidgetGalleryKeymap.tileHelp(canAdd: true).localizedCaseInsensitiveContains("double-click"))
+        #expect(WidgetGalleryModel.noDockMessage == "Choose a Dock to add items.")
+    }
+
+    // S16-016
+    @Test func starterPresetFallbackNotesNameEveryPreferredApp() {
+        for preset in DockStarterPreset.allCases {
+            for group in preset.applicationCandidates {
+                let preferred = group.first
+                #expect(preferred.flatMap { DockStarterPreset.displayNames[$0] } != nil, "\(preset.rawValue): \(group)")
+            }
+        }
+    }
+
+    // S16-014
+    @Test func shortcutCatalogListsTheGalleryKeys() {
+        let titles = KeyboardShortcutCatalog.groups.flatMap { $0.entries.map(\.title) }
+        #expect(titles.contains("Switch between Widgets, Apps and More"))
+        #expect(titles.contains("Previous or next size"))
+    }
 }

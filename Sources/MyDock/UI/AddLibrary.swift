@@ -37,6 +37,8 @@ struct AddLibrary: View {
     /// True while focus is being handed back to `detailOrigin`, so the search field that
     /// reappears does not take focus.
     @State private var returningFocus = false
+    /// The tile a closed detail hands focus back to once the gallery is in the hierarchy again.
+    @State private var pendingFocus: String?
     /// A tile the arrow keys move to: scrolled into view first, so LazyVGrid has built it
     /// before it takes focus.
     @State private var focusRequest: String?
@@ -279,7 +281,7 @@ struct AddLibrary: View {
                     }
                 }
                 if !allowsAdding {
-                    Text("Choose a Dock to add items.").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(WidgetGalleryModel.noDockMessage).font(.system(size: 12)).foregroundStyle(.secondary)
                 }
             }
         }
@@ -354,6 +356,14 @@ struct AddLibrary: View {
                     if focusRequest == id { focusedTile = id; focusRequest = nil }
                 }
             }
+            // Back from a keyboard-opened detail: the gallery exists again, so its tile is
+            // scrolled into view and focused on the next pass, like an arrow-key move, with no timer.
+            .onAppear {
+                guard let id = pendingFocus else { return }
+                pendingFocus = nil
+                proxy.scrollTo(id, anchor: .center)
+                DispatchQueue.main.async { focusedTile = id; returningFocus = false }
+            }
         }
     }
 
@@ -386,7 +396,7 @@ struct AddLibrary: View {
             }
         }
         if sections.isEmpty {
-            GalleryEmptyState(title: "No Widgets Found",
+            GalleryEmptyState(title: "No Results",
                               detail: capabilityFilter == .all ? "Try another search." : "Try another search or show all widgets.") {
                 crossTabSuggestions(excluding: .widgets)
             }
@@ -463,7 +473,7 @@ struct AddLibrary: View {
                     }
                 }
             } else if !loading && (scan?.unreadableLocations ?? 0) == 0 {
-                GalleryEmptyState(title: searchText.isEmpty ? "No Applications Found" : "No Apps Found",
+                GalleryEmptyState(title: searchText.isEmpty ? "No Apps Found" : "No Results",
                                   detail: searchText.isEmpty ? "Choose an application from another location." : "Try another search.") {
                     crossTabSuggestions(excluding: .apps)
                 }
@@ -546,14 +556,10 @@ struct AddLibrary: View {
         let origin = detailOrigin
         detailOrigin = nil
         // Keep the reappearing search field from taking focus back from the tile.
-        if origin != nil { returningFocus = true }
+        returningFocus = origin != nil
+        // The tile exists again only after the gallery is back in the hierarchy; its onAppear takes this.
+        pendingFocus = origin
         DockDesign.Motion.perform(DockDesign.Motion.appear, reduceMotion: accessibility.reduceMotion) { detail = nil }
-        guard let origin else { return }
-        // The tile exists again only after the gallery is back in the hierarchy.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            focusedTile = origin
-            returningFocus = false
-        }
     }
 
     /// Return, Space or Command-Return on the focused widget tile.
@@ -659,15 +665,12 @@ struct AddLibrary: View {
         let entry = results[selected]
         GalleryAnnouncement.post(entry.title + (added(entry.item) ? ", Added" : ""))
     }
-    /// Return in the search field: adds the highlighted result's default size (the detail's
-    /// selected size while it is open), as it always has.
+    /// Return in the search field: adds the highlighted result's default size. The field exists
+    /// only while the detail is closed; the detail's Add Widget pill owns Return there.
     private func performSelected() {
-        let context: WidgetGalleryKeyContext = detail == nil ? .searchResults : .detail
-        switch WidgetGalleryKeymap.action(for: .returnKey, context: context, canAdd: allowsAdding) {
-        case .addSelectedSize: if let detail { addWidget(detail, layout: detailLayout) }
-        case .addDefault: if let index = highlightedIndex { perform(navigationEntries[index]) }
-        default: break
-        }
+        guard WidgetGalleryKeymap.action(for: .returnKey, context: .searchResults, canAdd: allowsAdding) == .addDefault,
+              let index = highlightedIndex else { return }
+        perform(navigationEntries[index])
     }
     /// Escape leaves the detail first, then clears the search, then closes.
     private func escape() {

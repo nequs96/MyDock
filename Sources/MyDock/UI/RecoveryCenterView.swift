@@ -12,7 +12,12 @@ struct RecoveryCenterView: View {
         GroupedSection("Recovery & history", footer: "Restoring creates a new Dock.") {
             GroupedRow("Include private text for this session", isOn: $history.includeNotes)
                 .help("Includes Sticky Note text, Quick Checklist tasks, and Text Snippets in new history entries until MyDock quits. File Shelf references and Quick Links are always omitted. Turning this off does not remove text from existing history entries.")
-            if let error = history.errorMessage { GroupedRow(error).foregroundStyle(.orange) }
+            // The warning row pattern (as in a popout's persistence notice): the glyph carries the
+            // state colour, the reason is the subtitle, and the full text is on hover and for VoiceOver.
+            if let error = history.errorMessage {
+                GroupedRow("Recovery history", subtitle: error, symbol: "exclamationmark.triangle.fill", color: DockDesign.Status.warning)
+                    .help(error).textSelection(.enabled)
+            }
             if history.entries.isEmpty { GroupedRow("No earlier versions yet.") }
             ForEach(history.entries) { entry in
                 GroupedRow(entry.profile.name, subtitle: "\(entry.reason) · \(entry.recordedAt.formatted(date: .abbreviated, time: .shortened)) · \(entry.profile.items.count) items") {
@@ -23,7 +28,7 @@ struct RecoveryCenterView: View {
                 }
             }
             GroupedRow("Clear History…", role: .destructive) { confirmingClear = true }.disabled(history.entries.isEmpty)
-            if let message { GroupedRow(message).textSelection(.enabled) }
+            if let message { GroupedRow(message).help(message).textSelection(.enabled) }
         }
         .id("Recovery & history")
         .help("Earlier versions of your Docks are kept locally for 14 days, up to 25 entries and 8 MB. Credentials, connected account references, cached usage, hydration history, and running sessions are removed.")

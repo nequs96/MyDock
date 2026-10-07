@@ -31,7 +31,7 @@ struct DiagnosticsPreviewSheet: View {
                 Text(payload.text).font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(12)
             }.frame(minHeight: 240).background(DockDesign.input, in: RoundedRectangle(cornerRadius: DockDesign.Radius.input))
-            if let errorMessage { Text(errorMessage).font(DockDesign.caption).foregroundStyle(.orange).textSelection(.enabled) }
+            if let errorMessage { Text(errorMessage).font(DockDesign.caption).foregroundStyle(DockDesign.Status.warning).textSelection(.enabled) }
             HStack {
                 Text("\(payload.data.count.formatted()) bytes").font(DockDesign.caption).foregroundStyle(.secondary)
                 Spacer()

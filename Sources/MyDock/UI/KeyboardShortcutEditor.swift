@@ -41,7 +41,7 @@ struct KeyboardShortcutEditor: View {
 
             if let registrationStatus = controller.statusMessages[profileID] {
                 Label(registrationStatus, systemImage: "exclamationmark.triangle.fill")
-                    .font(DockDesign.caption).foregroundStyle(.orange)
+                    .font(DockDesign.caption).foregroundStyle(DockDesign.Status.warning)
             }
             if let message {
                 Text(message).font(DockDesign.caption).foregroundStyle(.secondary)
@@ -127,7 +127,6 @@ private struct ShortcutCaptureView: NSViewRepresentable {
     func makeNSView(context: Context) -> ShortcutCaptureNSView {
         let view = ShortcutCaptureNSView()
         view.onCapture = onCapture
-        DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         return view
     }
 
@@ -141,10 +140,20 @@ private final class ShortcutCaptureNSView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    /// The one place the recorder takes focus: on the next pass after it joins a window, once
+    /// SwiftUI has placed the sheet's own focus.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        window?.makeFirstResponder(self)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.window else { return }
+            window.makeFirstResponder(self)
+        }
     }
+
+    // VoiceOver lands here when recording starts, so the focused area has a name and a role.
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .textField }
+    override func accessibilityLabel() -> String? { "Shortcut recorder. Press the new shortcut." }
 
     override func keyDown(with event: NSEvent) { onCapture?(event) }
 

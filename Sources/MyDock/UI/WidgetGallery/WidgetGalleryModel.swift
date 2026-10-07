@@ -140,14 +140,24 @@ enum WidgetGalleryModel {
         }
     }
 
-    /// The layout a double-click or Return adds and a gallery tile previews: the family's default.
+    /// The layout Command-Return or a search-field Return adds and a gallery tile previews: the family's default.
     static func defaultLayout(for kind: String) -> WidgetLayout {
         WidgetRegistry.definition(named: kind)?.capabilities.defaultLayout ?? WidgetPresentationCatalog.defaultLayout(for: kind)
     }
 
-    /// The pages of the detail view's size pager.
+    /// Shown wherever adding is unavailable because no Dock is selected.
+    static let noDockMessage = "Choose a Dock to add items."
+
+    /// The pages of the detail view's size pager; never empty, so previews cannot index past it.
     static func layoutOptions(for kind: String) -> [WidgetLayoutOption] {
-        WidgetPresentationCatalog.options(for: kind)
+        let options = WidgetPresentationCatalog.options(for: kind)
+        return options.isEmpty ? WidgetLayoutPresets.generic : options
+    }
+
+    /// The option a preview draws for `layout`: that size, else the family's first.
+    static func layoutOption(for kind: String, layout: WidgetLayout) -> WidgetLayoutOption {
+        let options = layoutOptions(for: kind)
+        return options.first { $0.layout == layout } ?? options.first ?? WidgetLayoutPresets.generic[0]
     }
 
     /// A new widget item. `nil` is the quick add: no stored layout, exactly as the gallery's
@@ -185,23 +195,27 @@ enum WidgetGalleryModel {
         return recentlyAdded.contains(key) || addedIdentities.contains(key)
     }
 
+    /// Apps match every query word against the name and bundle identifier, like widget search.
     static func applicationEntries(_ applications: [InstalledApplication], query: String) -> [WidgetGalleryApplicationEntry] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         var counts: [String: Int] = [:]
         for application in applications { counts[application.name, default: 0] += 1 }
         return applications
-            .filter { trimmed.isEmpty || $0.name.localizedStandardContains(trimmed) }
+            .filter { WidgetDiscovery.matchesTerms($0.name + " " + $0.bundleIdentifier, query: query) }
             .map { application in
                 let ambiguous = (counts[application.name] ?? 0) > 1
-                return WidgetGalleryApplicationEntry(
-                    application: application,
-                    detail: ambiguous ? "Version \(application.version) · \(application.url.deletingLastPathComponent().lastPathComponent)" : "")
+                return WidgetGalleryApplicationEntry(application: application, detail: ambiguous ? duplicateDetail(application) : "")
             }
+    }
+
+    /// Tells same-named apps apart: the version when the bundle has one, and the containing folder.
+    static func duplicateDetail(_ application: InstalledApplication) -> String {
+        let folder = application.url.deletingLastPathComponent().lastPathComponent
+        return [application.version.isEmpty ? nil : "Version " + application.version, folder.isEmpty ? nil : folder]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 
     /// Spacers, then the pickers. Native Docks only offer Choose Application… besides spacers.
     static func moreEntries(kind: DockProfileKind, query: String) -> [WidgetGalleryMoreEntry] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         var result = SpacerKind.allCases.map { spacer in
             WidgetGalleryMoreEntry(id: "spacer:" + spacer.rawValue, title: spacer.title,
                                    detail: spacerDetail(spacer), symbol: "rectangle.split.2x1", item: .spacer(spacer))
@@ -210,7 +224,7 @@ enum WidgetGalleryModel {
             result.append(WidgetGalleryMoreEntry(id: "browse:" + action.rawValue, title: action.title, detail: action.detail,
                                                  symbol: action.symbol, browseAction: action))
         }
-        return result.filter { trimmed.isEmpty || ($0.title + " " + $0.detail).localizedStandardContains(trimmed) }
+        return result.filter { WidgetDiscovery.matchesTerms($0.title + " " + $0.detail, query: query) }
     }
 
     /// One short, distinct line per spacer size.
@@ -365,7 +379,7 @@ enum WidgetGalleryKeymap {
 
     /// The tooltip of a widget tile: the mouse and keyboard routes together.
     static func tileHelp(canAdd: Bool) -> String {
-        canAdd ? "Click or press Return to see sizes. Double-click or press Command-Return to add."
+        canAdd ? "Click or press Return to see sizes. Press Command-Return to add."
                : "Click or press Return to see sizes."
     }
 }

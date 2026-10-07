@@ -40,7 +40,9 @@ struct CommandLibrary: View {
         var warning = false
         var secondary: (label: String, symbol: String, run: () -> Void)? = nil
     }
-    private var entries: [Entry] { commandEntries + savedEntries }
+    /// Docks and commands first, then saved content, then items to add, so a saved match is not
+    /// buried under every app and widget that also matches.
+    private var entries: [Entry] { matching(commandEntries) + savedEntries + matching(addEntries) }
     /// Explicitly saved snippets, links and shelf files from every Dock. Absent unless the query matches something.
     private var savedEntries: [Entry] {
         SavedCollectionSearch.results(in: store.state.profiles, query: query).map(savedEntry)
@@ -81,8 +83,11 @@ struct CommandLibrary: View {
         close()
     }
     private var commandEntries: [Entry] {
-        var result: [Entry] = store.state.profiles.map { p in
-            Entry(id: p.id.uuidString, title: "Switch to " + p.name, detail: "Dock", symbol: "dock.rectangle", action: { switchProfile(p.id); close() })
+        // Other Docks come first; the Dock being edited stays last so Settings can return to it.
+        let docks = store.state.profiles.filter { $0.id != profile.id } + store.state.profiles.filter { $0.id == profile.id }
+        var result: [Entry] = docks.map { p in
+            Entry(id: p.id.uuidString, title: "Switch to " + p.name, detail: p.id == profile.id ? "Current Dock" : "Dock",
+                  symbol: "dock.rectangle", action: { switchProfile(p.id); close() })
         }
         if let workspaceStartHandler {
             result += store.state.profiles.filter(\.hasWorkspace).map { p in
@@ -91,6 +96,10 @@ struct CommandLibrary: View {
         }
         result += [Entry(id: "new", title: "Create New Dock", detail: "⌘N", symbol: "plus", action: { close(); newDock() }),
                    Entry(id: "settings", title: "Open Settings", detail: "⌘,", symbol: "gearshape", action: { close(); settings() })]
+        return result
+    }
+    private var addEntries: [Entry] {
+        var result: [Entry] = []
         if allowsAdding {
             // One key set per pass, and only apps whose text can match are resolved: each app is a
             // set lookup instead of a symlink resolution for every Dock item.
@@ -121,7 +130,10 @@ struct CommandLibrary: View {
                 result.append(Entry(id: "browse:" + action.rawValue, title: action.title, detail: "Browse", symbol: "plus", action: { close(); browse(action) }))
             }
         }
-        return result.filter { entry in
+        return result
+    }
+    private func matching(_ candidates: [Entry]) -> [Entry] {
+        candidates.filter { entry in
             if let kind = entry.item?.widgetKind, let definition = WidgetRegistry.definition(named: kind) {
                 return WidgetDiscovery.matches(definition, query: query) || entry.title.localizedStandardContains(query)
             }
@@ -159,7 +171,7 @@ struct CommandLibrary: View {
                                 HStack(spacing: 12) {
                                     if let item = entry.item, item.type == .application {
                                         Image(nsImage: AppLauncher.icon(for: item, size: 32)).resizable().scaledToFit().frame(width: 32, height: 32)
-                                    } else { Image(systemName: entry.warning ? "exclamationmark.triangle.fill" : entry.symbol).frame(width: 32).foregroundStyle(entry.warning ? Color.orange : Color.secondary) }
+                                    } else { Image(systemName: entry.warning ? "exclamationmark.triangle.fill" : entry.symbol).frame(width: 32).foregroundStyle(entry.warning ? DockDesign.Status.warning : Color.secondary) }
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(entry.title).font(DockDesign.body.weight(.medium))
                                         Text(entry.detail).font(DockDesign.Grouped.footerFont).foregroundStyle(.secondary).lineLimit(1)

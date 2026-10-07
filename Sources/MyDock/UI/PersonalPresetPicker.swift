@@ -12,9 +12,10 @@ struct PersonalPresetPicker: View {
         GroupedSection("Personal presets") {
             // A library error always shows, even after an earlier success message.
             if let error = library.errorMessage {
-                GroupedRow(error, symbol: "exclamationmark.triangle.fill", color: .orange).textSelection(.enabled)
+                GroupedRow("Preset library", subtitle: error, symbol: "exclamationmark.triangle.fill", color: DockDesign.Status.warning)
+                    .help(error).textSelection(.enabled)
             }
-            if let message { GroupedRow(message).textSelection(.enabled) }
+            if let message { GroupedRow(message).help(message).textSelection(.enabled) }
             GroupedRow("Import…", role: .button) { importPreset() }
             if library.entries.isEmpty {
                 GalleryEmptyState(title: "No Personal Presets", detail: "Save or import a Dock preset to keep it here.",

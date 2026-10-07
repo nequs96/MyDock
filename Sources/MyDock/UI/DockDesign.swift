@@ -4,8 +4,15 @@ import SwiftUI
 
 /// Shared presentation tokens. Dock geometry and provider models remain independent.
 enum DockDesign {
+    /// Semantic state colours for app chrome, shared with widget faces (`WidgetPalette`). Colour
+    /// marks state only: warning for recoverable problems and inline validation, critical for
+    /// destructive or failed states, positive for an active or connected state.
+    enum Status {
+        static let warning = WidgetPalette.warning
+        static let critical = WidgetPalette.critical
+        static let positive = WidgetPalette.positive
+    }
     enum Space {
-        static let xxs: CGFloat = 4
         static let xs: CGFloat = 6
         static let small: CGFloat = 8
         static let medium: CGFloat = 12
@@ -54,7 +61,6 @@ enum DockDesign {
         }
         /// Content insets inside a module.
         static let insets = EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
-        static let compactInsets = EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
         /// Vertical gap between value and label.
         static let lineSpacing: CGFloat = 2
         enum Glyph {
@@ -427,30 +433,6 @@ struct DockSheetHeader: View {
                 Text(subtitle).font(DockDesign.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-struct DockSettingSection<Content: View>: View {
-    var title: String
-    @ViewBuilder var content: Content
-    var body: some View {
-        GroupedSection(title) {
-            if #available(macOS 15.0, *) {
-                Group(subviews: content) { rows in
-                    ForEach(rows) { row in
-                        row.frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12).padding(.vertical, 6)
-                    }
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 8) { content }.padding(12)
-            }
-        }
-            .toggleStyle(SettingsSwitchStyle())
-            .controlSize(.small)
-            .buttonStyle(DockButtonStyle())
-            .textFieldStyle(DockTextFieldStyle())
-            .id(title)
     }
 }
 

@@ -215,7 +215,7 @@ struct RedesignGalleryTests {
         let added = WidgetGalleryRowAccessory(added: true)
         #expect(add == .add && added == .added)
         #expect(add.symbol != added.symbol)
-        #expect(add.drawsFilledCircle && !added.drawsFilledCircle)
+        #expect(add.symbol.hasSuffix(".fill"))
         #expect(!added.symbol.contains("circle"))
         #expect(added.labelSuffix == ", Added" && add.labelSuffix.isEmpty)
     }

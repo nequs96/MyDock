@@ -57,8 +57,6 @@ struct DockManagerView: View {
     @FocusState private var profileNameFocused: Bool
     @State private var workspaceSize = CGSize(width: 1160, height: 760)
     @State private var profileSearch = ""
-    @State private var dropTargetID: UUID?
-    @State private var isEndDropTarget = false
     @State private var configurationTarget: DockConfigurationTarget?
     @State private var confirmingProfileDeletion = false
     @State private var profileToDelete: UUID?
@@ -72,6 +70,8 @@ struct DockManagerView: View {
     @State private var confirmingClear = false
     @State private var workspaceStart: WorkspaceStartRequest?
     @State private var dockExport: PortableDockExportRequest?
+    /// "Exported <Dock>." from the export sheet, shown once that sheet has closed.
+    @State private var dockExportMessage: String?
     @State private var dockImport: PortableDockImportPreview?
     /// A sheet or picker chosen in the Add Item or ⌘K window; it opens once that sheet is gone.
     @State private var pendingAfterLibrary: (() -> Void)?
@@ -126,7 +126,7 @@ struct DockManagerView: View {
                 HStack(alignment: .top, spacing: 10) {
                     Label(store.persistenceError ?? "Changes are waiting to be saved.",
                           systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                        .font(.caption).foregroundStyle(DockDesign.Status.warning).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 6)
                     Button("Retry Save") { store.commit() }
                         .controlSize(.small)
@@ -134,7 +134,7 @@ struct DockManagerView: View {
                 }
                 .padding(11)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.orange.opacity(0.3), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(DockDesign.Status.warning.opacity(0.3), lineWidth: 1))
                 .padding(12)
                 .zIndex(20)
             }
@@ -209,14 +209,19 @@ struct DockManagerView: View {
         .sheet(isPresented: $showingCreation) { creationSheet }
         .sheet(item: $workspaceStart) { request in
             WorkspaceStartSheet(request: request, launcher: SystemWorkspaceLauncher(),
-                                switchToDock: { useProfile(request.profile) },
+                                switchToDock: { await switchForWorkspace(request.profile) },
                                 locate: { locateWorkspaceItem($0, in: request.profile.id) },
                                 close: { workspaceStart = nil })
         }
-        .sheet(item: $dockExport) { request in
+        .sheet(item: $dockExport, onDismiss: {
+            // Confirmed like the Settings export; shown after the sheet so the alert is not dropped.
+            guard let message = dockExportMessage else { return }
+            dockExportMessage = nil
+            dockOperationMessage = message
+        }) { request in
             PortableDockExportSheet(profiles: request.profiles, selectedID: request.selectedID,
                                     includePersonalData: request.includePersonalData,
-                                    close: { dockExport = nil }, exported: { _ in dockExport = nil })
+                                    close: { dockExport = nil }, exported: { message in dockExportMessage = message; dockExport = nil })
         }
         .sheet(item: $dockImport) { preview in
             PortableDockImportSheet(preview: preview, add: { addImportedDock(preview) }, cancel: { dockImport = nil })
@@ -228,7 +233,6 @@ struct DockManagerView: View {
             Group {
                 Button("Search MyDock") { libraryMode = .command }.keyboardShortcut("k")
                 Button("New Dock") { prepareCreation() }.keyboardShortcut("n")
-                Button("Settings", action: openSettings).keyboardShortcut(",")
             }.hidden()
         }
         .sheet(isPresented: $showingPresets) { presetPicker }
@@ -344,12 +348,12 @@ struct DockManagerView: View {
                 if profile.kind == .native { Text("macOS Dock").font(DockDesign.caption).foregroundStyle(.secondary) }
                 Spacer()
                 if let saveState {
-                    if saveState == .failed { Button(saveState.title) { scheduleAutosave() }.buttonStyle(.plain).foregroundStyle(.orange) }
+                    if saveState == .failed { Button(saveState.title) { scheduleAutosave() }.buttonStyle(.plain).foregroundStyle(DockDesign.Status.warning) }
                     else { Text(saveState.title).font(DockDesign.caption).foregroundStyle(.secondary) }
                 }
                 if isActive(profile) {
                     Button { showingActiveStatus.toggle() } label: {
-                        HStack(spacing: 6) { Circle().fill(status.showsActiveIndicator ? Color.green : Color.secondary).frame(width: 6, height: 6); Text(status.label).font(DockDesign.caption) }
+                        HStack(spacing: 6) { Circle().fill(status.showsActiveIndicator ? DockDesign.Status.positive : Color.secondary).frame(width: 6, height: 6); Text(status.label).font(DockDesign.caption) }
                     }.buttonStyle(.plain).foregroundStyle(.secondary).help(profile.kind == .native ? "Applied to the macOS Dock" : "Active Dock")
                         .popover(isPresented: $showingActiveStatus) {
                             VStack(alignment: .leading, spacing: 12) {
@@ -479,7 +483,7 @@ struct DockManagerView: View {
                     Text(selectedItemIDs.count > 1 ? "\(selectedItemIDs.count) items selected" : item.displayName).font(DockDesign.sectionTitle)
                         .lineLimit(1).truncationMode(.middle).help(selectedItemIDs.count > 1 ? "" : item.displayName)
                     Text(missing ? "Saved location missing. Choose Locate… to reconnect." : "⌘← / ⌘→ to move · ⌘D to duplicate · Delete to remove")
-                        .font(DockDesign.Grouped.footerFont).foregroundStyle(missing ? Color.orange : Color.secondary)
+                        .font(DockDesign.Grouped.footerFont).foregroundStyle(missing ? DockDesign.Status.warning : Color.secondary)
                 }
                 Spacer()
                 if selectedItemIDs.count == 1 { Button("Configure") { configureItem(item) } }
@@ -875,7 +879,7 @@ struct DockManagerView: View {
             // Only once something was typed: the sheet does not open with an error.
             if linkAddress != "https://", !linkAddress.isEmpty, DockLinkPolicy.validatedURL(linkAddress) == nil {
                 Text("Enter a valid HTTP or HTTPS address.")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(.caption).foregroundStyle(DockDesign.Status.warning)
             }
             Picker("Icon", selection: $linkIconSelection) {
                 Text("Default").tag("")
@@ -1076,6 +1080,32 @@ struct DockManagerView: View {
             store.activate(profile.id)
         } else {
             applyNativeProfile(profile)
+        }
+    }
+
+    /// "Also switch" from Start Workspace. The outcome is returned for that sheet to show, since an
+    /// alert on this view would wait behind the sheet.
+    private func switchForWorkspace(_ profile: DockProfile) async -> String {
+        switch saveDraftOutcome() {
+        case .saved: break
+        case .resolved, .kept: return "Not switched: the current Dock's changes need review first."
+        case .failed(let message): return "Not switched: " + message
+        }
+        if profile.kind == .custom {
+            store.activate(profile.id)
+            return "Switched to \(profile.name)."
+        }
+        guard store.allowsSystemChanges else { return "macOS Dock changes are disabled in the visual preview." }
+        guard !applyingNativeProfile else { return "Not switched: another macOS Dock change is in progress." }
+        let profileToApply = store.state.profiles.first(where: { $0.id == profile.id }) ?? profile
+        applyingNativeProfile = true
+        defer { applyingNativeProfile = false }
+        do {
+            try await NativeDockController.shared.apply(profileToApply)
+            store.recordAppliedNativeProfile(profileToApply.id)
+            return "Applied \(profileToApply.name) to the macOS Dock."
+        } catch {
+            return "Not switched: " + error.localizedDescription
         }
     }
 
