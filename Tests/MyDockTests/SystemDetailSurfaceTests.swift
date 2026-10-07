@@ -5,7 +5,8 @@ import Testing
 @testable import MyDock
 
 /// PX-7 (OP-07): System Activity is the one System detail surface, with optional Network and Storage
-/// sections. New widgets start with both on; widgets saved before PX-7 keep today's popout.
+/// sections. Both start off, for new widgets and for widgets saved before PX-7, until the popout's
+/// settings turn them on.
 @MainActor
 struct SystemDetailSurfaceTests {
     // A System Activity item as saved before PX-7: no section keys.
@@ -20,16 +21,14 @@ struct SystemDetailSurfaceTests {
 
     // MARK: Section defaults
 
-    @Test func newSystemActivityWidgetsShowBothSections() throws {
+    @Test func newSystemActivityWidgetsStartWithBothSectionsOff() throws {
         let configuration = try #require(DockItem.widget("System Activity").widgetConfiguration)
-        #expect(configuration.systemShowsNetwork == true)
-        #expect(configuration.systemShowsStorage == true)
-        #expect(SystemDetailSections.showsNetwork(configuration))
-        #expect(SystemDetailSections.showsStorage(configuration))
+        #expect(!SystemDetailSections.showsNetwork(configuration))
+        #expect(!SystemDetailSections.showsStorage(configuration))
     }
 
-    @Test func otherFamiliesAndTheBareDefaultCarryNoSectionKeys() throws {
-        for kind in ["Network Activity", "Disk Space", "Clock"] {
+    @Test func newWidgetsAndTheBareDefaultCarryNoSectionKeys() throws {
+        for kind in ["System Activity", "Network Activity", "Disk Space", "Clock"] {
             let configuration = try #require(DockItem.widget(kind).widgetConfiguration)
             #expect(configuration.systemShowsNetwork == nil, "\(kind)")
             #expect(configuration.systemShowsStorage == nil, "\(kind)")
@@ -157,13 +156,18 @@ struct SystemDetailSurfaceTests {
         let network = DockItem.widget("Network Activity")
         let disk = DockItem.widget("Disk Space")
         for item in [system, network, disk] { store.add(item, to: id) }
+        // Both sections chosen: the tallest System Activity popout.
+        store.updateWidgetConfiguration(itemID: system.id, in: id) {
+            $0.systemShowsNetwork = true
+            $0.systemShowsStorage = true
+        }
         let opener = WidgetPopoutOpener(open: { _ in })
         for item in [system, network, disk] {
             let popout = WidgetPopout(store: store, item: item, profileID: id).padding(20)
                 .environment(\.widgetPopoutOpener, opener)
             expectRigid(popout, item.title)
         }
-        // Existing System Activity widgets (keys absent) keep the previous popout.
+        // New and older System Activity widgets (keys absent) show the popout without the sections.
         store.updateWidgetConfiguration(itemID: system.id, in: id) {
             $0.systemShowsNetwork = nil
             $0.systemShowsStorage = nil

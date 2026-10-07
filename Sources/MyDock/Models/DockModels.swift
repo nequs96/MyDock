@@ -285,7 +285,6 @@ struct DockItem: Codable, Identifiable, Hashable {
     static func widget(_ kind: String) -> DockItem {
         var configuration = WidgetConfiguration()
         configuration.iconAppearance = .mono
-        if kind == "System Activity" { SystemDetailSections.applyCreationDefaults(to: &configuration) }
         if kind == "World Clock" { configuration.worldClockTimeZoneID = WorldClockCityCatalog.initialZoneID() }
         return DockItem(type: .widget, title: kind, widgetKind: kind, widgetConfiguration: configuration)
     }

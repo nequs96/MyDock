@@ -64,7 +64,7 @@ Each widget has its own layout and icon style. A popout shows the reading first,
 - **Portable Dock packages:** export one Dock; import always creates a new Dock and never carries credentials or account IDs.
 - **Automatic switching** (off by default): simple app or time rules that switch between Custom Docks, with a manual override.
 - **Next meeting:** Calendar shows the next relevant event, skipping events marked Free, with Join only for recognised https meeting links.
-- **System Activity** has Network and Storage detail sections in its popout, on for a new widget and off for widgets saved before they existed.
+- **System Activity** can add Network and Storage detail sections to its popout (off by default; turn them on in the popout's settings).
 
 ## Privacy and permissions
 

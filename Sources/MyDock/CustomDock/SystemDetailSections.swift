@@ -5,18 +5,13 @@ import SwiftUI
 /// The System Activity popout is the one System detail surface. Below its CPU and memory content it can
 /// show a compact Network section (the shared `NetworkActivityMonitor`) and a Storage section (the Disk
 /// Space reader). Both read only while the popout is visible; the Dock faces stay independent.
+/// Like every optional surface that samples, both start off; the popout's settings turn them on.
 enum SystemDetailSections {
-    /// Whether the popout shows Network. Absent (a widget saved before PX-7) means off.
+    /// Whether the popout shows Network. Absent (a new widget, or one saved before PX-7) means off.
     static func showsNetwork(_ configuration: WidgetConfiguration) -> Bool { configuration.systemShowsNetwork ?? false }
 
-    /// Whether the popout shows Storage. Absent (a widget saved before PX-7) means off.
+    /// Whether the popout shows Storage. Absent (a new widget, or one saved before PX-7) means off.
     static func showsStorage(_ configuration: WidgetConfiguration) -> Bool { configuration.systemShowsStorage ?? false }
-
-    /// New System Activity widgets start with both sections on; saved widgets keep what they decoded.
-    static func applyCreationDefaults(to configuration: inout WidgetConfiguration) {
-        configuration.systemShowsNetwork = true
-        configuration.systemShowsStorage = true
-    }
 
     /// The System Activity widget on this Dock that a Network Activity or Disk Space popout links to.
     static func systemActivityItemID(in items: [DockItem]) -> UUID? {

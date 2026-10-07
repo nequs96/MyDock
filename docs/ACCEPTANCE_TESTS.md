@@ -138,7 +138,7 @@ Approval should cover the temporary profile apply/reapply and, separately, the C
 
 ## Dock essentials and workspace tools
 
-1. With a fresh profile, confirm Show recent apps, Show window previews and automatic switching are off. Add System Activity and confirm its Network and Storage sections start on.
+1. With a fresh profile, confirm Show recent apps, Show window previews and automatic switching are off. Add System Activity and confirm its Network and Storage sections are off until turned on in its settings.
 2. Drop Finder files and a web address on an app tile; confirm they open with that app, and that a drop with nothing openable is refused.
 3. Open a running app's menu: windows, Show in Finder, Hide/Show, Quit, Force Quit. Choose Force Quit, press Return and confirm Cancel is the default and nothing quits; repeat and confirm Force Quit ends the app.
 4. Turn on Show window previews. Without Accessibility, confirm the panel offers to allow it and hovering never prompts; with Accessibility, confirm titles after the show delay and that moving away or a click elsewhere closes it (there is no Escape shortcut). Grant Screen Recording and confirm thumbnails, then close the panel and confirm none are written to disk.
