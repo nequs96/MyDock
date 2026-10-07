@@ -94,11 +94,3 @@ enum ProfileSemanticValidator {
         }
     }
 }
-
-enum TimerValueFormatter {
-    static func text(_ interval: TimeInterval) -> String {
-        let finite = interval.isFinite ? interval : 0
-        let seconds = Int(min(max(0, finite), ProfileSemanticValidator.maximumElapsed).rounded(.up))
-        return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
-    }
-}

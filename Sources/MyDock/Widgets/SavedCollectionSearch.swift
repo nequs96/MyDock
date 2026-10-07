@@ -50,7 +50,8 @@ enum SavedCollectionSearch {
                         fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) -> [SavedCollectionResult] {
         let tokens = words(query)
         guard !tokens.isEmpty, limit > 0 else { return [] }
-        var candidates: [(rank: Int, result: SavedCollectionResult)] = []
+        // Shelf files rank on their stored name; only the shown results resolve their bookmarks.
+        var candidates: [(rank: Int, result: SavedCollectionResult, shelfFile: ShelfFile?)] = []
         for profile in profiles {
             for item in profile.items where item.type == .widget {
                 guard let configuration = item.widgetConfiguration else { continue }
@@ -64,7 +65,7 @@ enum SavedCollectionSearch {
                         candidates.append((rank, SavedCollectionResult(
                             id: "\(profile.id)-\(item.id)-\(entry.id)", kind: .snippet, title: shownTitle, detail: preview,
                             dockName: profile.name, profileID: profile.id, itemID: item.id, entryID: entry.id,
-                            snippetText: entry.text, linkURL: nil, fileURL: nil, isMissing: false)))
+                            snippetText: entry.text, linkURL: nil, fileURL: nil, isMissing: false), nil))
                     }
                 case linksKind:
                     for entry in configuration.quickLinks {
@@ -73,17 +74,16 @@ enum SavedCollectionSearch {
                         candidates.append((rank, SavedCollectionResult(
                             id: "\(profile.id)-\(item.id)-\(entry.id)", kind: .link, title: entry.title, detail: host,
                             dockName: profile.name, profileID: profile.id, itemID: item.id, entryID: entry.id,
-                            snippetText: nil, linkURL: entry.url, fileURL: nil, isMissing: false)))
+                            snippetText: nil, linkURL: entry.url, fileURL: nil, isMissing: false), nil))
                     }
                 case shelfKind:
                     for entry in configuration.shelfFiles {
-                        let url = entry.resolvedURL
-                        let name = url.lastPathComponent
+                        let name = entry.url.lastPathComponent
                         guard let rank = rank(tokens: tokens, primary: name, secondary: "") else { continue }
                         candidates.append((rank, SavedCollectionResult(
                             id: "\(profile.id)-\(item.id)-\(entry.id)", kind: .file, title: name, detail: "",
                             dockName: profile.name, profileID: profile.id, itemID: item.id, entryID: entry.id,
-                            snippetText: nil, linkURL: nil, fileURL: url, isMissing: false)))
+                            snippetText: nil, linkURL: nil, fileURL: entry.url, isMissing: false), entry))
                     }
                 default:
                     continue
@@ -98,12 +98,13 @@ enum SavedCollectionSearch {
             if title != .orderedSame { return title == .orderedAscending }
             return lhs.result.id < rhs.result.id
         }
-        // File existence is checked only for the few results that will be shown.
+        // Bookmarks are resolved and file existence is checked only for the few results that will be shown.
         return ordered.prefix(limit).map { candidate in
             var result = candidate.result
-            guard result.kind == .file, let url = result.fileURL else { return result }
+            guard result.kind == .file, let shelfFile = candidate.shelfFile else { return result }
+            let url = shelfFile.resolvedURL
             let missing = !fileExists(url)
-            result = SavedCollectionResult(id: result.id, kind: result.kind, title: result.title,
+            result = SavedCollectionResult(id: result.id, kind: result.kind, title: url.lastPathComponent,
                                            detail: missing ? "Missing" : (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath,
                                            dockName: result.dockName, profileID: result.profileID, itemID: result.itemID, entryID: result.entryID,
                                            snippetText: nil, linkURL: nil, fileURL: url, isMissing: missing)

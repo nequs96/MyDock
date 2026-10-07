@@ -318,7 +318,7 @@ struct CalculatorWidgetProvider: DockWidgetProvider {
 /// Calculator copy: one short footer sentence; the detail lives in its tooltip.
 enum QuickCalculatorCopy {
     static let footer = "Press Return to calculate."
-    static let footerHelp = "Percent divides by 100: 200 × 15% = 30. The expression and history clear when this popout closes."
+    static let footerHelp = "Percent works as on a calculator: 200 × 15% = 30 and 50 + 10% = 55. The expression and history clear when this popout closes."
 }
 
 struct QuickCalculatorView: View {
@@ -328,7 +328,7 @@ struct QuickCalculatorView: View {
     @FocusState private var expressionFocused: Bool
     private var result: Double? { try? QuickCalculator.calculate(expression) }
     private var resultText: String { result.map { $0.formatted(.number.precision(.significantDigits(1...12))) } ?? "—" }
-    private let keys = ["C", "(", ")", "÷", "7", "8", "9", "×", "4", "5", "6", "−", "1", "2", "3", "+", "0", ".", "%", "="]
+    private let keys = ["C", "(", ")", "÷", "7", "8", "9", "×", "4", "5", "6", "−", "1", "2", "3", "+", "0", QuickCalculator.localDecimalSeparator, "%", "="]
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             VStack(alignment: .trailing, spacing: 8) {

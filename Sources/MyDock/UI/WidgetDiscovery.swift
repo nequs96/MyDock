@@ -3,8 +3,8 @@ import Foundation
 /// Discovery describes family capabilities, never current account or permission health.
 enum WidgetDiscoveryFilter: String, CaseIterable, Identifiable {
     case all = "All widgets"
-    case noConnection = "No account connection"
-    case connected = "Account connection"
+    case noConnection = "No connection"
+    case connected = "Account or API key"
     case permissions = "May request permission"
     case privateContent = "Personal content"
     var id: String { rawValue }
@@ -34,7 +34,7 @@ enum WidgetDiscovery {
     static func setupSummary(_ definition: WidgetDefinition) -> String {
         let capabilities = definition.capabilities
         var parts: [String] = []
-        if capabilities.needsConnection { parts.append("Account setup") }
+        if capabilities.needsConnection { parts.append(capabilities.usesProviderKey ? "API key setup" : "Account setup") }
         if capabilities.refreshDemand == .remoteFetch { parts.append("Online readings") }
         if !capabilities.permissions.isEmpty { parts.append("May request permission") }
         return parts.joined(separator: " · ")

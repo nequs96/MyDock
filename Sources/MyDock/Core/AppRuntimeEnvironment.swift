@@ -83,22 +83,32 @@ enum ValidationBoundaryError: LocalizedError {
 }
 
 /// No preference domain is written, including a disposable domain in the user's
-/// Library. Foundation's typed getters use these primitive overrides.
+/// Library. Foundation's typed getters use these primitive overrides. Like the real
+/// store, writes notify KVO observers (`@AppStorage`) and registered defaults stay a
+/// fallback that `removeObject` returns to.
 private final class ValidationDefaults: UserDefaults {
     private let lock = NSRecursiveLock()
     private var values: [String: Any] = [:]
+    private var registered: [String: Any] = [:]
     override func object(forKey defaultName: String) -> Any? {
-        lock.lock(); defer { lock.unlock() }; return values[defaultName]
+        lock.lock(); defer { lock.unlock() }
+        if let value = values[defaultName] { return value }
+        return registered[defaultName]
     }
     override func set(_ value: Any?, forKey defaultName: String) {
-        lock.lock(); defer { lock.unlock() }; values[defaultName] = value
+        willChangeValue(forKey: defaultName)
+        lock.lock(); values[defaultName] = value; lock.unlock()
+        didChangeValue(forKey: defaultName)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: self)
     }
     override func removeObject(forKey defaultName: String) { set(nil, forKey: defaultName) }
     override func synchronize() -> Bool { true }
     override func dictionaryRepresentation() -> [String: Any] {
+        lock.lock(); defer { lock.unlock() }; return registered.merging(values) { _, stored in stored }
+    }
+    override func persistentDomain(forName domainName: String) -> [String: Any]? {
         lock.lock(); defer { lock.unlock() }; return values
     }
-    override func persistentDomain(forName domainName: String) -> [String: Any]? { dictionaryRepresentation() }
     override func setPersistentDomain(_ domain: [String: Any], forName domainName: String) {
         lock.lock(); defer { lock.unlock() }; values = domain
     }
@@ -107,6 +117,6 @@ private final class ValidationDefaults: UserDefaults {
     }
     override func register(defaults registrationDictionary: [String: Any]) {
         lock.lock(); defer { lock.unlock() }
-        values.merge(registrationDictionary) { existing, _ in existing }
+        registered.merge(registrationDictionary) { _, new in new }
     }
 }

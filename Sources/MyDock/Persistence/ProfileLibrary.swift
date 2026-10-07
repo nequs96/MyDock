@@ -16,26 +16,44 @@ final class ProfileLibrary: ObservableObject {
     private let fileURL: URL
     private let maximumEntries: Int
     private let retentionDays: Int?
+    /// False only when an unreadable file could not be set aside; that file is then never overwritten.
+    private var readable = true
+    /// Recovery history is written on every profile edit, so its file I/O runs on a serial background queue.
+    /// Presets stay synchronous because an import reports whether it was saved.
+    private let writesInBackground: Bool
+    private var writeRevision: UInt64 = 0
     private static let maximumBytes = 8 * 1_024 * 1_024
+    nonisolated private static let writeQueue = DispatchQueue(label: "app.mydock.profile-library", qos: .utility)
 
-    init(fileURL: URL, maximumEntries: Int = 25, retentionDays: Int? = nil) {
+    init(fileURL: URL, maximumEntries: Int = 25, retentionDays: Int? = nil, writesInBackground: Bool = false) {
         self.fileURL = fileURL; self.maximumEntries = maximumEntries; self.retentionDays = retentionDays
+        self.writesInBackground = writesInBackground
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
         do {
-            if FileManager.default.fileExists(atPath: fileURL.path) {
-                let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                guard size <= Self.maximumBytes else { throw ProfileValidationError.invalid("profile library is too large") }
-                let decoded = try JSONDecoder().decode([ProfileLibraryEntry].self, from: Data(contentsOf: fileURL))
-                guard decoded.count <= maximumEntries else { throw ProfileValidationError.invalid("too many library entries") }
-                for entry in decoded { try ProfileSemanticValidator.validate([entry.profile]) }
-                entries = decoded
-                trim()
-                if entries.count != decoded.count { persist() }
+            let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size <= Self.maximumBytes else { throw ProfileValidationError.invalid("profile library is too large") }
+            let decoded = try JSONDecoder().decode([ProfileLibraryEntry].self, from: Data(contentsOf: fileURL))
+            // An entry a newer validator rejects is dropped on its own; the rest of the library stays usable.
+            entries = decoded.filter { (try? ProfileSemanticValidator.validate([$0.profile])) != nil }
+            trim()
+            if entries.count != decoded.count { persist() }
+        } catch {
+            // Preserve the unreadable file for recovery, then start an empty library so new snapshots are still kept.
+            entries = []
+            let aside = fileURL.appendingPathExtension("recovery-\(UUID().uuidString)")
+            do {
+                try FileManager.default.moveItem(at: fileURL, to: aside)
+                errorMessage = "This library could not be read, so a new one was started. The original was kept as \(aside.lastPathComponent)."
+            } catch {
+                readable = false
+                errorMessage = "Could not read this library. The original file was kept. \(error.localizedDescription)"
             }
-        } catch { errorMessage = "Could not read this library. The original file was kept. \(error.localizedDescription)" }
+        }
     }
 
     func record(_ profile: DockProfile, reason: String) {
-        guard errorMessage == nil else { return }
+        // A failed write does not stop later snapshots: the next record retries it.
+        guard readable else { return }
         let sanitized = ProfileSanitizer.sanitize(profile, includeNotes: includeNotes)
         if entries.first?.profile == sanitized { return }
         entries.insert(ProfileLibraryEntry(reason: reason, profile: sanitized), at: 0)
@@ -46,7 +64,7 @@ final class ProfileLibrary: ObservableObject {
     func clear() { entries = []; persist() }
 
     func importPreset(_ data: Data) throws {
-        guard errorMessage == nil else { throw EditSessionSaveError.failed(errorMessage ?? "The preset library needs recovery.") }
+        guard readable else { throw EditSessionSaveError.failed(errorMessage ?? "The preset library needs recovery.") }
         guard data.count <= Self.maximumBytes else { throw ProfileValidationError.invalid("preset is too large") }
         let profile = try JSONDecoder().decode(DockProfile.self, from: data)
         _ = try BackupManager.makeArchive(from: [profile])
@@ -65,19 +83,49 @@ final class ProfileLibrary: ObservableObject {
         entries = Array(entries.prefix(maximumEntries))
     }
 
+    /// Waits for background library writes queued so far. Lifecycle boundaries call this before quitting.
+    nonisolated static func waitForPendingWrites() { writeQueue.sync {} }
+
     private func persist() {
+        guard readable else { return }
+        let data: Data
         do {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-            var data = try encoder.encode(entries)
-            while data.count > Self.maximumBytes, !entries.isEmpty {
-                entries.removeLast(); data = try encoder.encode(entries)
+            var encoded = try encoder.encode(entries)
+            while encoded.count > Self.maximumBytes, !entries.isEmpty {
+                entries.removeLast(); encoded = try encoder.encode(entries)
             }
-            let folder = fileURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
-                                                   attributes: [.posixPermissions: 0o700])
-            try data.write(to: fileURL, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
-            errorMessage = nil
-        } catch { errorMessage = "Library could not be saved: \(error.localizedDescription)" }
+            data = encoded
+        } catch { errorMessage = "Library could not be saved: \(error.localizedDescription)"; return }
+        guard writesInBackground else {
+            finishWrite(Result { try Self.write(data, to: fileURL) })
+            return
+        }
+        writeRevision &+= 1
+        let revision = writeRevision
+        let fileURL = fileURL
+        Self.writeQueue.async { [weak self] in
+            let result = Result { try Self.write(data, to: fileURL) }
+            Task { @MainActor [weak self] in
+                // Writes run in order, so only the latest one decides what the library reports.
+                guard let self, revision == self.writeRevision else { return }
+                self.finishWrite(result)
+            }
+        }
+    }
+
+    private func finishWrite(_ result: Result<Void, Error>) {
+        switch result {
+        case .success: errorMessage = nil
+        case .failure(let error): errorMessage = "Library could not be saved: \(error.localizedDescription)"
+        }
+    }
+
+    nonisolated private static func write(_ data: Data, to fileURL: URL) throws {
+        let folder = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
+                                               attributes: [.posixPermissions: 0o700])
+        try data.write(to: fileURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 }

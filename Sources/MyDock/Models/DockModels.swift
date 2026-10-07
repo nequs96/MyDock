@@ -300,6 +300,7 @@ struct DockItem: Codable, Identifiable, Hashable {
         var configuration = WidgetConfiguration()
         configuration.iconAppearance = .mono
         if kind == "System Activity" { SystemDetailSections.applyCreationDefaults(to: &configuration) }
+        if kind == "World Clock" { configuration.worldClockTimeZoneID = WorldClockCityCatalog.initialZoneID() }
         return DockItem(type: .widget, title: kind, widgetKind: kind, widgetConfiguration: configuration)
     }
 }
@@ -904,12 +905,21 @@ struct WidgetConfiguration: Codable, Hashable {
         countdownStartedAt = nil
     }
 
+    /// Hydration history keeps about a year and at most this many drinks, well inside the validator's backstop.
+    static let hydrationRetentionDays = 400
+    static let hydrationMaximumEntries = 10_000
+
     @discardableResult
     mutating func logHydrationDrink(at date: Date = .now, amountML: Int? = nil) -> Bool {
         guard hydrationSaveHistory else { return false }
         let amount = hydrationTrackAmounts ? (amountML ?? hydrationDefaultAmountML) : nil
+        let cutoff = date.addingTimeInterval(-Double(Self.hydrationRetentionDays) * 86_400)
+        hydrationEntries.removeAll { $0.timestamp < cutoff }
         hydrationEntries.append(HydrationEntry(timestamp: date, amountML: amount))
         hydrationEntries.sort { $0.timestamp < $1.timestamp }
+        if hydrationEntries.count > Self.hydrationMaximumEntries {
+            hydrationEntries.removeFirst(hydrationEntries.count - Self.hydrationMaximumEntries)
+        }
         return true
     }
 
@@ -1367,9 +1377,9 @@ enum WidgetRegistry {
     static let airDropSymbol = "dot.radiowaves.left.and.right"
     static let all: [WidgetDefinition] = [
         .init(name: "Stock", symbol: "chart.line.uptrend.xyaxis", category: .business, description: "Follow a market ticker.",
-              capabilities: .init(layouts: WidgetLayoutPresets.market, defaultLayout: .compact, hasSetupState: true, refreshDemand: .remoteFetch)),
+              capabilities: .init(layouts: WidgetLayoutPresets.market, defaultLayout: .compact, needsConnection: true, hasSetupState: true, refreshDemand: .remoteFetch, usesProviderKey: true)),
         .init(name: "Watchlist", symbol: "chart.xyaxis.line", category: .business, description: "Compare saved tickers.",
-              capabilities: .init(layouts: WidgetLayoutPresets.market, defaultLayout: .compact, hasSetupState: true, refreshDemand: .remoteFetch)),
+              capabilities: .init(layouts: WidgetLayoutPresets.market, defaultLayout: .compact, needsConnection: true, hasSetupState: true, refreshDemand: .remoteFetch, usesProviderKey: true)),
         .init(name: "Calendar", symbol: "calendar", category: .productivity, description: "See the date and upcoming events.",
               capabilities: .init(layouts: WidgetLayoutPresets.schedule, defaultLayout: .compact, permissions: [.calendars], hasSetupState: true, holdsPrivateContent: true, refreshDemand: .externalSource)),
         .init(name: "Reminders", symbol: "checklist", category: .productivity, description: "View and complete reminders.",

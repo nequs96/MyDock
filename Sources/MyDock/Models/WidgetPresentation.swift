@@ -69,6 +69,8 @@ struct WidgetCapabilities: Hashable {
     var hasSetupState = false
     var holdsPrivateContent = false
     var refreshDemand: WidgetRefreshDemand = .none
+    /// The connection is a data provider's API key (market quotes), not the user's own account.
+    var usesProviderKey = false
 
     /// Short, truthful note derived only from the family's capabilities. It describes what the family may use,
     /// never whether a permission is currently granted. Nil when the family needs nothing special.

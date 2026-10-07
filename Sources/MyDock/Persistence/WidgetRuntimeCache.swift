@@ -103,8 +103,14 @@ extension WidgetConfiguration {
 
     /// Replaces every runtime reading with the cached ones whose identity still matches this configuration.
     mutating func resolveRuntimeReadings(_ readings: WidgetRuntimeReadings?, activityScope: String? = nil, limitsScope: String? = nil) {
+        resolveCachedRuntimeReadings(readings?.sanitized(), activityScope: activityScope, limitsScope: limitsScope)
+    }
+
+    /// As `resolveRuntimeReadings`, for readings from `WidgetRuntimeCache`, which sanitizes them once in `set` and
+    /// `load`. Presentation calls this on every face render, so it skips validating large chart arrays again.
+    mutating func resolveCachedRuntimeReadings(_ readings: WidgetRuntimeReadings?, activityScope: String? = nil, limitsScope: String? = nil) {
         stripRuntimeReadings()
-        guard let readings = readings?.sanitized() else { return }
+        guard let readings else { return }
         if let r = readings.stock, r.identity == stockIdentity { stockSnapshot = r.value }
         if let r = readings.stripe, r.identity == stripeAccountID, r.value.period == stripePeriod { stripeSnapshot = r.value }
         if let r = readings.paddle, r.identity == paddleAccountID, r.value.period == paddlePeriod { paddleSnapshot = r.value }

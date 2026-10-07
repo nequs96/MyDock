@@ -74,7 +74,11 @@ final class RevisionedStateWriter: @unchecked Sendable {
             }
         }
         try checkpoint?(.temporaryWritten)
-        guard Darwin.fsync(descriptor) == 0 else { throw posixError() }
+        // Plain fsync leaves the bytes in the drive cache on macOS; F_FULLFSYNC makes them durable before the
+        // rename can be. Volumes that do not support it fall back to fsync.
+        if Darwin.fcntl(descriptor, F_FULLFSYNC) != 0 {
+            guard Darwin.fsync(descriptor) == 0 else { throw posixError() }
+        }
         let closeResult = Darwin.close(descriptor)
         descriptor = -1
         guard closeResult == 0 else { throw posixError() }
@@ -83,6 +87,22 @@ final class RevisionedStateWriter: @unchecked Sendable {
             url.withUnsafeFileSystemRepresentation { destination in Darwin.rename(source!, destination!) }
         }
         guard result == 0 else { throw posixError() }
+        // Make the rename itself durable. Best effort: the commit has happened, so nothing is reported from here.
+        let folder = url.deletingLastPathComponent().withUnsafeFileSystemRepresentation { Darwin.open($0!, O_RDONLY) }
+        if folder >= 0 { _ = Darwin.fsync(folder); _ = Darwin.close(folder) }
+    }
+
+    /// Removes `.mydock-state-*.tmp` siblings left by a crash between creating and cleaning up a temporary file.
+    /// Only files older than `minimumAge` are touched, so a write in flight is never removed.
+    static func removeAbandonedTemporaries(in folder: URL, minimumAge: TimeInterval = 60, now: Date = .now) {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return }
+        for name in names where name.hasPrefix(".mydock-state-") && name.hasSuffix(".tmp") {
+            let file = folder.appendingPathComponent(name)
+            guard let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey]),
+                  values.isRegularFile == true, let modified = values.contentModificationDate,
+                  now.timeIntervalSince(modified) >= minimumAge else { continue }
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     private static func posixError() -> NSError {

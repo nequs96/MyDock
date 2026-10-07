@@ -933,7 +933,6 @@ private struct PlaceholderWidgetProvider: DockWidgetProvider {
 private struct WorldClockCompactView: View {
     @Environment(\.dockWidgetContentWidth) private var contentWidth
     var item: DockItem
-    private var timeZone: TimeZone { TimeZone(identifier: item.widgetConfiguration?.worldClockTimeZoneID ?? "Europe/Warsaw") ?? .current }
 
     var body: some View { WorldClockDockFace(configuration: configuration) }
 

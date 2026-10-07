@@ -24,7 +24,7 @@ struct WidgetGalleryDetail: View {
     private var setupNote: String {
         let capabilities = widget.capabilities
         var parts: [String] = []
-        if capabilities.needsConnection { parts.append("Needs an account connection.") }
+        if capabilities.needsConnection { parts.append(capabilities.usesProviderKey ? "Needs an API key." : "Needs an account connection.") }
         if capabilities.refreshDemand == .remoteFetch { parts.append("Reads online data.") }
         return parts.joined(separator: " ")
     }

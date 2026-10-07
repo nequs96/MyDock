@@ -20,7 +20,15 @@ enum WidgetConfigurationMutationError: LocalizedError {
 final class ProfileStore: ObservableObject {
     static let shared = ProfileStore()
 
-    @Published private(set) var state: PersistentState
+    @Published private(set) var state: PersistentState { didSet { ownedItemIDsCache = nil } }
+    /// Every item ID in `state`, rebuilt on demand after a change; presentation checks ownership on each render.
+    private var ownedItemIDsCache: Set<UUID>?
+    private var ownedItemIDs: Set<UUID> {
+        if let ownedItemIDsCache { return ownedItemIDsCache }
+        let ids = Set(state.profiles.flatMap { $0.items.map(\.id) })
+        ownedItemIDsCache = ids
+        return ids
+    }
     struct DockResizePreview: Equatable { let profileID: UUID; let size: Double }
     @Published private(set) var dockResizePreview: DockResizePreview?
     @Published private(set) var persistenceError: String?
@@ -30,7 +38,7 @@ final class ProfileStore: ObservableObject {
     lazy var editSessions = ProfileEditSessionCoordinator(store: self)
     lazy var widgetData = WidgetDataCoordinator(store: self)
     lazy var widgetLifecycle = WidgetLifecycleCoordinator(store: self)
-    lazy var history = ProfileLibrary(fileURL: fileURL.deletingLastPathComponent().appendingPathComponent("history.json"), retentionDays: 14)
+    lazy var history = ProfileLibrary(fileURL: fileURL.deletingLastPathComponent().appendingPathComponent("history.json"), retentionDays: 14, writesInBackground: true)
     lazy var personalPresets = ProfileLibrary(fileURL: fileURL.deletingLastPathComponent().appendingPathComponent("presets.json"), maximumEntries: 50)
     lazy var utilityDrafts = DockUtilityDraftStore(fileURL: fileURL.deletingLastPathComponent()
         .appendingPathComponent("utility-drafts", isDirectory: true).appendingPathComponent("drafts.json"))
@@ -104,6 +112,7 @@ final class ProfileStore: ObservableObject {
         } else {
             self.state = PersistentState()
         }
+        if storageWritable { RevisionedStateWriter.removeAbandonedTemporaries(in: self.fileURL.deletingLastPathComponent()) }
         adoptRuntimeCache()
         loadUtilityDrafts()
     }
@@ -179,8 +188,8 @@ final class ProfileStore: ObservableObject {
     func presentationItem(_ item: DockItem) -> DockItem {
         var projected = item
         // Inert library/render samples have no repository owner and keep their explicit example readings.
-        guard state.profiles.contains(where: { $0.items.contains(where: { $0.id == item.id }) }) else { return projected }
-        projected.widgetConfiguration?.resolveRuntimeReadings(runtimeCache.readings(for: item.id))
+        guard ownedItemIDs.contains(item.id) else { return projected }
+        projected.widgetConfiguration?.resolveCachedRuntimeReadings(runtimeCache.readings(for: item.id))
         return projected
     }
 
@@ -190,7 +199,7 @@ final class ProfileStore: ObservableObject {
         // The profile already establishes ownership; avoid a whole-repository lookup for every face.
         projected.items = profile.items.map { item in
             var item = item
-            item.widgetConfiguration?.resolveRuntimeReadings(runtimeCache.readings(for: item.id))
+            item.widgetConfiguration?.resolveCachedRuntimeReadings(runtimeCache.readings(for: item.id))
             return item
         }
         return projected
@@ -201,7 +210,7 @@ final class ProfileStore: ObservableObject {
             return item.widgetConfiguration ?? WidgetConfiguration()
         }
         var configuration = current.widgetConfiguration ?? WidgetConfiguration()
-        configuration.resolveRuntimeReadings(runtimeCache.readings(for: current.id))
+        configuration.resolveCachedRuntimeReadings(runtimeCache.readings(for: current.id))
         return configuration
     }
 
@@ -339,7 +348,8 @@ final class ProfileStore: ObservableObject {
             state.settings.activeCustomProfileID = id
             if state.settings.setupMode == .nativeOnly { state.settings.setupMode = .both }
         } else { return }
-        commit()
+        // Switching Docks (including automatic switching and swipes) is routine: coalesce it off the main thread.
+        commit(immediately: false)
     }
 
     func recordAppliedNativeProfile(_ id: UUID) {
@@ -761,6 +771,7 @@ final class ProfileStore: ObservableObject {
     func flush() {
         commit()
         runtimeCache.flush()
+        ProfileLibrary.waitForPendingWrites()
     }
 
     private func finishWrite(_ result: Result<Void, Error>, revision: UInt64) {

@@ -1,5 +1,16 @@
 import Foundation
 
+/// Focus and duration Countdown values: `m:ss` under an hour, `h:mm:ss` from one hour, like Clock's Timer.
+enum TimerValueFormatter {
+    static func text(_ interval: TimeInterval) -> String {
+        let finite = interval.isFinite ? interval : 0
+        let seconds = Int(min(max(0, finite), ProfileSemanticValidator.maximumElapsed).rounded(.up))
+        let remainder = String(format: "%02d", seconds % 60)
+        guard seconds >= 3_600 else { return "\(seconds / 60):" + remainder }
+        return "\(seconds / 3_600):" + String(format: "%02d", (seconds % 3_600) / 60) + ":" + remainder
+    }
+}
+
 enum WidgetTimingPresentation {
     static func eventStatus(_ event: CalendarEventSnapshot, now: Date) -> String {
         if event.endDate <= now { return "Ended" }

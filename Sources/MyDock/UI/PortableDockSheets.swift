@@ -124,7 +124,7 @@ struct PortableDockImportSheet: View {
                         ForEach(preview.summary.rows) { row in
                             GroupedRow(row.title, value: "\(row.count)")
                         }
-                        if preview.includesPersonalData == true {
+                        if preview.includesPersonalData {
                             GroupedRow("Personal widget data", value: "Included")
                         }
                     }
