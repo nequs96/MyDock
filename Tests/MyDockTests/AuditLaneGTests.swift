@@ -56,14 +56,18 @@ import UserNotifications
         #expect(SettingsAppearanceDefaults.factoryResetMessage(inheritingDocks: 3).hasPrefix("3 Docks use app defaults"))
     }
 
-    // S13-002: a backup is previewed before its Docks are added, and names already in use are flagged.
-    @Test func backupRestorePreviewFlagsExistingNamesAndCountsDocks() {
-        let report = BackupImportReport(importedProfiles: [DockProfile(name: "Work", kind: .custom),
-                                                           DockProfile(name: "Travel", kind: .native)],
-                                        missingItems: ["Work: Notes (/missing)"])
+    // S13-002: a backup is previewed before its Docks are added, with the name each one is added under.
+    @Test @MainActor func backupRestorePreviewShowsTheNamesDocksAreAddedUnder() {
+        let work = DockProfile(name: "Work", kind: .custom)
+        let secondWork = DockProfile(name: "Work", kind: .custom)
+        let travel = DockProfile(name: "Travel", kind: .native)
+        let report = BackupImportReport(importedProfiles: [work, secondWork, travel], missingItems: ["Work: Notes (/missing)"])
         let preview = BackupRestorePreview(report: report, existingNames: ["Work", "Home"])
-        #expect(preview.duplicateNames == ["Work"])
-        #expect(preview.addTitle == "Add 2 Docks")
+        #expect(preview.renameNote(for: work) == "Adds as Work 2")
+        #expect(preview.renameNote(for: secondWork) == "Adds as Work 3")
+        #expect(preview.renameNote(for: travel) == nil)
+        #expect(ProfileStore.importedProfileNames([work, secondWork, travel], existing: ["Work", "Home"]) == ["Work 2", "Work 3", "Travel"])
+        #expect(preview.addTitle == "Add 3 Docks")
         #expect(BackupRestorePreview.docksPhrase(1) == "1 Dock")
         #expect(BackupRestorePreview.docksPhrase(0) == "0 Docks")
     }

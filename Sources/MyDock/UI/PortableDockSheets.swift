@@ -161,15 +161,22 @@ struct PortableDockImportSheet: View {
 struct BackupRestorePreview: Identifiable {
     let id = UUID()
     let report: BackupImportReport
-    /// Backup names already used by a Dock on this Mac; adding them creates a second Dock with that name.
-    let duplicateNames: Set<String>
+    /// The name each Dock is added under, by profile ID. A name already used on this Mac gets the next free number,
+    /// exactly as adding does.
+    let addedNames: [UUID: String]
     /// The sheet lists at most this many missing apps or paths and counts the rest.
     static let missingItemLimit = 50
 
-    init(report: BackupImportReport, existingNames: [String]) {
+    @MainActor init(report: BackupImportReport, existingNames: [String]) {
         self.report = report
-        let existing = Set(existingNames)
-        duplicateNames = Set(report.importedProfiles.map(\.name).filter { existing.contains($0) })
+        let names = ProfileStore.importedProfileNames(report.importedProfiles, existing: existingNames)
+        addedNames = Dictionary(zip(report.importedProfiles.map(\.id), names), uniquingKeysWith: { first, _ in first })
+    }
+
+    /// "Adds as Work 2" when the backup's name is already used; nil when the Dock keeps its name.
+    func renameNote(for profile: DockProfile) -> String? {
+        guard let name = addedNames[profile.id], name != profile.name else { return nil }
+        return "Adds as \(name)"
     }
 
     var addTitle: String { "Add " + Self.docksPhrase(report.importedProfiles.count) }
@@ -189,8 +196,7 @@ struct BackupRestoreSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     GroupedSection(footer: "Each Dock is added as a new Dock. Existing Docks are not changed.") {
                         ForEach(preview.report.importedProfiles) { profile in
-                            GroupedRow(profile.name, subtitle: profile.kind.title,
-                                       value: preview.duplicateNames.contains(profile.name) ? "Name in use" : nil)
+                            GroupedRow(profile.name, subtitle: profile.kind.title, value: preview.renameNote(for: profile))
                         }
                     }
                     let missing = preview.report.missingItems

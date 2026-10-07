@@ -238,13 +238,26 @@ final class ProfileStore: ObservableObject {
         return state.profiles.first { $0.id == id && $0.kind == .custom }
     }
 
+    private func uniqueProfileName(_ name: String, in profiles: [DockProfile]) -> String {
+        Self.uniqueProfileName(name, existing: profiles.map(\.name))
+    }
+
     /// A name no other profile uses ("Work", "Work 2", ...), within the validator's name limit. A name is shortened
     /// only when it, with any number it needs, would not fit.
-    private func uniqueProfileName(_ name: String, in profiles: [DockProfile]) -> String {
-        let existing = profiles.map(\.name)
+    static func uniqueProfileName(_ name: String, existing: [String]) -> String {
         let unique = PortableDockPackage.uniqueName(name, existing: existing)
         guard unique.count > ProfileSemanticValidator.maximumNameLength else { return unique }
         return PortableDockPackage.uniqueName(String(name.prefix(ProfileSemanticValidator.maximumNameLength - 10)), existing: existing)
+    }
+
+    /// The names `importProfiles` gives these profiles, in order: each one avoids the existing names and the ones before it.
+    static func importedProfileNames(_ profiles: [DockProfile], existing: [String]) -> [String] {
+        var taken = existing
+        return profiles.map { profile in
+            let name = uniqueProfileName(profile.name, existing: taken)
+            taken.append(name)
+            return name
+        }
     }
 
     /// A returned identity always belongs to a durably saved profile.
@@ -683,9 +696,11 @@ final class ProfileStore: ObservableObject {
     /// Appends restored or imported profiles, each under a name no other profile uses.
     func importProfiles(_ profiles: [DockProfile]) throws {
         var candidate = state
-        for var profile in profiles {
-            profile.name = uniqueProfileName(profile.name, in: candidate.profiles)
-            candidate.profiles.append(profile)
+        let names = Self.importedProfileNames(profiles, existing: state.profiles.map(\.name))
+        for (profile, name) in zip(profiles, names) {
+            var renamed = profile
+            renamed.name = name
+            candidate.profiles.append(renamed)
         }
         try persistCandidate(candidate)
     }
