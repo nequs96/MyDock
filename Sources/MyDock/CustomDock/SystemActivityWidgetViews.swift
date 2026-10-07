@@ -144,19 +144,28 @@ final class StorageScanMonitor: ObservableObject {
     private var cancellation: StorageScanCancellationFlag?
     private var scanTask: Task<Void, Never>?
     private var scanID = UUID()
-    private var previousRoots: [URL] = []
+    private var previousRoots: [ScanRoot] = []
+
+    /// One scanned location and the subtrees counted as their own location instead.
+    private struct ScanRoot: Sendable {
+        var url: URL
+        var excluding: Set<URL> = []
+    }
 
     func scanDefaultLocations() {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        start([home, URL(fileURLWithPath: "/Applications", isDirectory: true),
-               home.appendingPathComponent("Library", isDirectory: true)])
+        let library = home.appendingPathComponent("Library", isDirectory: true)
+        // Home leaves out Library, which is its own location, so the three totals are disjoint.
+        start([ScanRoot(url: home, excluding: [library]),
+               ScanRoot(url: URL(fileURLWithPath: "/Applications", isDirectory: true)),
+               ScanRoot(url: library)])
     }
 
-    func scanFolder(_ url: URL) { start([url]) }
+    func scanFolder(_ url: URL) { start([ScanRoot(url: url)]) }
     func scanAgain() { start(previousRoots) }
     func cancel() { cancellation?.cancel() }
 
-    private func start(_ roots: [URL]) {
+    private func start(_ roots: [ScanRoot]) {
         guard !isScanning, !roots.isEmpty else { return }
         previousRoots = roots
         results = []
@@ -170,12 +179,13 @@ final class StorageScanMonitor: ObservableObject {
 
         scanTask = Task { [weak self] in
             guard let self else { return }
-            for root in roots {
+            for scanRoot in roots {
                 guard !flag.isCancelled else { break }
+                let root = scanRoot.url, excluded = scanRoot.excluding
                 self.currentPath = root.path
                 self.progress = StorageScanProgress(visitedEntries: 0, scannedFileCount: 0, scannedBytes: 0)
                 let work = Task.detached(priority: .userInitiated) { [self] in
-                    try StorageScanner.scan(at: root, cancellation: flag) { update in
+                    try StorageScanner.scan(at: root, cancellation: flag, excluding: excluded) { update in
                         Task { @MainActor [self] in
                             guard self.scanID == identifier, self.isScanning else { return }
                             self.progress = update
@@ -407,7 +417,6 @@ private struct SystemActivityPopoutWidgetView: View {
                             }
                             ForEach(scanner.warnings, id: \.self) { Text($0).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.orange) }
                             if !scanner.results.isEmpty {
-                                Text("Locations are counted separately. Home includes Library.").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                                 ForEach(scanner.results, id: \.rootPath) { result in
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text(result.rootPath).font(DockDesign.Grouped.subtitleFont.weight(.semibold)).lineLimit(1).truncationMode(.middle)

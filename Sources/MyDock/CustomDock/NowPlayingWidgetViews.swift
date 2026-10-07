@@ -156,12 +156,17 @@ private struct NowPlayingPopoutWidgetView: View {
                 trackDetails(snapshot)
                 playbackControls(snapshot)
             } else {
+                let installed = playerAppURL != nil
                 GroupedSection {
                     GroupedRow(errorMessage == nil ? "Nothing is playing" : "Player access needs attention",
-                               subtitle: errorMessage == nil ? "Start something in \(source.title) to control it here." : nil,
+                               subtitle: errorMessage == nil
+                                   ? (installed ? "Start something in \(source.title) to control it here." : "\(source.title) is not installed on this Mac.")
+                                   : nil,
                                symbol: errorMessage == nil ? "music.note" : "exclamationmark.triangle.fill",
                                color: errorMessage == nil ? .gray : .orange)
-                    GroupedRow("Open \(source.title)", role: .button, action: openPlayer)
+                    if installed {
+                        GroupedRow("Open \(source.title)", role: .button, action: openPlayer)
+                    }
                     if errorMessage != nil {
                         GroupedRow("Open Automation Settings", role: .button) { WidgetPrivacySettings.open(WidgetPrivacySettings.automation) }
                     }
@@ -379,8 +384,11 @@ private struct NowPlayingPopoutWidgetView: View {
         monitor.perform(command, source: source)
     }
 
+    private var playerAppURL: URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: source.bundleIdentifier) }
+
+    /// Launching a player is a native effect, so isolated validation sessions never do it.
     private func openPlayer() {
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: source.bundleIdentifier) else { return }
+        guard AppRuntimeEnvironment.allowsNativeEffects, let url = playerAppURL else { return }
         NSWorkspace.shared.open(url)
     }
 

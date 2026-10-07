@@ -37,8 +37,6 @@ private struct StripePopoutView: View {
     @ObservedObject private var setupDrafts = WidgetSetupDraftStore.shared
     @Environment(\.widgetPopoutShowsHero) private var showsHero
     @State private var showsSettings = false
-    @State private var isRefreshing = false
-    @State private var refreshRequestID = UUID()
     @State private var isConnecting = false
     @State private var connections: [StripeConnectedAccount] = []
     @State private var showingDisconnectConfirmation = false
@@ -73,14 +71,15 @@ private struct StripePopoutView: View {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            if !StripeSetupPresentation.showsSettings(accountID: configuration.stripeAccountID, hasSavedReading: snapshot != nil) {
+            if !BusinessSetupPresentation.showsSettings(accountID: configuration.stripeAccountID, hasSavedReading: snapshot != nil) {
                 connectionControls
             } else {
                 WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) { controls }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .task(id: "\(configuration.stripeAccountID)|\(configuration.stripePeriod.rawValue)|\(configuration.stripeDisplayName)") {
+        // The account and period identify the reading; renaming the account is cosmetic and never refetches.
+        .task(id: "\(configuration.stripeAccountID)|\(configuration.stripePeriod.rawValue)") {
             guard !snapshotRendering, !configuration.stripeAccountID.isEmpty else { return }
             await refresh()
         }
@@ -93,7 +92,7 @@ private struct StripePopoutView: View {
             Button("Disconnect and Remove Key", role: .destructive) { disconnect() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the restricted key from this Mac's Keychain and disconnects every MyDock widget using it. It does not revoke the key in Stripe.")
+            Text("This removes the restricted key from this Mac's Keychain, disconnects every MyDock widget using it and removes their saved figures. It does not revoke the key in Stripe.")
         }
     }
 
@@ -146,7 +145,18 @@ private struct StripePopoutView: View {
                 if !configuration.stripeAccountID.isEmpty {
                     GroupedRow("Disconnect", role: .destructive) { showingDisconnectConfirmation = true }
                 } else {
-                    if !StripeSetupPresentation.showsSettings(accountID: configuration.stripeAccountID, hasSavedReading: snapshot != nil) {
+                    // An account connected for another widget is offered first, so its key is never entered twice.
+                    if BusinessSetupPresentation.offersExistingConnections(accountID: configuration.stripeAccountID,
+                                                                           hasSavedReading: snapshot != nil, connectionCount: connections.count) {
+                        GroupedRow("Account") {
+                            Picker("Account", selection: accountBinding) {
+                                Text("None").tag("")
+                                ForEach(connections) { account in Text(account.name).tag(account.id) }
+                            }
+                            .labelsHidden()
+                        }
+                    }
+                    if !BusinessSetupPresentation.showsSettings(accountID: configuration.stripeAccountID, hasSavedReading: snapshot != nil) {
                         GroupedRow("Account name") {
                             TextField("Account name", text: connectionNameBinding)
                                 .textFieldStyle(.plain)
@@ -228,15 +238,9 @@ private struct StripePopoutView: View {
         Binding(get: { configuration.stripePeriod }, set: { value in update { $0.stripePeriod = value } })
     }
 
-    private func refresh(accountID requestedAccountID: String? = nil) async {
-        let requestID = UUID()
-        refreshRequestID = requestID
-        isRefreshing = true
-        defer { if refreshRequestID == requestID { isRefreshing = false } }
-        var currentItem = item
-        currentItem.widgetConfiguration = configuration
-        await store.widgetData.refresh(item: currentItem, profileID: profileID)
-        guard refreshRequestID == requestID, !Task.isCancelled else { return }
+    /// Opening the popout honours the coordinator's cache; the header's refresh control is the forced refresh.
+    private func refresh() async {
+        await store.widgetData.refresh(item: item, profileID: profileID, force: false)
     }
 
     private func connect() async {
@@ -274,8 +278,6 @@ private struct StripePopoutView: View {
     private func disconnect() {
         let id = configuration.stripeAccountID
         guard !id.isEmpty else { return }
-        refreshRequestID = UUID()
-        isRefreshing = false
         do {
             try StripeConnectionDirectory.remove(accountID: id)
             reloadConnections()
@@ -389,8 +391,14 @@ extension StripeMetric {
     func popoutUnit(currency: String) -> String { self == .payingSubscribers ? "subscribers" : currency }
 }
 
-enum StripeSetupPresentation {
+/// The setup rules shared by the Stripe, Paddle and Shopify popouts.
+enum BusinessSetupPresentation {
+    /// An unconnected widget with no saved reading shows only its connection form, never empty settings.
     static func showsSettings(accountID: String, hasSavedReading: Bool) -> Bool {
         !accountID.isEmpty || hasSavedReading
+    }
+    /// The connection form offers the connections already saved on this Mac, so a second widget reuses one.
+    static func offersExistingConnections(accountID: String, hasSavedReading: Bool, connectionCount: Int) -> Bool {
+        !showsSettings(accountID: accountID, hasSavedReading: hasSavedReading) && connectionCount > 0
     }
 }

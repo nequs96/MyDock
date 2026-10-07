@@ -38,8 +38,6 @@ private struct PaddlePopoutView: View {
     @State private var isConnecting = false
     @Environment(\.widgetPopoutShowsHero) private var showsHero
     @State private var showsSettings = false
-    @State private var isRefreshing = false
-    @State private var refreshRequestID = UUID()
     @State private var isDisconnectConfirmationPresented = false
     @State private var errorMessage: String?
 
@@ -65,14 +63,15 @@ private struct PaddlePopoutView: View {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            if !PaddleSetupPresentation.showsSettings(accountID: configuration.paddleAccountID, hasSavedReading: snapshot != nil) {
+            if !BusinessSetupPresentation.showsSettings(accountID: configuration.paddleAccountID, hasSavedReading: snapshot != nil) {
                 connectionControls
             } else {
                 WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) { controls }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .task(id: "\(configuration.paddleAccountID)|\(configuration.paddlePeriod.rawValue)|\(configuration.paddleDisplayName)") {
+        // The account and period identify the reading; renaming the account is cosmetic and never refetches.
+        .task(id: "\(configuration.paddleAccountID)|\(configuration.paddlePeriod.rawValue)") {
             guard !snapshotRendering, !configuration.paddleAccountID.isEmpty else { return }
             await refresh()
         }
@@ -85,7 +84,7 @@ private struct PaddlePopoutView: View {
             Button("Disconnect and Remove Key", role: .destructive) { disconnect() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the Paddle API key from this Mac's Keychain and disconnects every MyDock widget using it. It does not revoke the key in Paddle.")
+            Text("This removes the Paddle API key from this Mac's Keychain, disconnects every MyDock widget using it and removes their saved figures. It does not revoke the key in Paddle.")
         }
     }
 
@@ -130,7 +129,18 @@ private struct PaddlePopoutView: View {
                 if !configuration.paddleAccountID.isEmpty {
                     GroupedRow("Disconnect", role: .destructive) { isDisconnectConfirmationPresented = true }
                 } else {
-                    if !PaddleSetupPresentation.showsSettings(accountID: configuration.paddleAccountID, hasSavedReading: snapshot != nil) {
+                    // An account connected for another widget is offered first, so its key is never entered twice.
+                    if BusinessSetupPresentation.offersExistingConnections(accountID: configuration.paddleAccountID,
+                                                                           hasSavedReading: snapshot != nil, connectionCount: connections.count) {
+                        GroupedRow("Account") {
+                            Picker("Account", selection: accountBinding) {
+                                Text("None").tag("")
+                                ForEach(connections) { account in Text(account.name).tag(account.id) }
+                            }
+                            .labelsHidden()
+                        }
+                    }
+                    if !BusinessSetupPresentation.showsSettings(accountID: configuration.paddleAccountID, hasSavedReading: snapshot != nil) {
                         GroupedRow("Account name") {
                             TextField("Account name", text: connectionAccountNameBinding).textFieldStyle(.plain)
                                 .disabled(isConnecting)
@@ -209,15 +219,9 @@ private struct PaddlePopoutView: View {
         Binding(get: { configuration.paddleDisplayName }, set: { value in update { $0.paddleDisplayName = String(value.prefix(80)) } })
     }
 
+    /// Opening the popout honours the coordinator's cache; the header's refresh control is the forced refresh.
     private func refresh() async {
-        let requestID = UUID()
-        refreshRequestID = requestID
-        isRefreshing = true
-        defer { if refreshRequestID == requestID { isRefreshing = false } }
-        var currentItem = item
-        currentItem.widgetConfiguration = configuration
-        await store.widgetData.refresh(item: currentItem, profileID: profileID)
-        guard refreshRequestID == requestID, !Task.isCancelled else { return }
+        await store.widgetData.refresh(item: item, profileID: profileID, force: false)
     }
 
     private func connect() async {
@@ -254,8 +258,6 @@ private struct PaddlePopoutView: View {
     private func disconnect() {
         let selectedID = configuration.paddleAccountID
         guard !selectedID.isEmpty else { return }
-        refreshRequestID = UUID()
-        isRefreshing = false
         do {
             try PaddleConnectionDirectory.remove(accountID: selectedID)
             reloadConnections()
@@ -342,8 +344,3 @@ extension PaddleMetric {
     func popoutUnit(currency: String) -> String { self == .activeSubscribers ? "customers" : currency }
 }
 
-enum PaddleSetupPresentation {
-    static func showsSettings(accountID: String, hasSavedReading: Bool) -> Bool {
-        !accountID.isEmpty || hasSavedReading
-    }
-}

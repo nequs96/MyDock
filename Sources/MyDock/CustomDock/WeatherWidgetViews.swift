@@ -10,6 +10,35 @@ struct WeatherWidgetProvider: DockWidgetProvider {
     }
 }
 
+/// When a forecast reads as stale: the popout's 30-minute rule, applied to the Dock face too.
+enum WeatherFreshness {
+    static let maximumAge: TimeInterval = 30 * 60
+
+    static func isStale(fetchedAt: Date?, failed: Bool, now: Date = .now) -> Bool {
+        guard let fetchedAt else { return false }
+        return failed || now.timeIntervalSince(fetchedAt) > maximumAge
+    }
+
+    /// "Updated 5 minutes ago", "Updated yesterday": never a bare time without its day.
+    static func updatedText(_ fetchedAt: Date) -> String {
+        "Updated " + fetchedAt.formatted(.relative(presentation: .named))
+    }
+}
+
+/// The Dock face's stale mark: the same small warning dot as the coordinator families.
+private struct WeatherStaleDot: View {
+    @Environment(\.dockModuleRadius) private var moduleRadius
+    @DockAccessibilityStyle() private var accessibility
+    private var inset: CGFloat { max(6, min(10, moduleRadius * 0.45)) }
+    var body: some View {
+        Circle().fill(WidgetPalette.warning)
+            .overlay { if accessibility.contrast == .increased { Circle().strokeBorder(Color.primary.opacity(0.6), lineWidth: 1) } }
+            .frame(width: 6, height: 6)
+            .padding(.top, inset).padding(.trailing, inset)
+            .accessibilityLabel("Forecast is out of date")
+    }
+}
+
 private struct WeatherCompactWidgetView: View {
     @Environment(\.dockWidgetContentWidth) private var contentWidth
     @Environment(\.widgetLayout) private var widgetLayout
@@ -32,6 +61,11 @@ private struct WeatherCompactWidgetView: View {
     var body: some View {
         WeatherDockFace(configuration: configuration)
         .frame(width: contentWidth, height: 54)
+        .overlay(alignment: .topTrailing) {
+            if WeatherFreshness.isStale(fetchedAt: configuration.cachedWeatherForecast?.fetchedAt, failed: errorMessage != nil) {
+                WeatherStaleDot()
+            }
+        }
         .help(tooltip)
         .task(id: requestKey) {
             await refreshIfConfigured()
@@ -51,7 +85,8 @@ private struct WeatherCompactWidgetView: View {
         guard let forecast = configuration.cachedWeatherForecast else {
             return errorMessage ?? "Configure a city in Weather"
         }
-        return "\(configuration.weatherLocation?.displayName ?? "Weather") · \(WeatherCode.description(forecast.weatherCode)) · Updated \(forecast.fetchedAt.formatted(date: .omitted, time: .shortened))"
+        return "\(configuration.weatherLocation?.displayName ?? "Weather") · \(WeatherCode.description(forecast.weatherCode)) · "
+            + WeatherFreshness.updatedText(forecast.fetchedAt)
     }
 
     private func refreshIfConfigured() async {
@@ -65,11 +100,12 @@ private struct WeatherCompactWidgetView: View {
                   let current = currentConfiguration,
                   current.weatherLocation?.id == location.id,
                   current.weatherUnit == requestedUnit else { return }
-            store.updateWidgetConfiguration(itemID: item.id, in: profileID) { value in
+            // A forecast is a provider reading, not an authored edit: it publishes even while saving is disabled.
+            let result = store.publishRuntimeReadings(itemID: item.id, in: profileID) { value in
                 guard value.weatherLocation?.id == location.id, value.weatherUnit == requestedUnit else { return }
                 value.cachedWeatherForecast = forecast
             }
-            errorMessage = nil
+            if result == .accepted || result == .unchanged { errorMessage = nil }
         } catch {
             guard refreshRequestID == requestID, !Task.isCancelled,
                   let current = currentConfiguration,
@@ -143,7 +179,7 @@ private struct WeatherPopoutWidgetView: View {
         // The forecast's age and the one refresh control live in the shell's header.
         .widgetPopoutRefresh(location == nil ? nil
             : WidgetPopoutRefresh(updatedAt: forecast?.fetchedAt, isRefreshing: isLoading, failed: errorMessage != nil,
-                                  maximumAge: 30 * 60, action: { refresh(force: true) }))
+                                  maximumAge: WeatherFreshness.maximumAge, action: { refresh(force: true) }))
         .onAppear {
             unitSelection = configuration.weatherUnit.rawValue
             layoutSelection = configuration.weatherLayout.rawValue
@@ -335,9 +371,18 @@ private struct WeatherPopoutWidgetView: View {
 
     /// Upcoming hours in one grouped surface: no boxes per hour. The columns share the width when they
     /// fit, and scroll only when they do not. Each hour's glyph is day or night for that hour.
-    private func hourlyList(_ forecast: WeatherForecast) -> some View {
+    @ViewBuilder private func hourlyList(_ forecast: WeatherForecast) -> some View {
         let hours = Array(forecast.hourly.filter { $0.timestamp > .now }.prefix(configuration.weatherForecastHours))
-        return GroupedSection("Next Hours") {
+        if hours.isEmpty {
+            // A forecast older than its saved hours has none left to show until the next refresh.
+            WidgetPopoutCaption("Hourly forecast returns with the next refresh.")
+        } else {
+            hourlyColumns(hours, forecast: forecast)
+        }
+    }
+
+    private func hourlyColumns(_ hours: [WeatherHour], forecast: WeatherForecast) -> some View {
+        GroupedSection("Next Hours") {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 0) {
                     ForEach(hours) { hour in hourColumn(hour, forecast: forecast).frame(maxWidth: .infinity) }
@@ -494,8 +539,12 @@ private struct WeatherPopoutWidgetView: View {
                   let current = currentConfiguration,
                   current.weatherLocation?.id == location.id,
                   current.weatherUnit == requestedUnit else { return }
-            updateConfiguration { $0.cachedWeatherForecast = result }
-            errorMessage = nil
+            // A forecast is a provider reading, not an authored edit: it publishes even while saving is disabled.
+            let published = store.publishRuntimeReadings(itemID: item.id, in: profileID) { value in
+                guard value.weatherLocation?.id == location.id, value.weatherUnit == requestedUnit else { return }
+                value.cachedWeatherForecast = result
+            }
+            if published == .accepted || published == .unchanged { errorMessage = nil }
         } catch {
             guard refreshRequestID == requestID, !Task.isCancelled,
                   let current = currentConfiguration,

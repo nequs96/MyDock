@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import EventKit
 import SwiftUI
 
@@ -40,10 +41,34 @@ enum CalendarFacePresentation {
         return NextMeeting.dayAndTime(event.startDate, now: now, calendar: calendar)
     }
 
-    /// The module's text when there is no event to show. Truthful: unavailable access is never shown as "no events".
-    static func emptyState(errorMessage: String?, accessAvailable: Bool) -> (title: String, detail: String) {
-        if errorMessage != nil { return ("Unavailable", "Allow access") }
+    /// The module's text when there is no event to show. Truthful: unavailable access is never shown as "no events",
+    /// and only denied access asks for access.
+    static func emptyState(errorMessage: String?, accessAvailable: Bool,
+                           failure: EventKitReadFailure = .accessDenied) -> (title: String, detail: String) {
+        if errorMessage != nil {
+            switch failure {
+            case .accessDenied: return ("Unavailable", "Allow access")
+            case .selectionUnavailable: return ("Unavailable", "Choose calendars")
+            case .other: return ("Unavailable", "Try again")
+            }
+        }
         return accessAvailable ? ("No events", "Next 7 days") : ("Calendar", "Choose calendars")
+    }
+}
+
+/// Why an EventKit read failed, so a widget offers the right way out: Privacy & Security only for denied access,
+/// and All calendars or All lists when the chosen calendar or list was deleted.
+enum EventKitReadFailure: Equatable, Sendable {
+    case accessDenied
+    case selectionUnavailable
+    case other
+
+    init(_ error: Error) {
+        switch error as? CalendarRemindersServiceError {
+        case .accessDenied?: self = .accessDenied
+        case .calendarUnavailable?, .listUnavailable?: self = .selectionUnavailable
+        default: self = .other
+        }
     }
 }
 
@@ -232,9 +257,11 @@ private struct CalendarCompactWidgetView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    @ObservedObject private var eventKitChanges = EventKitChangeMonitor.shared
     @State private var events: [CalendarEventSnapshot] = []
     @State private var accessAvailable = false
     @State private var errorMessage: String?
+    @State private var failure = EventKitReadFailure.accessDenied
     @State private var refreshRequestID = UUID()
 
     private var configuration: WidgetConfiguration {
@@ -244,28 +271,21 @@ private struct CalendarCompactWidgetView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let parts = CalendarFacePresentation.parts(calendarLayout: configuration.calendarLayout, dockLayout: dockLayout)
-            let empty = CalendarFacePresentation.emptyState(errorMessage: errorMessage, accessAvailable: accessAvailable)
+            let empty = CalendarFacePresentation.emptyState(errorMessage: errorMessage, accessAvailable: accessAvailable,
+                                                            failure: failure)
             CalendarDockFace(date: context.date, showsDate: parts.date, showsEvent: parts.event,
                              event: CalendarEventOrdering.compactEvent(from: events, now: context.date),
                              allDayLine: NextMeeting.allDayLine(NextMeeting.allDayToday(from: events, now: context.date)),
                              emptyTitle: empty.title, emptyDetail: empty.detail)
                 .frame(width: contentWidth, height: 54)
         }
-        .task(id: configuration) {
+        // One structured refresh per configuration change and per coalesced EventKit, activation or wake signal.
+        .task(id: EventKitRefreshKey(value: configuration, generation: eventKitChanges.generation)) {
             await refreshIfAuthorized()
             for await _ in RefreshScheduler.shared.ticks(every: 5 * 60) {
                 guard !Task.isCancelled else { return }
                 await refreshIfAuthorized()
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
-            Task { await refreshIfAuthorized() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await refreshIfAuthorized() }
-        }
-        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-            Task { await refreshIfAuthorized() }
         }
         .help(errorMessage ?? "Calendar")
     }
@@ -287,6 +307,7 @@ private struct CalendarCompactWidgetView: View {
             events = []
             accessAvailable = false
             errorMessage = CalendarRemindersServiceError.accessDenied.localizedDescription
+            failure = .accessDenied
             return
         }
         if let fixture = CalendarQAFixture.current {
@@ -302,6 +323,7 @@ private struct CalendarCompactWidgetView: View {
             events = []
             accessAvailable = false
             errorMessage = "Calendar access is unavailable."
+            failure = .accessDenied
             return
         }
         do {
@@ -314,6 +336,7 @@ private struct CalendarCompactWidgetView: View {
                 events = []
                 accessAvailable = false
                 errorMessage = "Calendar access is unavailable."
+                failure = .accessDenied
                 return
             }
             events = result
@@ -325,6 +348,7 @@ private struct CalendarCompactWidgetView: View {
             events = []
             accessAvailable = false
             errorMessage = error.localizedDescription
+            failure = EventKitReadFailure(error)
         }
     }
 
@@ -350,10 +374,12 @@ private struct CalendarPopoutWidgetView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    @ObservedObject private var eventKitChanges = EventKitChangeMonitor.shared
     @State private var calendars: [CalendarListSnapshot] = []
     @State private var events: [CalendarEventSnapshot] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var failure = EventKitReadFailure.accessDenied
     @State private var refreshRequestID = UUID()
     @State private var layoutSelection = CalendarWidgetLayout.dateAndNextEvent
     @State private var showAllDaySelection = false
@@ -366,11 +392,14 @@ private struct CalendarPopoutWidgetView: View {
         currentConfiguration() ?? item.widgetConfiguration ?? WidgetConfiguration()
     }
 
+    /// Only the first read replaces the reading with a loading row; later refreshes keep it and the header shows progress.
+    private var isFirstLoad: Bool { isLoading && loadedAt == nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             TimelineView(.periodic(from: .now, by: 60)) { context in
                 // With a next event the hero reads "in 12 min" or "now"; otherwise it stays the date.
-                if configuration.calendarLayout != .date, errorMessage == nil, !isLoading,
+                if configuration.calendarLayout != .date, errorMessage == nil, !isFirstLoad,
                    let next = NextMeeting.next(from: events, now: context.date) {
                     WidgetPopoutHero(value: NextMeeting.heroValue(next, now: context.date), caption: next.title)
                 } else {
@@ -395,22 +424,20 @@ private struct CalendarPopoutWidgetView: View {
             reload()
         }
         .onChange(of: item.widgetConfiguration?.calendarShowsAllDayEvents) { showAllDaySelection = $0 ?? false }
-        .task {
+        // Structured: restarts once per coalesced EventKit, activation or wake signal and ends with the popout.
+        .task(id: eventKitChanges.generation) {
             await requestAndLoad()
             for await _ in RefreshScheduler.shared.ticks(every: 5 * 60) {
                 guard !Task.isCancelled else { return }
                 await requestAndLoad()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in reload() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in reload() }
-        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in reload() }
     }
 
     private var eventsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             WidgetPopoutSectionHeader(configuration.calendarLayout == .nextEvent ? "Next Event" : "Upcoming")
-            if isLoading {
+            if isFirstLoad {
                 GroupedSection {
                     WidgetPopoutRow {
                         HStack(spacing: 8) {
@@ -421,9 +448,18 @@ private struct CalendarPopoutWidgetView: View {
                 }
             } else if let errorMessage {
                 GroupedSection {
-                    GroupedRow(errorMessage, subtitle: "You can change Calendar access in System Settings.",
-                               symbol: "calendar.badge.exclamationmark", color: .orange)
-                    GroupedRow("Open Privacy & Security", role: .button) { WidgetPrivacySettings.open(WidgetPrivacySettings.calendars) }
+                    switch failure {
+                    case .selectionUnavailable:
+                        GroupedRow("Selected calendar unavailable", subtitle: "Choose another calendar or show all calendars.",
+                                   symbol: "calendar.badge.exclamationmark", color: .orange)
+                        GroupedRow("Show All Calendars", role: .button) { updateCalendars([]) }
+                    case .accessDenied:
+                        GroupedRow(errorMessage, subtitle: "You can change Calendar access in System Settings.",
+                                   symbol: "calendar.badge.exclamationmark", color: .orange)
+                        GroupedRow("Open Privacy & Security", role: .button) { WidgetPrivacySettings.open(WidgetPrivacySettings.calendars) }
+                    case .other:
+                        GroupedRow(errorMessage, symbol: "calendar.badge.exclamationmark", color: .orange)
+                    }
                 }
             } else if events.isEmpty {
                 GroupedSection {
@@ -615,6 +651,7 @@ private struct CalendarPopoutWidgetView: View {
             calendars = []
             events = []
             errorMessage = CalendarRemindersServiceError.accessDenied.localizedDescription
+            failure = .accessDenied
             isLoading = false
             loadedAt = nil
             return
@@ -630,24 +667,28 @@ private struct CalendarPopoutWidgetView: View {
         #endif
         isLoading = true
         defer { if refreshRequestID == requestID { isLoading = false } }
+        // The calendar choices are read first and kept when only the selection is gone, so another can be chosen here.
+        var fetchedCalendars: [CalendarListSnapshot]?
         do {
             try await CalendarRemindersService.shared.requestCalendarAccess()
-            let fetchedCalendars = try await CalendarRemindersService.shared.calendarLists()
+            fetchedCalendars = try await CalendarRemindersService.shared.calendarLists()
             let fetchedEvents = try await CalendarRemindersService.shared.events(calendarIDs: selectedIDs,
                                                                                 includeAllDay: includeAllDay)
             let stillAuthorized = await CalendarRemindersService.shared.hasCalendarAccess()
             guard requestIsCurrent(requestID, selectedIDs: selectedIDs,
                                    includeAllDay: includeAllDay, layout: layout) else { return }
             guard stillAuthorized else { throw CalendarRemindersServiceError.accessDenied }
-            calendars = fetchedCalendars
+            calendars = fetchedCalendars ?? []
             events = fetchedEvents
             errorMessage = nil
             loadedAt = .now
         } catch {
             guard requestIsCurrent(requestID, selectedIDs: selectedIDs,
                                    includeAllDay: includeAllDay, layout: layout) else { return }
+            let readFailure = EventKitReadFailure(error)
             errorMessage = error.localizedDescription
-            calendars = []
+            failure = readFailure
+            calendars = readFailure == .selectionUnavailable ? (fetchedCalendars ?? calendars) : []
             events = []
             loadedAt = nil
         }
@@ -722,6 +763,7 @@ private struct RemindersCompactWidgetView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    @ObservedObject private var eventKitChanges = EventKitChangeMonitor.shared
     @State private var count = 0
     @State private var overdue = 0
     @State private var hasAccess = false
@@ -736,21 +778,13 @@ private struct RemindersCompactWidgetView: View {
         RemindersModuleFace(count: hasAccess && errorMessage == nil ? count : nil, overdue: overdue,
                             context: errorMessage != nil ? "Unavailable" : hasAccess ? "Selected reminders" : "Choose a list")
         .frame(width: contentWidth, height: 54)
-        .task(id: configuration.selectedReminderCalendarID) {
+        // One structured refresh per list change and per coalesced EventKit, activation or wake signal.
+        .task(id: EventKitRefreshKey(value: configuration.selectedReminderCalendarID, generation: eventKitChanges.generation)) {
             await refreshIfAuthorized()
             for await _ in RefreshScheduler.shared.ticks(every: 5 * 60) {
                 guard !Task.isCancelled else { return }
                 await refreshIfAuthorized()
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
-            Task { await refreshIfAuthorized() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await refreshIfAuthorized() }
-        }
-        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-            Task { await refreshIfAuthorized() }
         }
         .help(errorMessage ?? "Reminders")
     }
@@ -820,12 +854,14 @@ private struct RemindersPopoutWidgetView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
+    @ObservedObject private var eventKitChanges = EventKitChangeMonitor.shared
     @State private var lists: [ReminderListSnapshot] = []
     @State private var reminders: [ReminderSnapshot] = []
     @State private var newReminderTitle = ""
     @State private var lastCompletedIdentifier: String?
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var failure = EventKitReadFailure.accessDenied
     @State private var actionErrorMessage: String?
     @State private var refreshRequestID = UUID()
     @State private var layoutSelection = RemindersWidgetLayout.list
@@ -843,9 +879,12 @@ private struct RemindersPopoutWidgetView: View {
         currentConfiguration() ?? item.widgetConfiguration ?? WidgetConfiguration()
     }
 
+    /// Only the first read replaces the reading with a loading row; later refreshes keep it and the header shows progress.
+    private var isFirstLoad: Bool { isLoading && loadedAt == nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
-            if isLoading {
+            if isFirstLoad {
                 GroupedSection {
                     WidgetPopoutRow {
                         HStack(spacing: 8) {
@@ -856,8 +895,17 @@ private struct RemindersPopoutWidgetView: View {
                 }
             } else if let errorMessage {
                 GroupedSection {
-                    GroupedRow(errorMessage, subtitle: "You can change access in System Settings.", symbol: "checklist", color: .orange)
-                    GroupedRow("Open Privacy & Security", role: .button) { WidgetPrivacySettings.open(WidgetPrivacySettings.reminders) }
+                    switch failure {
+                    case .selectionUnavailable:
+                        GroupedRow("Selected list unavailable", subtitle: "Choose another list or show all lists.",
+                                   symbol: "checklist", color: .orange)
+                        GroupedRow("Show All Lists", role: .button) { selectedList = "" }
+                    case .accessDenied:
+                        GroupedRow(errorMessage, subtitle: "You can change access in System Settings.", symbol: "checklist", color: .orange)
+                        GroupedRow("Open Privacy & Security", role: .button) { WidgetPrivacySettings.open(WidgetPrivacySettings.reminders) }
+                    case .other:
+                        GroupedRow(errorMessage, symbol: "checklist", color: .orange)
+                    }
                 }
             } else {
                 TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -939,16 +987,14 @@ private struct RemindersPopoutWidgetView: View {
         .onAppear { selectedList = configuration.selectedReminderCalendarID }
         .onChange(of: selectedList) { updateList($0) }
         .onChange(of: configuration.selectedReminderCalendarID) { selectedList = $0 }
-        .task {
+        // Structured: restarts once per coalesced EventKit, activation or wake signal and ends with the popout.
+        .task(id: eventKitChanges.generation) {
             await requestAndLoad()
             for await _ in RefreshScheduler.shared.ticks(every: 5 * 60) {
                 guard !Task.isCancelled else { return }
                 await requestAndLoad()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in reload() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in reload() }
-        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in reload() }
     }
 
     private func reminderList(_ shown: [ReminderSnapshot], now: Date) -> some View {
@@ -1000,6 +1046,7 @@ private struct RemindersPopoutWidgetView: View {
             lists = fixture.lists
             reminders = fixture.reminders()
             errorMessage = fixture == .denied ? CalendarRemindersServiceError.accessDenied.localizedDescription : nil
+            failure = .accessDenied
             isLoading = false
             loadedAt = fixture == .denied ? nil : .now
             return
@@ -1007,21 +1054,25 @@ private struct RemindersPopoutWidgetView: View {
         #endif
         isLoading = true
         defer { if refreshRequestID == requestID { isLoading = false } }
+        // The lists are read first and kept when only the selection is gone, so another can be chosen here.
+        var fetchedLists: [ReminderListSnapshot]?
         do {
             try await CalendarRemindersService.shared.requestRemindersAccess()
-            let fetchedLists = try await CalendarRemindersService.shared.reminderLists()
+            fetchedLists = try await CalendarRemindersService.shared.reminderLists()
             let fetchedReminders = try await CalendarRemindersService.shared.reminders(calendarID: selectedListID)
             let stillAuthorized = await CalendarRemindersService.shared.hasRemindersAccess()
             guard requestIsCurrent(requestID, selectedListID: selectedListID) else { return }
             guard stillAuthorized else { throw CalendarRemindersServiceError.accessDenied }
-            lists = fetchedLists
+            lists = fetchedLists ?? []
             reminders = fetchedReminders
             errorMessage = nil
             loadedAt = .now
         } catch {
             guard requestIsCurrent(requestID, selectedListID: selectedListID) else { return }
+            let readFailure = EventKitReadFailure(error)
             errorMessage = error.localizedDescription
-            lists = []
+            failure = readFailure
+            lists = readFailure == .selectionUnavailable ? (fetchedLists ?? lists) : []
             reminders = []
             loadedAt = nil
         }
@@ -1070,6 +1121,8 @@ private struct RemindersPopoutWidgetView: View {
                 try await CalendarRemindersService.shared.setReminderCompleted(identifier: reminder.id, completed: true)
                 lastCompletedIdentifier = reminder.id
                 isChangingCompletion = false
+                // The completed row leaves at once; the reload then confirms the list without hiding it.
+                reminders.removeAll { $0.id == reminder.id }
                 await requestAndLoad()
             } catch {
                 isChangingCompletion = false
@@ -1092,6 +1145,62 @@ private struct RemindersPopoutWidgetView: View {
                 isChangingCompletion = false
                 actionErrorMessage = error.localizedDescription
             }
+        }
+    }
+}
+
+// MARK: - Coalesced EventKit refresh
+
+/// The `.task(id:)` key of an EventKit view: its own settings plus the shared change generation.
+private struct EventKitRefreshKey<Value: Equatable>: Equatable {
+    var value: Value
+    var generation: Int
+}
+
+/// One shared signal for every Calendar and Reminders view. EventKit store changes arrive in bursts during iCloud
+/// sync, and app activation and wake follow each other, so the views refetch once per burst instead of once per
+/// notification. While nothing visible wants refreshes (the Dock is hidden and no popout is open), the signal waits
+/// for the scheduler's next active tick instead of fetching for a Dock nobody sees.
+@MainActor
+final class EventKitChangeMonitor: ObservableObject {
+    static let shared = EventKitChangeMonitor()
+
+    /// Increments once per coalesced burst; views use it in `.task(id:)`.
+    @Published private(set) var generation = 0
+    private let delay: Duration
+    private let scheduler: RefreshScheduler
+    private var observations: [AnyCancellable] = []
+    private var pending: Task<Void, Never>?
+
+    init(delay: Duration = .seconds(1), center: NotificationCenter = .default,
+         workspaceCenter: NotificationCenter? = nil, scheduler: RefreshScheduler? = nil) {
+        self.delay = delay
+        self.scheduler = scheduler ?? .shared
+        let publishers = [
+            center.publisher(for: .EKEventStoreChanged),
+            center.publisher(for: NSApplication.didBecomeActiveNotification),
+            (workspaceCenter ?? NSWorkspace.shared.notificationCenter).publisher(for: NSWorkspace.didWakeNotification)
+        ]
+        // EKEventStoreChanged may be posted off the main thread, so each signal hops to the main actor.
+        observations = publishers.map { publisher in
+            publisher.sink { @Sendable [weak self] _ in
+                Task { @MainActor in self?.signal() }
+            }
+        }
+    }
+
+    /// Restarts the coalescing window; the generation advances once the window passes without another signal.
+    func signal() {
+        pending?.cancel()
+        pending = Task { [weak self, delay, scheduler] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            if !scheduler.isActive {
+                // The scheduler only ticks while active, so the first tick marks the Dock or a popout becoming visible.
+                for await _ in scheduler.ticks(every: 1) { break }
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.generation &+= 1
+            self.pending = nil
         }
     }
 }

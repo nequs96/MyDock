@@ -1069,14 +1069,14 @@ private struct MarketFace: View {
         let ticker = snapshot?.symbol ?? (c.stockSymbol.isEmpty ? "Stock" : c.stockSymbol)
         let narrow = WidgetModuleMetrics.isNarrow(width)
         let trend = layout == .trend && !narrow
-        let change = snapshot?.changePercent
-        let changeColor = (snapshot?.change ?? 0) < 0 ? WidgetPalette.critical : WidgetPalette.positive
+        // The tested face rule: the Mac's number format, and colour only for a fall (rising stays neutral).
+        let changeColor = StockFaceFormatting.changeColor(snapshot?.change)
         HStack(spacing: 8) {
             if let snapshot, let latest = snapshot.latest {
                 ModuleStack(kind: kind, label: narrow ? FinancialFacePresentation.shortTicker(ticker) : ticker,
                             value: latest.close.formatted(.number.precision(.fractionLength(2))), unit: trend ? "" : snapshot.currency,
                             size: narrow ? .small : trend ? .large : .medium,
-                            trailing: trend ? change.map { String(format: "%+.1f%%", $0) } : nil, trailingColor: changeColor,
+                            trailing: trend ? StockFaceFormatting.faceChangeText(snapshot.changePercent) : nil, trailingColor: changeColor,
                             keepsLeading: trend)
                     .help(ticker)
                 if trend {

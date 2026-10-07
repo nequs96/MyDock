@@ -26,6 +26,11 @@ enum AILimitsStalePresentation {
         "Stale · last successful reading" + (updatedAt.map { " " + $0.formatted(date: .abbreviated, time: .shortened) } ?? " time unknown")
             + ". Refresh failed: " + error
     }
+    /// A provider row's line: the stale message for a retained reading, otherwise the provider's own message.
+    static func subtitle(for reading: AIProviderLimitReading) -> String? {
+        guard let error = reading.lastRefreshError else { return reading.message }
+        return message(updatedAt: reading.updatedAt, error: error)
+    }
 }
 
 enum AIFacePresentation {
@@ -50,12 +55,15 @@ enum AIFacePresentation {
         let tokens = Double(snapshot.totals.totalTokens)
         let scale: Double = tokens >= 1_000_000_000 ? 1_000_000_000 : tokens >= 1_000_000 ? 1_000_000 : tokens >= 1_000 ? 1_000 : 1
         let suffix = scale == 1_000_000_000 ? "B" : scale == 1_000_000 ? "M" : scale == 1_000 ? "K" : ""
-        return (tokens / scale).formatted(.number.precision(.fractionLength(0)).locale(locale)) + suffix
-            + (snapshot.partial && !snapshot.estimated ? "+" : "")
+        return marked((tokens / scale).formatted(.number.precision(.fractionLength(0)).locale(locale)) + suffix, snapshot: snapshot)
     }
     static func activityValue(snapshot: AIActivitySnapshot?) -> String {
         guard let snapshot, snapshot.available else { return snapshot == nil ? "Set up" : "No data" }
-        return AIActivityFormatting.tokens(snapshot.totals.totalTokens) + (snapshot.partial && !snapshot.estimated ? "+" : "")
+        return marked(AIActivityFormatting.tokens(snapshot.totals.totalTokens), snapshot: snapshot)
+    }
+    /// A token total with its truthful marker: "~" for a local estimate, "+" for a partial exact count.
+    static func marked(_ value: String, snapshot: AIActivitySnapshot) -> String {
+        (snapshot.estimated ? "~" : "") + value + (snapshot.partial && !snapshot.estimated ? "+" : "")
     }
     static func limitValue(reading: AIProviderLimitReading?, mode: AIUsageRepresentation) -> String {
         guard let reading else { return "Set up" }
@@ -144,6 +152,10 @@ private struct AILimitsPopoutView: View {
             if showsHero {
                 if let reading = AIFacePresentation.primaryReading(configuration: configuration) {
                     providerSection(reading, primary: true)
+                } else if let provider = AIFacePresentation.selectedProvider(configuration: configuration) {
+                    // A chosen provider without a reading is loading or unreadable, never "choose a provider".
+                    WidgetPopoutHero(value: isRefreshing ? "Loading limits…" : provider.title + " limits unavailable",
+                                     caption: isRefreshing ? nil : "Refresh to try again.", symbol: "gauge.with.dots.needle.0percent")
                 } else {
                     WidgetPopoutHero(value: "No limits available", caption: "Choose a provider in Settings.", symbol: "gauge.with.dots.needle.0percent")
                 }
@@ -151,7 +163,7 @@ private struct AILimitsPopoutView: View {
                 if !secondary.isEmpty {
                     GroupedSection("Other providers") {
                         ForEach(secondary) { reading in
-                            GroupedRow(reading.provider.title, subtitle: reading.lastRefreshError ?? reading.message,
+                            GroupedRow(reading.provider.title, subtitle: AILimitsStalePresentation.subtitle(for: reading),
                                 value: AIFacePresentation.limitValue(reading: reading, mode: configuration.aiLimitsRepresentation))
                             ForEach(Array(reading.windows.dropFirst())) { window in
                                 limitWindow(window, showsValue: true)
@@ -242,8 +254,8 @@ private struct AILimitsPopoutView: View {
                 caption: reading.provider.title + (reading.plan.map { " · " + $0.capitalized } ?? "") + " · " + configuration.aiLimitsRepresentation.title,
                 valueColor: AIFacePresentation.limitHeroColor(usedPercent: reading.windows.first?.usedPercent))
             if let error = reading.lastRefreshError {
-                Label("Saved limits; " + error, systemImage: "exclamationmark.triangle")
-                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Label(AILimitsStalePresentation.message(updatedAt: reading.updatedAt, error: error), systemImage: "exclamationmark.triangle")
+                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning).fixedSize(horizontal: false, vertical: true)
             }
             if let identity = reading.verifiedAccountIdentity {
                 Text("Verified account: " + identity).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
@@ -259,9 +271,9 @@ private struct AILimitsPopoutView: View {
                 }
             }
             if reading.availability != .available, reading.provider != .claude, reading.provider != .codex {
-                Text("Open " + reading.provider.title + " to set up local readings.")
-                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
-                    .help(reading.provider.setupInstructions)
+                // The steps themselves, readable without hover by keyboard and VoiceOver users.
+                Text(reading.provider.setupInstructions)
+                    .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if let command = reading.provider.statusLineSetupCommand {
                     HStack {
                         Button("Copy statusLine value") {
@@ -508,11 +520,18 @@ private struct AIActivitySummary: View {
         guard let s = configuration.aiActivitySnapshot, s.provider == provider, s.range == range else { return nil }
         return s
     }
-    private var query: WidgetDataQuery { WidgetDataQuery.make(kind: "AI Activity", configuration: configuration)! }
-    private var refreshing: Bool { coordinator.refreshing.contains(query) }
-    private var failed: Bool { coordinator.errors[query] != nil || (snapshot?.partial == true && snapshot?.available == false) }
+    /// Whether the coordinator is loading or failed this query. Built once per render: making the query resolves
+    /// the log location and hashes it.
+    private struct LoadStatus { var refreshing: Bool; var failed: Bool }
+    private var loadStatus: LoadStatus {
+        let query = WidgetDataQuery.make(kind: "AI Activity", configuration: configuration)
+        let unreadable = snapshot?.partial == true && snapshot?.available == false
+        guard let query else { return LoadStatus(refreshing: false, failed: unreadable) }
+        return LoadStatus(refreshing: coordinator.refreshing.contains(query), failed: coordinator.errors[query] != nil || unreadable)
+    }
 
     var body: some View {
+        let status = loadStatus
         VStack(alignment: .leading, spacing: 16) {
             if showsHero {
                 WidgetFreshnessView(coordinator: coordinator, item: item, refresh: refresh)
@@ -528,7 +547,7 @@ private struct AIActivitySummary: View {
                         }.font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                     }
                 } else {
-                    emptyState
+                    emptyState(status)
                 }
                 if let recoveryMessage { Text(recoveryMessage).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary) }
             }
@@ -559,7 +578,7 @@ private struct AIActivitySummary: View {
     }
     private func metrics(_ s: AIActivitySnapshot) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
-            metric("Tokens", value: AIActivityFormatting.tokens(s.totals.totalTokens) + (s.partial && !s.estimated ? "+" : ""), primary: true)
+            metric("Tokens", value: AIFacePresentation.marked(AIActivityFormatting.tokens(s.totals.totalTokens), snapshot: s), primary: true)
                 .help(s.tokensText + ". " + s.sourceDescription)
             metric("Sessions", value: AIActivityFormatting.tokens(Int64(s.totals.sessions)))
                 .help("Distinct local sessions with activity in \(s.range.activityDescription). Daily counts count each session once per day.")
@@ -593,26 +612,26 @@ private struct AIActivitySummary: View {
             .frame(height: 136).accessibilityLabel("\(provider.title) token activity by day, \(range == .today ? "last 7 days" : range.activityDescription)")
         }
     }
-    private var emptyState: some View {
+    private func emptyState(_ status: LoadStatus) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: failed ? "exclamationmark.circle" : "chart.bar.xaxis").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
-            Text(emptyTitle).font(.system(size: 14, weight: .semibold))
-            Text(emptyDetail).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-            if let account, account.state != .signedIn, [.codex, .claude].contains(provider), !refreshing {
+            Image(systemName: status.failed ? "exclamationmark.circle" : "chart.bar.xaxis").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
+            Text(emptyTitle(status)).font(.system(size: 14, weight: .semibold))
+            Text(emptyDetail(status)).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            if let account, account.state != .signedIn, [.codex, .claude].contains(provider), !status.refreshing {
                 Button(provider == .codex ? "Open Codex" : "Open Claude Code", action: recover).controlSize(.small).disabled(!allowsActions)
                     .help("Open your provider to connect, then refresh local activity")
             }
         }.frame(maxWidth: .infinity).frame(minHeight: 176).padding(.horizontal, 22)
     }
-    private var emptyTitle: String {
-        if refreshing && snapshot == nil { return "Loading activity" }
-        if failed { return "Activity unavailable" }
+    private func emptyTitle(_ status: LoadStatus) -> String {
+        if status.refreshing && snapshot == nil { return "Loading activity" }
+        if status.failed { return "Activity unavailable" }
         if let account, account.state != .signedIn { return "\(provider.title) account unavailable" }
         return "No activity yet"
     }
-    private var emptyDetail: String {
-        if refreshing && snapshot == nil { return "Reading session counters from this Mac." }
-        if failed { return "Local records couldn’t be read. Try refreshing." }
+    private func emptyDetail(_ status: LoadStatus) -> String {
+        if status.refreshing && snapshot == nil { return "Reading session counters from this Mac." }
+        if status.failed { return "Local records couldn’t be read. Try refreshing." }
         if let account, account.state != .signedIn { return "Open \(provider.title) to connect. Activity will appear here as you use it." }
         if ![AIProvider.codex, .claude, .grok].contains(provider) { return "This provider has no supported local activity source. Choose another provider." }
         return "Use \(provider.title) on this Mac, then refresh to see your local activity."

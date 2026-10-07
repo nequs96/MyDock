@@ -5,6 +5,7 @@ import Foundation
 enum CalendarRemindersServiceError: LocalizedError {
     case accessDenied
     case calendarUnavailable
+    case listUnavailable
     case reminderUnavailable
     case reminderFetchFailed
     case reminderFetchTimedOut
@@ -14,6 +15,7 @@ enum CalendarRemindersServiceError: LocalizedError {
         switch self {
         case .accessDenied: "Allow Calendar or Reminders access in System Settings to use this widget."
         case .calendarUnavailable: "That calendar is no longer available. Choose another calendar or show all calendars."
+        case .listUnavailable: "That list is no longer available. Choose another list or show all lists."
         case .reminderUnavailable: "That reminder is no longer available. Refresh the list and try again."
         case .reminderFetchFailed: "Reminders could not be loaded. Check access and try again."
         case .reminderFetchTimedOut: "Reminders did not respond in time. Try again."
@@ -207,7 +209,7 @@ actor CalendarRemindersService {
             selected = nil
         } else {
             selected = available.filter { $0.calendarIdentifier == calendarID }
-            guard !(selected?.isEmpty ?? true) else { throw CalendarRemindersServiceError.calendarUnavailable }
+            guard !(selected?.isEmpty ?? true) else { throw CalendarRemindersServiceError.listUnavailable }
         }
         let predicate = eventStore.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: selected)
         let store = eventStore

@@ -29,18 +29,20 @@ struct FolderContentsPopout: View {
                         Image(systemName: "chevron.left").frame(width: 24, height: 24)
                     }
                     .buttonStyle(.plain)
-                    .help("Back")
+                    .keyboardShortcut("[", modifiers: .command)
+                    .accessibilityLabel("Back")
+                    .help("Back (⌘[)")
                 }
                 Image(systemName: "folder.fill").foregroundStyle(.tint)
                 Text(directoryStack.count == 1 ? (folderName ?? currentURL.lastPathComponent) : currentURL.lastPathComponent)
                     .font(.headline).lineLimit(1)
                 Spacer(minLength: 4)
                 Button {
-                    NSWorkspace.shared.open(currentURL)
+                    openItem(currentURL)
                 } label: { Image(systemName: "arrow.up.forward.app") }
-                .buttonStyle(.plain).help("Open in Finder")
+                .buttonStyle(.plain).accessibilityLabel("Open in Finder").help("Open in Finder")
                 Button(action: onClose) { Image(systemName: "xmark") }
-                    .buttonStyle(.plain).help("Close folder")
+                    .buttonStyle(.plain).accessibilityLabel("Close Folder").help("Close folder")
             }
             .padding(12)
             Divider()
@@ -63,7 +65,7 @@ struct FolderContentsPopout: View {
                                 if entry.isDirectory {
                                     directoryStack.append(entry.url)
                                 } else {
-                                    NSWorkspace.shared.open(entry.url)
+                                    openItem(entry.url)
                                 }
                             } label: {
                                 HStack(spacing: 9) {
@@ -77,9 +79,14 @@ struct FolderContentsPopout: View {
                                 .padding(.horizontal, 9).padding(.vertical, 5)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityHint(entry.isDirectory ? "Shows this folder's contents" : "Opens in its default app")
                             .contextMenu {
-                                Button("Open in Finder") { NSWorkspace.shared.open(entry.url) }
-                                Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([entry.url]) }
+                                // A file opens in its default app, so the item says Open; Reveal in Finder shows it in Finder.
+                                Button("Open") { openItem(entry.url) }
+                                Button("Reveal in Finder") {
+                                    guard AppRuntimeEnvironment.allowsNativeEffects else { return }
+                                    NSWorkspace.shared.activateFileViewerSelecting([entry.url])
+                                }
                             }
                         }
                         if let summary = listing?.omittedSummary {
@@ -95,6 +102,12 @@ struct FolderContentsPopout: View {
         .frame(width: 330, height: 360).background(DockDesign.page).font(DockDesign.body).modifier(MyDockInterfaceStyle())
         .task(id: currentURL) { await loadEntries(at: currentURL) }
         .onExitCommand(perform: onClose)
+    }
+
+    /// Opening launches apps or drives Finder, so isolated validation sessions never do it.
+    private func openItem(_ url: URL) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func emptyState(title: String, symbol: String, message: String) -> some View {

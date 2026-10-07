@@ -38,8 +38,6 @@ private struct ShopifyPopoutView: View {
     @State private var isConnecting = false
     @Environment(\.widgetPopoutShowsHero) private var showsHero
     @State private var showsSettings = false
-    @State private var isRefreshing = false
-    @State private var refreshRequestID = UUID()
     @State private var isDisconnectConfirmationPresented = false
     @State private var errorMessage: String?
 
@@ -66,14 +64,15 @@ private struct ShopifyPopoutView: View {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            if !ShopifySetupPresentation.showsSettings(accountID: configuration.shopifyStoreID, hasSavedReading: snapshot != nil) {
+            if !BusinessSetupPresentation.showsSettings(accountID: configuration.shopifyStoreID, hasSavedReading: snapshot != nil) {
                 connectionControls
             } else {
                 WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) { controls }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .task(id: "\(configuration.shopifyStoreID)|\(configuration.shopifyPeriod.rawValue)|\(configuration.shopifyDisplayName)") {
+        // The store and period identify the reading; renaming the store is cosmetic and never refetches.
+        .task(id: "\(configuration.shopifyStoreID)|\(configuration.shopifyPeriod.rawValue)") {
             guard !snapshotRendering, !configuration.shopifyStoreID.isEmpty else { return }
             await refresh()
         }
@@ -87,7 +86,7 @@ private struct ShopifyPopoutView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(
-                "This removes the Shopify client secret and access token from this Mac's Keychain and disconnects every MyDock widget using them. It does not uninstall the app from Shopify."
+                "This removes the Shopify client secret and access token from this Mac's Keychain, disconnects every MyDock widget using them and removes their saved figures. It does not uninstall the app from Shopify."
             )
         }
     }
@@ -133,7 +132,18 @@ private struct ShopifyPopoutView: View {
                 if !configuration.shopifyStoreID.isEmpty {
                     GroupedRow("Disconnect", role: .destructive) { isDisconnectConfirmationPresented = true }
                 } else {
-                    if !ShopifySetupPresentation.showsSettings(accountID: configuration.shopifyStoreID, hasSavedReading: snapshot != nil) {
+                    // A store connected for another widget is offered first, so its credentials are never entered twice.
+                    if BusinessSetupPresentation.offersExistingConnections(accountID: configuration.shopifyStoreID,
+                                                                           hasSavedReading: snapshot != nil, connectionCount: connectedStores.count) {
+                        GroupedRow("Store") {
+                            Picker("Store", selection: accountBinding) {
+                                Text("None").tag("")
+                                ForEach(connectedStores) { connection in Text(connection.name).tag(connection.id) }
+                            }
+                            .labelsHidden()
+                        }
+                    }
+                    if !BusinessSetupPresentation.showsSettings(accountID: configuration.shopifyStoreID, hasSavedReading: snapshot != nil) {
                         GroupedRow("Store name") {
                             TextField("Store name", text: accountNameBinding).textFieldStyle(.plain)
                                 .disabled(isConnecting)
@@ -289,15 +299,9 @@ private struct ShopifyPopoutView: View {
         Binding(get: { configuration.shopifyDisplayName }, set: { value in update { $0.shopifyDisplayName = String(value.prefix(80)) } })
     }
 
+    /// Opening the popout honours the coordinator's cache; the header's refresh control is the forced refresh.
     private func refresh() async {
-        let requestID = UUID()
-        refreshRequestID = requestID
-        isRefreshing = true
-        defer { if refreshRequestID == requestID { isRefreshing = false } }
-        var currentItem = item
-        currentItem.widgetConfiguration = configuration
-        await store.widgetData.refresh(item: currentItem, profileID: profileID)
-        guard refreshRequestID == requestID, !Task.isCancelled else { return }
+        await store.widgetData.refresh(item: item, profileID: profileID, force: false)
     }
 
     private func connect() async {
@@ -341,8 +345,6 @@ private struct ShopifyPopoutView: View {
     private func disconnect() {
         let selectedID = configuration.shopifyStoreID
         guard !selectedID.isEmpty else { return }
-        refreshRequestID = UUID()
-        isRefreshing = false
         do {
             try ShopifyConnectionDirectory.remove(storeID: selectedID)
             reloadStores()
@@ -409,8 +411,3 @@ extension ShopifyMetric {
     func popoutUnit(currency: String) -> String { self == .orders ? "orders" : currency }
 }
 
-enum ShopifySetupPresentation {
-    static func showsSettings(accountID: String, hasSavedReading: Bool) -> Bool {
-        !accountID.isEmpty || hasSavedReading
-    }
-}

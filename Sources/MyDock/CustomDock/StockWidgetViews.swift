@@ -40,8 +40,13 @@ enum StockFaceFormatting {
         return date.formatted(style)
     }
 
-    static func percentText(_ percent: Double, locale: Locale = .current) -> String {
-        (percent / 100).formatted(.percent.precision(.fractionLength(2)).sign(strategy: .always()).locale(locale))
+    static func percentText(_ percent: Double, fractionLength: Int = 2, locale: Locale = .current) -> String {
+        (percent / 100).formatted(.percent.precision(.fractionLength(fractionLength)).sign(strategy: .always()).locale(locale))
+    }
+    /// The Dock face's change: one decimal, in the Mac's number format, e.g. "+1.2%" or "+1,2 %".
+    static func faceChangeText(_ percent: Double?, locale: Locale = .current) -> String? {
+        guard let percent, percent.isFinite else { return nil }
+        return percentText(percent, fractionLength: 1, locale: locale)
     }
     static func changeText(_ change: Double, percent: Double, locale: Locale = .current) -> String {
         change.formatted(.number.precision(.fractionLength(2)).sign(strategy: .always()).locale(locale))
@@ -50,6 +55,41 @@ enum StockFaceFormatting {
     static func changeColor(_ change: Double?) -> Color {
         guard let change, change.isFinite, change < 0 else { return .secondary }
         return WidgetPalette.critical
+    }
+}
+
+/// What the Stock and Watchlist popouts share: the key read, the Yahoo Finance link, the display options and the copy.
+enum MarketPopoutSupport {
+    static let footer = "End-of-day quotes from Alpha Vantage."
+    static let help = "Ranges count trading sessions, up to 100 daily closes; change compares the latest two sessions. Standard-plan quotes are end of day, and request limits depend on your Alpha Vantage plan."
+
+    static func requiredAPIKey() throws -> String {
+        guard let key = try MarketAPIKeyStore.read(), !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MarketDataError.missingAPIKey
+        }
+        return key
+    }
+
+    @MainActor static func openFinance(_ symbol: String) {
+        guard AppRuntimeEnvironment.allowsNativeEffects, let url = MarketFinanceURL.url(for: symbol) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// Range, update interval and volume, as rows of the caller's grouped section.
+    @MainActor @ViewBuilder
+    static func displayOptionRows(range: Binding<StockChartRange>, interval: Binding<Int>, showsVolume: Binding<Bool>) -> some View {
+        GroupedRow("Range", symbol: "chart.xyaxis.line") {
+            Picker("Range", selection: range) {
+                ForEach(StockChartRange.allCases) { Text($0.title).tag($0) }
+            }.labelsHidden()
+        }
+        GroupedRow("Update interval", symbol: "arrow.clockwise") {
+            Picker("Update interval", selection: interval) {
+                Text("1 hour").tag(60); Text("3 hours").tag(180); Text("6 hours").tag(360)
+                Text("12 hours").tag(720); Text("24 hours").tag(1_440)
+            }.labelsHidden()
+        }
+        GroupedRow("Volume", symbol: "chart.bar", isOn: showsVolume)
     }
 }
 
@@ -69,6 +109,8 @@ enum StockFaceSample {
 
 private struct StockPopoutView: View {
     @ObservedObject var store: ProfileStore
+    /// The coordinator owns the market refresh; the popout reads its loading state instead of keeping its own.
+    @ObservedObject private var coordinator: WidgetDataCoordinator
     var item: DockItem
     var profileID: UUID
     #if DEBUG
@@ -81,13 +123,24 @@ private struct StockPopoutView: View {
     @State private var searchText = ""
     @State private var searchResults: [MarketSymbol] = []
     @State private var isSearching = false
-    @State private var isRefreshing = false
     @State private var errorMessage: String?
     @State private var searchRequestID = UUID()
-    @State private var refreshRequestID = UUID()
+
+    init(store: ProfileStore, item: DockItem, profileID: UUID) {
+        self.store = store; self.item = item; self.profileID = profileID
+        coordinator = store.widgetData
+    }
 
     private var configuration: WidgetConfiguration {
         store.presentationConfiguration(for: item, in: profileID)
+    }
+    private var isRefreshing: Bool {
+        WidgetDataQuery.make(kind: "Stock", configuration: configuration).map { coordinator.refreshing.contains($0) } ?? false
+    }
+    /// "AAPL · Apple": the ticker this popout reads, with the display name when there is one.
+    private var stockIdentity: String {
+        let name = configuration.stockName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return configuration.stockSymbol + (name.isEmpty ? "" : " · " + name)
     }
     private var currentConfiguration: WidgetConfiguration? {
         store.state.profiles.first(where: { $0.id == profileID })?.items
@@ -101,9 +154,15 @@ private struct StockPopoutView: View {
                 if configuration.stockSymbol.isEmpty {
                     WidgetPopoutHero(value: "Choose a ticker", caption: "Search by ticker or company name.")
                 } else {
-                    chartContent
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(stockIdentity)
+                            .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1).widgetPopoutHeroAligned()
+                        chartContent
+                    }
                     GroupedSection {
-                        GroupedRow("Open on Yahoo Finance", role: .button, symbol: "arrow.up.right") { openFinance(configuration.stockSymbol) }
+                        GroupedRow("Open on Yahoo Finance", role: .button, symbol: "arrow.up.right") {
+                            MarketPopoutSupport.openFinance(configuration.stockSymbol)
+                        }
                     }
                 }
             }
@@ -119,8 +178,6 @@ private struct StockPopoutView: View {
             await refresh()
         }
         .onChange(of: "\(configuration.stockSymbol)|\(configuration.stockCurrency)") { _ in
-            refreshRequestID = UUID()
-            isRefreshing = false
             errorMessage = nil
         }
         .onChange(of: searchText) { _ in
@@ -130,9 +187,7 @@ private struct StockPopoutView: View {
         }
         .onDisappear {
             searchRequestID = UUID()
-            refreshRequestID = UUID()
             isSearching = false
-            isRefreshing = false
         }
     }
 
@@ -209,7 +264,7 @@ private struct StockPopoutView: View {
     }
 
     private var controls: some View {
-        GroupedSection(footer: "End-of-day quotes from Alpha Vantage.") {
+        GroupedSection(footer: MarketPopoutSupport.footer) {
             GroupedRow("Search") {
                 HStack(spacing: 8) {
                     TextField("Ticker or company", text: $searchText).textFieldStyle(.plain)
@@ -226,36 +281,16 @@ private struct StockPopoutView: View {
             if !configuration.stockSymbol.isEmpty {
                 GroupedRow("Display name", subtitle: configuration.stockSymbol) {
                     TextField("Display name", text: stockNameBinding).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                        .accessibilityLabel("Display name for \(configuration.stockSymbol)")
                 }
             }
             if !searchResults.isEmpty { resultsList }
 
             if !configuration.stockSymbol.isEmpty {
-                GroupedRow("Range", symbol: "chart.xyaxis.line") {
-                    Picker("Range", selection: rangeBinding) {
-                        ForEach(StockChartRange.allCases) { Text($0.title).tag($0) }
-                    }.labelsHidden()
-                }
-                GroupedRow("Update interval", symbol: "arrow.clockwise") {
-                    Picker("Update interval", selection: refreshIntervalBinding) {
-                        Text("1 hour").tag(60); Text("3 hours").tag(180); Text("6 hours").tag(360)
-                        Text("12 hours").tag(720); Text("24 hours").tag(1_440)
-                    }.labelsHidden()
-                }
-                GroupedRow("Volume", symbol: "chart.bar", isOn: volumeBinding)
+                MarketPopoutSupport.displayOptionRows(range: rangeBinding, interval: intervalBinding, showsVolume: volumeBinding)
             }
         }
-        .help("Ranges count trading sessions, up to 100 daily closes; change compares the latest two sessions. Standard-plan quotes are end of day, and request limits depend on your Alpha Vantage plan.")
-    }
-
-    private var rangeBinding: Binding<StockChartRange> {
-        Binding(get: { configuration.stockRange }, set: { value in update { $0.stockRange = value } })
-    }
-    private var refreshIntervalBinding: Binding<Int> {
-        Binding(get: { configuration.stockRefreshIntervalMinutes }, set: { value in update { $0.stockRefreshIntervalMinutes = value } })
-    }
-    private var volumeBinding: Binding<Bool> {
-        Binding(get: { configuration.stockShowsVolume }, set: { value in update { $0.stockShowsVolume = value } })
+        .help(MarketPopoutSupport.help)
     }
 
     private func search() async {
@@ -266,7 +301,7 @@ private struct StockPopoutView: View {
         errorMessage = nil
         defer { if searchRequestID == requestID { isSearching = false } }
         do {
-            let results = try await AlphaVantageMarketProvider().search(query, apiKey: try requiredAPIKey())
+            let results = try await AlphaVantageMarketProvider().search(query, apiKey: try MarketPopoutSupport.requiredAPIKey())
             guard searchRequestID == requestID,
                   query == searchText.trimmingCharacters(in: .whitespacesAndNewlines),
                   currentConfiguration != nil, !Task.isCancelled else { return }
@@ -282,39 +317,35 @@ private struct StockPopoutView: View {
     /// Opening the popout loads only a reading older than the update interval; the refresh button forces a fetch.
     /// Market data keys allow few requests a day.
     private func refresh() async {
-        let requestID = UUID()
-        refreshRequestID = requestID
-        isRefreshing = true
-        defer { if refreshRequestID == requestID { isRefreshing = false } }
         var currentItem = item
         currentItem.widgetConfiguration = configuration
         await store.widgetData.refresh(item: currentItem, profileID: profileID, force: false)
-        guard refreshRequestID == requestID, !Task.isCancelled else { return }
     }
 
-    private func requiredAPIKey() throws -> String {
-        guard let key = try MarketAPIKeyStore.read(), !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw MarketDataError.missingAPIKey
-        }
-        return key
+    private var rangeBinding: Binding<StockChartRange> {
+        Binding(get: { configuration.stockRange }, set: { value in update { $0.stockRange = value } })
+    }
+    private var intervalBinding: Binding<Int> {
+        Binding(get: { configuration.stockRefreshIntervalMinutes }, set: { value in update { $0.stockRefreshIntervalMinutes = value } })
+    }
+    private var volumeBinding: Binding<Bool> {
+        Binding(get: { configuration.stockShowsVolume }, set: { value in update { $0.stockShowsVolume = value } })
     }
 
     private func update(_ body: (inout WidgetConfiguration) -> Void) {
         store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: body)
     }
 
+    /// Stored as typed (spaces between words survive); the popout trims it where it shows it.
     private var stockNameBinding: Binding<String> {
         Binding(get: { configuration.stockName }, set: { value in update { $0.stockName = String(value.prefix(120)) } })
-    }
-
-    private func openFinance(_ symbol: String) {
-        guard let url = MarketFinanceURL.url(for: symbol) else { return }
-        NSWorkspace.shared.open(url)
     }
 }
 
 private struct WatchlistPopoutView: View {
     @ObservedObject var store: ProfileStore
+    /// The coordinator owns the market refresh; the popout reads its loading state instead of keeping its own.
+    @ObservedObject private var coordinator: WidgetDataCoordinator
     var item: DockItem
     var profileID: UUID
     #if DEBUG
@@ -327,13 +358,19 @@ private struct WatchlistPopoutView: View {
     @State private var searchText = ""
     @State private var searchResults: [MarketSymbol] = []
     @State private var isSearching = false
-    @State private var isRefreshing = false
     @State private var errorMessage: String?
     @State private var searchRequestID = UUID()
-    @State private var refreshRequestID = UUID()
+
+    init(store: ProfileStore, item: DockItem, profileID: UUID) {
+        self.store = store; self.item = item; self.profileID = profileID
+        coordinator = store.widgetData
+    }
 
     private var configuration: WidgetConfiguration {
         store.presentationConfiguration(for: item, in: profileID)
+    }
+    private var isRefreshing: Bool {
+        WidgetDataQuery.make(kind: "Watchlist", configuration: configuration).map { coordinator.refreshing.contains($0) } ?? false
     }
     private var currentConfiguration: WidgetConfiguration? {
         store.state.profiles.first(where: { $0.id == profileID })?.items
@@ -364,8 +401,6 @@ private struct WatchlistPopoutView: View {
             await refreshWatchlist()
         }
         .onChange(of: "\(configuration.watchlistSelectedSymbol)|\(selected?.currency ?? "")") { _ in
-            refreshRequestID = UUID()
-            isRefreshing = false
             errorMessage = nil
         }
         .onChange(of: searchText) { _ in
@@ -375,9 +410,7 @@ private struct WatchlistPopoutView: View {
         }
         .onDisappear {
             searchRequestID = UUID()
-            refreshRequestID = UUID()
             isSearching = false
-            isRefreshing = false
         }
     }
 
@@ -479,13 +512,13 @@ private struct WatchlistPopoutView: View {
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 75)
             }
             GroupedSection {
-                GroupedRow("Open on Yahoo Finance", role: .button, symbol: "arrow.up.right") { openFinance(stock.symbol) }
+                GroupedRow("Open on Yahoo Finance", role: .button, symbol: "arrow.up.right") { MarketPopoutSupport.openFinance(stock.symbol) }
             }
         }
     }
 
     private var controls: some View {
-        GroupedSection(footer: "End-of-day quotes from Alpha Vantage.") {
+        GroupedSection(footer: MarketPopoutSupport.footer) {
             GroupedRow("Search") {
                 HStack(spacing: 8) {
                     TextField("Ticker or company", text: $searchText).textFieldStyle(.plain)
@@ -509,21 +542,10 @@ private struct WatchlistPopoutView: View {
             if !searchResults.isEmpty { searchResultsList }
 
             if !configuration.watchlistStocks.isEmpty {
-                GroupedRow("Range", symbol: "chart.xyaxis.line") {
-                    Picker("Range", selection: Binding(get: { configuration.stockRange }, set: { value in update { $0.stockRange = value } })) {
-                        ForEach(StockChartRange.allCases) { Text($0.title).tag($0) }
-                    }.labelsHidden()
-                }
-                GroupedRow("Update interval", symbol: "arrow.clockwise") {
-                    Picker("Update interval", selection: Binding(get: { interval }, set: { value in update { $0.stockRefreshIntervalMinutes = value } })) {
-                        Text("1 hour").tag(60); Text("3 hours").tag(180); Text("6 hours").tag(360)
-                        Text("12 hours").tag(720); Text("24 hours").tag(1_440)
-                    }.labelsHidden()
-                }
-                GroupedRow("Volume", symbol: "chart.bar", isOn: Binding(get: { configuration.stockShowsVolume }, set: { value in update { $0.stockShowsVolume = value } }))
+                MarketPopoutSupport.displayOptionRows(range: rangeBinding, interval: intervalBinding, showsVolume: volumeBinding)
             }
         }
-        .help("Ranges count trading sessions, up to 100 daily closes; change compares the latest two sessions. Standard-plan quotes are end of day, and request limits depend on your Alpha Vantage plan.")
+        .help(MarketPopoutSupport.help)
     }
 
     private func search() async {
@@ -534,7 +556,7 @@ private struct WatchlistPopoutView: View {
         errorMessage = nil
         defer { if searchRequestID == requestID { isSearching = false } }
         do {
-            let results = try await AlphaVantageMarketProvider().search(query, apiKey: try requiredAPIKey())
+            let results = try await AlphaVantageMarketProvider().search(query, apiKey: try MarketPopoutSupport.requiredAPIKey())
             guard searchRequestID == requestID,
                   query == searchText.trimmingCharacters(in: .whitespacesAndNewlines),
                   currentConfiguration != nil, !Task.isCancelled else { return }
@@ -550,14 +572,9 @@ private struct WatchlistPopoutView: View {
     /// One query loads every symbol, so opening the popout or switching symbol loads only a reading older than the
     /// update interval; the refresh button forces a fetch.
     private func refreshWatchlist() async {
-        let requestID = UUID()
-        refreshRequestID = requestID
-        isRefreshing = true
-        defer { if refreshRequestID == requestID { isRefreshing = false } }
         var currentItem = item
         currentItem.widgetConfiguration = configuration
         await store.widgetData.refresh(item: currentItem, profileID: profileID, force: false)
-        guard refreshRequestID == requestID, !Task.isCancelled else { return }
     }
 
     private func add(_ result: MarketSymbol) {
@@ -601,16 +618,14 @@ private struct WatchlistPopoutView: View {
         })
     }
 
-    private func openFinance(_ symbol: String) {
-        guard let url = MarketFinanceURL.url(for: symbol) else { return }
-        NSWorkspace.shared.open(url)
+    private var rangeBinding: Binding<StockChartRange> {
+        Binding(get: { configuration.stockRange }, set: { value in update { $0.stockRange = value } })
     }
-
-    private func requiredAPIKey() throws -> String {
-        guard let key = try MarketAPIKeyStore.read(), !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw MarketDataError.missingAPIKey
-        }
-        return key
+    private var intervalBinding: Binding<Int> {
+        Binding(get: { configuration.stockRefreshIntervalMinutes }, set: { value in update { $0.stockRefreshIntervalMinutes = value } })
+    }
+    private var volumeBinding: Binding<Bool> {
+        Binding(get: { configuration.stockShowsVolume }, set: { value in update { $0.stockShowsVolume = value } })
     }
 
     private func update(_ body: (inout WidgetConfiguration) -> Void) {

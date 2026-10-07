@@ -2,10 +2,18 @@ import AppKit
 import QuickLookThumbnailing
 import SwiftUI
 
+/// Magnification changes the tile size by fractions of a pixel. A few resolution buckets keep Retina detail while the
+/// thumbnail task restarts only when the bucket changes, not on every magnification frame.
+enum DockFileThumbnailBucket {
+    static func pixelSize(for size: CGFloat) -> Int { [128, 256, 512].first { CGFloat($0) >= size * 2 } ?? 512 }
+}
+
 @MainActor
 private final class DockFileThumbnailModel: ObservableObject {
     @Published private(set) var image: NSImage?
-    private var currentKey: String?
+    /// Path and pixel bucket of the current request; the modification date joins the cache key off the main actor.
+    private var currentIdentity: String?
+    private var currentPath: String?
     private var request: QLThumbnailGenerator.Request?
     private var thumbnailTask: Task<Void, Never>?
     private static let cache: NSCache<NSString, NSImage> = {
@@ -15,27 +23,36 @@ private final class DockFileThumbnailModel: ObservableObject {
         return cache
     }()
 
-    func load(url: URL, size: CGFloat) {
-        // Magnification changes by pixels. A few resolution buckets avoid a
-        // Quick Look request for every frame while retaining Retina detail.
-        let pixelSize = [128, 256, 512].first { CGFloat($0) >= size * 2 } ?? 512
-        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?.timeIntervalSince1970 ?? 0
-        let key = "\(url.standardizedFileURL.path)|\(modified)|\(pixelSize)"
-        guard key != currentKey else { return }
+    func load(url: URL, pixelSize: Int) {
+        let path = url.standardizedFileURL.path
+        let identity = "\(path)|\(pixelSize)"
+        guard identity != currentIdentity else { return }
         cancel()
-        currentKey = key
-        image = Self.cache.object(forKey: key as NSString)
-        guard image == nil else { return }
+        // A new size of the same file keeps the current thumbnail until the sharper one is ready.
+        if currentPath != path { image = nil }
+        currentPath = path
+        currentIdentity = identity
 
-        let request = QLThumbnailGenerator.Request(fileAt: url,
-                                                   size: CGSize(width: pixelSize, height: pixelSize),
-                                                   scale: 1,
-                                                   representationTypes: .thumbnail)
-        self.request = request
         thumbnailTask = Task { [weak self] in
+            // The file-system read can block on a slow volume, so it runs off the main actor.
+            let modified = await Task.detached(priority: .utility) {
+                (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?.timeIntervalSince1970 ?? 0
+            }.value
+            guard !Task.isCancelled, let self, self.currentIdentity == identity else { return }
+            let key = "\(identity)|\(modified)"
+            if let cached = Self.cache.object(forKey: key as NSString) {
+                self.image = cached
+                self.thumbnailTask = nil
+                return
+            }
+            let request = QLThumbnailGenerator.Request(fileAt: url,
+                                                       size: CGSize(width: pixelSize, height: pixelSize),
+                                                       scale: 1,
+                                                       representationTypes: .thumbnail)
+            self.request = request
             do {
                 let representation = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
-                guard !Task.isCancelled, let self, self.currentKey == key else { return }
+                guard !Task.isCancelled, self.currentIdentity == identity else { return }
                 let thumbnail = representation.nsImage
                 Self.cache.setObject(thumbnail, forKey: key as NSString, cost: pixelSize * pixelSize * 4)
                 self.image = thumbnail
@@ -52,7 +69,7 @@ private final class DockFileThumbnailModel: ObservableObject {
         thumbnailTask = nil
         if let request { QLThumbnailGenerator.shared.cancel(request) }
         request = nil
-        currentKey = nil
+        currentIdentity = nil
     }
 
     deinit { thumbnailTask?.cancel() }
@@ -72,9 +89,9 @@ struct DockFileThumbnailView: View {
             }
         }
         .frame(width: size, height: size)
-        .task(id: "\(item.url?.standardizedFileURL.path ?? "")|\(max(1, Int((size * 2).rounded(.up))))") {
+        .task(id: "\(item.url?.standardizedFileURL.path ?? "")|\(DockFileThumbnailBucket.pixelSize(for: size))") {
             guard let url = item.url else { return }
-            model.load(url: url, size: size)
+            model.load(url: url, pixelSize: DockFileThumbnailBucket.pixelSize(for: size))
         }
         .accessibilityLabel(item.title)
         .onDisappear { model.cancel() }
@@ -86,7 +103,8 @@ enum CalendarAppIconPolicy {
 
     static func requiresDateRefresh(_ item: DockItem) -> Bool {
         guard item.type == .application else { return false }
-        if item.bundleIdentifier == bundleIdentifier { return true }
+        // The saved identifier answers without reading the bundle; only an item saved without one reads it.
+        if let identifier = item.bundleIdentifier, !identifier.isEmpty { return identifier == bundleIdentifier }
         return item.url.flatMap(Bundle.init(url:))?.bundleIdentifier == bundleIdentifier
     }
 }
@@ -96,20 +114,22 @@ struct DockApplicationIconView: View {
     var size: CGFloat
 
     var body: some View {
+        // Decided once per render: the policy may read the bundle for an item saved without an identifier.
+        let isCalendar = CalendarAppIconPolicy.requiresDateRefresh(item)
         Group {
-            if CalendarAppIconPolicy.requiresDateRefresh(item) {
+            if isCalendar {
                 TimelineView(.periodic(from: .now, by: 60)) { context in
-                    icon.accessibilityLabel("Calendar, \(context.date.formatted(date: .complete, time: .omitted))")
+                    icon(isCalendar: true).accessibilityLabel("Calendar, \(context.date.formatted(date: .complete, time: .omitted))")
                 }
             } else {
-                icon.accessibilityLabel(item.displayName)
+                icon(isCalendar: false).accessibilityLabel(item.displayName)
             }
         }
         .frame(width: size, height: size)
     }
 
-    @ViewBuilder private var icon: some View {
-        if CalendarAppIconPolicy.requiresDateRefresh(item),
+    @ViewBuilder private func icon(isCalendar: Bool) -> some View {
+        if isCalendar,
            let running = NSRunningApplication.runningApplications(withBundleIdentifier: CalendarAppIconPolicy.bundleIdentifier).first,
            let runningIcon = running.icon {
             Image(nsImage: resized(runningIcon)).resizable().scaledToFit()

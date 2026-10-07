@@ -10,6 +10,13 @@ struct AlarmWidgetProvider: DockWidgetProvider {
     }
 }
 
+struct AlarmWeekdayChip: Identifiable, Equatable {
+    var weekday: Int
+    var letter: String
+    var name: String
+    var id: Int { weekday }
+}
+
 enum AlarmFacePresentation {
     /// The next armed alarm and when it fires. A one-time alarm rings at the time recorded when it was armed.
     static func next(_ alarms: [DockAlarm], now: Date) -> (alarm: DockAlarm, date: Date)? {
@@ -31,10 +38,31 @@ enum AlarmFacePresentation {
         return date.formatted(.dateTime.weekday(.wide))
     }
 
-    static func repeatSummary(_ weekdays: [Int], symbols: [String] = Calendar.current.shortWeekdaySymbols) -> String {
+    static func repeatSummary(_ weekdays: [Int], symbols: [String] = Calendar.current.shortWeekdaySymbols,
+                              firstWeekday: Int = Calendar.current.firstWeekday) -> String {
         guard !weekdays.isEmpty else { return "Once" }
         if Set(weekdays) == Set(1...7) { return "Every day" }
-        return weekdays.sorted().compactMap { symbols.indices.contains($0 - 1) ? symbols[$0 - 1] : nil }.joined(separator: " ")
+        let order = orderedWeekdays(firstWeekday: firstWeekday)
+        return weekdays.sorted { (order.firstIndex(of: $0) ?? $0) < (order.firstIndex(of: $1) ?? $1) }
+            .compactMap { symbols.indices.contains($0 - 1) ? symbols[$0 - 1] : nil }.joined(separator: " ")
+    }
+
+    /// The stored weekdays (1 Sunday … 7 Saturday, as `Calendar` numbers them) in the order this Mac's week starts.
+    static func orderedWeekdays(firstWeekday: Int = Calendar.current.firstWeekday) -> [Int] {
+        let first = (1...7).contains(firstWeekday) ? firstWeekday : 1
+        return (0..<7).map { (first - 1 + $0) % 7 + 1 }
+    }
+
+    /// The repeat chips: the calendar's very short symbol (distinct in every locale that has one), the full name for
+    /// VoiceOver, in the locale's week order. The stored value stays the Gregorian weekday number.
+    static func weekdayChips(calendar: Calendar = .current) -> [AlarmWeekdayChip] {
+        let letters = calendar.veryShortStandaloneWeekdaySymbols
+        let names = calendar.standaloneWeekdaySymbols
+        return orderedWeekdays(firstWeekday: calendar.firstWeekday).map { weekday in
+            AlarmWeekdayChip(weekday: weekday,
+                             letter: letters.indices.contains(weekday - 1) ? letters[weekday - 1] : "\(weekday)",
+                             name: names.indices.contains(weekday - 1) ? names[weekday - 1] : "\(weekday)")
+        }
     }
 
     /// The one alarm time format: this Mac's short time ("7:30 AM", "07:30"). The face, the popout
@@ -202,10 +230,10 @@ private struct AlarmPopoutWidgetView: View {
                     HStack(spacing: 5) {
                         Text("Repeat").font(DockDesign.Grouped.titleFont)
                         Spacer(minLength: 8)
-                        ForEach(Array(Calendar.current.shortWeekdaySymbols.enumerated()), id: \.offset) { index, symbol in
-                            let weekday = index + 1
+                        ForEach(AlarmFacePresentation.weekdayChips()) { chip in
+                            let weekday = chip.weekday
                             let selected = repeatWeekdays.contains(weekday)
-                            Button(String(symbol.prefix(1))) {
+                            Button(chip.letter) {
                                 if selected { repeatWeekdays.remove(weekday) } else { repeatWeekdays.insert(weekday) }
                             }
                             .buttonStyle(.plain).disabled(isScheduling)
@@ -214,7 +242,7 @@ private struct AlarmPopoutWidgetView: View {
                             .frame(width: 24, height: 24)
                             .background(selected ? DockDesign.accent : Color.primary.opacity(0.08), in: Circle())
                             .contentShape(Circle())
-                            .accessibilityLabel("Repeat on \(symbol)")
+                            .accessibilityLabel("Repeat on \(chip.name)")
                             .accessibilityAddTraits(selected ? .isSelected : [])
                         }
                         Button("Once") { repeatWeekdays.removeAll() }
