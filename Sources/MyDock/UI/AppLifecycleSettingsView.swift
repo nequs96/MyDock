@@ -9,7 +9,7 @@ struct AppLifecycleSettingsView: View {
     @AppStorage("app.mydock.release-repository", store: AppRuntimeEnvironment.defaults) private var repositoryURL = ""
     private var loginFooter: String {
         switch login.state {
-        case .unavailable: "Launch at login is not available in this session."
+        case .unavailable: "Login launch is unavailable in this session."
         case .notRegistered: "Not registered to launch at login."
         case .enabled: "Allowed to launch at login."
         case .requiresApproval: "Approve MyDock in Login Items."
