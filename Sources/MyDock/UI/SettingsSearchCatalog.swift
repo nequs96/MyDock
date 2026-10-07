@@ -82,7 +82,7 @@ enum SettingsSearchCatalog {
         .init(title: "Market API key", section: "Market data", page: .integrations, keywords: "stock watchlist alpha vantage"),
         .init(title: "GitHub Copilot credentials", section: "GitHub Copilot usage", page: .integrations, keywords: "ai credits token plan limits"),
         .init(title: "Permissions", section: "Permission status", page: .permissions, keywords: "privacy accessibility automation calendar reminders location notifications screen recording"),
-    ]
+    ].filter { $0.title != "Magnification" || DockMagnificationSupport.isAvailable }
     static func matches(_ query: String) -> [SettingsSearchEntry] {
         let terms = query.lowercased().split(whereSeparator: \.isWhitespace)
         return entries.filter { entry in terms.allSatisfy { (entry.title + " " + entry.section + " " + entry.keywords).lowercased().contains($0) } }

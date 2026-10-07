@@ -12,10 +12,10 @@ enum DockSurfaceMetrics {
     }
 
     static func padding(settings: AppSettings, scale: CGFloat) -> CGFloat {
-        (settings.magnificationEnabled ? 16 : 11) * scale
+        (DockMagnificationSupport.isActive(settings) ? 16 : 11) * scale
     }
     static func crossLength(settings: AppSettings, scale: CGFloat) -> CGFloat {
-        (settings.magnificationEnabled ? 98 : 76) * scale
+        (DockMagnificationSupport.isActive(settings) ? 98 : 76) * scale
     }
     static func placementArea(frame: NSRect, visibleFrame: NSRect, mode: SetupMode) -> NSRect {
         guard mode == .customMain else { return visibleFrame }
@@ -545,6 +545,12 @@ enum DockMagnificationSupport {
     static var isAvailable: Bool {
         if #available(macOS 14.0, *) { return true }
         return false
+    }
+
+    /// Whether the Dock magnifies, and so reserves room for it. Below macOS 14 it never does, so a stored
+    /// Magnification setting must not make the Dock larger there either.
+    static func isActive(_ settings: AppSettings, available: Bool = isAvailable) -> Bool {
+        settings.magnificationEnabled && available
     }
 }
 

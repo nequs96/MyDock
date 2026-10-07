@@ -285,7 +285,7 @@ final class CustomDockWindowController {
                        model prebuilt: DockRenderModel? = nil, animate: Bool = false) -> NSRect {
         let visible = dockPlacementFrame(on: screen)
         let scale = DockSurfaceMetrics.clampedScale(settings.customDockSize)
-        let tileLength = (54 + (settings.magnificationEnabled ? 22 : 0)) * scale
+        let tileLength = (54 + (DockMagnificationSupport.isActive(settings) ? 22 : 0)) * scale
         let model: DockRenderModel
         if let prebuilt {
             model = prebuilt
@@ -299,7 +299,7 @@ final class CustomDockWindowController {
                                     recentApplications: RuntimeDockApplications.recentItems(profile: profile, settings: settings,
                                         runtime: runtimeApplications, pinnedURLs: pinnedApplicationURLs))
         }
-        let itemLength = model.contentLength(settings: settings, scale: scale) + (settings.magnificationEnabled ? 32 : 22) * scale
+        let itemLength = model.contentLength(settings: settings, scale: scale) + (DockMagnificationSupport.isActive(settings) ? 32 : 22) * scale
         let frame = DockPanelGeometry.frame(position: settings.customDockPosition, placementArea: visible,
                                             contentLength: itemLength, crossLength: tileLength + 22 * scale,
                                             floatingInset: settings.customDockFloatingInset)

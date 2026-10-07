@@ -535,7 +535,7 @@ private struct VisualDockPreviewSurface: View {
             let settings = store.effectiveSettings(for: profile)
             let scale = CGFloat(settings.customDockSize)
             let model = DockRenderModel(profile: profile, settings: settings, runningApplications: [], windows: [], runningMediaSources: Set(NowPlayingSource.allCases))
-            let length = model.contentLength(settings: settings, scale: scale) + (settings.magnificationEnabled ? 32 : 22) * scale
+            let length = model.contentLength(settings: settings, scale: scale) + (DockMagnificationSupport.isActive(settings) ? 32 : 22) * scale
             let horizontal = settings.customDockPosition == .bottom
             ZStack {
                 LinearGradient(colors: [DockDesign.accent.opacity(0.16), DockDesign.page],

@@ -78,7 +78,10 @@ extension SettingsView {
                             tone: behaviorNeedsAccessibility ? .warning : .secondary,
                             actionTitle: "Accessibility Settings…") { SystemSettingsPane.open(.accessibility) }
             }
-            GroupedRow("Magnification", isOn: Binding(get: { store.state.settings.magnificationEnabled }, set: { value in store.updateSettings { $0.magnificationEnabled = value } }))
+            // The Dock can magnify only from macOS 14, so the switch is not offered on macOS 13.
+            if DockMagnificationSupport.isAvailable {
+                GroupedRow("Magnification", isOn: Binding(get: { store.state.settings.magnificationEnabled }, set: { value in store.updateSettings { $0.magnificationEnabled = value } }))
+            }
         }.id("Interaction")
         GroupedSection("Dock animations", footer: "Reveal and hide effects respect Reduce Motion.") {
             GroupedRow("Animate Dock appearance", isOn: Binding(get: { store.state.settings.dockAnimationsEnabled }, set: { value in store.updateSettings { $0.dockAnimationsEnabled = value } }))

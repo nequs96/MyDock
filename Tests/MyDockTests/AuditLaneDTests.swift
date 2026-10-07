@@ -174,6 +174,21 @@ import Testing
         #expect(DockMagnificationSupport.isAvailable == ProcessInfo.processInfo.isOperatingSystemAtLeast(macOS14))
     }
 
+    @Test func magnificationReservesRoomOnlyWhereTheDockCanMagnify() {
+        var on = AppSettings()
+        on.magnificationEnabled = true
+        let off = AppSettings()
+        #expect(DockMagnificationSupport.isActive(on, available: true))
+        #expect(!DockMagnificationSupport.isActive(on, available: false))
+        #expect(!DockMagnificationSupport.isActive(off, available: true))
+        // On macOS 13 a stored Magnification setting leaves the Dock at its resting size.
+        let reserves = DockMagnificationSupport.isAvailable
+        #expect(DockSurfaceMetrics.padding(settings: on, scale: 1) == (reserves ? 16 : 11))
+        #expect(DockSurfaceMetrics.crossLength(settings: on, scale: 1) == (reserves ? 98 : 76))
+        #expect(DockSurfaceMetrics.padding(settings: off, scale: 1) == 11)
+        #expect(SettingsSearchCatalog.entries.contains { $0.title == "Magnification" } == reserves)
+    }
+
     @Test func increaseContrastStrengthensDockSeparators() {
         #expect(DockDesign.DockChrome.separator(.standard) != DockDesign.DockChrome.separator(.increased))
         #expect(DockDesign.DockChrome.revealHandle(.increased, reduceTransparency: true) == .primary)

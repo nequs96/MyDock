@@ -732,7 +732,7 @@ struct CustomDockView: View {
         }
         .zIndex(hoveredItemID == item.id ? 2 : 0)
         .onHover { isHovered in
-            guard settings.magnificationEnabled, DockMagnificationSupport.isAvailable, !reducesMotion else {
+            guard DockMagnificationSupport.isActive(settings), !reducesMotion else {
                 hoveredItemID = nil
                 return
             }
@@ -972,7 +972,7 @@ struct CustomDockView: View {
         guard !isWidget, !isPreview, popouts.anchorID == nil else { return 1 }
         return DockContinuousMagnification.scale(center: center, pointer: hoverPosition,
             radius: 150 * DockSurfaceMetrics.clampedScale(settings.customDockSize), isWidget: isWidget,
-            enabled: settings.magnificationEnabled && DockMagnificationSupport.isAvailable, reduceMotion: reducesMotion)
+            enabled: DockMagnificationSupport.isActive(settings), reduceMotion: reducesMotion)
     }
 
     private func handleTypedDrop(_ values: [DockDragPayload], before targetID: UUID?, unpin: Bool = false) -> Bool {
