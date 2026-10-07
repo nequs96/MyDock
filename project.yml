@@ -40,6 +40,9 @@ targets:
         NSRemindersUsageDescription: MyDock reads and updates reminders when you use the Reminders widget.
         NSLocationWhenInUseUsageDescription: MyDock uses your location only when you choose current-location weather.
         NSAppleEventsUsageDescription: MyDock reads and controls Music or Spotify while you use the Now Playing widget, or asks Finder to empty Trash after you confirm.
+        NSDesktopFolderUsageDescription: MyDock measures file sizes here only when you scan storage. Nothing is uploaded or deleted.
+        NSDocumentsFolderUsageDescription: MyDock measures file sizes here only when you scan storage. Nothing is uploaded or deleted.
+        NSDownloadsFolderUsageDescription: MyDock measures file sizes here only when you scan storage. Nothing is uploaded or deleted.
     entitlements:
       path: Xcode/MyDock.entitlements
       properties:
