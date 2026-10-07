@@ -194,6 +194,10 @@ struct WidgetPopoutDropArea<Content: View>: View {
     }
 }
 
+/// The widget popouts' name for the System Settings panes (`WidgetPrivacySettings.open(.calendars)`).
+/// Each pane URL is written once, in `SystemSettingsPane`.
+typealias WidgetPrivacySettings = SystemSettingsPane
+
 // MARK: - Disk Space
 
 struct DiskSpaceWidgetProvider: DockWidgetProvider {

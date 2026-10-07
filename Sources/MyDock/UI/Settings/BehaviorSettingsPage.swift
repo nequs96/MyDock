@@ -71,9 +71,11 @@ extension SettingsView {
                 .onChange(of: store.state.settings.clickFocusedAppToMinimize) { enabled in
                     if enabled { _ = WindowAccessibilityService.requestAccessPrompt() }
                 }
-            // One status line for the page, shown only while access is missing.
+            // One status line for the page, shown only while access is missing. It is a warning only
+            // once a feature that needs access is on; every such feature is off by default.
             if !accessibilityTrusted {
-                GroupedNote("Accessibility access is needed for window controls and app badges.", tone: .warning,
+                GroupedNote("Accessibility access is needed for window controls and app badges.",
+                            tone: behaviorNeedsAccessibility ? .warning : .secondary,
                             actionTitle: "Accessibility Settings…") { SystemSettingsPane.open(.accessibility) }
             }
             GroupedRow("Magnification", isOn: Binding(get: { store.state.settings.magnificationEnabled }, set: { value in store.updateSettings { $0.magnificationEnabled = value } }))
@@ -96,5 +98,12 @@ extension SettingsView {
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
         accessibilityTrusted = WindowAccessibilityService.isTrusted()
     }
+    }
+
+    /// Whether a Behavior feature that is switched on stops working without Accessibility access.
+    private var behaviorNeedsAccessibility: Bool {
+        let settings = store.state.settings
+        return settings.showMinimizedWindows || settings.showWindowPreviewsOnHover || settings.clickFocusedAppToMinimize
+            || (DockBadgeReader.isSupported && settings.showAppBadges)
     }
 }

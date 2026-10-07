@@ -53,15 +53,7 @@ enum GitHubCopilotCredentialStore {
 
     /// Whether credentials are saved, from their attributes only: the token is not decrypted.
     static func exists() throws -> Bool {
-        guard AppRuntimeEnvironment.allowsCredentials else { return false }
-        var query = baseQuery
-        query[kSecReturnAttributes as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return false }
-        guard status == errSecSuccess else { throw GitHubCopilotCredentialError.keychain(status) }
-        return true
+        try IntegrationCredentialPresence.exists(account: "github-copilot", failure: GitHubCopilotCredentialError.keychain)
     }
 
     static func write(username: String, token: String) throws {

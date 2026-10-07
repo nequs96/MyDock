@@ -18,15 +18,15 @@ extension SettingsView {
                     ForEach(SetupMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
             }
-            GroupedRow("Show active Dock name in menu bar", subtitle: "Both active Dock names appear beside the menu-bar icon.", isOn: Binding(
+            GroupedRow("Show active Dock names in menu bar", subtitle: "Both active Dock names appear beside the menu-bar icon.", isOn: Binding(
                 get: { store.state.settings.showActiveProfileNameInMenuBar },
                 set: { enabled in store.updateSettings { $0.showActiveProfileNameInMenuBar = enabled } }
             ))
             if store.state.settings.setupMode == .customMain {
                 if store.activeCustomProfile == nil {
-                    GroupedNote("Create or select a Custom Dock first; Apple’s Dock remains available until then.")
+                    GroupedNote("Create or select a Custom Dock first; the macOS Dock remains available until then.")
                 } else {
-                    GroupedNote("Apple’s Dock stays hidden; MyDock restores its settings on mode change or quit.")
+                    GroupedNote("The macOS Dock stays hidden; MyDock restores its settings on mode change or quit.")
                 }
             }
             if let errorMessage = nativeDockVisibility.errorMessage {
@@ -100,8 +100,8 @@ extension SettingsView {
                        value: FocusFilterAvailability.hasIntentMetadata() ? "Available" : "Unavailable")
         }.id("Focus filters")
         AutomaticSwitchingSettingsSection(store: store).id("Automatic switching")
-        GroupedSection("Native Dock switching") {
-            GroupedRow("Automatically save Dock changes", subtitle: "Saves Apple Dock edits to the selected macOS Dock, checking every five seconds.", isOn: Binding(
+        GroupedSection("macOS Dock switching") {
+            GroupedRow("Automatically save Dock changes", subtitle: "Saves macOS Dock edits to the selected Dock, checking every five seconds.", isOn: Binding(
                 get: { store.state.settings.automaticallySaveNativeDockChanges },
                 set: { enabled in store.updateSettings { $0.automaticallySaveNativeDockChanges = enabled } }
             ))
@@ -135,7 +135,7 @@ extension SettingsView {
             if let screenCaptureMessage {
                 GroupedNote(screenCaptureMessage)
             }
-        }.id("Native Dock switching")
+        }.id("macOS Dock switching")
         }.padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth).frame(maxWidth: .infinity, alignment: .leading)
     }
     }

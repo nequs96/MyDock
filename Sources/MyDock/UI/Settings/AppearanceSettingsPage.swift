@@ -249,7 +249,8 @@ extension SettingsView {
                     updateAppearance { SettingsAppearanceDefaults.restore(to: &$0) }
                 }
             } else {
-                GroupedRow("Restore Factory Defaults for All Docks", role: .button) {
+                // App defaults reach only the Docks that inherit them; the dialog says how many.
+                GroupedRow("Restore Factory Defaults…", role: .button) {
                     confirmingAppearanceFactoryReset = true
                 }
             }
@@ -258,7 +259,7 @@ extension SettingsView {
             }
         }
         .id("Reset")
-        .confirmationDialog("Restore factory appearance for all Docks?", isPresented: $confirmingAppearanceFactoryReset) {
+        .confirmationDialog("Restore the factory app defaults?", isPresented: $confirmingAppearanceFactoryReset) {
             Button("Restore Factory Defaults", role: .destructive) {
                 guard appearanceProfileID == nil else { return }
                 updateAppearance { SettingsAppearanceDefaults.restore(to: &$0) }

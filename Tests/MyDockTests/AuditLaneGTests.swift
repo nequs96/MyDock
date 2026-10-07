@@ -26,7 +26,7 @@ import UserNotifications
 
     @Test func previouslyUnsearchableControlsAreFound() {
         #expect(SettingsSearchCatalog.results("focus").contains { $0.page == .dock && $0.section == "Focus filters" })
-        #expect(SettingsSearchCatalog.results("freeze").contains { $0.page == .dock && $0.section == "Native Dock switching" })
+        #expect(SettingsSearchCatalog.results("freeze").contains { $0.page == .dock && $0.section == "macOS Dock switching" })
         #expect(SettingsSearchCatalog.results("diagnostics").contains { $0.page == .general && $0.section == "Diagnostics" })
         #expect(SettingsSearchCatalog.results("claude").contains { $0.page == .integrations && $0.section == "AI accounts on this Mac" })
         #expect(SettingsSearchCatalog.results("codex").contains { $0.page == .integrations })
@@ -168,9 +168,9 @@ import UserNotifications
 
     // S13-021, S13-023, S13-024: search lands on the card that holds the control, in Dock terms.
     @Test func searchEntriesPointAtTheRightCards() {
-        #expect(SettingsSearchCatalog.results("auto-save").contains { $0.page == .dock && $0.section == "Native Dock switching" })
+        #expect(SettingsSearchCatalog.results("auto-save").contains { $0.page == .dock && $0.section == "macOS Dock switching" })
         #expect(SettingsSearchCatalog.results("thumbnails").contains { $0.page == .behavior && $0.section == "Apps and windows" })
-        #expect(SettingsSearchCatalog.results("shortcuts").contains { $0.page == .shortcuts && $0.section == "Dock shortcuts" })
+        #expect(SettingsSearchCatalog.results("shortcuts").contains { $0.page == .shortcuts && $0.section == "Global Dock shortcuts" })
         #expect(!SettingsSearchCatalog.entries.contains { $0.title.localizedCaseInsensitiveContains("profile") })
     }
 }

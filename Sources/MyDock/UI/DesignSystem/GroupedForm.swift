@@ -141,10 +141,10 @@ struct GroupedRow<Accessory: View>: View {
                 .accessibilityHint(hintText)
                 .accessibilityAddTraits(.isButton)
             } else if case .custom = trailing {
+                // The subtitle stays readable inside the group: it often carries status (a reset time, a reason).
                 rowContent(showsAccessory: true) { EmptyView() }
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel(title)
-                    .accessibilityHint(subtitle ?? "")
             } else {
                 rowContent(showsAccessory: true) { EmptyView() }
                     .accessibilityElement(children: .ignore)
@@ -185,13 +185,14 @@ struct GroupedRow<Accessory: View>: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(DockDesign.Grouped.titleFont).foregroundStyle(titleColor)
                     .lineLimit(DockDesign.Module.maxTextLines)
+                    .accessibilityHidden(isCustom)
                 if let subtitle {
                     Text(subtitle).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                         .lineLimit(DockDesign.Module.maxTextLines)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .accessibilityHidden(titleIsContainerLabel)
+            .accessibilityHidden(isToggle)
             Spacer(minLength: 8)
             if showsAccessory { trailingView }
             control()
@@ -203,14 +204,11 @@ struct GroupedRow<Accessory: View>: View {
         .opacity(isEnabled ? 1 : 0.45)
     }
 
-    /// Switch and custom-accessory rows carry the title on the container, so the visible text
-    /// is hidden to keep VoiceOver from reading it twice.
-    private var titleIsContainerLabel: Bool {
-        switch trailing {
-        case .toggle, .custom: true
-        default: false
-        }
-    }
+    /// Switch rows read the title and subtitle from the switch itself, so the visible text is hidden.
+    private var isToggle: Bool { if case .toggle = trailing { true } else { false } }
+    /// Custom-accessory rows carry the title on the container, so only the visible title is hidden
+    /// to keep VoiceOver from reading it twice.
+    private var isCustom: Bool { if case .custom = trailing { true } else { false } }
 
     @ViewBuilder private var trailingView: some View {
         switch trailing {

@@ -89,7 +89,7 @@ enum DockDesign {
         static func opaqueFill(_ scheme: ColorScheme) -> Color {
             scheme == .dark ? Color(white: 0.16) : Color(white: 0.96)
         }
-        /// The Midnight finish: one deep blue-grey for the Dock and its style swatch.
+        /// The Dark Dock material: one midnight fill for the live Dock, its editor and its style swatches.
         static let midnightFill = Color(red: 0.10, green: 0.12, blue: 0.16)
         /// Strength of a tint mixed into fallback and opaque surfaces.
         static let fallbackTintOpacity: Double = 0.18

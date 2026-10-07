@@ -25,6 +25,3 @@ enum SystemSettingsPane: String, CaseIterable, Sendable {
         NSWorkspace.shared.open(url)
     }
 }
-
-/// The widget popouts' name for the same panes (`WidgetPrivacySettings.open(.calendars)`).
-typealias WidgetPrivacySettings = SystemSettingsPane
