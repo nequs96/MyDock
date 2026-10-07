@@ -4,17 +4,26 @@ import Testing
 
 @Suite struct ProductPolishTests {
     @Test func firstLaunchNeverShowsWhatsNew() {
-        #expect(!WhatsNew.shouldShow(lastSeenVersion: nil, currentVersion: "1.0.0", onboardingComplete: false))
+        #expect(!WhatsNew.shouldShow(lastSeenVersion: nil, contentVersion: "1.0.0", onboardingComplete: false))
         #expect(!WhatsNew.shouldShow(settings: AppSettings()))
     }
 
     @Test func sameVersionIsNotShownAgain() {
-        #expect(!WhatsNew.shouldShow(lastSeenVersion: "1.0.0", currentVersion: "1.0.0", onboardingComplete: true))
+        #expect(!WhatsNew.shouldShow(lastSeenVersion: "1.0.0", contentVersion: "1.0.0", onboardingComplete: true))
     }
 
     @Test func newVersionOrNeverSeenShowsOnce() {
-        #expect(WhatsNew.shouldShow(lastSeenVersion: "0.9.0", currentVersion: "1.0.0", onboardingComplete: true))
-        #expect(WhatsNew.shouldShow(lastSeenVersion: nil, currentVersion: "1.0.0", onboardingComplete: true))
+        #expect(WhatsNew.shouldShow(lastSeenVersion: "0.9.0", contentVersion: "1.0.0", onboardingComplete: true))
+        #expect(WhatsNew.shouldShow(lastSeenVersion: nil, contentVersion: "1.0.0", onboardingComplete: true))
+    }
+
+    @Test func patchReleaseWithTheSameTableIsNotShownAgain() {
+        // Seen at 1.0.0, now running 1.0.1 with an unchanged table.
+        #expect(!WhatsNew.shouldShow(lastSeenVersion: "1.0.0", contentVersion: "1.0.0", onboardingComplete: true))
+        #expect(!WhatsNew.shouldShow(lastSeenVersion: "1.0.1", contentVersion: "1.0.0", onboardingComplete: true))
+        #expect(WhatsNew.shouldShow(lastSeenVersion: "0.9.0", contentVersion: "0.10.0", onboardingComplete: true))
+        #expect(!WhatsNew.shouldShow(lastSeenVersion: Product.marketingVersion, onboardingComplete: true))
+        #expect(WhatsNew.contentVersion.compare(Product.marketingVersion, options: .numeric) != .orderedDescending)
     }
 
     @MainActor @Test func completingOnboardingMarksTheVersionSeen() throws {

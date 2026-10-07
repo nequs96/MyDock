@@ -16,6 +16,24 @@ enum WidgetGalleryMetrics {
     static let tileTitle = Font.system(size: 13, weight: .medium)
     static let tileDetail = Font.system(size: 12)
     static let searchMaximumWidth: CGFloat = 420
+
+    /// The search highlight of a tile or row: one accent wash for every gallery surface.
+    static func highlightFill(_ scheme: ColorScheme) -> Color {
+        DockDesign.accent.opacity(scheme == .dark ? 0.20 : 0.12)
+    }
+}
+
+/// Spoken feedback for changes VoiceOver cannot see, such as the highlight moving while focus
+/// stays in a search field, or an add that changes nothing on screen.
+@MainActor
+enum GalleryAnnouncement {
+    static func post(_ message: String) {
+        guard !message.isEmpty, let app = NSApp else { return }
+        let element: Any
+        if let window = app.keyWindow ?? app.mainWindow { element = window } else { element = app }
+        NSAccessibility.post(element: element, notification: .announcementRequested,
+                             userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    }
 }
 
 /// The centred search pill. The AppKit field keeps arrow, Return and Escape routing.
@@ -27,7 +45,7 @@ struct GallerySearchPill: View {
     var cancel: () -> Void = {}
     var focusOnAppear = true
     var tab: (() -> Bool)? = nil
-    var didBeginEditing: (() -> Void)? = nil
+    var didFocus: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 7) {
@@ -37,7 +55,7 @@ struct GallerySearchPill: View {
                 .accessibilityHidden(true)
             LibrarySearchField(placeholder: placeholder, text: $text, move: move, choose: choose, cancel: cancel,
                                compact: false, fontSize: 14, focusOnAppear: focusOnAppear, tab: tab,
-                               didBeginEditing: didBeginEditing)
+                               didFocus: didFocus)
                 .frame(height: 20)
             if !text.isEmpty {
                 Button { text = "" } label: {
@@ -124,26 +142,24 @@ struct GallerySegmentedControl<Value: Hashable>: View {
     }
 }
 
-/// Small glass header buttons: Done, Back and the capability filter.
+/// Small glass capsule buttons: the gallery's Done and Back, sheet Done buttons and popout actions.
 struct GalleryGlassButtonStyle: ButtonStyle {
-    var circular = false
     func makeBody(configuration: Configuration) -> some View {
-        GlassButtonBody(configuration: configuration, circular: circular)
+        GlassButtonBody(configuration: configuration)
     }
     private struct GlassButtonBody: View {
         let configuration: ButtonStyle.Configuration
-        var circular: Bool
         @Environment(\.isEnabled) private var isEnabled
         @State private var hovered = false
         var body: some View {
             configuration.label
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.primary)
-                .padding(.horizontal, circular ? 0 : 14)
+                .padding(.horizontal, 14)
                 .frame(minWidth: WidgetGalleryMetrics.controlHeight, minHeight: WidgetGalleryMetrics.controlHeight)
                 .contentShape(Capsule())
                 .dockGlass(.regular, in: Capsule(), interactive: true)
-                .overlay(Capsule().fill(Color.primary.opacity(configuration.isPressed ? 0.10 : hovered ? 0.04 : 0)).allowsHitTesting(false))
+                .overlay(Capsule().fill(configuration.isPressed ? DockDesign.selection : hovered ? DockDesign.hover : Color.clear).allowsHitTesting(false))
                 .opacity(isEnabled ? 1 : 0.45)
                 .onHover { hovered = $0 }
         }
@@ -154,37 +170,32 @@ struct GalleryGlassButtonStyle: ButtonStyle {
 /// opaque under Reduce Transparency, with a visible edge under Increase Contrast.
 struct GalleryBackdrop: ViewModifier {
     var radius: CGFloat
-    var highlighted = false
     func body(content: Content) -> some View {
         content
             .dockGlass(.regular, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .overlay {
-                if highlighted {
-                    RoundedRectangle(cornerRadius: radius + 4, style: .continuous)
-                        .strokeBorder(DockDesign.accent, lineWidth: 2.5)
-                        .padding(-4)
-                        .allowsHitTesting(false)
-                }
-            }
     }
 }
 
 extension View {
     /// Reports the viewport's width minus the page insets. Measured outside the content so
     /// fixed-width tiles can never widen what they are sized from.
+    /// An always-visible (legacy) scroller takes its width inside the viewport, so it is left out too.
     func galleryContentWidth(_ width: Binding<CGFloat>) -> some View {
         background {
             GeometryReader { proxy in
-                let inner = max(200, proxy.size.width - 2 * WidgetGalleryMetrics.pageInset)
+                let inner = WidgetGalleryMetrics.contentWidth(viewport: proxy.size.width)
                 Color.clear
                     .onAppear { width.wrappedValue = inner }
                     .onChange(of: inner) { width.wrappedValue = $0 }
+                    .onReceive(NotificationCenter.default.publisher(for: NSScroller.preferredScrollerStyleDidChangeNotification)) { _ in
+                        width.wrappedValue = WidgetGalleryMetrics.contentWidth(viewport: proxy.size.width)
+                    }
             }
         }
     }
 
-    func galleryBackdrop(radius: CGFloat = WidgetGalleryMetrics.tileRadius, highlighted: Bool = false) -> some View {
-        modifier(GalleryBackdrop(radius: radius, highlighted: highlighted))
+    func galleryBackdrop(radius: CGFloat = WidgetGalleryMetrics.tileRadius) -> some View {
+        modifier(GalleryBackdrop(radius: radius))
     }
 
     /// The area behind a widget tile's floating preview: nothing at rest, a soft highlight on
@@ -204,6 +215,16 @@ extension View {
     }
 }
 
+extension WidgetGalleryMetrics {
+    /// The grid width inside a scroll viewport: the page insets and, when scrollers are always
+    /// shown (legacy style), the scroller's own width are left out.
+    @MainActor static func contentWidth(viewport: CGFloat) -> CGFloat {
+        let scroller = NSScroller.preferredScrollerStyle == .legacy
+            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        return max(200, viewport - 2 * pageInset - scroller)
+    }
+}
+
 /// No tile, no stroke: the live preview floats on the page like the iOS widget gallery, so
 /// only the module's own radius shows. States stay visible without a nested frame. Increase
 /// Contrast keeps a visible edge around the tile area.
@@ -217,8 +238,8 @@ struct GalleryTileBackdrop: ViewModifier {
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: radius, style: .continuous) }
     private var fill: Color {
-        if selected { return DockDesign.accent.opacity(scheme == .dark ? 0.20 : 0.12) }
-        if hovered { return Color.primary.opacity(scheme == .dark ? 0.07 : 0.05) }
+        if selected { return WidgetGalleryMetrics.highlightFill(scheme) }
+        if hovered { return DockDesign.hover }
         return .clear
     }
 
@@ -248,27 +269,18 @@ struct GalleryTileBackdrop: ViewModifier {
     }
 }
 
-/// The added state of an app row: a plain green check with no circle, deliberately unlike
-/// the filled accent plus. Light mode uses a deeper green so the glyph keeps 3:1 on white.
+/// The added state of an app row: a plain check with no circle, deliberately unlike the filled
+/// accent plus. It uses the accent, the same colour as the widgets' added badge, so "Added" reads
+/// the same in every segment.
 struct GalleryAddedCheck: View {
     var generation: Int = 0
     @DockAccessibilityStyle() private var accessibility
-    @Environment(\.colorScheme) private var scheme
     @State private var scale: CGFloat = 1
-
-    private var green: Color {
-        switch (scheme, accessibility.contrast) {
-        case (.dark, .increased): Color(red: 0.45, green: 0.90, blue: 0.55)
-        case (.dark, _): Color(red: 0.30, green: 0.82, blue: 0.42)
-        case (_, .increased): Color(red: 0.08, green: 0.42, blue: 0.18)
-        default: Color(red: 0.13, green: 0.53, blue: 0.24)
-        }
-    }
 
     var body: some View {
         Image(systemName: WidgetGalleryRowAccessory.added.symbol)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(green)
+            .font(.system(size: 14, weight: accessibility.contrast == .increased ? .bold : .semibold))
+            .foregroundStyle(DockDesign.accent)
             .frame(width: 22, height: 22)
             .scaleEffect(scale)
             .accessibilityHidden(true)
@@ -285,6 +297,8 @@ struct GalleryAddedCheck: View {
 struct GalleryAddedBadge: View {
     var generation: Int = 0
     var size: CGFloat = 22
+    /// Spoken when the badge stands alone; `nil` when the owner's label already says "Added".
+    var spokenLabel: String? = nil
     @DockAccessibilityStyle() private var accessibility
     @State private var scale: CGFloat = 1
 
@@ -301,7 +315,8 @@ struct GalleryAddedBadge: View {
             }
             .shadow(color: .black.opacity(accessibility.reduceTransparency ? 0 : 0.18), radius: 2, y: 1)
             .scaleEffect(scale)
-            .accessibilityHidden(true)
+            .accessibilityLabel(spokenLabel ?? "")
+            .accessibilityHidden(spokenLabel == nil)
             .onChange(of: generation) { _ in
                 guard !accessibility.reduceMotion else { return }
                 scale = 1.28

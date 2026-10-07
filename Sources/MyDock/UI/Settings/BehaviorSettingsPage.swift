@@ -20,7 +20,7 @@ extension SettingsView {
                 set: { value in store.updateSettings { $0.showRevealHandle = value } }
             ))
             .disabled(!store.state.settings.automaticallyHideCustomDock || store.state.settings.customDockDesktopMode)
-            GroupedRow("Hide when Apple Dock appears", isOn: Binding(get: { store.state.settings.hideCustomDockWhenSystemDockAppears }, set: { value in store.updateSettings { $0.hideCustomDockWhenSystemDockAppears = value } }))
+            GroupedRow("Hide when macOS Dock appears", isOn: Binding(get: { store.state.settings.hideCustomDockWhenSystemDockAppears }, set: { value in store.updateSettings { $0.hideCustomDockWhenSystemDockAppears = value } }))
             if store.state.settings.customDockDesktopMode {
                 GroupedNote("Stays behind windows, including fullscreen apps; auto-hide is paused.")
             }

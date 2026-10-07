@@ -5,7 +5,9 @@ import Combine
 final class ProfileEditSessionCoordinator: ObservableObject {
     @Published private(set) var drafts: [UUID: DockProfileDraft] = [:]
     private weak var store: ProfileStore?
-    @Published private(set) var saveFeedback: [UUID: String] = [:]
+    @Published private(set) var saveStates: [UUID: ProfileSaveFeedback] = [:]
+    /// The status line each Dock shows while it autosaves.
+    var saveFeedback: [UUID: String] { saveStates.mapValues(\.title) }
     private var autosaves: [UUID: Task<Void, Never>] = [:]
     private var generations: [UUID: UUID] = [:]
 
@@ -15,21 +17,21 @@ final class ProfileEditSessionCoordinator: ObservableObject {
         autosaves[id]?.cancel()
         let generation = UUID()
         generations[id] = generation
-        saveFeedback[id] = "Saving…"
+        saveStates[id] = .saving
         autosaves[id] = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
             guard let self, self.generations[id] == generation else { return }
             do {
                 try self.save(id)
-                self.saveFeedback[id] = "Saved"
+                self.saveStates[id] = .saved
                 try await Task.sleep(for: .seconds(1.2))
                 guard self.generations[id] == generation else { return }
-                self.saveFeedback[id] = nil
+                self.saveStates[id] = nil
                 self.autosaves[id] = nil
             } catch is CancellationError { }
             catch {
                 guard self.generations[id] == generation else { return }
-                self.saveFeedback[id] = "Couldn’t save · Retry"
+                self.saveStates[id] = .failed
                 self.autosaves[id] = nil
             }
         }
@@ -39,7 +41,7 @@ final class ProfileEditSessionCoordinator: ObservableObject {
         autosaves[id]?.cancel()
         autosaves[id] = nil
         generations[id] = nil
-        saveFeedback[id] = nil
+        saveStates[id] = nil
     }
 
     /// Undo only the edit's changed fields, retaining unrelated live widget data.
@@ -82,7 +84,7 @@ final class ProfileEditSessionCoordinator: ObservableObject {
         store.replaceProfile(merged)
         if store.hasUnpersistedChanges { store.flush() }
         guard !store.hasUnpersistedChanges else {
-            throw EditSessionSaveError.failed(store.persistenceError ?? "The profile could not be saved.")
+            throw EditSessionSaveError.failed(store.persistenceError ?? "The Dock could not be saved.")
         }
         drafts[id] = DockProfileDraft(profile: merged)
         return merged
@@ -130,7 +132,7 @@ final class ProfileEditSessionCoordinator: ObservableObject {
         guard hasUnsavedChanges else { return true }
         let alert = NSAlert()
         alert.messageText = "Save your Dock changes?"
-        alert.informativeText = "Your profile drafts have changes that are not saved."
+        alert.informativeText = "Some Docks have edits that are not saved."
         alert.addButton(withTitle: "Save Changes")
         alert.addButton(withTitle: "Discard Changes")
         alert.addButton(withTitle: "Cancel " + action)
@@ -148,6 +150,18 @@ final class ProfileEditSessionCoordinator: ObservableObject {
             for id in Array(drafts.keys) { discard(id) }
             return true
         default: return false
+        }
+    }
+}
+
+/// The autosave state a Dock shows; the view keys behaviour on the case, never on the copy.
+enum ProfileSaveFeedback: Equatable {
+    case saving, saved, failed
+    var title: String {
+        switch self {
+        case .saving: "Saving…"
+        case .saved: "Saved"
+        case .failed: "Couldn’t save · Retry"
         }
     }
 }

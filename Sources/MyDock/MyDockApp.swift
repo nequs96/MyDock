@@ -284,7 +284,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
                 sender.reply(toApplicationShouldTerminate: true)
             } catch {
                 let alert = NSAlert()
-                alert.messageText = "Apple Dock settings could not be restored"
+                alert.messageText = "macOS Dock settings could not be restored"
                 alert.informativeText = "MyDock could not restore the Dock's previous visibility settings. The recovery record was kept; try quitting again after resolving the issue.\n\n\(error.localizedDescription)"
                 alert.addButton(withTitle: "OK")
                 alert.runModal()

@@ -52,7 +52,7 @@ struct PortableDockExportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Export Dock").font(DockDesign.sectionTitle).accessibilityAddTraits(.isHeader)
+            DockSheetHeader(title: "Export Dock")
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if profiles.count > 1 {
@@ -83,7 +83,7 @@ struct PortableDockExportSheet: View {
                 }
             }.frame(maxHeight: 400)
             if let errorMessage {
-                Text(errorMessage).font(DockDesign.caption).foregroundStyle(.orange).textSelection(.enabled)
+                Text(errorMessage).font(DockDesign.caption).foregroundStyle(DockDesign.Status.warning).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
@@ -98,6 +98,8 @@ struct PortableDockExportSheet: View {
 
     private func export() {
         guard let profile else { return }
+        // A retry starts clean: an earlier failure does not linger after a cancelled or successful save.
+        errorMessage = nil
         do {
             if try PortableDockPanels.save(profile, includePersonalData: includePersonalData) {
                 exported("Exported \(profile.name).")
@@ -116,7 +118,7 @@ struct PortableDockImportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Import Dock").font(DockDesign.sectionTitle).accessibilityAddTraits(.isHeader)
+            DockSheetHeader(title: "Import Dock")
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     GroupedSection(footer: "Will be added as a new Dock. Existing Docks are not changed.") {

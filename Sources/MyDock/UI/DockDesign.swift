@@ -4,8 +4,15 @@ import SwiftUI
 
 /// Shared presentation tokens. Dock geometry and provider models remain independent.
 enum DockDesign {
+    /// Semantic state colours for app chrome, shared with widget faces (`WidgetPalette`). Colour
+    /// marks state only: warning for recoverable problems and inline validation, critical for
+    /// destructive or failed states, positive for an active or connected state.
+    enum Status {
+        static let warning = WidgetPalette.warning
+        static let critical = WidgetPalette.critical
+        static let positive = WidgetPalette.positive
+    }
     enum Space {
-        static let xxs: CGFloat = 4
         static let xs: CGFloat = 6
         static let small: CGFloat = 8
         static let medium: CGFloat = 12
@@ -439,6 +446,21 @@ struct DockScreenHeader: View {
     }
 }
 
+/// A sheet's title, with an optional line under it: one size and weight for every MyDock sheet,
+/// read as a heading by VoiceOver.
+struct DockSheetHeader: View {
+    var title: String
+    var subtitle: String? = nil
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(DockDesign.sectionTitle).accessibilityAddTraits(.isHeader)
+            if let subtitle {
+                Text(subtitle).font(DockDesign.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct SettingsControlRow<Content: View>: View {
     var title: String
     @ViewBuilder var content: Content
@@ -490,11 +512,11 @@ extension MyDockSettingsPage {
     }
     var designDescription: String {
         switch self {
-        case .general: "Manage your saved layouts, backups, and app preferences."
+        case .general: "Manage your saved Docks, backups, and app preferences."
         case .dock: "Choose your Dock, its screen, and its position."
         case .appearance: "Make your Dock feel at home on your Mac."
         case .behavior: "Choose what appears and how your Dock responds."
-        case .shortcuts: "Switch to your favorite layouts from the keyboard."
+        case .shortcuts: "Switch Docks from the keyboard."
         case .integrations: "Connect the services you use in your widgets."
         case .permissions: "Control which features can access your Mac."
         }

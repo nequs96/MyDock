@@ -48,7 +48,7 @@ enum DockShortcutStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .requiresTwoModifiers: "Choose a key combination with at least two modifiers."
-        case .duplicate: "That shortcut is already assigned to another profile."
+        case .duplicate: "That shortcut is already assigned to another Dock."
         }
     }
 }

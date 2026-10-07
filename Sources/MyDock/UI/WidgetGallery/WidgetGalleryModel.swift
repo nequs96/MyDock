@@ -60,7 +60,43 @@ struct WidgetGalleryMoreEntry: Identifiable, Equatable {
     var detail: String
     var symbol: String
     var item: DockItem?
-    var browseAction: String?
+    var browseAction: DockBrowseAction?
+}
+
+/// The pickers the Add Item window and ⌘K open. Behaviour keys on the case, never on the title.
+enum DockBrowseAction: String, CaseIterable, Identifiable, Equatable {
+    case application, folder, file, link
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .application: "Choose Application…"
+        case .folder: "Folder…"
+        case .file: "File…"
+        case .link: "Link…"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .application: "plus.app"
+        case .folder: "folder"
+        case .file: "doc"
+        case .link: "globe"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .application: "Add an app from another location."
+        case .folder: "Keep a folder within reach."
+        case .file: "Open a document from your Dock."
+        case .link: "Add a website or URL."
+        }
+    }
+
+    /// macOS Dock layouts hold apps and spacers only.
+    static func available(for kind: DockProfileKind) -> [DockBrowseAction] {
+        kind == .custom ? allCases : [.application]
+    }
 }
 
 /// Pure decisions behind the gallery, kept out of the views so they can be tested.
@@ -104,14 +140,24 @@ enum WidgetGalleryModel {
         }
     }
 
-    /// The layout a double-click or Return adds and a gallery tile previews: the family's default.
+    /// The layout Command-Return or a search-field Return adds and a gallery tile previews: the family's default.
     static func defaultLayout(for kind: String) -> WidgetLayout {
         WidgetRegistry.definition(named: kind)?.capabilities.defaultLayout ?? WidgetPresentationCatalog.defaultLayout(for: kind)
     }
 
-    /// The pages of the detail view's size pager.
+    /// Shown wherever adding is unavailable because no Dock is selected.
+    static let noDockMessage = "Choose a Dock to add items."
+
+    /// The pages of the detail view's size pager; never empty, so previews cannot index past it.
     static func layoutOptions(for kind: String) -> [WidgetLayoutOption] {
-        WidgetPresentationCatalog.options(for: kind)
+        let options = WidgetPresentationCatalog.options(for: kind)
+        return options.isEmpty ? WidgetLayoutPresets.generic : options
+    }
+
+    /// The option a preview draws for `layout`: that size, else the family's first.
+    static func layoutOption(for kind: String, layout: WidgetLayout) -> WidgetLayoutOption {
+        let options = layoutOptions(for: kind)
+        return options.first { $0.layout == layout } ?? options.first ?? WidgetLayoutPresets.generic[0]
     }
 
     /// A new widget item. `nil` is the quick add: no stored layout, exactly as the gallery's
@@ -134,41 +180,51 @@ enum WidgetGalleryModel {
 
     /// Widgets and apps already on the Dock, or added while the window is open, show as added.
     static func isAdded(_ item: DockItem, in profile: DockProfile, recentlyAdded: Set<String>) -> Bool {
-        guard item.type == .widget || item.type == .application else { return false }
-        let key = identity(item)
-        return recentlyAdded.contains(key) || profile.items.contains { identity($0) == key }
+        isAdded(item, addedIdentities: addedIdentities(in: profile), recentlyAdded: recentlyAdded)
     }
 
+    /// The identities of the widgets and apps on a Dock, built once per pass so each tile and row
+    /// is a set lookup instead of a path resolution per Dock item.
+    static func addedIdentities(in profile: DockProfile) -> Set<String> {
+        Set(profile.items.lazy.filter { $0.type == .widget || $0.type == .application }.map(identity))
+    }
+
+    static func isAdded(_ item: DockItem, addedIdentities: Set<String>, recentlyAdded: Set<String>) -> Bool {
+        guard item.type == .widget || item.type == .application else { return false }
+        let key = identity(item)
+        return recentlyAdded.contains(key) || addedIdentities.contains(key)
+    }
+
+    /// Apps match every query word against the name and bundle identifier, like widget search.
     static func applicationEntries(_ applications: [InstalledApplication], query: String) -> [WidgetGalleryApplicationEntry] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         var counts: [String: Int] = [:]
         for application in applications { counts[application.name, default: 0] += 1 }
         return applications
-            .filter { trimmed.isEmpty || $0.name.localizedStandardContains(trimmed) }
+            .filter { WidgetDiscovery.matchesTerms($0.name + " " + $0.bundleIdentifier, query: query) }
             .map { application in
                 let ambiguous = (counts[application.name] ?? 0) > 1
-                return WidgetGalleryApplicationEntry(
-                    application: application,
-                    detail: ambiguous ? "Version \(application.version) · \(application.url.deletingLastPathComponent().lastPathComponent)" : "")
+                return WidgetGalleryApplicationEntry(application: application, detail: ambiguous ? duplicateDetail(application) : "")
             }
+    }
+
+    /// Tells same-named apps apart: the version when the bundle has one, and the containing folder.
+    static func duplicateDetail(_ application: InstalledApplication) -> String {
+        let folder = application.url.deletingLastPathComponent().lastPathComponent
+        return [application.version.isEmpty ? nil : "Version " + application.version, folder.isEmpty ? nil : folder]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 
     /// Spacers, then the pickers. Native Docks only offer Choose Application… besides spacers.
     static func moreEntries(kind: DockProfileKind, query: String) -> [WidgetGalleryMoreEntry] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         var result = SpacerKind.allCases.map { spacer in
             WidgetGalleryMoreEntry(id: "spacer:" + spacer.rawValue, title: spacer.title,
                                    detail: spacerDetail(spacer), symbol: "rectangle.split.2x1", item: .spacer(spacer))
         }
-        let pickers = [("Choose Application…", "plus.app", "Add an app from another location."),
-                       ("Folder…", "folder", "Keep a folder within reach."),
-                       ("File…", "doc", "Open a document from your Dock."),
-                       ("Link…", "globe", "Add a website or URL.")]
-        for (name, symbol, detail) in pickers {
-            if kind == .native && name != "Choose Application…" { continue }
-            result.append(WidgetGalleryMoreEntry(id: name, title: name, detail: detail, symbol: symbol, browseAction: name))
+        for action in DockBrowseAction.available(for: kind) {
+            result.append(WidgetGalleryMoreEntry(id: "browse:" + action.rawValue, title: action.title, detail: action.detail,
+                                                 symbol: action.symbol, browseAction: action))
         }
-        return result.filter { trimmed.isEmpty || ($0.title + " " + $0.detail).localizedStandardContains(trimmed) }
+        return result.filter { WidgetDiscovery.matchesTerms($0.title + " " + $0.detail, query: query) }
     }
 
     /// One short, distinct line per spacer size.
@@ -210,18 +266,32 @@ enum WidgetGalleryModel {
         return min(max(0, selected), count - 1)
     }
 
-    /// The entry the arrow keys reach from `index` in a flat list laid out `columns` wide:
-    /// left/right step by one, up/down by a row, clamped to the list.
-    static func movedIndex(from index: Int, direction: WidgetGalleryMoveDirection, columns: Int, count: Int) -> Int {
-        guard count > 0 else { return 0 }
-        let step: Int
-        switch direction {
-        case .left: step = -1
-        case .right: step = 1
-        case .up: step = -max(1, columns)
-        case .down: step = max(1, columns)
+    /// The Widgets segment as drawn: the Suggested row chunked by `heroColumns`, then every section
+    /// chunked by `columns`. Each section starts a new row, so rows can be shorter than `columns`.
+    static func gridRows(heroIDs: [String], heroColumns: Int, sections: [[String]], columns: Int) -> [[String]] {
+        func rows(_ ids: [String], width: Int) -> [[String]] {
+            let width = max(1, width)
+            return stride(from: 0, to: ids.count, by: width).map { Array(ids[$0..<min($0 + width, ids.count)]) }
         }
-        return min(count - 1, max(0, index + step))
+        return rows(heroIDs, width: heroColumns) + sections.flatMap { rows($0, width: columns) }
+    }
+
+    /// The tile the arrow keys reach from `id`: left and right step through the reading order;
+    /// up and down keep the column in the adjacent row, clamped to that row's length.
+    /// `nil` when `id` is not in `rows`.
+    static func movedID(from id: String, direction: WidgetGalleryMoveDirection, rows: [[String]]) -> String? {
+        guard let row = rows.firstIndex(where: { $0.contains(id) }),
+              let column = rows[row].firstIndex(of: id) else { return nil }
+        switch direction {
+        case .left, .right:
+            let order = rows.flatMap { $0 }
+            guard let index = order.firstIndex(of: id) else { return nil }
+            return order[min(order.count - 1, max(0, index + (direction == .left ? -1 : 1)))]
+        case .up, .down:
+            let target = row + (direction == .up ? -1 : 1)
+            guard rows.indices.contains(target), !rows[target].isEmpty else { return id }
+            return rows[target][min(column, rows[target].count - 1)]
+        }
     }
 }
 
@@ -295,7 +365,7 @@ enum WidgetGalleryKeymap {
 
     /// The tooltip of a widget tile: the mouse and keyboard routes together.
     static func tileHelp(canAdd: Bool) -> String {
-        canAdd ? "Click or press Return to see sizes. Double-click or press Command-Return to add."
+        canAdd ? "Click or press Return to see sizes. Press Command-Return to add."
                : "Click or press Return to see sizes."
     }
 }

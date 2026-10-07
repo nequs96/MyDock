@@ -12,9 +12,10 @@ struct WidgetGalleryDetail: View {
 
     @DockAccessibilityStyle() private var accessibility
     @State private var panelWidth: CGFloat = 520
+    /// The detail replaces the gallery, so VoiceOver moves to its title instead of a tile that is gone.
+    @AccessibilityFocusState private var titleFocused: Bool
 
     private var options: [WidgetLayoutOption] { WidgetGalleryModel.layoutOptions(for: widget.name) }
-    private var option: WidgetLayoutOption { options.first { $0.layout == layout } ?? options[0] }
     /// The tallest scale that keeps the widest page inside the pager.
     private var previewScale: CGFloat {
         let widest = CGFloat(options.map(\.width).max() ?? 120)
@@ -36,6 +37,9 @@ struct WidgetGalleryDetail: View {
         VStack(spacing: 0) {
             VStack(spacing: 5) {
                 Text(widget.name).font(.system(size: 22, weight: .semibold))
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityFocused($titleFocused)
+                    .task(id: widget.name) { titleFocused = true }
                 Text(widget.description)
                     .font(.system(size: 13)).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.tail)
@@ -68,7 +72,8 @@ struct WidgetGalleryDetail: View {
                 Label {
                     Text(note).fixedSize(horizontal: false, vertical: true)
                 } icon: {
-                    Image(systemName: "hand.raised").accessibilityHidden(true)
+                    // The privacy glyph only when the note is about permissions or personal content.
+                    Image(systemName: widget.capabilities.accessNote == nil ? "info.circle" : "hand.raised").accessibilityHidden(true)
                 }
                 .font(.system(size: 11)).foregroundStyle(.secondary)
                 .multilineTextAlignment(.leading)
@@ -83,16 +88,15 @@ struct WidgetGalleryDetail: View {
                     .disabled(!canAdd)
                     .help(added ? "Adds another \(widget.name) widget with its own settings." : "Adds this size to the Dock (Return).")
                 if added {
-                    GalleryAddedBadge(generation: addGeneration, size: 22)
+                    GalleryAddedBadge(generation: addGeneration, size: 22, spokenLabel: "Added")
                         .transition(.scale(scale: 0.4).combined(with: .opacity))
-                        .accessibilityLabel("Added")
                 }
             }
             .padding(.top, 22)
             .accessibilityElement(children: .contain)
 
             if !canAdd {
-                Text("Choose a Dock to add widgets.")
+                Text(WidgetGalleryModel.noDockMessage)
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .padding(.top, 8)
             }
@@ -120,7 +124,8 @@ struct GalleryTileKeys: View {
             Button("") { directAdd() }.keyboardShortcut(.return, modifiers: .command)
         }
         .buttonStyle(.plain)
-        .opacity(0)
+        // Hidden like the manager's shortcut buttons: the key equivalents stay, with no Tab stop.
+        .hidden()
         .frame(width: 0, height: 0)
         .accessibilityHidden(true)
     }
@@ -135,7 +140,8 @@ struct GalleryPagerKeys: View {
             Button("") { step(1) }.keyboardShortcut(.rightArrow, modifiers: [])
         }
         .buttonStyle(.plain)
-        .opacity(0)
+        // Hidden like the manager's shortcut buttons: the key equivalents stay, with no Tab stop.
+        .hidden()
         .frame(width: 0, height: 0)
         .accessibilityHidden(true)
     }

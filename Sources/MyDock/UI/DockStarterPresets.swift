@@ -60,16 +60,24 @@ enum DockStarterPreset: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The name a fallback note uses for each preferred (first-choice) app; never derived from
+    /// the bundle identifier, which gives "finder" or "ActivityMonitor".
+    static let displayNames: [String: String] = [
+        "com.apple.finder": "Finder", "com.apple.Safari": "Safari", "com.apple.mail": "Mail",
+        "com.apple.Notes": "Notes", "com.apple.iWork.Numbers": "Numbers", "com.apple.Maps": "Maps",
+        "com.apple.ActivityMonitor": "Activity Monitor", "com.apple.Terminal": "Terminal",
+        "com.figma.Desktop": "Figma", "com.adobe.Photoshop": "Photoshop",
+        "com.microsoft.VSCode": "Visual Studio Code", "com.googlecode.iterm2": "iTerm",
+        "us.zoom.xos": "Zoom", "com.openai.codex": "Codex",
+    ]
+
     @MainActor func resolve() -> Resolution {
         let candidates = applicationCandidates
         let widgets = widgetKinds
         var apps: [DockItem] = []
         var notes: [String] = []
-        let names = ["com.figma.Desktop": "Figma", "com.adobe.Photoshop": "Photoshop",
-                     "com.microsoft.VSCode": "Visual Studio Code", "com.googlecode.iterm2": "iTerm",
-                     "us.zoom.xos": "Zoom", "com.openai.codex": "Codex"]
         for group in candidates {
-            let preferred = names[group[0]] ?? group[0].split(separator: ".").last.map(String.init) ?? "Preferred app"
+            let preferred = group.first.flatMap { Self.displayNames[$0] } ?? "The preferred app"
             if let match = group.enumerated().compactMap({ index, id in
                 NSWorkspace.shared.urlForApplication(withBundleIdentifier: id).map { (index, $0) }
             }).first {
@@ -102,5 +110,19 @@ extension DockStarterPreset {
         var styled = settings
         quickStyle.apply(to: &styled)
         return ProfileAppearance(settings: styled)
+    }
+
+    /// The Dock the presets sheet creates: this Mac's resolved apps and the preset's widgets,
+    /// colour and style snapshot, with notes about substituted or missing apps.
+    @MainActor func profile(settings: AppSettings) -> (profile: DockProfile, notes: [String]) {
+        let resolution = resolve()
+        return (profile(items: resolution.items, settings: settings), resolution.notes)
+    }
+
+    /// The same construction for given items, so tests need not resolve apps on this Mac.
+    func profile(items: [DockItem], settings: AppSettings) -> DockProfile {
+        var dock = DockProfile(name: title, kind: .custom, color: color.rawValue, items: items)
+        dock.appearance = appearance(basedOn: settings)
+        return dock
     }
 }

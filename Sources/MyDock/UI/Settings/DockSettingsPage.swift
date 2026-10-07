@@ -107,7 +107,7 @@ extension SettingsView {
             ))
             if store.state.settings.automaticallySaveNativeDockChanges,
                store.state.settings.activeNativeProfileID == nil {
-                GroupedNote("Select a macOS Dock to start automatic saving.")
+                GroupedNote("Choose a macOS Dock above to start automatic saving.")
             }
             if let message = nativeDockAutoSave.errorMessage, store.state.settings.automaticallySaveNativeDockChanges {
                 GroupedNote(message, tone: .warning)
@@ -127,7 +127,7 @@ extension SettingsView {
                             ? "Allow MyDock in System Settings → Privacy & Security → Screen Recording. Relaunch MyDock after granting access."
                             : "Allow MyDock in System Settings → Privacy & Security → Screen Recording. Dock switching remains available without the effect."
                     } else {
-                        screenCaptureMessage = "The desktop freeze will be used for the next native Dock switch."
+                        screenCaptureMessage = "The desktop freeze will be used for the next macOS Dock switch."
                     }
                 }
             ))
@@ -141,7 +141,7 @@ extension SettingsView {
     }
 
     private func selectNativeProfile(_ id: UUID?) {
-        guard store.allowsSystemChanges else { nativeProfileSwitchMessage = "Native Dock changes are disabled in the visual preview."; return }
+        guard store.allowsSystemChanges else { nativeProfileSwitchMessage = "macOS Dock changes are disabled in the visual preview."; return }
         guard !isApplyingNativeProfile else { return }
         nativeProfileSwitchMessage = nil
         nativeProfileSwitchFailedID = nil

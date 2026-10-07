@@ -50,8 +50,7 @@ struct RedesignMotionTests {
         let store = ProfileStore(fileURL: file)
         for preset in [DockStarterPreset.everyday, .develop, .commerce, .focus] {
             // The same construction as the Dock presets sheet.
-            var profile = DockProfile(name: preset.title, kind: .custom, color: preset.color.rawValue, items: [.widget("Clock")])
-            profile.appearance = preset.appearance(basedOn: store.state.settings)
+            let profile = preset.profile(items: [.widget("Clock")], settings: store.state.settings)
             let id = try store.createProfile(profile)
             let reloaded = ProfileStore(fileURL: file)
             let saved = try #require(reloaded.state.profiles.first { $0.id == id })

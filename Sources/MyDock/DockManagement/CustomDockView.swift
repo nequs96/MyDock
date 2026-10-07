@@ -928,12 +928,12 @@ struct CustomDockView: View {
 
     private func editFolderName(_ item: DockItem, profileID: UUID) {
         guard let name = DockItemPrompts.folderName(for: item) else { return }
-        store.updateItem(item.id, in: profileID) { $0.folderCustomName = name.isEmpty ? nil : name }
+        store.updateItem(item.id, in: profileID) { $0.folderCustomName = FolderCustomizationPolicy.name(name) }
     }
 
     private func editFolderLetter(_ item: DockItem, profileID: UUID) {
         guard let letter = DockItemPrompts.folderLetter(for: item) else { return }
-        store.updateItem(item.id, in: profileID) { $0.folderIconLetter = letter.isEmpty ? nil : letter }
+        store.updateItem(item.id, in: profileID) { $0.folderIconLetter = FolderCustomizationPolicy.letter(letter) }
     }
 
     private static func unitPoint(facing position: DockPosition) -> UnitPoint {

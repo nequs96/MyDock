@@ -100,7 +100,6 @@ import Testing
             let definition = try #require(WidgetRegistry.definition(named: name))
             #expect(definition.capabilities.needsConnection && definition.capabilities.usesProviderKey)
             #expect(!WidgetDiscoveryFilter.noConnection.includes(definition))
-            #expect(WidgetDiscovery.setupSummary(definition).contains("API key"))
             #expect(WidgetSheetDataSummary.make(kind: name, configuration: WidgetConfiguration()).source == "Online")
         }
         #expect(WidgetSheetDataSummary.make(kind: "Stripe", configuration: WidgetConfiguration()).source == "Connected account")

@@ -262,8 +262,8 @@ final class ProfileStore: ObservableObject {
         return profile.id
     }
 
-    /// Adds a new profile. `activate` makes a new Custom Dock the one on screen; Recovery restores pass false, like
-    /// backup Restore, so the current Dock stays in place.
+    /// Adds a new Dock. `activate: false` keeps the live Dock and setup mode as they are: Recovery restores pass it,
+    /// like backup Restore, and in the editor the Activate button is then the explicit step that turns the new Dock on.
     @discardableResult
     func createProfile(_ resolved: DockProfile, activate: Bool = true) throws -> UUID {
         var profile = resolved
@@ -427,7 +427,7 @@ final class ProfileStore: ObservableObject {
 
     /// A direct Dock resize follows the active profile's existing inheritance choice.
     func previewDockSize(_ size: Double, for profileID: UUID) {
-        guard size.isFinite, (0.65...1.5).contains(size), customProfiles.contains(where: { $0.id == profileID }) else { return }
+        guard size.isFinite, DockAppearanceBounds.size.contains(size), customProfiles.contains(where: { $0.id == profileID }) else { return }
         let preview = DockResizePreview(profileID: profileID, size: size)
         if preview != dockResizePreview { dockResizePreview = preview }
     }
@@ -440,7 +440,7 @@ final class ProfileStore: ObservableObject {
     }
 
     func setDockSize(_ size: Double, for profileID: UUID, recordHistory: Bool = false) {
-        guard size.isFinite, (0.65...1.5).contains(size),
+        guard size.isFinite, DockAppearanceBounds.size.contains(size),
               let profile = customProfiles.first(where: { $0.id == profileID }) else { return }
         if var appearance = profile.appearance {
             appearance.size = size

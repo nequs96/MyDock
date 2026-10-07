@@ -98,6 +98,10 @@ struct WidgetConfigurationSheet: View {
                     .environment(\.widgetPopoutShowsHero, WidgetSheetHeroPolicy.showsHero(kind: kind, inSheet: true))
                     .environment(\.widgetPopoutContext, .sheet)
                     .onPreferenceChange(WidgetPopoutRefreshKey.self) { familyRefresh = $0 }
+            } else {
+                // Hero-only families (Clock, Audio Output) mount no popout, so the sheet shows the
+                // save notice and Retry Save itself, where the popout would.
+                WidgetSheetPersistenceNotice(store: store)
             }
             WidgetAppearanceControls(store: store, item: currentItem, profileID: profileID)
             if !data.isEmpty || familyRefresh != nil { dataSection }
@@ -257,7 +261,7 @@ enum WidgetSheetRemoval {
             // The draft was saved or discarded elsewhere; only the store's write is still owed.
             store.flush()
             if store.hasUnpersistedChanges {
-                throw EditSessionSaveError.failed(store.persistenceError ?? "The profile could not be saved.")
+                throw EditSessionSaveError.failed(store.persistenceError ?? "The Dock could not be saved.")
             }
         }
         pending[itemID] = nil
@@ -531,4 +535,19 @@ final class RefreshDemandHolder {
 private struct WidgetConfigurationHeightKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// "Changes are waiting to be saved" with Retry Save, as a widget popout shows it.
+struct WidgetSheetPersistenceNotice: View {
+    @ObservedObject var store: ProfileStore
+    var body: some View {
+        if store.hasUnpersistedChanges || store.persistenceError != nil {
+            GroupedSection {
+                GroupedRow(store.persistenceError ?? "Changes are waiting to be saved.", symbol: "exclamationmark.triangle.fill", color: DockDesign.Status.warning) {
+                    Button("Retry Save") { store.commit() }
+                        .controlSize(.small).disabled(!store.canRetryPersistence || !store.hasUnpersistedChanges)
+                }
+            }
+        }
+    }
 }

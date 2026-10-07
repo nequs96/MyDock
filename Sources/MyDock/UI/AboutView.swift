@@ -7,8 +7,8 @@ struct AboutView: View {
     var body: some View {
         VStack(spacing: 14) {
             Group {
-                if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
-                   let icon = NSImage(contentsOf: url) {
+                // AppKit's cached bundle icon: no file read or decode per render.
+                if let icon = NSApplication.shared.applicationIconImage {
                     Image(nsImage: icon).resizable().scaledToFit()
                 } else {
                     Image(systemName: "dock.rectangle").font(.system(size: 38, weight: .light))

@@ -5,9 +5,15 @@ struct DockAppearanceInspector: View {
     let profile: DockProfile
     let close: () -> Void
     var workspace: DockWorkspaceSection? = nil
-    private var settings: AppSettings { store.effectiveSettings(for: profile) }
+    /// Appearance is written straight to the store, so it is read from the saved profile: the draft
+    /// passed in is not refreshed while it has unsaved item edits and would hold an older appearance.
+    private var savedAppearance: ProfileAppearance? {
+        guard let saved = store.state.profiles.first(where: { $0.id == profile.id }) else { return profile.appearance }
+        return saved.appearance
+    }
+    private var settings: AppSettings { store.effectiveSettings(profileID: profile.id) }
     private func edit(_ change: (inout ProfileAppearance) -> Void) {
-        var appearance = profile.appearance ?? ProfileAppearance(settings: settings)
+        var appearance = savedAppearance ?? ProfileAppearance(settings: settings)
         change(&appearance)
         store.setAppearance(appearance, for: profile.id, immediately: false, recordHistory: false)
     }
@@ -25,17 +31,17 @@ struct DockAppearanceInspector: View {
             HStack {
                 Spacer()
                 Button("Done", action: close).buttonStyle(GalleryGlassButtonStyle()).keyboardShortcut(.cancelAction)
-                    .help("Close inspector").accessibilityLabel("Close inspector")
+                    .help("Close inspector")
             }.overlay { Text("Dock").font(DockDesign.sectionTitle).allowsHitTesting(false) }
             if profile.kind == .custom {
-                GroupedSection("Appearance", footer: profile.appearance == nil ? "Follows app defaults." : "This Dock has its own appearance.") {
+                GroupedSection("Appearance", footer: savedAppearance == nil ? "Follows app defaults." : "This Dock has its own appearance.") {
                 sliderRow("Tile size") {
                     HStack(spacing: 10) {
                         Slider(value: Binding(get: { settings.customDockSize }, set: { value in edit { $0.size = value } }), in: DockAppearanceBounds.size, onEditingChanged: { if !$0 { store.flush() } })
                             .accessibilityLabel("Tile size")
                             .accessibilityValue("\(Int((settings.customDockSize * 100).rounded())) percent")
                         Text("\(Int((settings.customDockSize * 100).rounded()))%")
-                            .monospacedDigit().frame(width: 40, alignment: .trailing)
+                            .monospacedDigit().frame(width: 40, alignment: .trailing).accessibilityHidden(true)
                     }
                 }
                 GroupedRow("Position on this Mac") {
@@ -62,13 +68,13 @@ struct DockAppearanceInspector: View {
                         ForEach(CustomDockTheme.allCases) { Text($0.title).tag($0) }
                     }.labelsHidden()
                 }
-                if profile.appearance != nil {
+                if savedAppearance != nil {
                     GroupedRow("Reset to app defaults", role: .button) { store.setAppearance(nil, for: profile.id) }
                         .help("Remove this Dock's own appearance and follow the app defaults in Settings → Appearance again")
                 }
                 }
             } else {
-                Text("This layout is applied to Apple’s Dock. Widgets and appearance belong to custom Docks.")
+                Text("A macOS Dock holds apps and spacers. Widgets and appearance belong to Custom Docks.")
                     .font(DockDesign.caption).foregroundStyle(.secondary)
             }
             if let workspace { workspace }
@@ -99,7 +105,7 @@ struct DockItemInspector: View {
             }.overlay { Text(item.displayName).font(DockDesign.sectionTitle).allowsHitTesting(false) }
             GroupedSection("Item") {
             if item.type == .folder {
-                GroupedRow("Folder name") { inspectorField("Folder name", placeholder: "Original name", text: Binding(get: { item.folderCustomName ?? "" }, set: { value in edit { $0.folderCustomName = value } })) }
+                GroupedRow("Folder name") { inspectorField("Folder name", placeholder: "Original name", text: Binding(get: { item.folderCustomName ?? "" }, set: { value in edit { $0.folderCustomName = FolderCustomizationPolicy.editingName(value) } })) }
                 GroupedRow("Show name in Dock", isOn: Binding(get: { item.showFolderLabel ?? false }, set: { value in edit { $0.showFolderLabel = value } }))
                 GroupedRow("Icon color") {
                 Picker("Icon color", selection: Binding(get: { item.folderIconColor?.rawValue ?? "" }, set: { value in edit { $0.folderIconColor = DockProfileColor(rawValue: value) } })) {
@@ -107,8 +113,8 @@ struct DockItemInspector: View {
                     ForEach(DockProfileColor.allCases) { Text($0.title).tag($0.rawValue) }
                 }.labelsHidden()
                 }
-                GroupedRow("Icon letter") { inspectorField("Icon letter", placeholder: "None", text: Binding(get: { item.folderIconLetter ?? "" }, set: { value in edit { $0.folderIconLetter = String(value.prefix(1)) } })) }
-                GroupedRow("Icon number") { inspectorField("Icon number", placeholder: "None", text: Binding(get: { item.folderIconNumber ?? "" }, set: { value in edit { $0.folderIconNumber = String(value.prefix(3)) } })) }
+                GroupedRow("Icon letter") { inspectorField("Icon letter", placeholder: "None", text: Binding(get: { item.folderIconLetter ?? "" }, set: { value in edit { $0.folderIconLetter = FolderCustomizationPolicy.letter(value) } })) }
+                GroupedRow("Icon number") { inspectorField("Icon number", placeholder: "None", text: Binding(get: { item.folderIconNumber ?? "" }, set: { value in edit { $0.folderIconNumber = FolderCustomizationPolicy.number(value) } })) }
             } else if item.type == .spacer {
                 GroupedRow("Width") {
                 Picker("Width", selection: Binding(get: { item.spacerKind ?? .small }, set: { value in edit { $0.spacerKind = value } })) {
@@ -121,10 +127,12 @@ struct DockItemInspector: View {
                     .foregroundStyle(.secondary).font(DockDesign.body)
             }
             if [.application, .file, .folder].contains(item.type) {
-                GroupedRow(AppLauncher.isMissingTarget(item) ? "Locate Missing Item…" : "Replace…", role: .button, action: replace)
+                GroupedRow(AppLauncher.isMissingTarget(item) ? "Locate…" : "Replace…", role: .button, action: replace)
             }
             }
         }.padding(24).frame(width: 420).background(DockDesign.page)
+            // The name keeps its spaces while typing; it is stored trimmed once the inspector closes.
+            .onDisappear { edit { $0.folderCustomName = $0.folderCustomName.flatMap(FolderCustomizationPolicy.name) } }
     }
 
     /// Borderless, trailing-aligned field so every value lines up at the row's trailing edge,
@@ -134,5 +142,29 @@ struct DockItemInspector: View {
             .textFieldStyle(.plain).multilineTextAlignment(.trailing)
             .frame(maxWidth: 180)
             .accessibilityLabel(label)
+    }
+}
+
+/// One normalisation for folder customisation, so every editor stores the same values:
+/// a trimmed name, one uppercase letter and up to three digits, each `nil` when empty.
+enum FolderCustomizationPolicy {
+    static func name(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// While typing: blank is `nil`, anything else is kept as typed so spaces between words survive.
+    static func editingName(_ value: String) -> String? {
+        name(value) == nil ? nil : value
+    }
+
+    static func letter(_ value: String) -> String? {
+        let letter = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()
+        return letter.isEmpty ? nil : letter
+    }
+
+    static func number(_ value: String) -> String? {
+        let digits = String(value.filter { $0.isASCII && $0.isNumber }.prefix(3))
+        return digits.isEmpty ? nil : digits
     }
 }

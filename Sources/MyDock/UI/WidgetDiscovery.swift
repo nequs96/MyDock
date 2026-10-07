@@ -31,20 +31,16 @@ enum WidgetDiscovery {
         return items.contains { applicationKey($0) == key }
     }
 
-    static func setupSummary(_ definition: WidgetDefinition) -> String {
-        let capabilities = definition.capabilities
-        var parts: [String] = []
-        if capabilities.needsConnection { parts.append(capabilities.usesProviderKey ? "API key setup" : "Account setup") }
-        if capabilities.refreshDemand == .remoteFetch { parts.append("Online readings") }
-        if !capabilities.permissions.isEmpty { parts.append("May request permission") }
-        return parts.joined(separator: " · ")
-    }
-
     static func matches(_ definition: WidgetDefinition, query: String) -> Bool {
         let text = [definition.name, definition.description, definition.category.rawValue,
                     synonyms[definition.name] ?? ""].joined(separator: " ")
-        let terms = query.split(whereSeparator: \.isWhitespace)
-        return terms.allSatisfy { text.localizedStandardContains(String($0)) }
+        return matchesTerms(text, query: query)
+    }
+
+    /// Every word of the query appears somewhere in `text`, in any order. An empty query matches.
+    /// Widgets, apps and More entries all search this way.
+    static func matchesTerms(_ text: String, query: String) -> Bool {
+        query.split(whereSeparator: \.isWhitespace).allSatisfy { text.localizedStandardContains(String($0)) }
     }
 
     static func canAdd(_ item: DockItem, alreadyAdded: Bool) -> Bool {

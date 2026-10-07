@@ -1,9 +1,10 @@
 import SwiftUI
 
 /// A gallery tile: a large live sample preview floating on the page, as in the iOS widget
-/// gallery, the family name below, and a check badge once added. Click opens the detail,
-/// double-click adds the default layout. Hover, the search highlight and keyboard focus show
-/// as a soft backdrop and a focus ring around the preview (see `galleryTileBackdrop`).
+/// gallery, the family name below, and a check badge once added. A click opens the detail at
+/// once; Command-Return, the context menu and the detail's Add Widget pill add. Hover, the
+/// search highlight and keyboard focus show as a soft backdrop and a focus ring around the
+/// preview (see `galleryTileBackdrop`).
 struct WidgetGalleryTile: View {
     enum Style { case grid, hero }
 
@@ -26,27 +27,26 @@ struct WidgetGalleryTile: View {
 
     @State private var hovered = false
 
-    private var option: WidgetLayoutOption {
-        WidgetPresentationCatalog.options(for: widget.name).first { $0.layout == layout }
-            ?? WidgetPresentationCatalog.options(for: widget.name).first!
-    }
     private var backdropHeight: CGFloat { style == .hero ? 164 : 122 }
     private var maximumScale: CGFloat { style == .hero ? 2.0 : 1.6 }
-    private var previewScale: CGFloat {
+    private func previewScale(_ option: WidgetLayoutOption) -> CGFloat {
         let horizontal = (width - 2 * WidgetGalleryMetrics.tileInset) / CGFloat(option.width)
         let vertical = (backdropHeight - 34) / 54
         return max(0.6, min(maximumScale, horizontal, vertical))
     }
-    /// The backdrop hugs the module and sits on the leading edge, so a narrow preview lines up with its caption.
-    private var backdropWidth: CGFloat { min(width, CGFloat(option.width) * previewScale + 2 * WidgetGalleryMetrics.tileInset) }
     private var describes: Bool { showsDescription ?? (style == .hero) }
     private var radius: CGFloat { style == .hero ? WidgetGalleryMetrics.heroRadius : WidgetGalleryMetrics.tileRadius }
     private var name: String { title ?? widget.name }
     private var badgeSize: CGFloat { style == .hero ? 24 : 22 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            WidgetGalleryPreview(kind: widget.name, width: CGFloat(option.width), displayScale: previewScale, layout: option.layout)
+        // The catalog is read once per pass; the scale and backdrop follow from it.
+        let option = WidgetGalleryModel.layoutOption(for: widget.name, layout: layout)
+        let scale = previewScale(option)
+        // The backdrop hugs the module and sits on the leading edge, so a narrow preview lines up with its caption.
+        let backdropWidth = min(width, CGFloat(option.width) * scale + 2 * WidgetGalleryMetrics.tileInset)
+        return VStack(alignment: .leading, spacing: 9) {
+            WidgetGalleryPreview(kind: widget.name, width: CGFloat(option.width), displayScale: scale, layout: option.layout)
                 .allowsHitTesting(false)
                 // With no tile around the module, the check sits on the module's own corner.
                 .overlay(alignment: .topTrailing) {
@@ -80,6 +80,7 @@ struct WidgetGalleryTile: View {
         .accessibilityLabel("\(name), widget, sample preview" + (added ? ", Added" : ""))
         .accessibilityHint(open == nil ? "" : WidgetGalleryKeymap.tileHint(canAdd: addDefault != nil))
         .accessibilityAddTraits(open == nil ? [] : .isButton)
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .help(open == nil ? "" : WidgetGalleryKeymap.tileHelp(canAdd: addDefault != nil))
     }
 }
@@ -101,8 +102,9 @@ struct WidgetGalleryPreview: View {
     }
 }
 
-/// Click opens, double-click adds; VoiceOver gets both by name ("Show Sizes", "Add").
-/// The keyboard route (Return/Space, Command-Return) lives in `AddLibrary`, which owns focus.
+/// A click opens with no double-click delay, as in the iPadOS gallery; VoiceOver gets both
+/// actions by name ("Show Sizes", "Add"). The keyboard route (Return/Space, Command-Return)
+/// lives in `AddLibrary`, which owns focus.
 private struct TileActivation: ViewModifier {
     var open: (() -> Void)?
     var addDefault: (() -> Void)?
@@ -110,7 +112,7 @@ private struct TileActivation: ViewModifier {
         if let open {
             if let addDefault {
                 content
-                    .gesture(TapGesture(count: 2).onEnded { addDefault() }.exclusively(before: TapGesture().onEnded { open() }))
+                    .onTapGesture(perform: open)
                     .accessibilityAction(.default) { open() }
                     .accessibilityAction(named: "Show Sizes") { open() }
                     .accessibilityAction(named: "Add") { addDefault() }
@@ -132,8 +134,12 @@ struct WidgetGalleryMoreTile: View {
     var width: CGFloat
     var selected = false
     var enabled = true
+    /// Bumped by each add; a spacer add briefly shows the added badge, since nothing else on the page changes.
+    var addGeneration = 0
     var action: () -> Void
     @State private var hovered = false
+    @State private var showsAdded = false
+    @DockAccessibilityStyle() private var accessibility
 
     var body: some View {
         Button(action: action) {
@@ -141,6 +147,12 @@ struct WidgetGalleryMoreTile: View {
                 // Bare like a widget preview: no card, the same hover, selection and Increase Contrast states.
                 illustration
                     .padding(.horizontal, WidgetGalleryMetrics.tileInset)
+                    .overlay(alignment: .topTrailing) {
+                        if showsAdded {
+                            GalleryAddedBadge(generation: addGeneration, size: 22)
+                                .transition(.scale(scale: 0.4).combined(with: .opacity))
+                        }
+                    }
                     .dockHover(hovered && enabled)
                     .frame(minWidth: 104, maxWidth: width, minHeight: 104, maxHeight: 104)
                     .galleryTileBackdrop(radius: WidgetGalleryMetrics.tileRadius, hovered: hovered && enabled, selected: selected, focused: false)
@@ -159,8 +171,17 @@ struct WidgetGalleryMoreTile: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.title)
         .accessibilityHint(entry.detail)
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .help(entry.detail)
+        .onChange(of: addGeneration) { _ in
+            DockDesign.Motion.perform(DockDesign.Motion.appear, reduceMotion: accessibility.reduceMotion) { showsAdded = true }
+        }
+        .task(id: showsAdded) {
+            guard showsAdded else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            DockDesign.Motion.perform(DockDesign.Motion.appear, reduceMotion: accessibility.reduceMotion) { showsAdded = false }
+        }
     }
 
     @ViewBuilder private var illustration: some View {

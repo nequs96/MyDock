@@ -60,7 +60,7 @@ enum SettingsSearchCatalog {
         .init(title: "Corner roundness", section: "Layout", page: .appearance, keywords: "radius round corners"),
         .init(title: "Automatically hide and reveal handle", section: "Custom Dock behavior", page: .behavior, keywords: "autohide dwell edge"),
         .init(title: "Desktop widget mode", section: "Custom Dock behavior", page: .behavior, keywords: "behind windows fullscreen"),
-        .init(title: "Hide when Apple Dock appears", section: "Custom Dock behavior", page: .behavior, keywords: "overlap native"),
+        .init(title: "Hide when macOS Dock appears", section: "Custom Dock behavior", page: .behavior, keywords: "overlap native apple"),
         .init(title: "Running apps and minimized windows", section: "Apps and windows", page: .behavior, keywords: "applications restore"),
         .init(title: "Show recent apps", section: "Apps and windows", page: .behavior, keywords: "recent suggested used applications"),
         .init(title: "Minimized window thumbnails", section: "Apps and windows", page: .behavior, keywords: "window previews screen recording cache capture"),

@@ -61,15 +61,18 @@ extension EnvironmentValues {
 /// Preview, then per-target outcomes. Starting never quits or closes anything.
 struct WorkspaceStartSheet: View {
     let request: WorkspaceStartRequest
-    let switchToDock: () -> Void
+    /// Switches to the Dock and returns one line saying what happened, shown in this sheet.
+    let switchToDock: @MainActor () async -> String
     let locate: (DockItem) -> DockItem?
     let close: () -> Void
     @StateObject private var run: WorkspaceStartRun
     /// Off by default: switching (for a macOS Dock profile, applying it to Apple's Dock) is an explicit opt-in.
     @State private var alsoSwitch = false
+    /// The outcome of "Also switch", reported here rather than in an alert behind the sheet.
+    @State private var switchOutcome: String?
 
     init(request: WorkspaceStartRequest, launcher: any WorkspaceLaunching,
-         switchToDock: @escaping () -> Void, locate: @escaping (DockItem) -> DockItem?, close: @escaping () -> Void) {
+         switchToDock: @escaping @MainActor () async -> String, locate: @escaping (DockItem) -> DockItem?, close: @escaping () -> Void) {
         self.request = request
         self.switchToDock = switchToDock
         self.locate = locate
@@ -79,10 +82,7 @@ struct WorkspaceStartSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Start Workspace").font(DockDesign.sectionTitle).accessibilityAddTraits(.isHeader)
-                Text(request.profile.name).font(DockDesign.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
+            DockSheetHeader(title: "Start Workspace", subtitle: request.profile.name)
             ScrollView {
                 GroupedSection {
                     ForEach(run.results) { result in
@@ -93,7 +93,11 @@ struct WorkspaceStartSheet: View {
                 }
             }.frame(maxHeight: 340)
             if run.phase == .preview && !request.isCurrentDock {
-                Toggle("Also switch to this Dock", isOn: $alsoSwitch).toggleStyle(.checkbox)
+                GroupedSection { GroupedRow("Also switch to this Dock", isOn: $alsoSwitch) }
+            }
+            if let switchOutcome {
+                Text(switchOutcome).font(DockDesign.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 if run.phase == .cancelled {
@@ -110,7 +114,9 @@ struct WorkspaceStartSheet: View {
                     Button("Cancel") { run.cancel() }.keyboardShortcut(.cancelAction)
                         .help("Stop opening the remaining items")
                 case .finished, .cancelled:
+                    // Return and Escape both close a finished run, as Escape cancels the other phases.
                     PillButton("Done", action: close).keyboardShortcut(.defaultAction)
+                        .background { Button("Close", action: close).keyboardShortcut(.cancelAction).hidden() }
                 }
             }
         }
@@ -119,7 +125,14 @@ struct WorkspaceStartSheet: View {
     }
 
     private func begin() {
-        if alsoSwitch && !request.isCurrentDock { switchToDock() }
+        if alsoSwitch && !request.isCurrentDock {
+            // Runs alongside the opening items; its outcome appears above the buttons.
+            Task { @MainActor in
+                let outcome = await switchToDock()
+                switchOutcome = outcome
+                GalleryAnnouncement.post(outcome)
+            }
+        }
         let run = run
         Task { await run.start() }
     }
@@ -132,7 +145,7 @@ struct WorkspaceStartSheet: View {
     @ViewBuilder private func status(for result: WorkspaceTargetResult) -> some View {
         switch result.outcome {
         case .pending:
-            Text(previewLabel(result.planned)).foregroundStyle(result.planned == .missing ? Color.orange : Color.secondary)
+            Text(previewLabel(result.planned)).foregroundStyle(result.planned == .missing ? DockDesign.Status.warning : Color.secondary)
         case .opening:
             ProgressView().controlSize(.small).accessibilityLabel("Opening")
         case .opened:
@@ -141,7 +154,7 @@ struct WorkspaceStartSheet: View {
             Label("Already running", systemImage: "checkmark").foregroundStyle(.secondary)
         case .missing:
             HStack(spacing: 8) {
-                Text("Missing").foregroundStyle(.orange)
+                Text("Missing").foregroundStyle(DockDesign.Status.warning)
                 if request.canLocate && run.isComplete {
                     Button("Locate…") {
                         guard let repaired = locate(result.item) else { return }
@@ -151,7 +164,7 @@ struct WorkspaceStartSheet: View {
                 }
             }
         case .failed:
-            Text("Failed").foregroundStyle(.orange)
+            Text("Failed").foregroundStyle(DockDesign.Status.warning)
         case .cancelled:
             Text("Not opened").foregroundStyle(.secondary)
         }

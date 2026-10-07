@@ -11,6 +11,7 @@ struct WidgetGalleryAppRow: View {
     var addGeneration = 0
     var action: () -> Void
     @State private var hovered = false
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Button(action: action) {
@@ -25,7 +26,7 @@ struct WidgetGalleryAppRow: View {
                 Spacer(minLength: 8)
                 let accessory = WidgetGalleryRowAccessory(added: added)
                 if accessory == .added {
-                    // A plain green check: clearly not the filled blue plus beside it.
+                    // A plain check: clearly not the filled plus it replaces.
                     GalleryAddedCheck(generation: addGeneration)
                         .transition(.scale(scale: 0.4).combined(with: .opacity))
                 } else {
@@ -37,7 +38,7 @@ struct WidgetGalleryAppRow: View {
             }
             .padding(.horizontal, 12)
             .frame(minHeight: 46)
-            .background(selected ? DockDesign.accent.opacity(0.16) : hovered && !added ? Color.primary.opacity(0.04) : .clear)
+            .background(selected ? WidgetGalleryMetrics.highlightFill(scheme) : hovered && !added ? DockDesign.hover : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -45,8 +46,8 @@ struct WidgetGalleryAppRow: View {
         .onHover { hovered = $0 }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.title + (entry.detail.isEmpty ? "" : ", " + entry.detail) + WidgetGalleryRowAccessory(added: added).labelSuffix)
-        .accessibilityHint(added ? "Already in this Dock." : "Adds the app to this Dock.")
-        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(added ? "Already in this Dock." : enabled ? "Adds the app to this Dock." : WidgetGalleryModel.noDockMessage)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .help(entry.application.url.path)
     }
 }
