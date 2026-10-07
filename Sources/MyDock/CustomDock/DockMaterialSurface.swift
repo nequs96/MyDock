@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The layers a Dock surface draws. A layer exists only when it contributes, so the
@@ -77,11 +78,13 @@ struct DockMaterialSurface: View {
     var body: some View {
         let layers = DockSurfaceLayers.resolve(settings, reduceTransparency: accessibility.reduceTransparency,
                                                contrast: accessibility.contrast)
+        let scheme = DockColorSchemePolicy.scheme(theme: settings.customDockTheme, material: settings.customDockMaterial,
+                                                  system: systemAppearance.scheme)
         ZStack {
             if let backing = layers.backingOpacity {
-                shape.fill(Color(nsColor: .windowBackgroundColor).opacity(backing))
+                shape.fill(Self.windowBackground(scheme).opacity(backing))
             }
-            surface(layers.base)
+            surface(layers.base, scheme: scheme)
             if let tint = layers.tintStrength { shape.fill(color.opacity(tint)) }
         }
         // Glass owns its edge lighting. Keep its backing layers inside the
@@ -92,12 +95,25 @@ struct DockMaterialSurface: View {
                 shape.strokeBorder(DockDesign.Outline.color(edge.contrast), lineWidth: edge.width)
             }
         }
-        .environment(\.colorScheme, settings.customDockTheme == .dark ? .dark : settings.customDockTheme == .light ? .light : settings.customDockMaterial == .dark ? .dark : systemAppearance.scheme)
+        .environment(\.colorScheme, scheme)
     }
 
-    @ViewBuilder private func surface(_ base: DockSurfaceLayers.Base) -> some View {
+    /// The window background for the Dock's own scheme. It is resolved here, not left to SwiftUI, because the
+    /// panel's appearance follows the app: a Dark Dock on a Light system must still draw the dark variant.
+    static func windowBackground(_ scheme: ColorScheme) -> Color {
+        guard let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua) else {
+            return Color(nsColor: .windowBackgroundColor)
+        }
+        var resolved = NSColor.windowBackgroundColor
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = NSColor.windowBackgroundColor.usingColorSpace(.sRGB) ?? resolved
+        }
+        return Color(nsColor: resolved)
+    }
+
+    @ViewBuilder private func surface(_ base: DockSurfaceLayers.Base, scheme: ColorScheme) -> some View {
         switch base {
-        case .opaque, .solid: shape.fill(Color(nsColor: .windowBackgroundColor))
+        case .opaque, .solid: shape.fill(Self.windowBackground(scheme))
         case .frosted: shape.fill(.ultraThinMaterial)
         case .dark: shape.fill(DockDesign.Glass.midnightFill)
         case .glass(let style):

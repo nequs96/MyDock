@@ -78,6 +78,12 @@ enum WidgetPalette {
     /// A profile colour in the widget palette: the desaturated profile family that accent swatches,
     /// App Folder colours and `.profile` accents share (never the saturated system colours).
     static func profile(_ color: DockProfileColor) -> Color { color.displayColor }
+    /// The sRGB components of a profile colour, for contrast decisions.
+    static func profileRGB(_ color: DockProfileColor) -> WidgetRoundButtonPalette.RGB {
+        let srgb = NSColor(color.displayColor).usingColorSpace(.sRGB)
+        return WidgetRoundButtonPalette.RGB(red: Double(srgb?.redComponent ?? 0), green: Double(srgb?.greenComponent ?? 0),
+                                            blue: Double(srgb?.blueComponent ?? 0))
+    }
 
     private static func family(_ family: Family) -> Color {
         let rgb = family.rgb
@@ -146,9 +152,9 @@ struct WidgetIcon: View {
     private var isEnclosed: Bool { enclosed ?? (size >= 18 && (treatment == .soft || treatment == .accent)) }
     private var filled: Bool { active || treatment == .accent }
     private var contrast: Bool { accessibility.contrast == .increased }
-    /// Glyph colour on a filled circle; a primary fill (mono accent or Mono treatment) inverts.
+    /// Glyph colour on a filled circle (see `onFillIsBlack`).
     private var onFill: Color {
-        Self.fillIsPrimary(treatment: treatment, accent: accentChoice) ? (scheme == .dark ? .black : .white) : .white
+        Self.onFillIsBlack(treatment: treatment, accent: accentChoice, dark: scheme == .dark) ? .black : .white
     }
     private var circleFill: Color {
         if filled { return Self.activeFill(kind: kind, treatment: treatment, accent: accentChoice) }
@@ -163,6 +169,16 @@ struct WidgetIcon: View {
         if case .mono = accent { return true }
         return treatment == .mono
     }
+    /// Whether the glyph on a filled circle is black, for at least 3:1 contrast with its fill: a primary fill
+    /// inverts; family fills are deep on light glass and pale on dark glass; a profile colour, the same in both
+    /// appearances, keeps white unless it is too light for it.
+    static func onFillIsBlack(treatment: WidgetIconAppearance, accent: WidgetAccent, dark: Bool) -> Bool {
+        if fillIsPrimary(treatment: treatment, accent: accent) { return dark }
+        if case .profile(let color) = accent {
+            return WidgetRoundButtonPalette.contrast(WidgetRoundButtonPalette.white, WidgetPalette.profileRGB(color)) < 3
+        }
+        return dark
+    }
     /// The fill of an active or Color-treatment circle.
     static func activeFill(kind: String, treatment: WidgetIconAppearance, accent: WidgetAccent) -> Color {
         fillIsPrimary(treatment: treatment, accent: accent) ? Color.primary : WidgetPalette.resolved(kind: kind, accent: accent, active: true)
@@ -173,7 +189,9 @@ struct WidgetIcon: View {
             if isEnclosed {
                 Circle().fill(circleFill)
                     .overlay {
-                        if contrast && !filled { Circle().strokeBorder(Color.primary.opacity(0.45), lineWidth: 1) }
+                        if contrast && !filled {
+                            Circle().strokeBorder(DockDesign.Outline.color(.increased), lineWidth: DockDesign.Outline.controlWidth(.increased))
+                        }
                     }
                     .overlay {
                         Image(systemName: iconSymbol)
@@ -239,10 +257,10 @@ struct WidgetContainer<Content: View>: View {
     var body: some View {
         switch surface {
         case .tile:
-            WidgetTileSurface(width: width) { face }
+            WidgetTileSurface(width: width, radius: moduleRadius) { face }
         case .glass:
             // Interactive glass: the native specular highlight follows the pointer (macOS 26).
-            GlassModule(width: width, height: 54, radius: moduleRadius, style: .regular, tint: glassTintColor,
+            GlassModule(width: width, height: DockDesign.Module.height, radius: moduleRadius, style: .regular, tint: glassTintColor,
                         interactive: true) { face }
         case .plain:
             WidgetPlainSurface(width: width, radius: moduleRadius) { face }
@@ -267,24 +285,31 @@ struct WidgetContainer<Content: View>: View {
     }
 }
 
-/// Today's tile, unchanged: the migration default for every existing profile.
+/// The frosted tile: the migration default for every existing profile. Concentric with the Dock like
+/// the other surfaces, with the shared opaque fill, outline and hover response.
 struct WidgetTileSurface<Content: View>: View {
     var width: CGFloat
+    var radius: CGFloat = DockDesign.Module.defaultRadius
     @ViewBuilder var content: Content
     @Environment(\.colorScheme) private var scheme
     @DockAccessibilityStyle() private var accessibility
     @State private var hovered = false
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: max(0, radius), style: .continuous) }
+    private var outline: Color {
+        // The quiet outline firms up under the pointer; Increase Contrast uses the shared strong edge.
+        accessibility.contrast == .increased ? DockDesign.Outline.color(.increased) : Color.primary.opacity(hovered ? 0.15 : 0.075)
+    }
     var body: some View {
-        content.frame(width: width, height: 54)
+        content.frame(width: width, height: DockDesign.Module.height)
             .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(accessibility.reduceTransparency
-                          ? AnyShapeStyle(scheme == .dark ? Color(white: 0.16) : Color(white: 0.96))
-                          : AnyShapeStyle(scheme == .dark ? Color.white.opacity(hovered ? 0.10 : 0.065) : Color.white.opacity(hovered ? 0.76 : 0.62)))
+                shape.fill(accessibility.reduceTransparency
+                           ? AnyShapeStyle(DockDesign.Glass.opaqueFill(scheme))
+                           : AnyShapeStyle(scheme == .dark ? Color.white.opacity(0.065) : Color.white.opacity(0.62)))
             }
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(accessibility.contrast == .increased ? 0.45 : hovered ? 0.15 : 0.075), lineWidth: accessibility.contrast == .increased ? 1 : 0.5))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(shape.strokeBorder(outline, lineWidth: DockDesign.Outline.controlWidth(accessibility.contrast)))
+            .clipShape(shape)
+            .contentShape(shape)
+            .dockHover(hovered)
             .onHover { hovered = $0 }
     }
 }
@@ -299,7 +324,7 @@ struct WidgetPlainSurface<Content: View>: View {
     @State private var hovered = false
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: max(0, radius), style: .continuous) }
     var body: some View {
-        content.frame(width: width, height: 54)
+        content.frame(width: width, height: DockDesign.Module.height)
             .clipShape(shape)
             .contentShape(shape)
             .overlay {
@@ -321,7 +346,7 @@ enum WidgetModuleMetrics {
     static let labelGlyph: CGFloat = 13
     static let glyphCircle: CGFloat = 32
     static let ring: CGFloat = 26
-    static func isNarrow(_ width: CGFloat) -> Bool { width <= 54 }
+    static func isNarrow(_ width: CGFloat) -> Bool { width <= DockDesign.Module.narrowWidth }
     static func minimumScale(_ size: DockDesign.Module.ValueSize) -> CGFloat {
         switch size { case .large: 0.6; case .medium: 0.62; case .small: DockDesign.Module.minimumTextSize / 13 }
     }
@@ -423,12 +448,13 @@ struct ModuleStack: View {
     var showsGlyph = true
     var trailing: String? = nil
     var trailingColor: Color = .secondary
-    /// Leading alignment even without a label (a chart or glyph shares the row).
+    /// A glyph, ring or chart shares the row. It never changes alignment, which follows the label
+    /// (`ModuleAlignmentPolicy`); when centred, the stack stops filling the row so it centres with that neighbour.
     var keepsLeading = false
     @Environment(\.widgetShowsLabel) private var showsLabel
     @Environment(\.dockWidgetContentWidth) private var width
     private var narrow: Bool { WidgetModuleMetrics.isNarrow(width) }
-    private var alignment: HorizontalAlignment { ModuleAlignmentPolicy.alignment(narrow: narrow, showsLabel: showsLabel, keepsLeading: keepsLeading) }
+    private var alignment: HorizontalAlignment { ModuleAlignmentPolicy.alignment(narrow: narrow, showsLabel: showsLabel) }
     private var fillsRow: Bool { ModuleAlignmentPolicy.fillsRow(narrow: narrow, showsLabel: showsLabel, keepsLeading: keepsLeading) }
     var body: some View {
         VStack(alignment: alignment, spacing: DockDesign.Module.lineSpacing - 1) {
@@ -443,7 +469,7 @@ struct ModuleStack: View {
 /// How a module's value aligns: label over value on the leading edge; centred when there is no
 /// label or the module is narrow. Every face follows this, so labels-off rows line up the same way.
 enum ModuleAlignmentPolicy {
-    static func alignment(narrow: Bool, showsLabel: Bool, keepsLeading: Bool) -> HorizontalAlignment {
+    static func alignment(narrow: Bool, showsLabel: Bool) -> HorizontalAlignment {
         narrow || !showsLabel ? .center : .leading
     }
     /// A stack sharing its row with a glyph or chart keeps to its own width when centred.
@@ -486,38 +512,29 @@ private struct ModuleInsets: ViewModifier {
 }
 extension View {
     func moduleInsets() -> some View { modifier(ModuleInsets()) }
-}
-
-// MARK: - Compatibility primitives (shared with family files)
-
-struct MetricText: View {
-    var value: String
-    var unit: String = ""
-    var size: CGFloat = 20
-    var body: some View { ModuleValue(value: value, unit: unit, size: Self.valueSize(size)) }
-    /// Maps legacy point sizes onto the Module value scale (22/18/13).
-    static func valueSize(_ size: CGFloat) -> DockDesign.Module.ValueSize {
-        size >= 20 ? .large : size >= 15 ? .medium : .small
+    /// One VoiceOver element for a Dock face: the family's name, then its reading. Glyphs and rings are
+    /// hidden, so a face without this would read as an unnamed button or as bare numbers.
+    func moduleAccessibility(_ label: String, value: String = "") -> some View {
+        accessibilityElement(children: .ignore).accessibilityLabel(label).accessibilityValue(value)
     }
 }
-struct WidgetHeader: View {
-    var kind: String
-    var title: String
-    var trailing: String? = nil
-    var symbol: String? = nil
-    var body: some View { ModuleLabel(kind: kind, text: title, symbol: symbol, trailing: trailing) }
-}
-/// A single-weight meter line with a faint track.
+
+// MARK: - Shared meters
+
+/// A single-weight meter line with a faint track: 3 pt in the Dock, `popoutHeight` at popout scale
+/// (Disk Space, Time Progress, the System Storage bar).
 struct UsageBar: View {
+    static let popoutHeight: CGFloat = 6
     var fraction: Double
     var color: Color = .secondary
+    var height: CGFloat = 3
     var body: some View {
         GeometryReader { geometry in
             Capsule().fill(Color.primary.opacity(0.10))
                 .overlay(alignment: .leading) {
                     Capsule().fill(color).frame(width: geometry.size.width * (fraction.isFinite ? min(1, max(0, fraction)) : 0))
                 }
-        }.frame(height: 3).accessibilityHidden(true)
+        }.frame(height: height).accessibilityHidden(true)
     }
 }
 /// A single-weight sparkline without axes.
@@ -602,7 +619,7 @@ struct SystemTelemetryDockFace: View {
     private var secondaryText: String? {
         switch secondary {
         case .memory: memory.map { ByteCountFormatter.string(fromByteCount: Int64(clamping: $0.usedBytes), countStyle: .memory) + " RAM" }
-        case .load: load.map { "Load \(String(format: "%.2f", $0.oneMinute))" }
+        case .load: load.map { "Load " + $0.oneMinute.formatted(.number.precision(.fractionLength(2))) }
         case .none: nil
         }
     }
@@ -613,14 +630,14 @@ enum NetworkRateText {
         guard let value, value.isFinite else { return "—" }
         return ByteCountFormatter.string(fromByteCount: Int64(min(Double(Int64.max / 2), max(0, value))), countStyle: .file) + "/s"
     }
-    /// Narrow faces: "2.4M", "148K", "0".
-    static func short(_ value: Double?) -> String {
+    /// Narrow faces: "2.4M", "148K", "0"; the decimal separator follows the locale ("2,4M").
+    static func short(_ value: Double?, locale: Locale = .current) -> String {
         guard let value, value.isFinite else { return "—" }
         let bytes = max(0, value)
         let units: [(Double, String)] = [(1e9, "G"), (1e6, "M"), (1e3, "K")]
         for (scale, suffix) in units where bytes >= scale {
             let scaled = bytes / scale
-            return (scaled < 10 ? String(format: "%.1f", scaled) : String(Int(scaled.rounded()))) + suffix
+            return (scaled < 10 ? scaled.formatted(.number.precision(.fractionLength(1)).locale(locale)) : String(Int(scaled.rounded()))) + suffix
         }
         return String(Int(bytes.rounded()))
     }
@@ -685,7 +702,7 @@ struct DiskDockFace: View {
     @Environment(\.widgetAccent) private var accent
     private let kind = "Disk Space"
     private var ringColor: Color {
-        (snapshot?.usedFraction ?? 0) > 0.9 ? WidgetPalette.warning : WidgetPalette.resolved(kind: kind, accent: accent)
+        snapshot?.isLow == true ? WidgetPalette.warning : WidgetPalette.resolved(kind: kind, accent: accent)
     }
     /// Faces use three significant digits ("121 GB"); the popout keeps the precise figure.
     private var freeText: String { snapshot.map { DiskSpaceFaceText.compact($0.availableBytes) } ?? "—" }
@@ -704,7 +721,9 @@ struct DiskDockFace: View {
                     }
                 }
             }
-        }.moduleInsets()
+        }
+        .moduleInsets()
+        .moduleAccessibility(kind, value: snapshot == nil ? "Unavailable" : freeText + " free")
     }
 }
 
@@ -726,10 +745,11 @@ struct BatteryDockFace: View {
                 }
             } else if WidgetModuleMetrics.isNarrow(width) || layout == .wide {
                 HStack(spacing: 12) {
-                    ForEach(Array(readings.prefix(WidgetModuleMetrics.isNarrow(width) ? 1 : 3))) { reading in
+                    // By position: accessories can report the same name, so reading IDs may repeat.
+                    ForEach(Array(readings.prefix(WidgetModuleMetrics.isNarrow(width) ? 1 : 3).enumerated()), id: \.offset) { _, reading in
                         VStack(spacing: 3) {
                             ring(reading, size: 30)
-                            Text("\(reading.percentage)%").font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                            Text(BatteryPresentation.percent(reading)).font(DockDesign.Module.title).monospacedDigit()
                                 .foregroundStyle(valueColor(reading)).lineLimit(1).minimumScaleFactor(0.84)
                         }
                     }
@@ -737,7 +757,7 @@ struct BatteryDockFace: View {
             } else if let reading = readings.first {
                 HStack(spacing: 8) {
                     ring(reading, size: 30)
-                    ModuleStack(kind: kind, label: name(reading), value: "\(reading.percentage)%", size: .medium,
+                    ModuleStack(kind: kind, label: name(reading), value: BatteryPresentation.percent(reading), size: .medium,
                                 valueColor: valueColor(reading), showsGlyph: false, keepsLeading: true)
                 }
             }
@@ -761,16 +781,12 @@ struct BatteryDockFace: View {
     private func name(_ reading: BatteryReading) -> String {
         reading.isCharging ? "Charging" : reading.isInternal ? "Mac" : reading.name
     }
+    /// The same low-charge rule as the popout (`BatteryPresentation`), so the face and the popout never disagree.
     private func ringColor(_ reading: BatteryReading) -> Color {
         if reading.isCharging { return WidgetPalette.positive }
-        if reading.percentage <= 10 { return WidgetPalette.critical }
-        if reading.percentage <= 20 { return WidgetPalette.warning }
-        return WidgetPalette.resolved(kind: kind, accent: accent)
+        return BatteryPresentation.lowChargeColor(reading) ?? WidgetPalette.resolved(kind: kind, accent: accent)
     }
-    private func valueColor(_ reading: BatteryReading) -> Color {
-        guard !reading.isCharging else { return .primary }
-        return reading.percentage <= 10 ? WidgetPalette.critical : reading.percentage <= 20 ? WidgetPalette.warning : .primary
-    }
+    private func valueColor(_ reading: BatteryReading) -> Color { BatteryPresentation.lowChargeColor(reading) ?? .primary }
 }
 
 enum WeatherDockTemperatureFormatter {
@@ -784,67 +800,110 @@ enum WeatherDockTemperatureFormatter {
 }
 
 enum WeatherForecastFaceLayout {
+    /// The current reading's column: at least a narrow module wide, about one large digit per character.
+    static let minimumPrimaryWidth: CGFloat = DockDesign.Module.narrowWidth
+    static let characterWidth: CGFloat = 14
+    /// Horizontal space the module insets and the gap after the current reading take.
+    static let reservedWidth: CGFloat = 18
+    /// One hourly column: a time, a glyph and a temperature.
+    static let hourColumnWidth: CGFloat = 37
+    static let maximumHourColumns = 3
+
     static func primaryWidth(temperatureText: String) -> CGFloat {
-        max(54, CGFloat(temperatureText.count) * 14)
+        max(minimumPrimaryWidth, CGFloat(temperatureText.count) * characterWidth)
     }
 
     static func columnCount(width: CGFloat, temperatureText: String, availableHours: Int) -> Int {
-        let remaining = max(0, width - 18 - primaryWidth(temperatureText: temperatureText))
-        return min(max(0, availableHours), 3, Int(remaining / 37))
+        let remaining = max(0, width - reservedWidth - primaryWidth(temperatureText: temperatureText))
+        return min(max(0, availableHours), maximumHourColumns, Int(remaining / hourColumnWidth))
+    }
+}
+
+/// When a cached forecast stops reading as current: the face greys it and marks it, rather than
+/// showing yesterday's temperature as today's.
+enum WeatherFaceFreshness {
+    static let maximumAge: TimeInterval = 3 * 3_600
+    static func isStale(fetchedAt: Date, now: Date) -> Bool {
+        WidgetFreshnessPresentation.state(isRefreshing: false, updatedAt: fetchedAt, failed: false, now: now, maximumAge: maximumAge) == .stale
+    }
+    /// The face's value before any forecast: a city to set, a failed refresh, or the first load.
+    static func placeholder(hasLocation: Bool, failed: Bool) -> String {
+        !hasLocation ? "Set city" : failed ? "Unavailable" : "Loading"
     }
 }
 
 struct WeatherDockFace: View {
     @Environment(\.dockWidgetContentWidth) private var width
     var configuration: WidgetConfiguration
+    /// A refresh has failed: with no forecast the face reads "Unavailable" instead of "Loading".
+    var failed = false
     @Environment(\.widgetLayout) private var layout
     private let kind = "Weather"
     private var place: String { configuration.weatherLocation?.name ?? "Weather" }
     var body: some View {
-        Group {
-            if let forecast = configuration.cachedWeatherForecast {
-                let temperature = WeatherDockTemperatureFormatter.text(forecast.temperature, unit: configuration.weatherUnit)
-                let symbol = WeatherCode.symbol(forecast.weatherCode, isDay: forecast.isDay)
+        // Re-checked every few minutes so a cached forecast turns stale even while refreshes keep failing.
+        TimelineView(.periodic(from: .now, by: 300)) { context in
+            face(now: context.date)
+        }
+    }
+    @ViewBuilder private func face(now: Date) -> some View {
+        if let forecast = configuration.cachedWeatherForecast {
+            let temperature = WeatherDockTemperatureFormatter.text(forecast.temperature, unit: configuration.weatherUnit)
+            let symbol = WeatherCode.symbol(forecast.weatherCode, isDay: forecast.isDay)
+            let stale = WeatherFaceFreshness.isStale(fetchedAt: forecast.fetchedAt, now: now)
+            let valueColor: Color = stale ? .secondary : .primary
+            Group {
                 if WidgetModuleMetrics.isNarrow(width) {
                     VStack(spacing: 2) {
                         WidgetIcon(kind: kind, symbol: symbol, size: 20, enclosed: false)
-                        ModuleValue(value: temperature, size: .medium)
+                        ModuleValue(value: temperature, size: .medium, color: valueColor)
                     }
                 } else if layout == .wide {
-                    let hours = forecast.hourly.filter { $0.timestamp > .now }
+                    let hours = forecast.hourly.filter { $0.timestamp > now }
                     let columns = WeatherForecastFaceLayout.columnCount(width: width, temperatureText: temperature, availableHours: hours.count)
                     HStack(spacing: 4) {
-                        ModuleStack(kind: kind, label: place, value: temperature, symbol: symbol, keepsLeading: true)
+                        ModuleStack(kind: kind, label: place, value: temperature, valueColor: valueColor, symbol: symbol, keepsLeading: true)
                             .frame(width: WeatherForecastFaceLayout.primaryWidth(temperatureText: temperature) + 6, alignment: .leading)
                         ForEach(Array(hours.prefix(columns)), id: \.timestamp) { hour in
                             VStack(spacing: 1) {
                                 Text(hour.timestamp.formattedTime(in: forecast.timeZoneIdentifier))
-                                    .font(.system(size: DockDesign.Module.minimumTextSize, weight: .medium)).foregroundStyle(.secondary)
+                                    .font(DockDesign.Module.annotation).foregroundStyle(.secondary)
                                     .lineLimit(1).fixedSize()
                                 WidgetIcon(kind: kind, symbol: WeatherCode.symbol(hour.weatherCode, isDay: WeatherDaylight.isDay(hour, forecast: forecast, location: configuration.weatherLocation)), size: 15, enclosed: false)
                                 Text(WeatherDockTemperatureFormatter.text(hour.temperature, unit: configuration.weatherUnit))
-                                    .font(.system(size: 12, weight: .semibold)).monospacedDigit().lineLimit(1)
+                                    .font(DockDesign.Module.title).monospacedDigit().lineLimit(1)
+                                    .foregroundStyle(valueColor)
                             }.frame(maxWidth: .infinity)
                         }
                     }
                 } else if layout == .compact {
                     // The glyph carries the condition; the label stays short.
-                    ModuleStack(kind: kind, label: place, value: temperature, symbol: symbol)
+                    ModuleStack(kind: kind, label: place, value: temperature, valueColor: valueColor, symbol: symbol)
                         .help(WeatherCode.description(forecast.weatherCode))
                 } else {
                     HStack(spacing: 8) {
                         WidgetIcon(kind: kind, symbol: symbol, size: WidgetModuleMetrics.glyphCircle)
-                        ModuleStack(kind: kind, label: place, value: temperature, showsGlyph: false, keepsLeading: true)
+                        ModuleStack(kind: kind, label: place, value: temperature, valueColor: valueColor, showsGlyph: false, keepsLeading: true)
                     }
                 }
-            } else {
-                HStack(spacing: 8) {
-                    if !WidgetModuleMetrics.isNarrow(width) { WidgetIcon(kind: kind, size: 28, enclosed: true) }
-                    ModuleStack(kind: kind, label: "Weather", value: configuration.weatherLocation == nil ? "Set city" : "Unavailable",
-                                size: .small, showsGlyph: false, keepsLeading: !WidgetModuleMetrics.isNarrow(width))
-                }
             }
-        }.moduleInsets()
+            .moduleInsets()
+            .overlay(alignment: .topTrailing) {
+                // The same warning dot the Dock shows for a coordinator family's failed refresh.
+                if stale { WidgetWarningDot() }
+            }
+            .moduleAccessibility(kind, value: ([place, temperature, WeatherCode.description(forecast.weatherCode)]
+                                               + (stale ? ["saved forecast"] : [])).joined(separator: ", "))
+        } else {
+            let status = WeatherFaceFreshness.placeholder(hasLocation: configuration.weatherLocation != nil, failed: failed)
+            HStack(spacing: 8) {
+                if !WidgetModuleMetrics.isNarrow(width) { WidgetIcon(kind: kind, size: 28, enclosed: true) }
+                ModuleStack(kind: kind, label: "Weather", value: status,
+                            size: .small, showsGlyph: false, keepsLeading: !WidgetModuleMetrics.isNarrow(width))
+            }
+            .moduleInsets()
+            .moduleAccessibility(kind, value: status)
+        }
     }
 }
 
@@ -857,20 +916,60 @@ enum ClockDockTextFormatter {
     }
 }
 
+/// How often a local face redraws: every second only while it shows seconds, on the minute for faces
+/// that read the time, and never for faces that do not (notes, collections, markets, quick tools).
+enum LocalWidgetTickPolicy {
+    static let second: TimeInterval = 1
+    static let minute: TimeInterval = 60
+
+    static func interval(kind: String, configuration c: WidgetConfiguration, now: Date) -> TimeInterval? {
+        switch kind {
+        case "Clock", "Time Progress", "Hydration": return minute
+        case "Stopwatch": return c.stopwatchStartedAt != nil ? second : nil
+        case "Focus Timer": return c.focusStartedAt != nil && c.focusRemaining(at: now) > 0 ? second : nil
+        case "Countdown":
+            let remaining = c.countdownRemaining(at: now)
+            guard remaining > 0 else { return nil }
+            if c.countdownMode == .targetDate {
+                // The face reads "2d" or "3h 5m" until the last hour, which shows minutes and seconds. The pace is
+                // re-read only on the minute, so seconds start a minute early rather than up to a minute late.
+                return remaining <= 3_600 + minute ? second : minute
+            }
+            return c.countdownStartedAt != nil ? second : nil
+        default: return nil
+        }
+    }
+
+    /// Where a minute-paced target countdown's ticks start. Its text turns over as each whole minute to the
+    /// target passes, not on the clock's minute, so it ticks one second after each turn (from a past date, so
+    /// the timeline starts at its latest tick). Nil for faces that tick on the clock's minute.
+    static func minuteAnchor(kind: String, configuration c: WidgetConfiguration, now: Date) -> Date? {
+        guard kind == "Countdown", c.countdownMode == .targetDate, let target = c.countdownTargetDate else { return nil }
+        let remaining = target.timeIntervalSince(now)
+        guard remaining > 0 else { return nil }
+        return target.addingTimeInterval(second - minute * ((remaining + second) / minute).rounded(.up))
+    }
+}
+
 struct LocalWidgetDockFace: View {
     var item: DockItem
     private var kind: String { item.widgetKind ?? item.title }
     private var c: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-    private var ticksEverySecond: Bool {
-        (kind == "Focus Timer" && c.focusStartedAt != nil) || (kind == "Stopwatch" && c.stopwatchStartedAt != nil)
-            || (kind == "Countdown" && (c.countdownStartedAt != nil || c.countdownMode == .targetDate))
-    }
     var body: some View {
-        // Running timers tick every second; minute faces tick on the minute, so a clock never shows the previous minute.
-        if ticksEverySecond {
-            TimelineView(.periodic(from: .now, by: 1)) { context in face(at: context.date) }
+        if LocalWidgetTickPolicy.interval(kind: kind, configuration: c, now: Date()) == nil {
+            face(at: Date())
         } else {
-            TimelineView(.everyMinute) { context in face(at: context.date) }
+            // Minute faces tick on the minute, so a clock never shows the previous minute. The pace is re-read
+            // each minute, so a finished timer stops ticking and a countdown's last hour shows its seconds.
+            TimelineView(.everyMinute) { minute in
+                if LocalWidgetTickPolicy.interval(kind: kind, configuration: c, now: minute.date) == LocalWidgetTickPolicy.second {
+                    TimelineView(.periodic(from: minute.date, by: LocalWidgetTickPolicy.second)) { context in face(at: context.date) }
+                } else if let anchor = LocalWidgetTickPolicy.minuteAnchor(kind: kind, configuration: c, now: minute.date) {
+                    TimelineView(.periodic(from: anchor, by: LocalWidgetTickPolicy.minute)) { context in face(at: context.date) }
+                } else {
+                    face(at: minute.date)
+                }
+            }
         }
     }
     @ViewBuilder private func face(at date: Date) -> some View {
@@ -944,7 +1043,7 @@ private struct StickyNoteFace: View {
                     VStack(spacing: 2) {
                         WidgetIcon(kind: "Sticky Note", size: 28, enclosed: true)
                         if let word = StickyNoteFaceText.firstWord(text) {
-                            Text(word).font(.system(size: DockDesign.Module.minimumTextSize, weight: .medium))
+                            Text(word).font(DockDesign.Module.annotation)
                                 .foregroundStyle(.secondary).lineLimit(1).fixedSize()
                         }
                     }
@@ -954,7 +1053,7 @@ private struct StickyNoteFace: View {
             } else {
                 // One flowing text over at most two lines, wrapped at word boundaries.
                 Text(StickyNoteFaceText.flowing(text))
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(DockDesign.Module.title)
                     .foregroundStyle(isEmpty ? .secondary : .primary)
                     .lineLimit(2).minimumScaleFactor(DockDesign.Module.minimumTextSize / 12)
                     .multilineTextAlignment(.leading)
@@ -1004,7 +1103,30 @@ private struct TimerFace: View {
                         .frame(width: WidgetModuleMetrics.ring, height: WidgetModuleMetrics.ring)
                 }
             }
-        }.moduleInsets()
+        }
+        .moduleInsets()
+        .moduleAccessibility(kind, value: TimerFaceSpeech.value(kind: kind, configuration: c, text: text, at: date))
+    }
+}
+
+/// What VoiceOver reads for a timer face: the time, plus its state where the time alone is ambiguous.
+/// "Paused" only for a timer stopped part-way; a fresh one is simply ready.
+enum TimerFaceSpeech {
+    static func value(kind: String, configuration c: WidgetConfiguration, text: String, at date: Date) -> String {
+        switch kind {
+        case "Stopwatch":
+            return c.stopwatchStartedAt == nil && c.stopwatchElapsedBeforeStart > 0 ? text + ", paused" : text
+        case "Focus Timer":
+            if c.focusRemaining(at: date) <= 0 { return text + ", complete" }
+            return c.focusStartedAt == nil && c.focusElapsedBeforeStart > 0 ? text + ", paused" : text
+        default:
+            if c.countdownMode == .targetDate {
+                guard c.countdownTargetDate != nil else { return "No target date" }
+                return c.countdownRemaining(at: date) <= 0 ? "Complete" : text
+            }
+            if c.countdownRemaining(at: date) <= 0 { return text + ", complete" }
+            return c.countdownStartedAt == nil && c.countdownElapsedBeforeStart > 0 ? text + ", paused" : text
+        }
     }
 }
 
@@ -1016,14 +1138,17 @@ private struct TimeProgressFace: View {
     @Environment(\.widgetAccent) private var accent
     var body: some View {
         let progress = TimeProgressCalculator.fraction(for: configuration.timeProgressPeriod, at: date)
+        let percent = DockNumberText.percent(fraction: progress, roundingDown: true)
         HStack(spacing: 8) {
-            ModuleStack(kind: "Time Progress", label: configuration.timeProgressPeriod.title, value: "\(Int(progress * 100))%",
+            ModuleStack(kind: "Time Progress", label: configuration.timeProgressPeriod.title, value: percent,
                         keepsLeading: !WidgetModuleMetrics.isNarrow(width))
             if !WidgetModuleMetrics.isNarrow(width) {
                 let size: CGFloat = layout == .standard ? WidgetModuleMetrics.ring : 20
                 ModuleRing(fraction: progress, color: WidgetPalette.resolved(kind: "Time Progress", accent: accent)).frame(width: size, height: size)
             }
-        }.moduleInsets()
+        }
+        .moduleInsets()
+        .moduleAccessibility("Time Progress", value: "\(configuration.timeProgressPeriod.title), \(percent)")
     }
 }
 
@@ -1036,6 +1161,7 @@ private struct HydrationFace: View {
         ModuleStack(kind: "Hydration", label: layout == .standard ? configuration.hydrationVolumeSummary(at: date) : "Water",
                     value: "\(count)", unit: count == 1 ? "drink" : "drinks", symbol: "drop.fill")
             .moduleInsets()
+            .moduleAccessibility("Hydration", value: count == 1 ? "1 drink today" : "\(count) drinks today")
     }
 }
 
@@ -1054,7 +1180,7 @@ private struct ChecklistFace: View {
         .moduleInsets()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Quick Checklist")
-        .accessibilityValue("\(remaining.count) tasks remaining")
+        .accessibilityValue(remaining.count == 1 ? "1 task remaining" : "\(remaining.count) tasks remaining")
     }
 }
 
@@ -1070,13 +1196,13 @@ private struct MarketFace: View {
         let narrow = WidgetModuleMetrics.isNarrow(width)
         let trend = layout == .trend && !narrow
         let change = snapshot?.changePercent
-        let changeColor = (snapshot?.change ?? 0) < 0 ? WidgetPalette.critical : WidgetPalette.positive
+        let changeColor = MarketFaceText.changeColor(snapshot?.change)
         HStack(spacing: 8) {
             if let snapshot, let latest = snapshot.latest {
                 ModuleStack(kind: kind, label: narrow ? FinancialFacePresentation.shortTicker(ticker) : ticker,
                             value: latest.close.formatted(.number.precision(.fractionLength(2))), unit: trend ? "" : snapshot.currency,
                             size: narrow ? .small : trend ? .large : .medium,
-                            trailing: trend ? change.map { String(format: "%+.1f%%", $0) } : nil, trailingColor: changeColor,
+                            trailing: trend ? change.map { MarketFaceText.change($0) } : nil, trailingColor: changeColor,
                             keepsLeading: trend)
                     .help(ticker)
                 if trend {
@@ -1086,7 +1212,44 @@ private struct MarketFace: View {
                 ModuleStack(kind: kind, label: ticker, value: kind == "Watchlist" && c.watchlistStocks.isEmpty ? "Add tickers" : "Set ticker",
                             size: .small)
             }
-        }.moduleInsets()
+        }
+        .moduleInsets()
+        .moduleAccessibility(kind, value: accessibilityValue(snapshot: snapshot, ticker: ticker))
+    }
+    private func accessibilityValue(snapshot: StockMarketSnapshot?, ticker: String) -> String {
+        guard let snapshot, let latest = snapshot.latest else {
+            return kind == "Watchlist" && c.watchlistStocks.isEmpty ? "No tickers" : "No ticker set"
+        }
+        let price = latest.close.formatted(.number.precision(.fractionLength(2))) + " " + snapshot.currency
+        return ([ticker, price] + (snapshot.changePercent.map { [MarketFaceText.change($0)] } ?? [])).joined(separator: ", ")
+    }
+}
+
+/// Locale-aware whole percentages and drink volumes, rounded the same way in every face and popout
+/// ("72 %" in French, "250 ml" in German).
+enum DockNumberText {
+    /// A fraction (0.72) as a whole percentage. `roundingDown` keeps a period's progress from reading
+    /// 100% before it ends.
+    static func percent(fraction: Double, roundingDown: Bool = false, locale: Locale = .current) -> String {
+        let value = fraction.isFinite ? fraction : 0
+        let shown = roundingDown ? (value * 100).rounded(.down) / 100 : value
+        return shown.formatted(.percent.precision(.fractionLength(0)).locale(locale))
+    }
+    static func milliliters(_ amount: Int, locale: Locale = .current) -> String {
+        Measurement(value: Double(amount), unit: UnitVolume.milliliters)
+            .formatted(Measurement<UnitVolume>.FormatStyle(width: .abbreviated, locale: locale, usage: .asProvided))
+    }
+}
+
+/// Locale-aware market face numbers, like the byte counts beside them ("+1,2 %" in a comma locale).
+enum MarketFaceText {
+    static func change(_ percent: Double, locale: Locale = .current) -> String {
+        (percent / 100).formatted(.percent.precision(.fractionLength(1)).sign(strategy: .always()).locale(locale))
+    }
+    /// Colour marks a real move only: an unchanged or unknown price (under half a cent) stays secondary.
+    static func changeColor(_ change: Double?) -> Color {
+        guard let change, change.isFinite, abs(change) >= 0.005 else { return .secondary }
+        return change < 0 ? WidgetPalette.critical : WidgetPalette.positive
     }
 }
 
@@ -1106,7 +1269,9 @@ private struct QuickToolFace: View {
                 Text(title).font(DockDesign.Module.label).lineLimit(1)
                     .minimumScaleFactor(DockDesign.Module.minimumTextSize / 11)
             }
-        }.moduleInsets()
+        }
+        .moduleInsets()
+        .moduleAccessibility(title)
     }
 }
 
@@ -1132,7 +1297,7 @@ struct MediaDockFace: View {
                     HStack(spacing: 9) {
                         art
                         VStack(alignment: .leading, spacing: 1) {
-                            titleRow(Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1))
+                            titleRow(Text(title).font(DockDesign.Module.titleLarge).lineLimit(1))
                             if let secondary {
                                 // Only the title decides the fit; the secondary line may shorten.
                                 Text(secondary).font(DockDesign.Module.label).foregroundStyle(.secondary).lineLimit(1)
@@ -1145,12 +1310,20 @@ struct MediaDockFace: View {
                     titleRow(wrappedTitle)
                 }
             }
-        }.moduleInsets()
+        }
+        .moduleInsets()
+        .moduleAccessibility(kind, value: spokenValue)
+    }
+    private var spokenValue: String {
+        var parts = [title]
+        if let artist, !artist.isEmpty { parts.append(artist) }
+        parts.append(isPlaying ? "Playing" : "Paused")
+        return parts.joined(separator: ", ")
     }
     /// The title over at most two lines. Its ideal width is its longest word, so it is only chosen
     /// where no word has to break.
     private var wrappedTitle: some View {
-        let font = Font.system(size: 12, weight: .semibold)
+        let font = DockDesign.Module.title
         let words: [Substring] = title.split(whereSeparator: { $0.isWhitespace })
         let longest = words.max { $0.count < $1.count }.map(String.init) ?? title
         return ZStack(alignment: .leading) {
@@ -1201,12 +1374,9 @@ enum FinancialFacePresentation {
 }
 
 enum WorldClockFaceDateFormatter {
-    static func text(_ date: Date, timeZone: TimeZone) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.timeZone = timeZone
-        formatter.setLocalizedDateFormatFromTemplate("MMM d")
-        return formatter.string(from: date)
+    /// "Oct 4" in the city's own calendar day, with a format style rather than a new DateFormatter per tick.
+    static func text(_ date: Date, timeZone: TimeZone, locale: Locale = .autoupdatingCurrent) -> String {
+        Date.FormatStyle(locale: locale, calendar: locale.calendar, timeZone: timeZone).month(.abbreviated).day().format(date)
     }
 }
 
@@ -1218,7 +1388,7 @@ struct WorldClockDockFace: View {
         TimelineView(.everyMinute) { context in
             let zone = TimeZone(identifier: configuration.worldClockTimeZoneID) ?? .current
             let city = zone.identifier.split(separator: "/").last.map(String.init)?.replacingOccurrences(of: "_", with: " ") ?? "Local"
-            let time = formattedTime(context.date, timeZone: zone)
+            let time = LocalClockFormatter.time(for: context.date, timeZone: zone)
             Group {
                 if WidgetModuleMetrics.isNarrow(width) {
                     ModuleStack(kind: "World Clock", label: zone.abbreviation(for: context.date) ?? "World",
@@ -1229,7 +1399,8 @@ struct WorldClockDockFace: View {
                 }
             }
             .moduleInsets()
-            .help("Primary city: \(zone.identifier). " + WidgetTimingPresentation.dayRelation(offset: WorldClockCityCatalog.dayOffset(from: .current, to: zone, at: context.date), reference: "this Mac"))
+            .help("Primary city: \(city). " + WidgetTimingPresentation.dayRelation(offset: WorldClockCityCatalog.dayOffset(from: .current, to: zone, at: context.date), reference: "this Mac"))
+            .moduleAccessibility("World Clock", value: city + ", " + time)
         }
     }
 }

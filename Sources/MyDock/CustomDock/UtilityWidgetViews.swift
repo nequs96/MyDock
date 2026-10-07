@@ -12,9 +12,19 @@ struct DiskSpaceSnapshot: Equatable, Sendable {
     var isLow: Bool { usedFraction > 0.9 }
     static func read() -> Self? {
         let url = FileManager.default.homeDirectoryForCurrentUser
-        guard let values = try? url.resourceValues(forKeys: [.volumeLocalizedNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey]),
-              let total = values.volumeTotalCapacity, total > 0, let available = values.volumeAvailableCapacity else { return nil }
-        return Self(name: values.volumeLocalizedName ?? "Startup disk", totalBytes: Int64(total), availableBytes: Int64(max(0, available)))
+        guard let values = try? url.resourceValues(forKeys: VolumeFreeSpace.keys.union([.volumeLocalizedNameKey, .volumeTotalCapacityKey])),
+              let total = values.volumeTotalCapacity, total > 0, let available = VolumeFreeSpace.availableBytes(values) else { return nil }
+        return Self(name: values.volumeLocalizedName ?? "Home volume", totalBytes: Int64(total), availableBytes: max(0, available))
+    }
+}
+
+/// Free space as Finder and System Settings report it: space macOS can purge on demand counts as available,
+/// so the low-space state does not fire while the system would free room itself.
+enum VolumeFreeSpace {
+    static var keys: Set<URLResourceKey> { [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey] }
+    static func availableBytes(_ values: URLResourceValues) -> Int64? {
+        if let important = values.volumeAvailableCapacityForImportantUsage, important > 0 { return important }
+        return values.volumeAvailableCapacity.map { Int64($0) }
     }
 }
 
@@ -205,7 +215,7 @@ struct DiskSpaceWidgetProvider: DockWidgetProvider {
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
         // PX-7: one row to the System detail surface, only when this Dock has System Activity.
         AnyView(VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
-            DiskSpaceView()
+            DiskSpaceView(accent: item.widgetConfiguration?.widgetAccent ?? .auto)
             SystemActivityLinkRow(store: store, profileID: profileID)
         })
     }
@@ -213,17 +223,21 @@ struct DiskSpaceWidgetProvider: DockWidgetProvider {
 
 private struct DiskSpaceView: View {
     var compact = false
+    /// The popout's usage-line accent; the Dock face reads the same choice from the environment.
+    var accent: WidgetAccent = .auto
     @State private var snapshot: DiskSpaceSnapshot?
     @State private var sampledAt: Date?
     @State private var refreshFailed = false
+    @State private var isRefreshing = false
     @Environment(\.dockWidgetContentWidth) private var width
     var body: some View {
         Group {
             if compact {
-                DiskDockFace(snapshot: snapshot).frame(width: width, height: 54)
+                DiskDockFace(snapshot: snapshot).frame(width: width, height: DockDesign.Module.height)
             } else {
-                DiskSpacePopoutContent(snapshot: snapshot, sampledAt: sampledAt, refreshFailed: refreshFailed) {
-                    Task { await refresh() }
+                DiskSpacePopoutContent(snapshot: snapshot, sampledAt: sampledAt, refreshFailed: refreshFailed,
+                                       isRefreshing: isRefreshing, accent: accent) {
+                    Task { await refresh(showsProgress: true) }
                 }
             }
         }
@@ -235,7 +249,12 @@ private struct DiskSpaceView: View {
             }
         }
     }
-    private func refresh() async {
+    /// "Updating…" shows for a refresh someone asked for and for the first reading; the quiet sample each
+    /// minute does not flash the header.
+    private func refresh(showsProgress: Bool = false) async {
+        let visible = showsProgress || snapshot == nil
+        if visible { isRefreshing = true }
+        defer { if visible { isRefreshing = false } }
         let reading = await Task.detached(priority: .utility) { DiskSpaceSnapshot.read() }.value
         guard !Task.isCancelled else { return }
         if let reading { snapshot = reading; sampledAt = .now; refreshFailed = false }
@@ -248,32 +267,36 @@ struct DiskSpacePopoutContent: View {
     var snapshot: DiskSpaceSnapshot?
     var sampledAt: Date?
     var refreshFailed: Bool
+    var isRefreshing = false
+    var accent: WidgetAccent = .auto
     var refresh: () -> Void
     private var stateColor: Color { snapshot?.isLow == true ? WidgetPalette.warning : .primary }
+    /// Before the first sample the popout is reading, not failing.
+    private var heroCaption: String {
+        if let snapshot { return "available on \(snapshot.name)" }
+        return refreshFailed ? "Disk reading unavailable" : "Reading…"
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             VStack(spacing: 10) {
-                WidgetPopoutHero(value: snapshot?.availableText ?? "—",
-                                 caption: snapshot.map { "available on \($0.name)" } ?? "Disk reading unavailable",
-                                 valueColor: stateColor)
+                WidgetPopoutHero(value: snapshot?.availableText ?? "—", caption: heroCaption, valueColor: stateColor)
                 if let snapshot {
-                    DiskUsageLine(fraction: snapshot.usedFraction, color: snapshot.isLow ? WidgetPalette.warning : WidgetPalette.resolved(kind: "Disk Space", accent: .auto))
+                    UsageBar(fraction: snapshot.usedFraction,
+                             color: snapshot.isLow ? WidgetPalette.warning : WidgetPalette.resolved(kind: "Disk Space", accent: accent),
+                             height: UsageBar.popoutHeight)
                         .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
                 }
             }
-            VStack(alignment: .leading, spacing: 6) {
-                GroupedSection("Startup Disk", footer: footer, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
-                    if let snapshot {
-                        GroupedRow("Used", value: "\(Int((snapshot.usedFraction * 100).rounded()))%")
-                        GroupedRow("Capacity", value: snapshot.totalText)
-                    } else {
-                        GroupedRow("No reading yet", subtitle: "Try refreshing.")
-                    }
+            if let snapshot {
+                // Titled with the volume actually sampled: the home folder's, which need not be the startup disk.
+                GroupedSection(snapshot.name, footer: footer, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                    GroupedRow("Used", value: DockNumberText.percent(fraction: snapshot.usedFraction))
+                    GroupedRow("Capacity", value: snapshot.totalText)
                 }
             }
         }
         // Freshness and the one refresh control live in the popout header (or the sheet's Data row).
-        .widgetPopoutRefresh(WidgetPopoutRefresh(updatedAt: sampledAt, isRefreshing: false, failed: refreshFailed,
+        .widgetPopoutRefresh(WidgetPopoutRefresh(updatedAt: sampledAt, isRefreshing: isRefreshing, failed: refreshFailed,
                                                  maximumAge: 120, action: refresh))
     }
     private var footer: String {
@@ -281,21 +304,11 @@ struct DiskSpacePopoutContent: View {
     }
 }
 
-/// A single-weight usage line, thicker than the Dock meter so it reads at popout scale.
-/// Also the Storage bar in System Activity's related sections.
+/// The System Storage bar's name for the popout-scale meter: one `UsageBar`, so the two never drift.
 struct DiskUsageLine: View {
     var fraction: Double
     var color: Color
-    var body: some View {
-        GeometryReader { geometry in
-            Capsule().fill(Color.primary.opacity(0.10))
-                .overlay(alignment: .leading) {
-                    Capsule().fill(color).frame(width: geometry.size.width * (fraction.isFinite ? min(1, max(0, fraction)) : 0))
-                }
-        }
-        .frame(height: 6)
-        .accessibilityHidden(true)
-    }
+    var body: some View { UsageBar(fraction: fraction, color: color, height: UsageBar.popoutHeight) }
 }
 
 // MARK: - Calculator
@@ -332,7 +345,7 @@ struct QuickCalculatorView: View {
                         .disabled(result == nil).accessibilityLabel("Copy result").help("Copy result")
                     Spacer(minLength: 8)
                     Text(expression.isEmpty ? "0" : resultText)
-                        .font(.system(size: 40, weight: .semibold).monospacedDigit())
+                        .font(DockDesign.Popout.heroReading)
                         .foregroundStyle(result == nil ? .secondary : .primary)
                         .lineLimit(1).minimumScaleFactor(0.45)
                         .accessibilityLabel("Result")
@@ -443,6 +456,12 @@ struct QuickChecklistWidgetProvider: DockWidgetProvider {
     }
 }
 
+/// Quick Checklist copy: a footer only when the list is full; where tasks live is in the tooltip.
+enum QuickChecklistCopy {
+    static let capacity = 100
+    static let help = "Quick Checklist keeps up to 100 tasks, saved locally with this Dock. No account is required."
+}
+
 struct QuickChecklistView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
@@ -470,11 +489,9 @@ struct QuickChecklistView: View {
                     }
                 }
             }
-            if entries.isEmpty {
-                GroupedSection {
-                    GroupedRow("A little space for what’s next", subtitle: "Add a task above. Your checklist stays in this Dock.", symbol: "checklist", color: .gray)
-                }
-            } else {
+            .help(QuickChecklistCopy.help)
+            // Empty, the hero already says so ("0 · Nothing to do yet"): no second empty state.
+            if !entries.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     WidgetPopoutSectionHeader("Tasks") {
                         if entries.contains(where: \.isComplete) {
@@ -487,11 +504,15 @@ struct QuickChecklistView: View {
                 }
             }
             UndoNotice(pending: $undoPending) { removed in
-                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { removed.restore(into: &$0.checklistEntries, capacity: 100) }
+                var restored = 0
+                let result = store.updateWidgetConfiguration(itemID: item.id, in: profileID) { restored = removed.restore(into: &$0.checklistEntries, capacity: 100) }
+                return result == .accepted && restored > 0
             }
             .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
-            WidgetPopoutCaption(entries.count >= 100 ? "The checklist is full: remove a task to add another." : "Saved locally with your profile.")
-                .help("Quick Checklist keeps up to 100 tasks in this Dock. No account is required.")
+            if entries.count >= QuickChecklistCopy.capacity {
+                WidgetPopoutCaption("The checklist is full: remove a task to add another.")
+                    .help(QuickChecklistCopy.help)
+            }
         }
     }
     private func row(_ entry: QuickChecklistEntry) -> some View {

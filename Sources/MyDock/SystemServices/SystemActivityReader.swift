@@ -174,11 +174,10 @@ enum SystemActivityReader {
 
     private static func startupVolumeReading() -> SystemVolumeReading? {
         let root = URL(fileURLWithPath: "/", isDirectory: true)
-        let keys: Set<URLResourceKey> = [.volumeLocalizedNameKey, .volumeTotalCapacityKey,
-                                         .volumeAvailableCapacityKey]
+        let keys = VolumeFreeSpace.keys.union([.volumeLocalizedNameKey, .volumeTotalCapacityKey])
         guard let values = try? root.resourceValues(forKeys: keys),
               let total = values.volumeTotalCapacity, total > 0,
-              let available = values.volumeAvailableCapacity, available >= 0 else { return nil }
+              let available = VolumeFreeSpace.availableBytes(values), available >= 0 else { return nil }
         return SystemVolumeReading(name: values.volumeLocalizedName ?? "Startup volume",
                                    totalBytes: UInt64(total),
                                    availableBytes: UInt64(available))

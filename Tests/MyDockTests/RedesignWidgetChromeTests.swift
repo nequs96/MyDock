@@ -27,7 +27,7 @@ struct RedesignWidgetChromeTests {
     }
 
     @Test func autoAccentCaptionSaysColourShowsWhenActive() {
-        #expect(WidgetAppearanceOptions.autoAccentCaption == "Neutral; colour shows when active")
+        #expect(WidgetAppearanceOptions.autoAccentCaption == "Neutral; color shows when active")
         #expect(WidgetAppearanceOptions.accentTitle(.auto) == "Automatic")
     }
 
@@ -137,11 +137,6 @@ struct RedesignWidgetChromeTests {
         for size in DockDesign.Module.ValueSize.allCases {
             #expect(DockDesign.Module.pointSize(size) * WidgetModuleMetrics.minimumScale(size) >= DockDesign.Module.minimumTextSize - 0.001)
         }
-        #expect(MetricText.valueSize(22) == .large)
-        #expect(MetricText.valueSize(20) == .large)
-        #expect(MetricText.valueSize(19) == .medium)
-        #expect(MetricText.valueSize(15) == .medium)
-        #expect(MetricText.valueSize(12) == .small)
     }
 
     @Test func narrowNetworkRatesStayShort() {
@@ -150,7 +145,8 @@ struct RedesignWidgetChromeTests {
         #expect(NetworkRateText.short(0) == "0")
         #expect(NetworkRateText.short(512) == "512")
         #expect(NetworkRateText.short(148_000) == "148K")
-        #expect(NetworkRateText.short(2_400_000) == "2.4M")
+        // The decimal separator follows the locale (AuditLaneETests covers a comma locale).
+        #expect(NetworkRateText.short(2_400_000, locale: Locale(identifier: "en_US")) == "2.4M")
         #expect(NetworkRateText.short(12_600_000_000) == "13G")
         #expect(NetworkRateText.short(-5) == "0")
     }

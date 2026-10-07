@@ -30,8 +30,8 @@ private struct WeatherCompactWidgetView: View {
     }
 
     var body: some View {
-        WeatherDockFace(configuration: configuration)
-        .frame(width: contentWidth, height: 54)
+        WeatherDockFace(configuration: configuration, failed: errorMessage != nil)
+        .frame(width: contentWidth, height: DockDesign.Module.height)
         .help(tooltip)
         .task(id: requestKey) {
             await refreshIfConfigured()
@@ -51,7 +51,7 @@ private struct WeatherCompactWidgetView: View {
         guard let forecast = configuration.cachedWeatherForecast else {
             return errorMessage ?? "Configure a city in Weather"
         }
-        return "\(configuration.weatherLocation?.displayName ?? "Weather") · \(WeatherCode.description(forecast.weatherCode)) · Updated \(forecast.fetchedAt.formatted(date: .omitted, time: .shortened))"
+        return "\(configuration.weatherLocation?.displayName ?? "Weather") · \(WeatherCode.description(forecast.weatherCode)) · Updated \(forecast.fetchedAt.formatted(date: Calendar.current.isDateInToday(forecast.fetchedAt) ? .omitted : .abbreviated, time: .shortened))"
     }
 
     private func refreshIfConfigured() async {

@@ -60,7 +60,7 @@ struct ProductVisualFixTests {
         let west = try #require(TimeZone(secondsFromGMT: -8 * 3600))
         let east = try #require(TimeZone(secondsFromGMT: 2 * 3600))
         #expect(WorldClockFaceDateFormatter.text(date, timeZone: west) != WorldClockFaceDateFormatter.text(date, timeZone: east))
-        #expect(WorldClockFaceDateFormatter.text(date, timeZone: east).count < formattedDate(date, timeZone: east).count)
+        #expect(WorldClockFaceDateFormatter.text(date, timeZone: east).count < LocalClockFormatter.date(for: date, timeZone: east).count)
     }
 
     @Test func savedCollectionUnitsAreSingularForOne() {

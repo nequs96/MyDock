@@ -46,9 +46,11 @@ struct TrashFacePresentation: Equatable {
         return count == 1 ? "item" : "items"
     }
 
-    /// Empty Trash goes through Finder, so it stays available when MyDock cannot count the items.
+    /// Empty Trash asks Finder to empty every volume, while the count covers only the home Trash, so it is
+    /// not gated on that count (items may sit only on an external drive). The confirmation states the scope.
+    /// It stays available without Full Disk Access; only an unreadable Trash disables it.
     static func canEmpty(count: Int, errorMessage: String?, needsAccess: Bool) -> Bool {
-        needsAccess || (errorMessage == nil && count > 0)
+        needsAccess || errorMessage == nil
     }
 }
 
@@ -98,11 +100,11 @@ private struct TrashCompactWidgetView: View {
         let reading = reading
         let needsAccess = needsAccess
         TrashDockFace(count: reading.count, errorMessage: reading.errorMessage, needsAccess: needsAccess)
-            .frame(width: width, height: 54)
+            .frame(width: width, height: DockDesign.Module.height)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Trash")
             .accessibilityValue(needsAccess ? TrashCopy.fullDiskAccessMessage
-                : reading.errorMessage ?? (reading.count == 0 ? "Empty" : "\(reading.count) items in home Trash"))
+                : reading.errorMessage ?? (reading.count == 0 ? "Empty" : TrashCopy.countLabel(reading.count)))
             .help(needsAccess ? TrashCopy.fullDiskAccessMessage
                 : reading.errorMessage ?? (reading.count == 0 ? "Home Trash is empty" : TrashCopy.countLabel(reading.count)))
     }
@@ -112,6 +114,8 @@ private struct TrashPopoutWidgetView: View {
     @ObservedObject private var status = TrashStatus.shared
     @State private var confirmingEmpty = false
     @State private var actionError: String?
+    /// The failure may be Finder automation being denied: the alert then offers its setting.
+    @State private var actionNeedsAutomation = false
 
     private var reading: (count: Int, errorMessage: String?) {
         #if DEBUG
@@ -170,6 +174,12 @@ private struct TrashPopoutWidgetView: View {
             Text(TrashCopy.emptyConfirmationMessage)
         }
         .alert("Trash", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+            if actionNeedsAutomation {
+                Button("Open Automation Settings") {
+                    actionError = nil
+                    WidgetPrivacySettings.open(WidgetPrivacySettings.automation)
+                }
+            }
             Button("OK", role: .cancel) { actionError = nil }
         } message: { Text(actionError ?? "") }
     }
@@ -177,7 +187,10 @@ private struct TrashPopoutWidgetView: View {
     private func emptyTrash() {
         Task { @MainActor in
             do { try await TrashActions.emptyTrash(); status.refresh() }
-            catch { actionError = error.localizedDescription }
+            catch {
+                actionNeedsAutomation = (error as? TrashActionError)?.suggestsAutomationSettings ?? false
+                actionError = error.localizedDescription
+            }
         }
     }
 }

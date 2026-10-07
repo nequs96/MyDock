@@ -48,7 +48,8 @@ struct N4TrashIsolationTests {
         #expect(TrashFacePresentation.heroValue(count: 0, errorMessage: nil, needsAccess: true) == "No access")
         #expect(TrashFacePresentation.heroCaption(count: 0, errorMessage: nil, needsAccess: true) == nil)
         #expect(TrashFacePresentation.canEmpty(count: 0, errorMessage: nil, needsAccess: true))
-        #expect(!TrashFacePresentation.canEmpty(count: 0, errorMessage: nil, needsAccess: false))
+        // Finder empties every volume, so an empty home Trash does not disable it (S09-025).
+        #expect(TrashFacePresentation.canEmpty(count: 0, errorMessage: nil, needsAccess: false))
         #expect(!TrashFacePresentation.canEmpty(count: 3, errorMessage: "Read failed", needsAccess: false))
         #expect(TrashFacePresentation.canEmpty(count: 3, errorMessage: nil, needsAccess: false))
     }

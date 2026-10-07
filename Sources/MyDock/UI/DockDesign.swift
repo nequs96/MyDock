@@ -47,6 +47,10 @@ enum DockDesign {
     enum Module {
         /// Today's widget container radius, used when no Dock geometry is known.
         static let defaultRadius: CGFloat = 16
+        /// Every widget module is this tall; side Docks also make it this wide.
+        static let height: CGFloat = 54
+        /// Modules at or below this width use the narrow (side-Dock) grammar.
+        static let narrowWidth: CGFloat = 54
         /// Concentric with the Dock: module radius = Dock radius − Dock padding, never negative.
         static func radius(dockRadius: CGFloat, dockPadding: CGFloat) -> CGFloat {
             guard dockRadius.isFinite, dockPadding.isFinite else { return 0 }
@@ -78,9 +82,23 @@ enum DockDesign {
         /// Short label under the value; draw it with `.secondary`.
         static let label = Font.system(size: 11, weight: .medium)
         static let labelLarge = Font.system(size: 12, weight: .medium)
+        /// A short title inside a module or a small panel: a note, a track, a window list's app name.
+        static let title = Font.system(size: 12, weight: .semibold)
+        static let titleLarge = Font.system(size: 13, weight: .semibold)
+        /// The smallest annotation (an hour, a badge): `minimumTextSize`, medium.
+        static let annotation = Font.system(size: minimumTextSize, weight: .medium)
         /// Smallest text the redesign draws anywhere.
         static let minimumTextSize: CGFloat = 10
         static let maxTextLines = 2
+    }
+    /// Widget popout type: the one large reading, a status sentence in its place, their caption, and the
+    /// value at the end of a reading row (a city's time, a battery's charge).
+    enum Popout {
+        static let heroReading = Font.system(size: 40, weight: .semibold).monospacedDigit()
+        static let heroStatus = Font.system(size: 17, weight: .semibold)
+        static let heroGlyph = Font.system(size: 26, weight: .regular)
+        static let heroCaption = Font.system(size: 13)
+        static let rowValue = Font.system(size: 17, weight: .medium).monospacedDigit()
     }
     /// Liquid Glass with accessible fallbacks. Apply it with `View.dockGlass(_:in:tint:interactive:)`.
     enum Glass {

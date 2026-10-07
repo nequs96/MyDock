@@ -2,17 +2,9 @@ import AppKit
 import SwiftUI
 
 enum WidgetDesign {
-    /// The opaque popout surface (Reduce Transparency, and the popover stand-in in render QA): the
-    /// grouped page colour, so grouped sections read on it exactly as they do in the settings sheet.
+    /// The render-QA stand-in for the popover's material: the grouped page colour, so grouped sections
+    /// read on it exactly as they do in the settings sheet. Live popouts use the popover's own surface.
     static let surface = DockDesign.page
-    static let inset = Color.primary.opacity(0.035)
-}
-
-struct WidgetEmblem: View {
-    var kind: String
-    var style: WidgetIconStyle = .tinted
-    var size: CGFloat = 28
-    var body: some View { WidgetIcon(kind: kind, size: size, appearance: .init(legacy: style)) }
 }
 
 extension WidgetIconAppearance {
@@ -27,14 +19,15 @@ extension WidgetIconAppearance {
     }
 }
 
-/// Compatibility for icon-only actions. Data widgets never use this to switch layout.
+#if DEBUG
+/// Render QA only: an icon-only action in each legacy icon style.
 struct WidgetIconTile: View {
     var item: DockItem
     var style: WidgetIconStyle
-    var width: CGFloat = 54
+    var width: CGFloat = DockDesign.Module.narrowWidth
     @Environment(\.widgetShowsLabel) private var showsLabel
     var body: some View {
-        let showsName = width > 54 && showsLabel
+        let showsName = !WidgetModuleMetrics.isNarrow(width) && showsLabel
         VStack(spacing: 2) {
             WidgetToggleGlyph(kind: item.widgetKind ?? item.title, diameter: showsName ? 30 : 36)
                 .environment(\.widgetIconAppearance, .init(legacy: style))
@@ -42,9 +35,12 @@ struct WidgetIconTile: View {
                 Text(item.displayName).font(DockDesign.Module.label).lineLimit(1)
                     .minimumScaleFactor(DockDesign.Module.minimumTextSize / 11)
             }
-        }.padding(.horizontal, 6).frame(width: width, height: 54)
+        }
+        .padding(.horizontal, 6).frame(width: width, height: DockDesign.Module.height)
+        .moduleAccessibility(item.displayName)
     }
 }
+#endif
 
 /// Pure choices of the per-widget Appearance editor. Raw values and persisted keys are unchanged.
 enum WidgetAppearanceOptions {
@@ -52,7 +48,7 @@ enum WidgetAppearanceOptions {
     static var accentChoices: [WidgetAccent] { [.auto, .mono] + DockProfileColor.allCases.map(WidgetAccent.profile) }
 
     /// What Automatic does: neutral at rest, the family colour only while the widget is active.
-    static let autoAccentCaption = "Neutral; colour shows when active"
+    static let autoAccentCaption = "Neutral; color shows when active"
 
     static func accentTitle(_ accent: WidgetAccent) -> String {
         switch accent {
@@ -64,9 +60,6 @@ enum WidgetAppearanceOptions {
 
     /// The tint only changes glass modules, so its row exists only for that surface.
     static func showsGlassTint(surface: DockWidgetSurface) -> Bool { surface == .glass }
-
-    /// Families whose faces never draw a family icon offer no icon choice.
-    static func showsIconStyle(kind: String) -> Bool { kind != "Sticky Note" && kind != "Time Progress" }
 }
 
 /// Label visibility as a three-way choice: follow the Dock (nil), always shown, always hidden.
@@ -138,7 +131,8 @@ struct WidgetAppearanceControls: View {
     var body: some View {
         GroupedSection("Appearance", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
             GroupedRow("Accent", subtitle: accent == .auto ? WidgetAppearanceOptions.autoAccentCaption : nil) { accentSwatches }
-            if WidgetAppearanceOptions.showsIconStyle(kind: kind) { iconStyleRow }
+            // Every family draws its icon somewhere (a label glyph, a narrow face), so every family offers the choice.
+            iconStyleRow
             GroupedRow("Label", subtitle: labelChoice == .followDock ? "Follows the Dock · " + (settings.showWidgetLabels ? "On" : "Off") : nil) {
                 Picker("Label", selection: Binding(get: { labelChoice }, set: { choice in
                     WidgetAppearanceWriter.setLabel(choice, itemID: item.id, profileID: profileID, store: store)
@@ -169,12 +163,14 @@ struct WidgetAppearanceControls: View {
                     .labelsHidden().fixedSize().accessibilityLabel("Secondary metric")
                 }
             }
-            if kind == "System Activity" {
-                GroupedRow("Trend secondary") {
-                    Picker("Trend secondary", selection: Binding(get: { configuration.systemSecondaryMetric }, set: { value in
+            // Only the Trend face draws the secondary reading.
+            if kind == "System Activity" && WidgetPresentationCatalog.resolvedLayout(for: kind, configuration: configuration,
+                                                                                    compactDefault: settings.customDockWidgetStyle == .compact) == .trend {
+                GroupedRow("Trend detail") {
+                    Picker("Trend detail", selection: Binding(get: { configuration.systemSecondaryMetric }, set: { value in
                         store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.systemSecondaryMetric = value }
                     })) { ForEach(SystemSecondaryMetric.allCases) { Text($0.title).tag($0) } }
-                    .labelsHidden().fixedSize().accessibilityLabel("Trend secondary")
+                    .labelsHidden().fixedSize().accessibilityLabel("Trend detail")
                 }
             }
         }
@@ -212,7 +208,7 @@ struct WidgetAppearanceControls: View {
                                 .frame(width: 40, height: 40)
                                 .overlay(Circle().strokeBorder(selected ? DockDesign.accent : .clear, lineWidth: 2))
                             Text(appearance.displayTitle)
-                                .font(.system(size: 11, weight: selected ? .semibold : .regular))
+                                .font(DockDesign.Grouped.subtitleFont.weight(selected ? .semibold : .regular))
                                 .foregroundStyle(selected ? .primary : .secondary)
                         }
                         .frame(maxWidth: .infinity)
@@ -246,31 +242,19 @@ struct WidgetAccentSwatch: View {
         ZStack {
             Circle().fill(WidgetPalette.resolved(kind: kind, accent: accent, active: true))
             if case .auto = accent {
-                Text("A").font(.system(size: diameter * 0.5, weight: .bold, design: .rounded)).foregroundStyle(.white)
+                Text("A").font(.system(size: diameter * 0.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(WidgetIcon.onFillIsBlack(treatment: .accent, accent: accent, dark: scheme == .dark) ? Color.black : Color.white)
                     .accessibilityHidden(true)
             }
         }
         .frame(width: diameter, height: diameter)
         .overlay {
             if accessibility.contrast == .increased {
-                Circle().strokeBorder(Color.primary.opacity(0.6), lineWidth: 1)
+                Circle().strokeBorder(DockDesign.Outline.color(.increased), lineWidth: DockDesign.Outline.controlWidth(.increased))
             }
         }
         .padding(3)
         .overlay(Circle().strokeBorder(selected ? DockDesign.accent : .clear, lineWidth: 2))
         .contentShape(Circle())
-    }
-}
-
-struct WidgetSection<Content: View>: View {
-    var title: String
-    @ViewBuilder var content: Content
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-            content
-        }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-            .background(WidgetDesign.inset, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(DockDesign.hairline, lineWidth: 0.5))
     }
 }

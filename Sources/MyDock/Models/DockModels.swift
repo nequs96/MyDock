@@ -962,8 +962,9 @@ struct WidgetConfiguration: Codable, Hashable {
     func hydrationVolumeSummary(at date: Date = .now, calendar: Calendar = .current) -> String {
         let entries = hydrationEntriesToday(at: date, calendar: calendar)
         let known = entries.compactMap(\.amountML).reduce(0, +)
-        guard entries.contains(where: { $0.amountML == nil }) else { return "\(known) mL" }
-        return "At least \(known) mL · incomplete"
+        let volume = DockNumberText.milliliters(known)
+        guard entries.contains(where: { $0.amountML == nil }) else { return volume }
+        return "At least \(volume) · incomplete"
     }
 }
 

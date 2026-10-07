@@ -43,7 +43,7 @@ struct WindowPreviewPanelView: View {
                     .accessibilityHidden(true)
             }
             Text(model.applicationName)
-                .font(.system(size: 12, weight: .semibold))
+                .font(DockDesign.Module.title)
                 .lineLimit(1)
             Spacer(minLength: 0)
         }
@@ -61,7 +61,10 @@ struct WindowPreviewPanelView: View {
             }
             .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
             .frame(height: Layout.noticeHeight)
+            // One element, so VoiceOver reads this label instead of the spinner's generic progress.
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Loading windows")
+            .accessibilityAddTraits(.updatesFrequently)
         case .accessibilityRequired:
             GroupedRow("Window access needs Accessibility.", accessory: {
                 Button("Allow…") { model.grantAccessibility() }
@@ -160,7 +163,7 @@ private struct WindowPreviewCard: View {
                     if window.isMinimized { WindowPreviewMinimizedLabel().padding(6) }
                 }
                 Text(window.title)
-                    .font(.system(size: 11))
+                    .font(DockDesign.Grouped.subtitleFont)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -210,7 +213,7 @@ private struct WindowPreviewTitleRow: View {
                             .opacity(window.isMinimized ? 0.55 : 1)
                     }
                     Text(window.title)
-                        .font(.system(size: 12))
+                        .font(DockDesign.caption)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 4)
@@ -246,7 +249,7 @@ private struct WindowPreviewMinimizedLabel: View {
     var body: some View {
         Label("Minimized", systemImage: "minus.circle")
             .labelStyle(.titleAndIcon)
-            .font(.system(size: 10, weight: .medium))
+            .font(DockDesign.Module.annotation)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)

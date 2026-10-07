@@ -1,18 +1,8 @@
 import SwiftUI
 
-private struct DockWidgetContentWidthKey: EnvironmentKey { static let defaultValue: CGFloat = 54 }
+private struct DockWidgetContentWidthKey: EnvironmentKey { static let defaultValue: CGFloat = DockDesign.Module.narrowWidth }
 extension EnvironmentValues {
     var dockWidgetContentWidth: CGFloat { get { self[DockWidgetContentWidthKey.self] } set { self[DockWidgetContentWidthKey.self] = newValue } }
-}
-
-/// Compatibility surface for inert gallery callers. Live presentation uses WidgetContainer.
-struct AppleWidgetSurface: View {
-    var kind: String
-    var noteBackground: NoteBackground = .yellow
-    var cornerRadius: CGFloat = 16
-    var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).fill(Color.primary.opacity(0.045))
-    }
 }
 
 struct WidgetSparkline: Shape {
@@ -50,7 +40,7 @@ struct WidgetCardPreview: View {
             .environment(\.dockWidgetContentWidth, width).environment(\.widgetLayout, selected).environment(\.widgetIconAppearance, resolvedAppearance)
             // Laid out at Dock size, then scaled: the face is flattened at the final density (crisp text).
             .environment(\.widgetPreviewScale, outerScale * displayScale)
-            .scaleEffect(displayScale).frame(width: width * displayScale, height: 54 * displayScale)
+            .scaleEffect(displayScale).frame(width: width * displayScale, height: DockDesign.Module.height * displayScale)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Self.accessibilityLabel(kind: kind))
     }
@@ -126,11 +116,12 @@ extension WidgetCardPreview {
     }
 }
 
-/// Retained only for earlier debug QA entry points; does not define live layout.
+#if DEBUG
+/// Render QA only: a family's own compact view inside the live module container.
 struct AppleWidgetCard: View {
     var item: DockItem
     var width: CGFloat
-    var showsLabels: Bool
     var fallback: AnyView
     var body: some View { WidgetContainer(width: width, kind: item.widgetKind ?? item.title) { fallback }.environment(\.dockWidgetContentWidth, width) }
 }
+#endif
