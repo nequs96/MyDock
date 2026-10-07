@@ -6,8 +6,14 @@ struct BatteryReading: Equatable, Hashable, Identifiable {
     var percentage: Int
     var isCharging: Bool
     var isInternal: Bool
+    /// Connected to a power adapter (`kIOPSPowerSourceStateKey`), whether or not it is charging.
+    var isOnACPower = false
+    /// Reported full (`kIOPSIsChargedKey`).
+    var isCharged = false
 
     var displayName: String { BatteryReader.displayName(name: name, isInternal: isInternal) }
+    /// "Charging", "Charged", "Not charging" (held on power) or "On battery".
+    var statusText: String { BatteryStatusText.text(self) }
 
     var id: String { "\(name)-\(isInternal)" }
 }
@@ -37,7 +43,20 @@ enum BatteryReader {
         let name = description[kIOPSNameKey as String] as? String ?? "Battery"
         let charging = (description[kIOPSIsChargingKey as String] as? NSNumber)?.boolValue ?? false
         let sourceType = description[kIOPSTypeKey as String] as? String
+        let powerState = description[kIOPSPowerSourceStateKey as String] as? String
+        let charged = (description[kIOPSIsChargedKey as String] as? NSNumber)?.boolValue ?? false
         return BatteryReading(name: name, percentage: min(max(percentage, 0), 100),
-                              isCharging: charging, isInternal: sourceType == (kIOPSInternalBatteryType as String))
+                              isCharging: charging, isInternal: sourceType == (kIOPSInternalBatteryType as String),
+                              isOnACPower: powerState == (kIOPSACPowerValue as String), isCharged: charged)
+    }
+}
+
+/// A battery's state in the words macOS uses. "Not charging" means plugged in but held (for example by
+/// Optimized Battery Charging), so a Mac running on its battery says "On battery" instead.
+enum BatteryStatusText {
+    static func text(_ reading: BatteryReading) -> String {
+        if reading.isCharging { return "Charging" }
+        if reading.isOnACPower { return reading.isCharged ? "Charged" : "Not charging" }
+        return "On battery"
     }
 }

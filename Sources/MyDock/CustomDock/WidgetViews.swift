@@ -95,13 +95,9 @@ struct WidgetCompactView: View {
         // Per-widget surface, accent, label visibility and glass tint for the container and faces.
         .widgetPresentation(WidgetPresentationValues(configuration: configuration, settings: settings))
     }
-    @ViewBuilder private var content: some View {
-        switch kind {
-        case "Clock", "Focus Timer", "Stopwatch", "Countdown", "Sticky Note", "Time Progress", "Hydration", "Quick Checklist", "Stock", "Watchlist", "Calculator", "Shortcuts", "App Folder":
-            LocalWidgetDockFace(item: currentItem)
-        default:
-            WidgetProviderRegistry.provider(for: kind).compactView(store: store, item: currentItem, profileID: profileID)
-        }
+    /// The registry is the one routing table: each family's provider returns its Dock face.
+    private var content: some View {
+        WidgetProviderRegistry.provider(for: kind).compactView(store: store, item: currentItem, profileID: profileID)
     }
 }
 
@@ -369,19 +365,18 @@ struct WidgetPopoutHero: View {
     private var hero: some View {
         VStack(spacing: 3) {
             if style == .status, let symbol {
-                Image(systemName: symbol).font(.system(size: 26, weight: .regular))
+                Image(systemName: symbol).font(DockDesign.Popout.heroGlyph)
                     .foregroundStyle(valueColor == .primary ? Color.secondary : valueColor)
                     .padding(.bottom, 4).accessibilityHidden(true)
             }
             Text(value)
-                .font(style == .reading ? .system(size: 40, weight: .semibold).monospacedDigit()
-                                        : .system(size: 17, weight: .semibold))
+                .font(style == .reading ? DockDesign.Popout.heroReading : DockDesign.Popout.heroStatus)
                 .foregroundStyle(valueColor)
                 .lineLimit(style == .reading ? 1 : 2).minimumScaleFactor(style == .reading ? 0.5 : 1)
                 .multilineTextAlignment(.center)
                 .contentTransition(.numericText())
             if let caption {
-                Text(caption).font(.system(size: 13)).foregroundStyle(.secondary)
+                Text(caption).font(DockDesign.Popout.heroCaption).foregroundStyle(.secondary)
                     .lineLimit(DockDesign.Module.maxTextLines).multilineTextAlignment(.center)
             }
         }
@@ -636,10 +631,15 @@ private struct ShortcutsPopoutView: View {
 
     @State private var shortcutNames: [String] = []
     @State private var isRefreshing = false
-    @State private var errorMessage: String?
+    /// Set once the first catalog load finishes, so a saved shortcut is not called missing while it loads.
+    @State private var hasLoaded = false
+    @State private var loadedAt: Date?
+    @State private var catalogError: String?
+    @State private var runError: String?
     @State private var settingsExpanded = false
 
     private var selectedName: String { item.widgetConfiguration?.selectedShortcutName ?? "" }
+    private var errorMessage: String? { runError ?? catalogError }
 
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
@@ -666,20 +666,23 @@ private struct ShortcutsPopoutView: View {
             // Run stays in front; choosing the shortcut is setup.
             WidgetPopoutSettingsDisclosure(summary: selectedName.isEmpty ? "None" : selectedName, isExpanded: $settingsExpanded) {
                 GroupedSection(footer: footer, separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
-                    GroupedRow("Shortcut") {
-                        Picker("Shortcut", selection: Binding(get: { selectedName }, set: { name in
-                            store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.selectedShortcutName = name }
-                        })) {
-                            Text("Choose…").tag("")
-                            if !selectedName.isEmpty && !shortcutNames.contains(selectedName) {
-                                Text("\(selectedName) (not found)").tag(selectedName)
+                    if hasLoaded && shortcutNames.isEmpty && catalogError == nil {
+                        // An empty library is a state to explain, not an error.
+                        GroupedRow("No shortcuts yet", subtitle: "Create one in Shortcuts, then refresh.")
+                    } else {
+                        GroupedRow("Shortcut") {
+                            Picker("Shortcut", selection: Binding(get: { selectedName }, set: { name in
+                                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.selectedShortcutName = name }
+                            })) {
+                                Text("Choose…").tag("")
+                                if !selectedName.isEmpty && !shortcutNames.contains(selectedName) {
+                                    Text(hasLoaded ? "\(selectedName) (not found)" : selectedName).tag(selectedName)
+                                }
+                                ForEach(shortcutNames, id: \.self) { name in Text(name).tag(name) }
                             }
-                            ForEach(shortcutNames, id: \.self) { name in Text(name).tag(name) }
+                            .labelsHidden().fixedSize().accessibilityLabel("Shortcut")
                         }
-                        .labelsHidden().fixedSize().accessibilityLabel("Shortcut")
                     }
-                    GroupedRow(isRefreshing ? "Loading Shortcuts…" : "Refresh List", role: .button, action: refreshCatalog)
-                        .disabled(isRefreshing)
                     GroupedRow("Open Shortcuts", role: .button) { runner.openShortcutsApp() }
                 }
             }
@@ -687,6 +690,9 @@ private struct ShortcutsPopoutView: View {
         // Nothing to run yet: open the setup so a shortcut can be chosen.
         .onAppear { if selectedName.isEmpty { settingsExpanded = true } }
         .task { await loadCatalog() }
+        // The catalog's freshness and its one refresh control live in the popout header.
+        .widgetPopoutRefresh(WidgetPopoutRefresh(updatedAt: loadedAt, isRefreshing: isRefreshing, failed: catalogError != nil,
+                                                 maximumAge: .infinity, action: refreshCatalog))
     }
 
     private var footer: String { "Shortcuts that ask for input may open a prompt and wait for you." }
@@ -697,21 +703,22 @@ private struct ShortcutsPopoutView: View {
 
     private func loadCatalog() async {
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer { isRefreshing = false; hasLoaded = true }
         do {
             shortcutNames = try await ShortcutsCatalog.list()
-            errorMessage = shortcutNames.isEmpty ? "No shortcuts were found. Create one in Shortcuts, then refresh." : nil
+            loadedAt = .now
+            catalogError = nil
         } catch {
-            errorMessage = error.localizedDescription
+            catalogError = error.localizedDescription
         }
     }
 
     private func runShortcut() {
         do {
             try runner.run(selectedName)
-            errorMessage = nil
+            runError = nil
         } catch {
-            errorMessage = error.localizedDescription
+            runError = error.localizedDescription
         }
     }
 }
@@ -951,7 +958,8 @@ private struct PlaceholderWidgetProvider: DockWidgetProvider {
     private var definition: WidgetDefinition? { WidgetRegistry.all.first(where: { $0.name == kind }) }
 
     func compactView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
-        AnyView(Image(systemName: definition?.symbol ?? "square.grid.2x2").font(.system(size: 30)))
+        AnyView(Image(systemName: definition?.symbol ?? "square.grid.2x2").font(.system(size: 30))
+            .accessibilityLabel("\(kind), unavailable"))
     }
 
     func popoutView(store: ProfileStore, item: DockItem, profileID: UUID) -> AnyView {
@@ -962,9 +970,7 @@ private struct PlaceholderWidgetProvider: DockWidgetProvider {
 }
 
 private struct WorldClockCompactView: View {
-    @Environment(\.dockWidgetContentWidth) private var contentWidth
     var item: DockItem
-    private var timeZone: TimeZone { TimeZone(identifier: item.widgetConfiguration?.worldClockTimeZoneID ?? "Europe/Warsaw") ?? .current }
 
     var body: some View { WorldClockDockFace(configuration: configuration) }
 
@@ -989,7 +995,7 @@ private struct WorldClockPopoutView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             TimelineView(.everyMinute) { context in
-                WidgetPopoutHero(value: formattedTime(context.date, timeZone: timeZone),
+                WidgetPopoutHero(value: LocalClockFormatter.time(for: context.date, timeZone: timeZone),
                                  caption: primaryName + " · " + WidgetTimingPresentation.dayRelation(offset: WorldClockCityCatalog.dayOffset(from: .current, to: timeZone, at: context.date), reference: "this Mac"))
             }
             GroupedSection("Cities", footer: configuration.worldClockAdditionalTimeZoneIDs.isEmpty ? nil : "Other cities' dates are relative to \(primaryName).") {
@@ -1062,12 +1068,12 @@ private struct WorldClockPopoutView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(cityName).font(DockDesign.Grouped.titleFont).lineLimit(1)
-                        Text(offset == 0 ? "Same day" : offset > 0 ? "+\(offset) day" : "\(offset) day")
+                        Text(WidgetTimingPresentation.shortDayOffset(offset))
                             .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
-                            .help("Local date is \(abs(offset)) day\(abs(offset) == 1 ? "" : "s") \(offset > 0 ? "ahead of" : "behind") the primary city")
+                            .help(WidgetTimingPresentation.dayRelation(offset: offset, reference: "the primary city"))
                     }
                     Spacer(minLength: 8)
-                    Text(formattedTime(context.date, timeZone: zone)).font(.system(size: 17, weight: .medium).monospacedDigit())
+                    Text(LocalClockFormatter.time(for: context.date, timeZone: zone)).font(DockDesign.Popout.rowValue)
                 }
             }
             Button { store.updateWidgetConfiguration(itemID: item.id, in: profileID) {
@@ -1411,9 +1417,10 @@ private struct TimeProgressPopoutView: View {
                 TimelineView(.everyMinute) { context in
                     let progress = TimeProgressCalculator.fraction(for: configuration.timeProgressPeriod, at: context.date)
                     VStack(spacing: 10) {
-                        WidgetPopoutHero(value: "\(Int(progress * 100))%", caption: "through this \(configuration.timeProgressPeriod.rawValue)")
-                        UsageBar(fraction: progress, color: WidgetPalette.resolved(kind: "Time Progress", accent: configuration.widgetAccent ?? .auto))
-                            .frame(height: 6)
+                        WidgetPopoutHero(value: DockNumberText.percent(fraction: progress, roundingDown: true),
+                                         caption: "through this \(configuration.timeProgressPeriod.rawValue)")
+                        UsageBar(fraction: progress, color: WidgetPalette.resolved(kind: "Time Progress", accent: configuration.widgetAccent ?? .auto),
+                                 height: UsageBar.popoutHeight)
                             .padding(.horizontal, 24)
                             .accessibilityHidden(true)
                     }
@@ -1535,8 +1542,7 @@ private struct HydrationPopoutView: View {
                     }
                     if reminderPermissionDenied {
                         GroupedRow("Open Notification Settings", role: .button) {
-                            guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
-                            NSWorkspace.shared.open(url)
+                            WidgetPrivacySettings.open(WidgetPrivacySettings.notifications)
                         }
                     }
                 }
@@ -1544,7 +1550,7 @@ private struct HydrationPopoutView: View {
                     GroupedRow("Save drink history", isOn: binding(\.hydrationSaveHistory))
                     GroupedRow("Track drink amounts", isOn: binding(\.hydrationTrackAmounts))
                     if configuration.hydrationTrackAmounts {
-                        WidgetStepperRow(title: "Drink size", value: "\(configuration.hydrationDefaultAmountML) mL",
+                        WidgetStepperRow(title: "Drink size", value: DockNumberText.milliliters(configuration.hydrationDefaultAmountML),
                                          amount: binding(\.hydrationDefaultAmountML), range: 50...1_000, step: 50)
                     }
                 }
@@ -1580,7 +1586,7 @@ private struct HydrationPopoutView: View {
                             ForEach(group.entries) { entry in
                                 GroupedRow(entry.timestamp.formatted(date: .omitted, time: .shortened)) {
                                     HStack(spacing: 10) {
-                                        Text(entry.amountML.map { "\($0) mL" } ?? "No amount")
+                                        Text(entry.amountML.map { DockNumberText.milliliters($0) } ?? "No amount")
                                             .font(DockDesign.Grouped.titleFont).foregroundStyle(.secondary)
                                         Button { update { $0.removeHydrationEntry(id: entry.id) } } label: {
                                             Image(systemName: "minus.circle.fill").foregroundStyle(Color(nsColor: .systemRed))
@@ -1711,7 +1717,8 @@ final class BatteryMonitor: ObservableObject {
 
 private struct BatteryCompactView: View {
     @Environment(\.dockWidgetContentWidth) private var contentWidth
-    @StateObject private var monitor = BatteryMonitor.shared
+    /// The process-wide monitor: observed, not owned, like the Trash family's status.
+    @ObservedObject private var monitor = BatteryMonitor.shared
     @State private var subscriptionID = UUID()
 
     var body: some View {
@@ -1719,21 +1726,60 @@ private struct BatteryCompactView: View {
             .onAppear { monitor.subscribe(subscriptionID) }
             .onDisappear { monitor.unsubscribe(subscriptionID) }
             .accessibilityElement(children: .ignore).accessibilityLabel("Battery")
-            .accessibilityValue(monitor.readings.map { "\($0.name), \($0.percentage) percent" }.joined(separator: ", "))
+            .accessibilityValue(monitor.readings.isEmpty ? "Unavailable"
+                                : monitor.readings.map(BatteryPresentation.accessibilityValue).joined(separator: "; "))
+    }
+}
+
+/// Battery wording and state colour shared by the face's VoiceOver value and the popout.
+enum BatteryPresentation {
+    static func percent(_ reading: BatteryReading) -> String {
+        DockNumberText.percent(fraction: Double(reading.percentage) / 100)
+    }
+    /// "Mac battery, 80%, charging".
+    static func accessibilityValue(_ reading: BatteryReading) -> String {
+        "\(reading.displayName), \(percent(reading)), \(reading.statusText.lowercased())"
+    }
+    /// The popout's reading: the Mac's own battery, else the first accessory.
+    static func primaryIndex(_ readings: [BatteryReading]) -> Int? {
+        readings.firstIndex(where: { $0.isInternal }) ?? readings.indices.first
+    }
+    /// Colour marks low charge only, and only while the battery is not charging.
+    static func lowChargeColor(_ reading: BatteryReading) -> Color? {
+        guard !reading.isCharging else { return nil }
+        if reading.percentage <= 10 { return WidgetPalette.critical }
+        if reading.percentage <= 20 { return WidgetPalette.warning }
+        return nil
     }
 }
 
 private struct BatteryPopoutView: View {
-    @StateObject private var monitor = BatteryMonitor.shared
+    @ObservedObject private var monitor = BatteryMonitor.shared
     @State private var subscriptionID = UUID()
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
 
     var body: some View {
-        GroupedSection {
-            if monitor.readings.isEmpty {
-                GroupedRow("No battery information", subtitle: "This Mac reports no batteries.", symbol: "battery.0percent", color: .gray)
-            } else {
-                ForEach(monitor.readings) { battery in
-                    BatteryRow(battery: battery)
+        let readings = monitor.readings
+        let primaryIndex = BatteryPresentation.primaryIndex(readings)
+        let primary = primaryIndex.map { readings[$0] }
+        // The hero reads the primary battery; the list holds the rest (all of them where the hero is hidden).
+        let listed: [BatteryReading] = showsHero ? readings.enumerated().filter { $0.offset != primaryIndex }.map { $0.element } : readings
+        VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
+            if let primary {
+                WidgetPopoutHero(value: BatteryPresentation.percent(primary),
+                                 caption: primary.displayName + " · " + primary.statusText,
+                                 valueColor: BatteryPresentation.lowChargeColor(primary) ?? .primary)
+            }
+            if readings.isEmpty {
+                GroupedSection {
+                    GroupedRow("No battery information", subtitle: "This Mac reports no batteries.", symbol: "battery.0percent", color: .gray)
+                }
+            } else if !listed.isEmpty {
+                GroupedSection {
+                    // By position: accessories can report the same name, so reading IDs may repeat.
+                    ForEach(Array(listed.enumerated()), id: \.offset) { _, battery in
+                        BatteryRow(battery: battery)
+                    }
                 }
             }
         }
@@ -1742,21 +1788,22 @@ private struct BatteryPopoutView: View {
     }
 }
 
-/// One battery as a grouped row: its glyph, name, charging state and charge.
+/// One battery as a grouped row: its glyph, name, charging state and charge. Neutral at rest; colour marks
+/// charging or low charge only.
 private struct BatteryRow: View {
     var battery: BatteryReading
     private var color: Color {
-        if battery.isCharging { return .green }
-        return battery.percentage <= 10 ? Color(nsColor: .systemRed) : battery.percentage <= 20 ? .orange : .green
+        if battery.isCharging { return WidgetPalette.positive }
+        return BatteryPresentation.lowChargeColor(battery) ?? .gray
     }
     var body: some View {
-        GroupedRow(battery.displayName, subtitle: battery.isCharging ? "Charging" : "Not charging",
+        GroupedRow(battery.displayName, subtitle: battery.statusText,
                    symbol: batterySymbol(battery.percentage, charging: battery.isCharging), color: color) {
-            Text("\(battery.percentage)%")
-                .font(.system(size: 17, weight: .semibold).monospacedDigit())
+            Text(BatteryPresentation.percent(battery))
+                .font(DockDesign.Popout.rowValue)
                 .accessibilityHidden(true)
         }
-        .accessibilityValue("\(battery.percentage) percent, \(battery.isCharging ? "charging" : "not charging")")
+        .accessibilityValue("\(BatteryPresentation.percent(battery)), \(battery.statusText.lowercased())")
     }
 }
 
@@ -1891,9 +1938,9 @@ private struct StickyNotePopoutView: View {
                             saveNote(value)
                         }
                     }
-                // The byte limit only matters near it; text above it stays in the recovery draft.
+                // The size limit only matters near it; text above it stays in the recovery draft.
                 if noteDraft.utf8.count > Self.byteLimit * 9 / 10 {
-                    Text("\(noteDraft.utf8.count.formatted()) / 1,048,576 UTF-8 bytes · text above this limit stays in the recovery draft.")
+                    Text(StickyNoteLimitText.text(bytes: noteDraft.utf8.count, limit: Self.byteLimit))
                         .font(DockDesign.Grouped.footerFont)
                         .foregroundStyle(noteDraft.utf8.count > Self.byteLimit ? Color(nsColor: .systemRed) : Color.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1951,7 +1998,14 @@ private struct StickyNotePopoutView: View {
     }
 }
 
-
+/// The Sticky Note size line, shown only near the limit, in the locale's byte units ("1 MB").
+enum StickyNoteLimitText {
+    static func text(bytes: Int, limit: Int) -> String {
+        let size = Int64(limit).formatted(.byteCount(style: .file))
+        return bytes > limit ? "Over the \(size) note limit. The extra text stays in the recovery draft."
+                             : "Near the \(size) note limit."
+    }
+}
 
 private func timerText(_ interval: TimeInterval) -> String {
     TimerValueFormatter.text(interval)
@@ -1984,20 +2038,6 @@ func stopwatchText(_ interval: TimeInterval) -> String {
         ? "\(hours):\(String(format: "%02d", minutes)):\(String(format: "%02d", remainingSeconds))"
         : String(format: "%02d:%02d", minutes, remainingSeconds)
 }
-
-func formattedTime(_ date: Date, timeZone: TimeZone) -> String {
-    LocalClockFormatter.time(for: date, locale: .current, timeZone: timeZone)
-}
-
-func formattedDate(_ date: Date, timeZone: TimeZone) -> String {
-    let formatter = DateFormatter()
-    formatter.locale = .current
-    formatter.timeZone = timeZone
-    formatter.dateStyle = .full
-    return formatter.string(from: date)
-}
-
-
 
 /// A note paper choice as a small circle; Translucent shows as an outlined ring.
 private struct NotePaperSwatch: View {

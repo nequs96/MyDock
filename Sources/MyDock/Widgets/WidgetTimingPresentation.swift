@@ -22,6 +22,12 @@ enum WidgetTimingPresentation {
         return "\(offset.magnitude) day\(offset.magnitude == 1 ? "" : "s") \(offset > 0 ? "ahead of" : "behind") \(reference)"
     }
 
+    /// The same relation for a list row: "Same day", "+1 day", "−2 days".
+    static func shortDayOffset(_ offset: Int) -> String {
+        if offset == 0 { return "Same day" }
+        return (offset > 0 ? "+" : "\u{2212}") + "\(offset.magnitude) day\(offset.magnitude == 1 ? "" : "s")"
+    }
+
     static func isStale(fetchedAt: Date, now: Date, maximumAge: TimeInterval) -> Bool {
         now.timeIntervalSince(fetchedAt) > maximumAge
     }

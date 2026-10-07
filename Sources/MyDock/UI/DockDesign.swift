@@ -93,6 +93,15 @@ enum DockDesign {
         static let minimumTextSize: CGFloat = 10
         static let maxTextLines = 2
     }
+    /// Widget popout type: the one large reading, a status sentence in its place, their caption, and the
+    /// value at the end of a reading row (a city's time, a battery's charge).
+    enum Popout {
+        static let heroReading = Font.system(size: 40, weight: .semibold).monospacedDigit()
+        static let heroStatus = Font.system(size: 17, weight: .semibold)
+        static let heroGlyph = Font.system(size: 26, weight: .regular)
+        static let heroCaption = Font.system(size: 13)
+        static let rowValue = Font.system(size: 17, weight: .medium).monospacedDigit()
+    }
     /// Liquid Glass with accessible fallbacks. Apply it with `View.dockGlass(_:in:tint:interactive:)`.
     enum Glass {
         enum Style: Hashable, CaseIterable { case clear, regular }

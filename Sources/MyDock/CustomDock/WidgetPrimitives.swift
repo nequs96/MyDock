@@ -521,17 +521,20 @@ extension View {
 
 // MARK: - Shared meters
 
-/// A single-weight meter line with a faint track.
+/// A single-weight meter line with a faint track: 3 pt in the Dock, `popoutHeight` at popout scale
+/// (Disk Space, Time Progress, the System Storage bar).
 struct UsageBar: View {
+    static let popoutHeight: CGFloat = 6
     var fraction: Double
     var color: Color = .secondary
+    var height: CGFloat = 3
     var body: some View {
         GeometryReader { geometry in
             Capsule().fill(Color.primary.opacity(0.10))
                 .overlay(alignment: .leading) {
                     Capsule().fill(color).frame(width: geometry.size.width * (fraction.isFinite ? min(1, max(0, fraction)) : 0))
                 }
-        }.frame(height: 3).accessibilityHidden(true)
+        }.frame(height: height).accessibilityHidden(true)
     }
 }
 /// A single-weight sparkline without axes.
@@ -699,7 +702,7 @@ struct DiskDockFace: View {
     @Environment(\.widgetAccent) private var accent
     private let kind = "Disk Space"
     private var ringColor: Color {
-        (snapshot?.usedFraction ?? 0) > 0.9 ? WidgetPalette.warning : WidgetPalette.resolved(kind: kind, accent: accent)
+        snapshot?.isLow == true ? WidgetPalette.warning : WidgetPalette.resolved(kind: kind, accent: accent)
     }
     /// Faces use three significant digits ("121 GB"); the popout keeps the precise figure.
     private var freeText: String { snapshot.map { DiskSpaceFaceText.compact($0.availableBytes) } ?? "—" }
@@ -742,10 +745,11 @@ struct BatteryDockFace: View {
                 }
             } else if WidgetModuleMetrics.isNarrow(width) || layout == .wide {
                 HStack(spacing: 12) {
-                    ForEach(Array(readings.prefix(WidgetModuleMetrics.isNarrow(width) ? 1 : 3))) { reading in
+                    // By position: accessories can report the same name, so reading IDs may repeat.
+                    ForEach(Array(readings.prefix(WidgetModuleMetrics.isNarrow(width) ? 1 : 3).enumerated()), id: \.offset) { _, reading in
                         VStack(spacing: 3) {
                             ring(reading, size: 30)
-                            Text("\(reading.percentage)%").font(DockDesign.Module.title).monospacedDigit()
+                            Text(BatteryPresentation.percent(reading)).font(DockDesign.Module.title).monospacedDigit()
                                 .foregroundStyle(valueColor(reading)).lineLimit(1).minimumScaleFactor(0.84)
                         }
                     }
@@ -753,7 +757,7 @@ struct BatteryDockFace: View {
             } else if let reading = readings.first {
                 HStack(spacing: 8) {
                     ring(reading, size: 30)
-                    ModuleStack(kind: kind, label: name(reading), value: "\(reading.percentage)%", size: .medium,
+                    ModuleStack(kind: kind, label: name(reading), value: BatteryPresentation.percent(reading), size: .medium,
                                 valueColor: valueColor(reading), showsGlyph: false, keepsLeading: true)
                 }
             }
@@ -1109,8 +1113,9 @@ private struct TimeProgressFace: View {
     @Environment(\.widgetAccent) private var accent
     var body: some View {
         let progress = TimeProgressCalculator.fraction(for: configuration.timeProgressPeriod, at: date)
+        let percent = DockNumberText.percent(fraction: progress, roundingDown: true)
         HStack(spacing: 8) {
-            ModuleStack(kind: "Time Progress", label: configuration.timeProgressPeriod.title, value: "\(Int(progress * 100))%",
+            ModuleStack(kind: "Time Progress", label: configuration.timeProgressPeriod.title, value: percent,
                         keepsLeading: !WidgetModuleMetrics.isNarrow(width))
             if !WidgetModuleMetrics.isNarrow(width) {
                 let size: CGFloat = layout == .standard ? WidgetModuleMetrics.ring : 20
@@ -1118,7 +1123,7 @@ private struct TimeProgressFace: View {
             }
         }
         .moduleInsets()
-        .moduleAccessibility("Time Progress", value: "\(configuration.timeProgressPeriod.title), \(Int(progress * 100))%")
+        .moduleAccessibility("Time Progress", value: "\(configuration.timeProgressPeriod.title), \(percent)")
     }
 }
 
@@ -1166,7 +1171,7 @@ private struct MarketFace: View {
         let narrow = WidgetModuleMetrics.isNarrow(width)
         let trend = layout == .trend && !narrow
         let change = snapshot?.changePercent
-        let changeColor = (snapshot?.change ?? 0) < 0 ? WidgetPalette.critical : WidgetPalette.positive
+        let changeColor = MarketFaceText.changeColor(snapshot?.change)
         HStack(spacing: 8) {
             if let snapshot, let latest = snapshot.latest {
                 ModuleStack(kind: kind, label: narrow ? FinancialFacePresentation.shortTicker(ticker) : ticker,
@@ -1195,10 +1200,31 @@ private struct MarketFace: View {
     }
 }
 
+/// Locale-aware whole percentages and drink volumes, rounded the same way in every face and popout
+/// ("72 %" in French, "250 ml" in German).
+enum DockNumberText {
+    /// A fraction (0.72) as a whole percentage. `roundingDown` keeps a period's progress from reading
+    /// 100% before it ends.
+    static func percent(fraction: Double, roundingDown: Bool = false, locale: Locale = .current) -> String {
+        let value = fraction.isFinite ? fraction : 0
+        let shown = roundingDown ? (value * 100).rounded(.down) / 100 : value
+        return shown.formatted(.percent.precision(.fractionLength(0)).locale(locale))
+    }
+    static func milliliters(_ amount: Int, locale: Locale = .current) -> String {
+        Measurement(value: Double(amount), unit: UnitVolume.milliliters)
+            .formatted(Measurement<UnitVolume>.FormatStyle(width: .abbreviated, locale: locale, usage: .asProvided))
+    }
+}
+
 /// Locale-aware market face numbers, like the byte counts beside them ("+1,2 %" in a comma locale).
 enum MarketFaceText {
     static func change(_ percent: Double, locale: Locale = .current) -> String {
         (percent / 100).formatted(.percent.precision(.fractionLength(1)).sign(strategy: .always()).locale(locale))
+    }
+    /// Colour marks a real move only: an unchanged or unknown price (under half a cent) stays secondary.
+    static func changeColor(_ change: Double?) -> Color {
+        guard let change, change.isFinite, abs(change) >= 0.005 else { return .secondary }
+        return change < 0 ? WidgetPalette.critical : WidgetPalette.positive
     }
 }
 
@@ -1323,12 +1349,9 @@ enum FinancialFacePresentation {
 }
 
 enum WorldClockFaceDateFormatter {
-    static func text(_ date: Date, timeZone: TimeZone) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.timeZone = timeZone
-        formatter.setLocalizedDateFormatFromTemplate("MMM d")
-        return formatter.string(from: date)
+    /// "Oct 4" in the city's own calendar day, with a format style rather than a new DateFormatter per tick.
+    static func text(_ date: Date, timeZone: TimeZone, locale: Locale = .autoupdatingCurrent) -> String {
+        Date.FormatStyle(locale: locale, calendar: locale.calendar, timeZone: timeZone).month(.abbreviated).day().format(date)
     }
 }
 
@@ -1340,7 +1363,7 @@ struct WorldClockDockFace: View {
         TimelineView(.everyMinute) { context in
             let zone = TimeZone(identifier: configuration.worldClockTimeZoneID) ?? .current
             let city = zone.identifier.split(separator: "/").last.map(String.init)?.replacingOccurrences(of: "_", with: " ") ?? "Local"
-            let time = formattedTime(context.date, timeZone: zone)
+            let time = LocalClockFormatter.time(for: context.date, timeZone: zone)
             Group {
                 if WidgetModuleMetrics.isNarrow(width) {
                     ModuleStack(kind: "World Clock", label: zone.abbreviation(for: context.date) ?? "World",

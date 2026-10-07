@@ -996,7 +996,7 @@ struct ProfileStoreTests {
         configuration.hydrationTrackAmounts = true
 
         #expect(configuration.hydrationEntriesToday(at: today, calendar: calendar).count == 2)
-        #expect(configuration.hydrationVolumeSummary(at: today, calendar: calendar) == "At least 250 mL · incomplete")
+        #expect(configuration.hydrationVolumeSummary(at: today, calendar: calendar) == "At least \(DockNumberText.milliliters(250)) · incomplete")
 
         guard let unknown = configuration.hydrationEntries.last else {
             Issue.record("Expected the time-only drink entry")

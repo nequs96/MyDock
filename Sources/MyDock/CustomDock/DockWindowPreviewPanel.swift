@@ -61,7 +61,10 @@ struct WindowPreviewPanelView: View {
             }
             .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
             .frame(height: Layout.noticeHeight)
+            // One element, so VoiceOver reads this label instead of the spinner's generic progress.
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Loading windows")
+            .accessibilityAddTraits(.updatesFrequently)
         case .accessibilityRequired:
             GroupedRow("Window access needs Accessibility.", accessory: {
                 Button("Allow…") { model.grantAccessibility() }

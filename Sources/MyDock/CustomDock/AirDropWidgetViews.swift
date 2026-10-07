@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -56,9 +57,9 @@ private struct AirDropCompactTile: View {
         .frame(width: width, height: DockDesign.Module.height)
         .contentShape(shape)
         .onDrop(of: [UTType.fileURL, UTType.url], isTargeted: $isDropTargeted, perform: shareDroppedItems)
-        .help("Drop files or links to share with AirDrop")
+        .help("Drop files or links to send them with AirDrop")
         .accessibilityLabel("AirDrop")
-        .accessibilityHint("Drop files or links to open the macOS sharing picker")
+        .accessibilityHint("Drop files or links to send them with AirDrop")
     }
 
     private func shareDroppedItems(_ providers: [NSItemProvider]) -> Bool {
@@ -74,10 +75,31 @@ private struct AirDropCompactTile: View {
         guard !compatibleProviders.isEmpty else { return false }
 
         AirDropDroppedItemLoader.load(compatibleProviders) { urls in
-            guard !urls.isEmpty, let anchorView = anchor.view else { return }
-            NSSharingServicePicker(items: urls)
-                .show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxY)
+            // The drop was accepted before its items loaded: say so when none could be shared.
+            if !AirDropSharing.send(urls, anchor: anchor.view) { NSSound.beep() }
         }
+        return true
+    }
+}
+
+/// AirDrop first; the system sharing picker when AirDrop cannot take the items, or when asked for (More…).
+@MainActor
+enum AirDropSharing {
+    /// False when nothing could be shared (no items, or no picker anchor for the fallback).
+    @discardableResult
+    static func send(_ urls: [URL], anchor: NSView?) -> Bool {
+        guard !urls.isEmpty else { return false }
+        if let airDrop = NSSharingService(named: .sendViaAirDrop), airDrop.canPerform(withItems: urls) {
+            airDrop.perform(withItems: urls)
+            return true
+        }
+        return showPicker(urls, anchor: anchor)
+    }
+
+    @discardableResult
+    static func showPicker(_ urls: [URL], anchor: NSView?) -> Bool {
+        guard !urls.isEmpty, let anchor else { return false }
+        NSSharingServicePicker(items: urls).show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
         return true
     }
 }
@@ -103,13 +125,20 @@ private struct AirDropTileAnchor: NSViewRepresentable {
 }
 
 enum AirDropDroppedItemLoader {
+    private static let logger = Logger(subsystem: Product.bundleIdentifier, category: "airdrop")
+
     static func load(_ providers: [(NSItemProvider, String)], completion: @escaping ([URL]) -> Void) {
         let group = DispatchGroup()
         let urls = AirDropURLCollection()
 
         for (provider, typeIdentifier) in providers {
             group.enter()
-            provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, _ in
+            provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, error in
+                if let error {
+                    // The error's domain and code only: never the dropped item or its address.
+                    let nsError = error as NSError
+                    Self.logger.error("A dropped item could not be loaded: \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public)")
+                }
                 let url = Self.url(from: item)
                 if let url {
                     urls.append(url)
@@ -170,6 +199,8 @@ private struct AirDropPopoutView: View {
     @State private var isDropTargeted = false
     @State private var linkText = ""
     @State private var errorMessage: String?
+    /// The More… control's view, which the sharing picker opens from.
+    @State private var pickerAnchor = AirDropAnchorBox()
 
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
@@ -179,7 +210,7 @@ private struct AirDropPopoutView: View {
                         WidgetToggleGlyph(kind: "AirDrop", symbol: WidgetRegistry.airDropSymbol, active: isDropTargeted, diameter: 44)
                         Text(isDropTargeted ? "Drop to add items" : "Drop files or links here")
                             .font(.system(size: 13, weight: .medium))
-                        Text("MyDock passes them to the macOS sharing picker.")
+                        Text("Send them with AirDrop, or choose another way to share.")
                             .font(DockDesign.Grouped.footerFont).foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 12)
@@ -196,12 +227,16 @@ private struct AirDropPopoutView: View {
                 }
                 GroupedSection(separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
                     ForEach(shareURLs, id: \.absoluteString) { url in
+                        let name = url.isFileURL ? url.lastPathComponent : (url.host ?? url.absoluteString)
                         WidgetPopoutRow {
                             HStack(spacing: 8) {
                                 Image(systemName: url.isFileURL ? "doc" : "link").foregroundStyle(.secondary).frame(width: 18)
                                     .accessibilityHidden(true)
-                                Text(url.isFileURL ? url.lastPathComponent : (url.host ?? url.absoluteString))
-                                    .font(DockDesign.Grouped.titleFont).lineLimit(1)
+                                Text(name).font(DockDesign.Grouped.titleFont).lineLimit(1)
+                                Spacer(minLength: 8)
+                                WidgetRowIconButton(symbol: "minus.circle", label: "Remove \(name)") {
+                                    shareURLs.removeAll { $0.absoluteString == url.absoluteString }
+                                }
                             }
                         }
                     }
@@ -212,17 +247,29 @@ private struct AirDropPopoutView: View {
                                 .textFieldStyle(.plain)
                                 .onSubmit(addLink)
                                 .accessibilityLabel("Web link")
-                            Button("Add Link", action: addLink).buttonStyle(.borderless)
+                            Button("Add Link", action: addLink)
+                                .buttonStyle(WidgetRowTextButtonStyle())
+                                .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
                 }
             }
 
             if !shareURLs.isEmpty {
-                HStack {
+                // AirDrop is the action; More… keeps the system sharing picker for everything else.
+                HStack(spacing: 12) {
                     Spacer()
-                    AirDropShareButton(urls: shareURLs)
-                        .frame(height: 30).fixedSize()
+                    PillButton("Send with AirDrop", systemImage: WidgetRegistry.airDropSymbol) {
+                        if !AirDropSharing.send(shareURLs, anchor: pickerAnchor.view) {
+                            errorMessage = "AirDrop is unavailable for these items."
+                        }
+                    }
+                    Button("More…") { _ = AirDropSharing.showPicker(shareURLs, anchor: pickerAnchor.view) }
+                        .buttonStyle(WidgetRowTextButtonStyle())
+                        .background { AirDropTileAnchor(box: pickerAnchor).allowsHitTesting(false) }
+                        .help("Choose another way to share")
+                        .accessibilityLabel("More Sharing Options")
+                    Spacer()
                 }
             }
             if let errorMessage {

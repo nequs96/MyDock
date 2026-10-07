@@ -1,7 +1,9 @@
 import AppKit
 import Foundation
+import IOKit.ps
 import SwiftUI
 import Testing
+import UniformTypeIdentifiers
 @testable import MyDock
 
 /// Audit lane E: widget foundation and core widget families.
@@ -206,5 +208,129 @@ import Testing
         // A real edit is still written.
         try drafts.saveNote("Hello again", for: note.id, in: profileID, to: store)
         #expect(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    // MARK: Part 2: market colour, battery state, Disk, World Clock, numbers, Trash, AirDrop
+
+    @Test func anUnchangedMarketPriceIsNotColouredAsAGain() {
+        #expect(MarketFaceText.changeColor(nil) == Color.secondary)
+        #expect(MarketFaceText.changeColor(0) == Color.secondary)
+        #expect(MarketFaceText.changeColor(0.004) == Color.secondary)
+        #expect(MarketFaceText.changeColor(-0.004) == Color.secondary)
+        #expect(MarketFaceText.changeColor(Double.nan) == Color.secondary)
+        #expect(MarketFaceText.changeColor(1.25) == WidgetPalette.positive)
+        #expect(MarketFaceText.changeColor(-0.5) == WidgetPalette.critical)
+    }
+
+    @Test func batteryStatusUsesTheWordsMacOSUses() throws {
+        func reading(charging: Bool, state: String?, charged: Bool? = nil) throws -> BatteryReading {
+            var description: [String: Any] = [
+                kIOPSNameKey as String: "InternalBattery-0",
+                kIOPSCurrentCapacityKey as String: 80,
+                kIOPSMaxCapacityKey as String: 100,
+                kIOPSIsChargingKey as String: charging,
+                kIOPSTypeKey as String: kIOPSInternalBatteryType as String
+            ]
+            if let state { description[kIOPSPowerSourceStateKey as String] = state }
+            if let charged { description[kIOPSIsChargedKey as String] = charged }
+            return try #require(BatteryReader.reading(from: description))
+        }
+        let ac = kIOPSACPowerValue as String
+        let battery = kIOPSBatteryPowerValue as String
+        #expect(try reading(charging: true, state: ac).statusText == "Charging")
+        #expect(try reading(charging: false, state: ac, charged: true).statusText == "Charged")
+        // Plugged in but held (Optimized Battery Charging): macOS says "Not charging".
+        #expect(try reading(charging: false, state: ac).statusText == "Not charging")
+        // Running on the battery is not "Not charging".
+        #expect(try reading(charging: false, state: battery).statusText == "On battery")
+        #expect(try reading(charging: false, state: nil).statusText == "On battery")
+        // Older call sites keep compiling and read as on battery.
+        #expect(BatteryReading(name: "Mouse", percentage: 50, isCharging: false, isInternal: false).statusText == "On battery")
+    }
+
+    @Test func batteryPopoutLeadsWithTheMacAndColoursOnlyLowCharge() {
+        let mouse = BatteryReading(name: "Mouse", percentage: 15, isCharging: false, isInternal: false)
+        let mac = BatteryReading(name: "InternalBattery-0", percentage: 84, isCharging: false, isInternal: true)
+        #expect(BatteryPresentation.primaryIndex([mouse, mac]) == 1)
+        #expect(BatteryPresentation.primaryIndex([mouse]) == 0)
+        #expect(BatteryPresentation.primaryIndex([]) == nil)
+        #expect(BatteryPresentation.lowChargeColor(mac) == nil)
+        #expect(BatteryPresentation.lowChargeColor(mouse) == WidgetPalette.warning)
+        #expect(BatteryPresentation.lowChargeColor(BatteryReading(name: "Mouse", percentage: 8, isCharging: false, isInternal: false)) == WidgetPalette.critical)
+        #expect(BatteryPresentation.lowChargeColor(BatteryReading(name: "Mouse", percentage: 8, isCharging: true, isInternal: false)) == nil)
+        // VoiceOver reads the display name, not the IOKit name, and the state.
+        let spoken = BatteryPresentation.accessibilityValue(mac)
+        #expect(spoken.hasPrefix("Mac battery, "))
+        #expect(spoken.hasSuffix(", on battery"))
+        #expect(!spoken.contains("InternalBattery"))
+    }
+
+    @Test func worldClockRowsUseAPluralisedShortDayOffset() {
+        #expect(WidgetTimingPresentation.shortDayOffset(0) == "Same day")
+        #expect(WidgetTimingPresentation.shortDayOffset(1) == "+1 day")
+        #expect(WidgetTimingPresentation.shortDayOffset(2) == "+2 days")
+        #expect(WidgetTimingPresentation.shortDayOffset(-1) == "\u{2212}1 day")
+        #expect(WidgetTimingPresentation.shortDayOffset(-2) == "\u{2212}2 days")
+    }
+
+    @Test func percentagesAndVolumesFollowTheLocale() {
+        let us = Locale(identifier: "en_US")
+        #expect(DockNumberText.percent(fraction: 0.72, locale: us) == "72%")
+        #expect(DockNumberText.percent(fraction: 0.726, locale: us) == "73%")
+        // A period's progress never reads 100% before it ends.
+        #expect(DockNumberText.percent(fraction: 0.996, roundingDown: true, locale: us) == "99%")
+        #expect(DockNumberText.percent(fraction: .nan, locale: us) == "0%")
+        let french = DockNumberText.percent(fraction: 0.72, locale: Locale(identifier: "fr_FR"))
+        #expect(french.hasPrefix("72") && french != "72%")
+        let volume = DockNumberText.milliliters(250, locale: us)
+        #expect(volume.hasPrefix("250") && volume.hasSuffix("mL"))
+    }
+
+    @Test func stickyNoteLimitIsOneShortLineInByteUnits() {
+        let near = StickyNoteLimitText.text(bytes: 1_000_000, limit: 1_048_576)
+        let over = StickyNoteLimitText.text(bytes: 1_100_000, limit: 1_048_576)
+        #expect(near.hasPrefix("Near the ") && near.hasSuffix(" note limit."))
+        #expect(over.hasPrefix("Over the "))
+        #expect(!near.contains("UTF-8") && !near.contains("1,048,576"))
+    }
+
+    @Test func usageBarsShareOneMeterAtTwoHeights() {
+        #expect(UsageBar(fraction: 0.5).height == 3)
+        #expect(UsageBar.popoutHeight == 6)
+    }
+
+    @Test func emptyTrashCoversEveryVolumeAndOffersAutomationOnDenial() {
+        // Items may sit only on an external drive's Trash, which the home count does not see.
+        #expect(TrashFacePresentation.canEmpty(count: 0, errorMessage: nil, needsAccess: false))
+        #expect(!TrashFacePresentation.canEmpty(count: 0, errorMessage: "Read failed", needsAccess: false))
+        #expect(TrashCopy.mayNeedAutomation(AutomationError.permissionDenied))
+        #expect(TrashCopy.mayNeedAutomation(NowPlayingParsingError.malformedResponse))
+        #expect(!TrashCopy.mayNeedAutomation(AutomationError.failed(exitStatus: 1)))
+        let denied = TrashActionError.automationDenied("Not allowed")
+        #expect(denied.suggestsAutomationSettings && denied.localizedDescription == "Not allowed")
+        #expect(!TrashActionError.failed("Other").suggestsAutomationSettings)
+        #expect(TrashCopy.countLabel(1) == "1 item in home Trash")
+    }
+
+    @Test func airDropDropsKeepOnlyShareableItems() async {
+        let link = NSItemProvider(item: NSURL(string: "https://example.com/page"), typeIdentifier: UTType.url.identifier)
+        let mail = NSItemProvider(item: "mailto:someone@example.com" as NSString, typeIdentifier: UTType.url.identifier)
+        let accepted: [URL] = await withCheckedContinuation { continuation in
+            AirDropDroppedItemLoader.load([(link, UTType.url.identifier), (mail, UTType.url.identifier)]) { urls in
+                continuation.resume(returning: urls)
+            }
+        }
+        #expect(accepted.map(\.absoluteString) == ["https://example.com/page"])
+        // A drop with nothing shareable completes empty, which the tile answers with a beep.
+        let rejected: [URL] = await withCheckedContinuation { continuation in
+            AirDropDroppedItemLoader.load([(mail, UTType.url.identifier)]) { urls in
+                continuation.resume(returning: urls)
+            }
+        }
+        #expect(rejected.isEmpty)
+    }
+
+    @Test func aDarkDockDrawsTheDarkWindowBackgroundWhateverTheSystemAppearance() {
+        #expect(DockMaterialSurface.windowBackground(.dark) != DockMaterialSurface.windowBackground(.light))
     }
 }

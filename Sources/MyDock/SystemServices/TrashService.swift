@@ -157,7 +157,8 @@ enum TrashActions {
         do {
             _ = try await BoundedAutomationRunner.run("tell application id \"com.apple.finder\" to empty trash")
         } catch {
-            throw TrashActionError.failed(TrashCopy.emptyFailureMessage(for: error))
+            let message = TrashCopy.emptyFailureMessage(for: error)
+            throw TrashCopy.mayNeedAutomation(error) ? TrashActionError.automationDenied(message) : TrashActionError.failed(message)
         }
     }
 }
@@ -173,6 +174,11 @@ enum TrashCopy {
     static let fullDiskAccessButton = "Allow Full Disk Access…"
 
     static func countLabel(_ count: Int) -> String { count == 1 ? "1 item in home Trash" : "\(count) items in home Trash" }
+
+    /// Whether a failed empty may be Finder automation being denied, so the alert can offer its setting.
+    static func mayNeedAutomation(_ error: Error) -> Bool {
+        (error as? AutomationError) == .permissionDenied || error is NowPlayingParsingError
+    }
 
     /// The automation runner reports every non-zero osascript exit the same way, so describe the likely causes without claiming one.
     static func emptyFailureMessage(for error: Error) -> String {
@@ -193,11 +199,18 @@ enum TrashCopy {
 enum TrashActionError: LocalizedError {
     case scriptUnavailable
     case failed(String)
+    /// Finder did not empty the Trash and Automation access for it may be denied.
+    case automationDenied(String)
 
     var errorDescription: String? {
         switch self {
         case .scriptUnavailable: "The macOS Trash action is unavailable."
-        case let .failed(message): message
+        case let .failed(message), let .automationDenied(message): message
         }
+    }
+
+    var suggestsAutomationSettings: Bool {
+        if case .automationDenied = self { return true }
+        return false
     }
 }
