@@ -66,8 +66,8 @@ struct N2UtilityRepairTests {
         #expect(TrashCopy.emptyConfirmationMessage.contains("not counted"))
         #expect(TrashCopy.countScope.contains("home Trash"))
         #expect(TrashCopy.countLabel(1) == "1 item in home Trash" && TrashCopy.countLabel(3).contains("home Trash"))
-        let message = TrashCopy.emptyFailureMessage(for: NowPlayingParsingError.malformedResponse)
-        #expect(message.contains("Automation") && message.contains("could not be deleted"))
+        #expect(TrashCopy.emptyFailureMessage(for: AutomationError.permissionDenied).contains("Automation"))
+        #expect(TrashCopy.emptyFailureMessage(for: AutomationError.failed(exitStatus: 1)).contains("may not have been deleted"))
         #expect(TrashCopy.emptyFailureMessage(for: TrashActionError.failed("Custom")) == "Custom")
     }
 

@@ -78,12 +78,6 @@ enum NetworkRateCalculator {
         return wrapped <= modulus / 2 ? wrapped : nil
     }
 
-    static func counterDelta(from previous: UInt64, to current: UInt64) -> UInt64 {
-        guard current < previous else { return current - previous }
-        let modulus = UInt64(UInt32.max) + 1
-        return (modulus - min(previous, modulus - 1)) + min(current, modulus - 1)
-    }
-
     private static func zipOptional(_ lhs: UInt64?, _ rhs: UInt64?) -> (UInt64, UInt64)? {
         guard let lhs, let rhs else { return nil }
         return (lhs, rhs)

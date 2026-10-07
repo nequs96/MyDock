@@ -17,7 +17,8 @@ enum DockBadgeValuePolicy {
             if number > 999 { return "999+" }
             return String(number)
         }
-        return String(value.prefix(8))
+        // A long label is shortened with an ellipsis so it reads as truncated, not as a typo.
+        return value.count > 8 ? String(value.prefix(7)) + "…" : value
     }
 
     static func badges(from entries: [DockBadgeEntry]) -> [String: String] {
@@ -42,7 +43,7 @@ enum DockBadgeReader {
     }
 
     static func read() -> [String: String] {
-        guard isSupported, AXIsProcessTrusted(),
+        guard isSupported, AppRuntimeEnvironment.allowsNativeEffects, AXIsProcessTrusted(),
               let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else { return [:] }
         let application = AXUIElementCreateApplication(dock.processIdentifier)
         AXUIElementSetMessagingTimeout(application, 0.1)
@@ -129,12 +130,18 @@ final class DockBadgeMonitor: ObservableObject {
             return
         }
         refreshTask = Task { [weak self] in
-            while !Task.isCancelled {
-                let latest = await Task.detached(priority: .utility) { DockBadgeReader.read() }.value
+            await self?.readBadges()
+            // The shared scheduler coalesces this poll with other refreshes and pauses it while away.
+            for await _ in RefreshScheduler.shared.ticks(every: 5) {
                 guard !Task.isCancelled, let self else { return }
-                self.badges = latest
-                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                await self.readBadges()
             }
         }
+    }
+
+    private func readBadges() async {
+        let latest = await Task.detached(priority: .utility) { DockBadgeReader.read() }.value
+        guard !Task.isCancelled else { return }
+        badges = latest
     }
 }

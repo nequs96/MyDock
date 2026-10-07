@@ -7,19 +7,9 @@ struct AppLifecycleSettingsView: View {
     @State private var updateSourceExpanded = false
     @AppStorage(MyDockInterfaceAppearance.preferenceKey, store: AppRuntimeEnvironment.defaults) private var interfaceAppearance = "system"
     @AppStorage("app.mydock.release-repository", store: AppRuntimeEnvironment.defaults) private var repositoryURL = ""
-    private var loginFooter: String {
-        switch login.state {
-        case .unavailable: "Login launch is unavailable in this session."
-        case .notRegistered: "Not registered to launch at login."
-        case .enabled: "Allowed to launch at login."
-        case .requiresApproval: "Approve MyDock in Login Items."
-        case .notFound: "macOS could not find this login service."
-        case .unknown: "Check the login status in Login Items."
-        }
-    }
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            GroupedSection("Application", footer: loginFooter) {
+            GroupedSection("Application", footer: login.state.message) {
                 SettingsControlRow(title: "MyDock appearance") {
                     Picker("MyDock appearance", selection: $interfaceAppearance) {
                         ForEach(MyDockInterfaceAppearance.allCases) { Text($0.title).tag($0.rawValue) }
@@ -29,7 +19,7 @@ struct AppLifecycleSettingsView: View {
                 if login.requiresApproval { GroupedRow("Approve in Login Items…", role: .button) { login.openApprovalSettings() } }
                 if login.state == .notFound || login.state == .unknown { GroupedRow("Open Login Items…", role: .button) { login.openApprovalSettings() } }
                 if let error = login.errorMessage { GroupedRow(error).foregroundStyle(.orange) }
-            }.id("Application").help(login.state.message)
+            }.id("Application")
             GroupedSection("Updates", footer: "Updates are checked only when requested.") {
                 GroupedRow("Installed version", value: Product.marketingVersion)
                 GroupedRow("Check for Updates", role: .button) { Task { await updates.check(repositoryURL: repositoryURL) } }

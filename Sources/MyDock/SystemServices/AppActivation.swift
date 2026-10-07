@@ -12,4 +12,13 @@ enum AppActivation {
         }
         return app.activate(options: [.activateIgnoringOtherApps])
     }
+
+    /// Brings MyDock forward after the person asked for one of its windows or alerts.
+    static func activateSelf() {
+        if #available(macOS 14.0, *) {
+            NSApplication.shared.activate()
+        } else {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
+    }
 }

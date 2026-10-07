@@ -91,16 +91,6 @@ enum WindowAccessibilityService {
         return AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
     }
 
-    static func shouldMinimizeFocusedApp(toggleEnabled: Bool,
-                                        clickedBundleIdentifier: String?,
-                                        frontmostBundleIdentifier: String?,
-                                        hasFocusedWindow: Bool) -> Bool {
-        toggleEnabled
-            && clickedBundleIdentifier != nil
-            && clickedBundleIdentifier == frontmostBundleIdentifier
-            && hasFocusedWindow
-    }
-
     enum WindowDiscoveryResult: Sendable {
         case available([DockWindowDescriptor])
         case permissionRequired
@@ -384,6 +374,9 @@ final class WindowAccessibilityMonitor: ObservableObject {
     private var wantsPreviews = false
     private var retainsPreviews = false
     private var previewRetentionPolicyApplied = false
+    /// Set once the cache was purged for a missing Screen Recording permission, so the 4 s refresh
+    /// does not enumerate the cache directory again until capture is possible.
+    private var previewCacheClearedForMissingPermission = false
     private let previewCache: WindowPreviewDiskCache
     private let sampleWindows: @MainActor () async -> WindowAccessibilitySample
     private let captureWindows: @MainActor ([DockWindowDescriptor], Set<String>) async -> WindowPreviewBatch
@@ -504,9 +497,13 @@ final class WindowAccessibilityMonitor: ObservableObject {
             previewImageKeys = [:]
             previewAttemptedAt = [:]
             previewAttemptKeys = [:]
-            previewCache.removeAll()
+            if !previewCacheClearedForMissingPermission {
+                previewCacheClearedForMissingPermission = true
+                previewCache.removeAll()
+            }
             return
         }
+        previewCacheClearedForMissingPermission = false
         for descriptor in windows where descriptor.isMinimized {
             guard previews[descriptor.id] == nil,
                   let key = cacheKeys[descriptor.id],
@@ -565,23 +562,7 @@ final class WindowAccessibilityMonitor: ObservableObject {
     }
 }
 
-struct WindowRestoreCandidate {
-    var identifier: String?
-    var title: String
-}
-
 enum WindowRestoreIdentity {
-    /// A native-object match is usable only when exactly one live window has it.
+    /// A native-object match is usable only when exactly one live window has it; titles are never used.
     static func uniqueIndex(_ matches: [Int]) -> Int? { matches.count == 1 ? matches[0] : nil }
-
-    static func match(identifier: String?, title: String, candidates: [WindowRestoreCandidate]) -> Int? {
-        if let identifier {
-            let matches = candidates.indices.filter { candidates[$0].identifier == identifier }
-            // A disappeared stable ID must not redirect an old action to a
-            // different window that happens to reuse its title.
-            return matches.count == 1 ? matches[0] : nil
-        }
-        let matches = candidates.indices.filter { candidates[$0].title == title }
-        return matches.count == 1 ? matches[0] : nil
-    }
 }

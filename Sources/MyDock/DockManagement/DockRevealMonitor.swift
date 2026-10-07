@@ -33,6 +33,8 @@ final class DockRevealMonitor {
 
     private let snapshot: (_ forDwell: Bool) -> Snapshot?
     private let present: (Decision) -> Void
+    /// True for the Dock's own windows (the panel, its popouts, the reveal handle).
+    private let ownsMenuWindow: @MainActor (NSWindow) -> Bool
     private let waitForDwell: @MainActor () async throws -> Void
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
@@ -40,7 +42,9 @@ final class DockRevealMonitor {
     private var dwellTask: Task<Void, Never>?
     private var menuObservations: [AnyCancellable] = []
     private var presenceObservation: AnyCancellable?
-    private(set) var menuTrackingDepth = 0
+    /// Menus opened from the Dock that are tracking now; any other menu in MyDock is not counted.
+    private var trackedMenus = Set<ObjectIdentifier>()
+    var menuTrackingDepth: Int { trackedMenus.count }
     /// Sampling was requested; it runs only while the session is present.
     private var wantsSampling = false
     private var systemIsAway = false
@@ -49,23 +53,41 @@ final class DockRevealMonitor {
     var isSampling: Bool { samplingTask != nil }
 
     init(snapshot: @escaping (_ forDwell: Bool) -> Snapshot?, present: @escaping (Decision) -> Void,
+         ownsMenuWindow: @escaping @MainActor (NSWindow) -> Bool = { _ in true },
          waitForDwell: @escaping @MainActor () async throws -> Void = {
              try await Task.sleep(for: .milliseconds(350))
          }) {
         self.snapshot = snapshot
         self.present = present
+        self.ownsMenuWindow = ownsMenuWindow
         self.waitForDwell = waitForDwell
+        // Menus post these on the main thread.
         menuObservations = [
-            NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification).sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.menuTrackingDepth += 1 }
+            NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification).sink { [weak self] notification in
+                guard let menu = (notification.object as? NSMenu).map({ ObjectIdentifier($0) }) else { return }
+                MainActor.assumeIsolated {
+                    self?.menuBeganTracking(menu, eventWindow: NSApplication.shared.currentEvent?.window)
+                }
             },
-            NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification).sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.menuTrackingDepth = max(0, (self?.menuTrackingDepth ?? 0) - 1) }
+            NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification).sink { [weak self] notification in
+                guard let menu = (notification.object as? NSMenu).map({ ObjectIdentifier($0) }) else { return }
+                MainActor.assumeIsolated { self?.menuEndedTracking(menu) }
             }
         ]
         presenceObservation = SystemPresenceMonitor.shared.$isAway.removeDuplicates().sink { [weak self] away in
             MainActor.assumeIsolated { self?.setSystemAway(away) }
         }
+    }
+
+    /// A tile or popout menu keeps the Dock shown. Settings pop-ups and the status menu do not reveal an
+    /// auto-hidden Dock. A menu opened without an event window (an accessibility action) is counted.
+    func menuBeganTracking(_ menu: ObjectIdentifier, eventWindow: NSWindow?) {
+        if let eventWindow, !ownsMenuWindow(eventWindow) { return }
+        trackedMenus.insert(menu)
+    }
+
+    func menuEndedTracking(_ menu: ObjectIdentifier) {
+        trackedMenus.remove(menu)
     }
 
     func startSampling() {

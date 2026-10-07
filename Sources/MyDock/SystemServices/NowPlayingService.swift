@@ -11,6 +11,13 @@ struct NowPlayingSnapshot: Equatable, Sendable {
     var duration: TimeInterval
     var updatedAt: Date
     var artworkURL: URL?
+
+    /// The position at `date`: a playing track advances from the moment it was read, up to its duration.
+    func livePosition(at date: Date) -> TimeInterval {
+        guard isPlaying else { return position }
+        let advanced = position + max(0, date.timeIntervalSince(updatedAt))
+        return duration > 0 ? min(duration, advanced) : advanced
+    }
 }
 
 enum NowPlayingCommand {
@@ -113,6 +120,8 @@ final class NowPlayingMonitor: ObservableObject {
     private var dockIsVisible = false
     private var schedulerDemand: RefreshDemandToken?
     private var pendingReads: [NowPlayingSource: Task<Void, Never>] = [:]
+    /// Sources that asked for a read while one was in flight; that read may predate a playback command.
+    private var rereadRequested: Set<NowPlayingSource> = []
     private var commandTasks: [NowPlayingSource: Task<Void, Never>] = [:]
 
     private init() {
@@ -185,10 +194,17 @@ final class NowPlayingMonitor: ObservableObject {
             return
         }
 
-        guard pendingReads[source] == nil else { return }
+        guard pendingReads[source] == nil else {
+            rereadRequested.insert(source)
+            return
+        }
         pendingReads[source] = Task { [weak self] in
             guard let self else { return }
-            defer { pendingReads[source] = nil }
+            defer {
+                pendingReads[source] = nil
+                // One more read once this one ends, so a command's result is not lost to a read that started before it.
+                if rereadRequested.remove(source) != nil, !Task.isCancelled { refresh(source) }
+            }
         let artworkStatement = source == .spotify
             ? "try\nset trackArtworkURL to artwork url of current track as text\nend try"
             : ""
@@ -265,6 +281,7 @@ final class NowPlayingMonitor: ObservableObject {
               let bundleIdentifier = application.bundleIdentifier,
               let source = NowPlayingSource.allCases.first(where: { $0.bundleIdentifier == bundleIdentifier }) else { return }
         pendingReads[source]?.cancel()
+        rereadRequested.remove(source)
         commandTasks[source]?.cancel()
         snapshots[source] = nil
         errors[source] = nil

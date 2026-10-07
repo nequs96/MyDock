@@ -39,19 +39,30 @@ enum AppLauncher {
         return !FileManager.default.fileExists(atPath: url.path)
     }
 
+    /// The URL a click opens. Link items are validated again here, so an address stored with a scheme other
+    /// than http or https (an edited or older profiles file) never opens whichever handler macOS assigns.
+    static func openTarget(for item: DockItem) -> URL? {
+        guard let url = resolvedURL(for: item), !isMissingTarget(item) else { return nil }
+        guard item.type == .link else { return url }
+        return DockLinkPolicy.validatedURL(url.absoluteString)
+    }
+
     static func open(_ item: DockItem) {
         guard AppRuntimeEnvironment.allowsNativeEffects else { return }
-        guard let url = resolvedURL(for: item), !isMissingTarget(item) else {
-            showFailure("The saved location for \(item.displayName) is unavailable. Use Locate… in its Dock menu to choose its current location.")
+        let title = "Could not open \(item.displayName)"
+        guard let url = openTarget(for: item) else {
+            showFailure(title, item.type == .link
+                ? "Only web addresses that start with http or https can be opened. Edit the link and try again."
+                : "Its saved location is unavailable. Use Locate… in its Dock menu to choose its current location.")
             return
         }
         if item.type == .application {
             NSWorkspace.shared.openApplication(at: url, configuration: .init()) { _, error in
                 guard let error else { return }
-                Task { @MainActor in showFailure("Could not open \(item.displayName): \(error.localizedDescription)") }
+                Task { @MainActor in showFailure(title, error.localizedDescription) }
             }
         } else if !NSWorkspace.shared.open(url) {
-            showFailure("macOS could not open \(item.displayName). Check the file, address, and its access permissions.")
+            showFailure(title, "Check the file or address and its access permissions.")
         }
     }
 
@@ -76,27 +87,27 @@ enum AppLauncher {
         guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         guard let app = NSRunningApplication(processIdentifier: identity.processID),
               let current = self.identity(for: app), identity.matches(current) else {
-            showFailure("This application is no longer the selected running instance. Open its current menu and try again.")
+            showFailure(staleInstanceTitle, staleInstanceMessage)
             return
         }
         // terminate() requests normal Quit. It does not prove exit or reveal the
         // outcome of another app's unsaved-document prompt. Never force terminate.
         if !app.terminate() {
-            showFailure("Could not request Quit for \(app.localizedName ?? identity.bundleIdentifier). Open the app and choose Quit from its menu.")
+            showFailure("Could not quit \(app.localizedName ?? identity.bundleIdentifier)", "Open the app and choose Quit from its menu.")
         }
     }
 
     /// Opens dropped files or addresses with the application tile they were dropped on.
     static func open(_ urls: [URL], with item: DockItem) {
         guard AppRuntimeEnvironment.allowsNativeEffects, item.type == .application, !urls.isEmpty else { return }
+        let name = item.displayName
         guard let applicationURL = resolvedURL(for: item), !isMissingTarget(item) else {
-            showFailure("The saved location for \(item.displayName) is unavailable. Use Locate… in its Dock menu to choose its current location.")
+            showFailure("Could not open \(name)", "Its saved location is unavailable. Use Locate… in its Dock menu to choose its current location.")
             return
         }
-        let name = item.displayName
         NSWorkspace.shared.open(urls, withApplicationAt: applicationURL, configuration: NSWorkspace.OpenConfiguration()) { _, error in
             guard let error else { return }
-            Task { @MainActor in showFailure("Could not open the items with \(name): \(error.localizedDescription)") }
+            Task { @MainActor in showFailure("Could not open the items with \(name)", error.localizedDescription) }
         }
     }
 
@@ -114,7 +125,7 @@ enum AppLauncher {
 
     static func toggleHidden(_ identity: NativeApplicationIdentity) {
         guard let app = validatedApplication(identity) else {
-            showFailure("This application is no longer the selected running instance. Open its current menu and try again.")
+            showFailure(staleInstanceTitle, staleInstanceMessage)
             return
         }
         if app.isHidden { _ = app.unhide() } else { _ = app.hide() }
@@ -128,7 +139,7 @@ enum AppLauncher {
     /// Force Quit never runs without the person confirming this alert. Cancel is the default button.
     static func forceQuit(_ identity: NativeApplicationIdentity) {
         guard let app = validatedApplication(identity) else {
-            showFailure("This application is no longer the selected running instance. Open its current menu and try again.")
+            showFailure(staleInstanceTitle, staleInstanceMessage)
             return
         }
         let name = app.localizedName ?? identity.bundleIdentifier
@@ -141,7 +152,7 @@ enum AppLauncher {
         force.hasDestructiveAction = true
         guard alert.runModal() == .alertSecondButtonReturn, let current = validatedApplication(identity) else { return }
         if !current.forceTerminate() {
-            showFailure("Could not force quit \(name).")
+            showFailure("Could not force quit \(name)", "It may have quit already.")
         }
     }
 
@@ -161,10 +172,13 @@ enum AppLauncher {
         return repaired
     }
 
-    private static func showFailure(_ message: String) {
+    private static let staleInstanceTitle = "App is no longer running"
+    private static let staleInstanceMessage = "It quit or restarted. Open its current menu and try again."
+
+    private static func showFailure(_ title: String, _ message: String) {
         guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         let alert = NSAlert()
-        alert.messageText = "Could not open item"
+        alert.messageText = title
         alert.informativeText = message
         alert.runModal()
     }

@@ -1135,7 +1135,7 @@ struct ProfileStoreTests {
         #expect(rates.first?.receivedBytesPerSecond == 500)
         #expect(rates.first?.sentBytesPerSecond == 200)
         #expect(rates.first?.addresses == ["192.0.2.10"])
-        #expect(NetworkRateCalculator.counterDelta(from: UInt64(UInt32.max) - 5, to: 3) == 9)
+        #expect(NetworkRateCalculator.plausibleDelta(from: UInt64(UInt32.max) - 5, to: 3) == 9)
 
         let unavailableBefore = NetworkCountersReading(uptime: 1, interfaces: [NetworkInterfaceCounters(name: "en7", receivedBytes: nil, sentBytes: nil, addresses: [])])
         let unavailableAfter = NetworkCountersReading(uptime: 2, interfaces: [NetworkInterfaceCounters(name: "en7", receivedBytes: nil, sentBytes: nil, addresses: [])])
@@ -1198,10 +1198,6 @@ struct ProfileStoreTests {
         #expect(CustomDockVisibilityPolicy.showsSystemTrash(isEnabled: true, hasProfileTrashWidget: false))
         #expect(!CustomDockVisibilityPolicy.showsSystemTrash(isEnabled: false, hasProfileTrashWidget: false))
         #expect(!CustomDockVisibilityPolicy.showsSystemTrash(isEnabled: true, hasProfileTrashWidget: true))
-        #expect(WindowAccessibilityService.shouldMinimizeFocusedApp(toggleEnabled: true, clickedBundleIdentifier: "com.example.app", frontmostBundleIdentifier: "com.example.app", hasFocusedWindow: true))
-        #expect(!WindowAccessibilityService.shouldMinimizeFocusedApp(toggleEnabled: false, clickedBundleIdentifier: "com.example.app", frontmostBundleIdentifier: "com.example.app", hasFocusedWindow: true))
-        #expect(!WindowAccessibilityService.shouldMinimizeFocusedApp(toggleEnabled: true, clickedBundleIdentifier: "com.example.app", frontmostBundleIdentifier: "com.example.other", hasFocusedWindow: true))
-        #expect(!WindowAccessibilityService.shouldMinimizeFocusedApp(toggleEnabled: true, clickedBundleIdentifier: "com.example.app", frontmostBundleIdentifier: "com.example.app", hasFocusedWindow: false))
     }
 
     @Test func dockMagnificationIsLocalizedAndHonorsAccessibilityMotionSetting() {
@@ -1323,7 +1319,7 @@ struct ProfileStoreTests {
         try Data().write(to: root.appendingPathComponent(".hidden"))
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let entries = try FolderContentsReader.entries(at: root)
+        let entries = try FolderContentsReader.listing(at: root).entries
 
         #expect(entries.map(\.name) == ["A Folder", "Z File.txt"])
         #expect(entries.first?.isDirectory == true)

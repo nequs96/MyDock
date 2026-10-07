@@ -46,13 +46,13 @@ struct WindowPreviewCacheTests {
         let relaunchedCache = WindowPreviewDiskCache(directoryURL: directory,
                                                      now: { currentDate },
                                                      maximumAge: 60)
-        #expect(relaunchedCache.image(for: key) != nil)
+        #expect(relaunchedCache.preview(for: key)?.image != nil)
         let file = directory.appendingPathComponent(key).appendingPathExtension("jpg")
         let permissions = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
         #expect(permissions?.intValue == 0o600)
 
         currentDate = start.addingTimeInterval(61)
-        #expect(relaunchedCache.image(for: key) == nil)
+        #expect(relaunchedCache.preview(for: key) == nil)
         #expect(!FileManager.default.fileExists(atPath: file.path))
     }
 

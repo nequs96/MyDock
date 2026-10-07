@@ -72,17 +72,13 @@ final class WindowPreviewDiskCache {
         self.maximumAge = maximumAge
         self.maximumEntryCount = maximumEntryCount
         self.maximumTotalBytes = maximumTotalBytes
-        prepareDirectory()
+        // The directory is created on the first store, so users who never keep previews get none.
         prune()
     }
 
     func pruneExpired() {
         prepareDirectory()
         prune()
-    }
-
-    func image(for key: String) -> NSImage? {
-        preview(for: key)?.image
     }
 
     func preview(for key: String) -> CachedWindowPreview? {

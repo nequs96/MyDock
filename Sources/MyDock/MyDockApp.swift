@@ -29,15 +29,17 @@ struct MyDockApp: App {
 }
 
 @MainActor
-final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     private var dockController: CustomDockWindowController?
     private var statusItem: NSStatusItem?
+    /// What the status button shows now; it is updated only when this changes.
+    private var statusButtonModel: MenuBarStatusButtonModel?
+    private var appliedOnboardingComplete: Bool?
     private var stateObservation: AnyCancellable?
     private var persistenceObservation: AnyCancellable?
     private var shortcutObservation: AnyCancellable?
     private var wakeReconcileObservation: AnyCancellable?
     private var automaticSwitching: AutomaticSwitchingController?
-    private var automaticSwitchingObservation: AnyCancellable?
     private var windows: [String: NSWindow] = [:]
     private let workspaceNavigation = DockWorkspaceNavigation()
     private var pendingCustomMainMode: Bool?
@@ -153,6 +155,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             return
         }
         DiagnosticsService.shared.record(.appLaunched)
+        appliedOnboardingComplete = store.state.settings.onboardingComplete
         NSApplication.shared.setActivationPolicy(store.state.settings.onboardingComplete ? .accessory : .regular)
         dockController = CustomDockWindowController(store: store) { [weak self] page in
             self?.showSettings(page: page)
@@ -162,13 +165,16 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         let automaticSwitching = AutomaticSwitchingController(store: store)
         self.automaticSwitching = automaticSwitching
         automaticSwitching.start()
-        automaticSwitchingObservation = AutomaticSwitchingStatus.shared.objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in self?.rebuildMenu() }
+        // The status menu is built when it opens (menuNeedsUpdate), so state and rule changes never rebuild it.
         stateObservation = store.$state.receive(on: RunLoop.main).sink { [weak self] state in
-            self?.rebuildMenu()
+            self?.updateStatusButton()
             NativeDockAutoSaveMonitor.shared.configure(
                 enabled: state.settings.onboardingComplete && state.settings.automaticallySaveNativeDockChanges,
                 profileID: state.settings.activeNativeProfileID)
-            NSApplication.shared.setActivationPolicy(state.settings.onboardingComplete ? .accessory : .regular)
+            if self?.appliedOnboardingComplete != state.settings.onboardingComplete {
+                self?.appliedOnboardingComplete = state.settings.onboardingComplete
+                NSApplication.shared.setActivationPolicy(state.settings.onboardingComplete ? .accessory : .regular)
+            }
             let activeCustomProfileExists = state.settings.activeCustomProfileID.map { id in
                 state.profiles.contains { $0.id == id && $0.kind == .custom }
             } ?? false
@@ -176,7 +182,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         }
         persistenceObservation = Publishers.CombineLatest(store.$persistenceError, store.$hasUnpersistedChanges)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _, _ in self?.rebuildMenu() }
+            .sink { [weak self] _, _ in self?.updateStatusButton() }
         GlobalShortcutController.shared.onActivateProfile = { [weak self] profileID in
             self?.activateProfile(profileID)
         }
@@ -189,8 +195,8 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             showWhatsNew()
         }
         Task { @MainActor in
-            do { try await NativeDockController.shared.recoverInterruptedTransaction(automatic: true) }
-            catch { NSLog("MyDock could not recover an interrupted Dock operation: %@", error.localizedDescription) }
+            // The controller logs a failure, records it in diagnostics and keeps it for Settings to show.
+            _ = try? await NativeDockController.shared.recoverInterruptedTransaction(automatic: true)
             await AlarmNotificationService.reconcileSchedules(in: store)
             await HydrationReminderService.reconcileSchedules(in: store)
         }
@@ -247,23 +253,23 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             alert.addButton(withTitle: "Retry Save")
             alert.addButton(withTitle: "Cancel Quit")
             alert.addButton(withTitle: "Quit Without Saving")
-            switch alert.runModal() {
-            case .alertFirstButtonReturn:
-                WidgetSetupDraftStore.shared.flushNotes(to: store)
-                let draftsSaved = store.utilityDrafts.flush()
-                store.commit()
-                guard !store.hasUnpersistedChanges, !WidgetSetupDraftStore.shared.hasPendingNotes, draftsSaved else {
+            // A failed Retry Save shows the alert again with the new reason; only Cancel Quit stops the quit.
+            retrying: while true {
+                switch alert.runModal() {
+                case .alertFirstButtonReturn:
+                    let retriedNotes = WidgetSetupDraftStore.shared.flushNotes(to: store)
+                    let draftsSaved = store.utilityDrafts.flush()
+                    store.commit()
+                    if !store.hasUnpersistedChanges, !WidgetSetupDraftStore.shared.hasPendingNotes, draftsSaved { break retrying }
+                    let retriedNoteError: String? = { if case .failure(let error) = retriedNotes { return error.localizedDescription }; return nil }()
+                    alert.informativeText = retriedNoteError ?? store.utilityDrafts.errorMessage ?? store.persistenceError ?? "MyDock still could not save its latest changes."
+                case .alertThirdButtonReturn:
+                    quitWithoutSaving = true
+                    break retrying
+                default:
                     DiagnosticsService.shared.record(.quitCancelled)
                     return .terminateCancel
                 }
-            case .alertSecondButtonReturn:
-                DiagnosticsService.shared.record(.quitCancelled)
-                return .terminateCancel
-            case .alertThirdButtonReturn:
-                quitWithoutSaving = true
-            default:
-                DiagnosticsService.shared.record(.quitCancelled)
-                return .terminateCancel
             }
         }
         #if DEBUG
@@ -327,27 +333,35 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "dock.rectangle", accessibilityDescription: Product.name)
         item.button?.imagePosition = .imageLeading
+        let menu = NSMenu()
+        menu.delegate = self
+        item.menu = menu
         statusItem = item
-        rebuildMenu()
+        updateStatusButton()
     }
 
-    private func rebuildMenu() {
+    /// Updates the status button only when what it shows changes, so a slider tick or a rename
+    /// keystroke does not relayout the menu bar.
+    private func updateStatusButton() {
         guard let statusItem else { return }
-        let title = store.state.settings.showActiveProfileNameInMenuBar
-            ? MenuBarProfileTitle.title(in: store.state) : nil
-        statusItem.length = title == nil ? NSStatusItem.squareLength : NSStatusItem.variableLength
+        let model = MenuBarStatusButtonModel(state: store.state, hasUnsavedChanges: store.hasUnpersistedChanges,
+                                             persistenceError: store.persistenceError)
+        guard model != statusButtonModel else { return }
+        statusButtonModel = model
+        statusItem.length = model.title == nil ? NSStatusItem.squareLength : NSStatusItem.variableLength
         statusItem.button?.image = NSImage(
-            systemSymbolName: store.hasUnpersistedChanges ? "exclamationmark.triangle.fill" : "dock.rectangle",
-            accessibilityDescription: store.hasUnpersistedChanges ? "MyDock has unsaved changes" : Product.name
+            systemSymbolName: model.hasUnsavedChanges ? "exclamationmark.triangle.fill" : "dock.rectangle",
+            accessibilityDescription: model.hasUnsavedChanges ? "MyDock has unsaved changes" : Product.name
         )
-        statusItem.button?.title = title ?? ""
-        let description = MenuBarProfileTitle.toolTip(in: store.state)
-        let persistenceDescription = store.hasUnpersistedChanges
-            ? "Changes are waiting to be saved. " + (store.persistenceError ?? "Retry saving in MyDock Settings.")
-            : nil
-        statusItem.button?.toolTip = [description, persistenceDescription].compactMap { $0 }.joined(separator: "\n")
-        statusItem.button?.setAccessibilityLabel([description, persistenceDescription].compactMap { $0 }.joined(separator: ". "))
-        let menu = NSMenu()
+        statusItem.button?.title = model.title ?? ""
+        statusItem.button?.toolTip = model.toolTip
+        statusItem.button?.setAccessibilityLabel(model.accessibilityLabel)
+    }
+
+    /// Builds the status menu from the current state each time it opens.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === statusItem?.menu else { return }
+        menu.removeAllItems()
         if store.hasUnpersistedChanges {
             let item = NSMenuItem(
                 title: store.canRetryPersistence ? "Changes Not Saved — Retry Save" : "Changes Not Saved — Settings…",
@@ -404,7 +418,6 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit \(Product.name)", action: #selector(quit(_:)), keyEquivalent: "q"))
         menu.items.last?.target = self
-        statusItem.menu = menu
     }
 
     @objc private func selectProfile(_ sender: NSMenuItem) {
@@ -468,7 +481,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         // A window that is open (or minimized) keeps its view state; a closed one released its content.
         if let window = windows["workspace"], window.contentView != nil {
             window.makeKeyAndOrderFront(nil)
-            NSApplication.shared.activate(ignoringOtherApps: true)
+            AppActivation.activateSelf()
             return
         }
         showWindow(id: "workspace", title: "MyDock", root: DockWorkspaceView(store: store, navigation: workspaceNavigation, onContinueSetup: { [weak self] in self?.showOnboarding() }), size: NSSize(width: 1160, height: 760))
@@ -498,13 +511,15 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             window.minSize = id == "workspace" ? NSSize(width: 780, height: 600) : size
             window.delegate = self
             window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: root.modifier(MyDockInterfaceStyle()))
-            window.center()
+            // Windows reopen where the person left them; isolated runs write no preferences.
+            let autosaveName = "MyDock.\(id)"
+            if AppRuntimeEnvironment.isIsolated || !window.setFrameUsingName(autosaveName) { window.center() }
+            if !AppRuntimeEnvironment.isIsolated { window.setFrameAutosaveName(autosaveName) }
             windows[id] = window
         }
         window.contentView = NSHostingView(rootView: root.modifier(MyDockInterfaceStyle()))
         window.makeKeyAndOrderFront(nil)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        AppActivation.activateSelf()
     }
 }
 
@@ -556,5 +571,25 @@ struct DockWorkspaceView: View {
                         .help("Toggle sidebar").accessibilityLabel("Toggle sidebar")
                 }
             }
+    }
+}
+
+/// What the status item button shows. Equal models skip the button update, so edits that change
+/// nothing visible there (a slider tick, a widget setting) do not relayout the menu bar.
+struct MenuBarStatusButtonModel: Equatable {
+    var title: String?
+    var hasUnsavedChanges: Bool
+    var toolTip: String
+    var accessibilityLabel: String
+
+    init(state: PersistentState, hasUnsavedChanges: Bool, persistenceError: String?) {
+        title = state.settings.showActiveProfileNameInMenuBar ? MenuBarProfileTitle.title(in: state) : nil
+        self.hasUnsavedChanges = hasUnsavedChanges
+        let description = MenuBarProfileTitle.toolTip(in: state)
+        let persistenceDescription = hasUnsavedChanges
+            ? "Changes are waiting to be saved. " + (persistenceError ?? "Retry saving in MyDock Settings.")
+            : nil
+        toolTip = [description, persistenceDescription].compactMap { $0 }.joined(separator: "\n")
+        accessibilityLabel = [description, persistenceDescription].compactMap { $0 }.joined(separator: ". ")
     }
 }

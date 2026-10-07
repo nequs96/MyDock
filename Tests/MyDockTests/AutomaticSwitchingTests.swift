@@ -50,12 +50,18 @@ private final class FakeTimer {
     init(date: Date, fire: @escaping @MainActor () -> Void) { self.date = date; self.fire = fire }
 }
 
+private final class FakeFeed {
+    var cancelled = false
+}
+
 @MainActor
 private final class SwitchWorld {
     var now: Date
     var calendar: Calendar
     var frontmost: String?
     var activationHandler: (@MainActor (String?) -> Void)?
+    var clockHandler: (@MainActor () -> Void)?
+    var clockFeed: FakeFeed?
     var timers: [FakeTimer] = []
 
     init(now: Date, calendar: Calendar) { self.now = now; self.calendar = calendar }
@@ -70,6 +76,12 @@ private final class SwitchWorld {
         timer.fire()
     }
 
+    /// Wake, a clock change or a time zone change, delivered only while the controller listens.
+    func fireClockChange() {
+        guard let clockFeed, !clockFeed.cancelled else { return }
+        clockHandler?()
+    }
+
     func dependencies() -> AutomaticSwitchingController.Dependencies {
         AutomaticSwitchingController.Dependencies(
             now: { [unowned self] in self.now },
@@ -80,7 +92,12 @@ private final class SwitchWorld {
                 self.activationHandler = handler
                 return AnyCancellable {}
             },
-            observeClockChanges: { _ in AnyCancellable {} },
+            observeClockChanges: { [unowned self] handler in
+                let feed = FakeFeed()
+                self.clockHandler = handler
+                self.clockFeed = feed
+                return AnyCancellable { feed.cancelled = true }
+            },
             schedule: { [unowned self] date, fire in
                 let timer = FakeTimer(date: date, fire: fire)
                 self.timers.append(timer)
@@ -536,6 +553,7 @@ struct AutomaticSwitchingTests {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         let overnight = windowRule(days: [1, 2, 3, 4, 5, 6, 7], from: 22 * 60, to: 6 * 60, dock: fixture.work)
+        fixture.world.calendar.locale = Locale(identifier: "en_GB")
         fixture.configure(rules: [overnight])
         fixture.controller.start()
         #expect(fixture.active == fixture.home)
@@ -558,19 +576,88 @@ struct AutomaticSwitchingTests {
         #expect(fixture.active == fixture.work)
         #expect(fixture.world.activeTimers.count == 1)
         #expect(fixture.world.activeTimers.first?.date == utcDate(2026, 10, 6, 6))
-        #expect(fixture.status.menuLine == "Switched by rule: Every day 22:00–6:00")
+        #expect(fixture.status.menuLine == "Switched by rule: Every day 22:00–06:00")
+    }
+
+    // MARK: Clock changes, stop and store observation (S18-021)
+
+    @Test func aClockChangeReArmsTheTimerAtTheNewBoundary() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.configure(rules: [windowRule(days: [1, 2, 3, 4, 5, 6, 7], from: 22 * 60, to: 6 * 60, dock: fixture.work)])
+        fixture.controller.start()
+        let armed = try #require(fixture.world.activeTimers.first)
+        #expect(armed.date == utcDate(2026, 10, 5, 22))
+
+        // The Mac moves two hours east: 22:00 on the wall clock now comes two hours sooner.
+        fixture.world.calendar.timeZone = try #require(TimeZone(secondsFromGMT: 2 * 3600))
+        fixture.world.fireClockChange()
+        #expect(armed.cancelled)
+        #expect(fixture.world.activeTimers.count == 1)
+        #expect(fixture.world.activeTimers.first?.date == utcDate(2026, 10, 5, 20))
+    }
+
+    @Test func stoppingClearsTheTimerTheStatusAndEveryFeed() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.configure(rules: [appRule(dock: fixture.build),
+                                  windowRule(days: [1, 2, 3, 4, 5, 6, 7], from: 22 * 60, to: 6 * 60, dock: fixture.work)])
+        fixture.controller.start()
+        fixture.activateAndWait(xcode)
+        #expect(fixture.active == fixture.build)
+        #expect(fixture.status.menuLine != nil)
+        #expect(!fixture.world.activeTimers.isEmpty)
+
+        fixture.controller.stop()
+        #expect(fixture.world.activeTimers.isEmpty)
+        #expect(fixture.status.menuLine == nil)
+        #expect(fixture.world.clockFeed?.cancelled == true)
+
+        // A late activation callback after stop changes nothing.
+        fixture.store.setActiveCustomProfile(fixture.home)
+        fixture.world.activationHandler?(xcode)
+        fixture.world.advance(AutomaticSwitchingEngine.dwell)
+        fixture.world.fireNextTimer()
+        #expect(fixture.active == fixture.home)
+        #expect(fixture.world.activeTimers.isEmpty)
+        #expect(fixture.status.menuLine == nil)
+    }
+
+    @Test func aManualSwitchIsSeenThroughTheStoreWithoutAnExplicitReevaluate() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.configure(rules: [appRule(dock: fixture.build)])
+        fixture.controller.start()
+        fixture.activateAndWait(xcode)
+        #expect(fixture.active == fixture.build)
+
+        fixture.store.setActiveCustomProfile(fixture.work)
+        // The controller hears the store on the main run loop.
+        let deadline = Date().addingTimeInterval(10)
+        while !fixture.status.isPaused, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        #expect(fixture.status.isPaused)
+        #expect(fixture.active == fixture.work)
     }
 
     // MARK: Text and options
 
     @Test func rulesReadAsPlainSentences() {
-        let calendar = utcCalendar()
+        // Times follow the locale's clock; a 24-hour locale pins the expected text.
+        var calendar = utcCalendar()
+        calendar.locale = Locale(identifier: "en_GB")
         let dock = UUID()
         #expect(AutomaticSwitchRuleText.summary(appRule(dock: dock), dockName: "Build & code", calendar: calendar) == "When Xcode is frontmost → Build & code")
         #expect(AutomaticSwitchRuleText.summary(appRule(dock: dock), dockName: nil, calendar: calendar) == "When Xcode is frontmost → Dock missing")
-        #expect(AutomaticSwitchRuleText.summary(windowRule(days: [2, 3, 4, 5, 6], from: 540, to: 1020, dock: dock), dockName: "Work", calendar: calendar) == "Weekdays 9:00–17:00 → Work")
-        #expect(AutomaticSwitchRuleText.title(windowRule(days: [1, 7], from: 0, to: 90, dock: dock), calendar: calendar) == "Weekends 0:00–1:30")
+        #expect(AutomaticSwitchRuleText.summary(windowRule(days: [2, 3, 4, 5, 6], from: 540, to: 1020, dock: dock), dockName: "Work", calendar: calendar) == "Weekdays 09:00–17:00 → Work")
+        #expect(AutomaticSwitchRuleText.title(windowRule(days: [1, 7], from: 0, to: 90, dock: dock), calendar: calendar) == "Weekends 00:00–01:30")
         #expect(AutomaticSwitchRuleText.title(windowRule(days: [2, 4], from: 600, to: 660, dock: dock), calendar: calendar) == "Mon, Wed 10:00–11:00")
+        // A 12-hour locale reads the same rule on a 12-hour clock.
+        var american = utcCalendar()
+        american.locale = Locale(identifier: "en_US")
+        #expect(AutomaticSwitchRuleText.timeString(1020, calendar: american).contains("5:00"))
+        #expect(AutomaticSwitchRuleText.timeString(1020, calendar: american).contains("PM"))
         #expect(AutomaticSwitchRuleText.weekdaySummary([1, 2, 3, 4, 5, 6, 7], calendar: calendar) == "Every day")
         #expect(AutomaticSwitchRuleText.weekdaySummary([], calendar: calendar) == "No days")
         #expect(AutomaticSwitchRuleText.title(appRule(bundle: "com.example.App", name: nil, dock: dock), calendar: calendar) == "When com.example.App is frontmost")

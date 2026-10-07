@@ -54,7 +54,9 @@ enum WindowPreviewMatchingPolicy {
 enum WindowPreviewCapturer {
     static func captureVisibleWindows(descriptors: [DockWindowDescriptor],
                                       freshIDs: Set<String>) async -> WindowPreviewBatch {
-        guard AppRuntimeEnvironment.allowsNativeEffects, #available(macOS 14.0, *), CGPreflightScreenCaptureAccess(), !Task.isCancelled else {
+        guard AppRuntimeEnvironment.allowsNativeEffects, #available(macOS 14.0, *), CGPreflightScreenCaptureAccess(), !Task.isCancelled,
+              // Minimized windows cannot be captured and fresh ones were tried recently: skip the window server query.
+              descriptors.contains(where: { !$0.isMinimized && !freshIDs.contains($0.id) }) else {
             return WindowPreviewBatch()
         }
         do {

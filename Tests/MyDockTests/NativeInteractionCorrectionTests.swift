@@ -48,27 +48,18 @@ struct NativeInteractionCorrectionTests {
         let empty = DockWindowDescriptor(processID: 41, windowIndex: 0, bundleIdentifier: "fixture.editor",
                                          applicationName: "Editor", title: "Editor", isMinimized: false,
                                          accessibilityIdentifier: nil, rawTitle: "", applicationIdentity: application())
-        #expect(WindowRestoreIdentity.match(identifier: nil, title: empty.identityTitle,
-                    candidates: [.init(identifier: nil, title: "")]) == 0)
-        #expect(WindowRestoreIdentity.match(identifier: nil, title: empty.identityTitle,
-                    candidates: [.init(identifier: nil, title: "Editor")]) == nil)
+        // The raw AX title is the identity title; the display fallback never stands in for it.
+        #expect(empty.identityTitle == "")
         var padded = empty
         padded.rawTitle = "  draft  "
         padded.title = "draft"
-        #expect(WindowRestoreIdentity.match(identifier: nil, title: padded.identityTitle,
-                    candidates: [.init(identifier: nil, title: "draft"), .init(identifier: nil, title: "  draft  ")]) == 1)
+        #expect(padded.identityTitle == "  draft  ")
     }
 
-    @Test func disappearedStableWindowCannotRedirectToReusedTitle() {
-        let replacement = [WindowRestoreCandidate(identifier: "replacement", title: "Draft")]
-        #expect(WindowRestoreIdentity.match(identifier: "closed-window", title: "Draft", candidates: replacement) == nil)
-        #expect(WindowRestoreIdentity.match(identifier: "replacement", title: "Old title", candidates: replacement) == 0)
-        #expect(WindowRestoreIdentity.match(identifier: "replacement", title: "Draft", candidates: replacement + replacement) == nil)
-    }
-
-    @Test func indistinguishableBlankWindowsAreNeverChosenByIndex() {
-        let candidates = [WindowRestoreCandidate(identifier: nil, title: ""), .init(identifier: nil, title: "")]
-        #expect(WindowRestoreIdentity.match(identifier: nil, title: "", candidates: candidates) == nil)
+    @Test func indistinguishableWindowsAreNeverChosenByIndex() {
+        #expect(WindowRestoreIdentity.uniqueIndex([0, 1]) == nil)
+        #expect(WindowRestoreIdentity.uniqueIndex([]) == nil)
+        #expect(WindowRestoreIdentity.uniqueIndex([2]) == 2)
     }
 
     @Test func windowObservationIDsExpireAcrossProcessLifetimes() {

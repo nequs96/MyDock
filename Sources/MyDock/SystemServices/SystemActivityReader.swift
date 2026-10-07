@@ -84,7 +84,27 @@ enum PerCoreCPUUsageCalculator {
     }
 }
 
+/// Finder's available space: free space plus purgeable space macOS reclaims on demand.
+enum VolumeCapacityPolicy {
+    static var resourceKeys: Set<URLResourceKey> {
+        [.volumeLocalizedNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey]
+    }
+
+    static func availableBytes(importantUsage: Int64?, plain: Int?) -> Int64? {
+        if let importantUsage, importantUsage > 0 { return importantUsage }
+        return plain.map { Int64(max(0, $0)) }
+    }
+}
+
 enum SystemActivityReader {
+    /// Activity Monitor's Memory Used: app memory (anonymous pages that are not purgeable) plus wired and
+    /// compressed memory. Active pages are not used because they include file-backed cache.
+    static func memoryUsedBytes(internalPages: UInt64, purgeablePages: UInt64, wiredPages: UInt64,
+                                compressedPages: UInt64, pageBytes: UInt64) -> UInt64 {
+        let appPages = internalPages > purgeablePages ? internalPages - purgeablePages : 0
+        return (appPages &+ wiredPages &+ compressedPages) &* pageBytes
+    }
+
     static func read() -> HostActivityReading? {
         guard let ticks = cpuTicks(), let memory = memoryReading() else { return nil }
         return HostActivityReading(cpuTicks: ticks,
@@ -156,7 +176,11 @@ enum SystemActivityReader {
         let active = UInt64(statistics.active_count) * pageBytes
         let wired = UInt64(statistics.wire_count) * pageBytes
         let compressed = UInt64(statistics.compressor_page_count) * pageBytes
-        let usedBytes = active &+ wired &+ compressed
+        let usedBytes = memoryUsedBytes(internalPages: UInt64(statistics.internal_page_count),
+                                        purgeablePages: UInt64(statistics.purgeable_count),
+                                        wiredPages: UInt64(statistics.wire_count),
+                                        compressedPages: UInt64(statistics.compressor_page_count),
+                                        pageBytes: pageBytes)
         var swap: xsw_usage = xsw_usage()
         var swapSize = MemoryLayout<xsw_usage>.size
         let swapBytes: UInt64? = sysctlbyname("vm.swapusage", &swap, &swapSize, nil, 0) == 0 ? swap.xsu_used : nil
@@ -174,11 +198,10 @@ enum SystemActivityReader {
 
     private static func startupVolumeReading() -> SystemVolumeReading? {
         let root = URL(fileURLWithPath: "/", isDirectory: true)
-        let keys: Set<URLResourceKey> = [.volumeLocalizedNameKey, .volumeTotalCapacityKey,
-                                         .volumeAvailableCapacityKey]
-        guard let values = try? root.resourceValues(forKeys: keys),
+        guard let values = try? root.resourceValues(forKeys: VolumeCapacityPolicy.resourceKeys),
               let total = values.volumeTotalCapacity, total > 0,
-              let available = values.volumeAvailableCapacity, available >= 0 else { return nil }
+              let available = VolumeCapacityPolicy.availableBytes(importantUsage: values.volumeAvailableCapacityForImportantUsage,
+                                                                  plain: values.volumeAvailableCapacity) else { return nil }
         return SystemVolumeReading(name: values.volumeLocalizedName ?? "Startup volume",
                                    totalBytes: UInt64(total),
                                    availableBytes: UInt64(available))

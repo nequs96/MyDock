@@ -197,20 +197,15 @@ enum TrashCopy {
             }
             return "Finder did not confirm that the Trash was emptied. Some items may not have been deleted. Open Trash in Finder to check what remains."
         }
-        if error is NowPlayingParsingError {
-            return "Finder did not confirm that the Trash was emptied. Automation access for Finder may be denied (System Settings \u{2192} Privacy & Security \u{2192} Automation), or some items could not be deleted. Open Trash in Finder to check what remains."
-        }
         return error.localizedDescription
     }
 }
 
 enum TrashActionError: LocalizedError {
-    case scriptUnavailable
     case failed(String)
 
     var errorDescription: String? {
         switch self {
-        case .scriptUnavailable: "The macOS Trash action is unavailable."
         case let .failed(message): message
         }
     }

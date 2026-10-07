@@ -100,8 +100,8 @@ final class FileDockTransactionJournal: DockTransactionJournal {
     private let fileURL: URL
 
     init(fileURL: URL? = nil) {
-        let root = AppRuntimeEnvironment.applicationSupportDirectory.deletingLastPathComponent()
-        self.fileURL = fileURL ?? root.appendingPathComponent(Product.name, isDirectory: true)
+        // Production: ~/Library/Application Support/MyDock/Transactions. Isolated runs stay inside their own root.
+        self.fileURL = fileURL ?? AppRuntimeEnvironment.applicationSupportDirectory
             .appendingPathComponent("Transactions/native-dock.json")
     }
 
@@ -326,6 +326,8 @@ final class NativeDockController: ObservableObject {
         } catch {
             health = .recoveryRequired
             recoveryError = error.localizedDescription
+            logger.error("Could not recover an interrupted native Dock transaction: \(error.localizedDescription, privacy: .private)")
+            DiagnosticsService.shared.record(.nativeInterruptedRecoveryFailed)
             await gate.release()
             throw error
         }
@@ -526,7 +528,7 @@ enum NativeDockSwitcher {
                 let alert = NSAlert()
                 alert.messageText = "Could not switch the macOS Dock"
                 alert.informativeText = error.localizedDescription
-                NSApplication.shared.activate(ignoringOtherApps: true)
+                AppActivation.activateSelf()
                 alert.runModal()
             }
         }

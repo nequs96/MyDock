@@ -1,6 +1,11 @@
 import Carbon
 import Combine
 import Foundation
+import OSLog
+
+private let shortcutLogger = Logger(subsystem: Product.bundleIdentifier, category: "shortcuts")
+/// "MyDK": identifies MyDock's hot keys, so the handler ignores any other hot key event it is given.
+private let myDockHotKeySignature = OSType(0x4D79444B)
 
 struct DockShortcut: Codable, Equatable, Sendable {
     static let commandMask: UInt8 = 1 << 0
@@ -58,15 +63,23 @@ final class DockShortcutStore: ObservableObject {
 
     init(defaults: UserDefaults = AppRuntimeEnvironment.defaults) {
         self.defaults = defaults
-        if let data = defaults.data(forKey: Self.defaultsKey),
-           let stored = try? JSONDecoder().decode([String: DockShortcut].self, from: data) {
-            bindings = Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in
-                guard let profileID = UUID(uuidString: key) else { return nil }
-                return (profileID, value)
-            })
-        } else {
-            bindings = [:]
+        bindings = Self.decodedBindings(from: defaults.data(forKey: Self.defaultsKey))
+    }
+
+    /// Each entry decodes on its own, so one unreadable shortcut drops only itself, not every Dock's shortcut.
+    static func decodedBindings(from data: Data?) -> [UUID: DockShortcut] {
+        guard let data, let stored = try? JSONDecoder().decode([String: LenientShortcut].self, from: data) else { return [:] }
+        var result: [UUID: DockShortcut] = [:]
+        for (key, entry) in stored {
+            guard let profileID = UUID(uuidString: key), let shortcut = entry.shortcut else { continue }
+            result[profileID] = shortcut
         }
+        return result
+    }
+
+    private struct LenientShortcut: Decodable {
+        let shortcut: DockShortcut?
+        init(from decoder: Decoder) throws { shortcut = try? DockShortcut(from: decoder) }
     }
 
     func shortcut(for profileID: UUID) -> DockShortcut? { bindings[profileID] }
@@ -90,7 +103,7 @@ final class DockShortcutStore: ObservableObject {
             try persist(updated)
             bindings = updated
         } catch {
-            NSLog("MyDock could not save shortcut settings: %@", error.localizedDescription)
+            shortcutLogger.error("Could not save shortcut settings: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -103,7 +116,6 @@ final class DockShortcutStore: ObservableObject {
 @MainActor
 final class GlobalShortcutController: ObservableObject {
     static let shared = GlobalShortcutController()
-    private static let signature = OSType(0x4D79444B) // MyDK
 
     @Published private(set) var statusMessages: [UUID: String] = [:]
     var onActivateProfile: ((UUID) -> Void)?
@@ -117,7 +129,7 @@ final class GlobalShortcutController: ObservableObject {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let status = InstallEventHandler(GetApplicationEventTarget(), myDockHotKeyEventHandler, 1, &eventType, nil, &eventHandler)
         eventHandlerStatus = status
-        if status != noErr { NSLog("MyDock could not install its global shortcut handler: %d", status) }
+        if status != noErr { shortcutLogger.error("Could not install the global shortcut handler: OSStatus \(status)") }
     }
 
     func register(_ bindings: [UUID: DockShortcut]) {
@@ -127,7 +139,7 @@ final class GlobalShortcutController: ObservableObject {
         profileIDsByHotKey = [:]
         statusMessages = [:]
         guard eventHandlerStatus == noErr else {
-            for profileID in bindings.keys { statusMessages[profileID] = "Shortcut handler unavailable (OSStatus \(eventHandlerStatus))." }
+            for profileID in bindings.keys { statusMessages[profileID] = "Shortcuts are unavailable. Quit and reopen MyDock to try again." }
             return
         }
 
@@ -137,7 +149,7 @@ final class GlobalShortcutController: ObservableObject {
                 statusMessages[profileID] = DockShortcutStoreError.requiresTwoModifiers.localizedDescription
                 continue
             }
-            let hotKeyID = EventHotKeyID(signature: Self.signature, id: numericID)
+            let hotKeyID = EventHotKeyID(signature: myDockHotKeySignature, id: numericID)
             var hotKey: EventHotKeyRef?
             let status = RegisterEventHotKey(UInt32(shortcut.keyCode), shortcut.carbonModifiers,
                                               hotKeyID, GetApplicationEventTarget(), 0, &hotKey)
@@ -145,7 +157,8 @@ final class GlobalShortcutController: ObservableObject {
                 registeredHotKeys.append(hotKey)
                 profileIDsByHotKey[numericID] = profileID
             } else {
-                statusMessages[profileID] = "Shortcut registration failed (OSStatus \(status)). It may conflict with macOS or another app."
+                shortcutLogger.error("Could not register a global shortcut: OSStatus \(status)")
+                statusMessages[profileID] = "This shortcut may be in use by macOS or another app."
             }
             numericID &+= 1
         }
@@ -168,6 +181,7 @@ private let myDockHotKeyEventHandler: EventHandlerProcPtr = { _, event, _ in
                                    nil,
                                    &hotKeyID)
     guard status == noErr else { return status }
+    guard hotKeyID.signature == myDockHotKeySignature else { return OSStatus(eventNotHandledErr) }
     let identifier = hotKeyID.id
     Task { @MainActor in GlobalShortcutController.shared.activate(hotKeyID: identifier) }
     return noErr

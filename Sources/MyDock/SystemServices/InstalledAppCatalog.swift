@@ -35,10 +35,18 @@ enum InstalledAppCatalog {
         (await scan()).applications.map(\.dockItem)
     }
 
+    /// The Add, Command and switching libraries share one recent scan; installing or removing an app at the top
+    /// of a search root changes its modification date and forces a fresh scan.
     static func scan() async -> InstalledAppScan {
         let roots = searchRoots
         let finder = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.finder")
-        let worker = Task.detached(priority: .userInitiated) { discover(roots: roots, additionalURLs: [finder].compactMap { $0 }) }
+        let worker = Task.detached(priority: .userInitiated) { () async -> InstalledAppScan in
+            let signature = InstalledAppScanMemo.signature(of: roots)
+            if let recent = await InstalledAppScanMemo.shared.recent(signature: signature, now: .now) { return recent }
+            let scan = discover(roots: roots, additionalURLs: [finder].compactMap { $0 })
+            if !Task.isCancelled { await InstalledAppScanMemo.shared.store(scan, signature: signature, at: .now) }
+            return scan
+        }
         return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
     }
 
@@ -145,6 +153,27 @@ enum InstalledAppCatalog {
     }
 }
 
+/// The last complete scan, reused for a minute while the search roots are unchanged.
+actor InstalledAppScanMemo {
+    static let shared = InstalledAppScanMemo()
+    static let maximumAge: TimeInterval = 60
+    private var last: (scan: InstalledAppScan, signature: [Double], at: Date)?
+
+    static func signature(of roots: [URL]) -> [Double] {
+        roots.map { (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?.timeIntervalSince1970 ?? 0 }
+    }
+
+    func recent(signature: [Double], now: Date) -> InstalledAppScan? {
+        guard let last, last.signature == signature else { return nil }
+        let age = now.timeIntervalSince(last.at)
+        return age >= 0 && age < Self.maximumAge ? last.scan : nil
+    }
+
+    func store(_ scan: InstalledAppScan, signature: [Double], at date: Date) {
+        last = (scan, signature, date)
+    }
+}
+
 /// Load only visible icons, at the browser's Retina size. NSWorkspace documents
 /// icon(forFile:) as thread-safe; no full-resolution TIFF archive crosses actors.
 enum InstalledApplicationIconLoader {
@@ -153,10 +182,12 @@ enum InstalledApplicationIconLoader {
         let cache = NSCache<NSString, NSData>(); cache.countLimit = 256; return cache
     }()
     static func load(at url: URL) -> Data? {
-        guard !Task.isCancelled, InstalledAppCatalog.validatedApplication(at: url) != nil else { return nil }
+        guard !Task.isCancelled else { return nil }
         let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?.timeIntervalSince1970 ?? 0
         let key = "\(url.path)|\(modified)" as NSString
+        // Only validated bundles enter the cache, so a hit skips the Info.plist and Mach-O reads.
         if let data = cache.object(forKey: key) { return data as Data }
+        guard InstalledAppCatalog.validatedApplication(at: url) != nil else { return nil }
         let data: Data? = autoreleasepool {
             var rect = NSRect(x: 0, y: 0, width: 64, height: 64)
             guard let source = NSWorkspace.shared.icon(forFile: url.path).cgImage(forProposedRect: &rect, context: nil, hints: nil),

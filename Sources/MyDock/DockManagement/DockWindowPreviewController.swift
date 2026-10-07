@@ -77,7 +77,6 @@ final class DockWindowPreviewController {
     private static let revealFallback: Duration = .milliseconds(200)
     /// Windows captured this recently are shown from the cache, not captured again.
     private static let recaptureInterval: TimeInterval = 5
-    private static let escapeKeyCode: UInt16 = 53
 
     private init() {
         model.activate = { [weak self] window in self?.activateWindow(window) }
@@ -119,9 +118,15 @@ final class DockWindowPreviewController {
         apply(machine.handle(inside ? .enterPanel : .exitPanel, at: now))
     }
 
-    /// Escape, a click in the Dock, the Dock hiding, or the setting turning off.
+    /// A click in the Dock, the Dock hiding, or the setting turning off.
     func dismiss() {
         apply(machine.handle(.dismiss, at: now))
+    }
+
+    /// The Dock hid: close the preview and forget every screenshot of other apps' windows.
+    func dockDidHide() {
+        dismiss()
+        cache.removeAll()
     }
 
     // MARK: State machine effects
@@ -322,6 +327,7 @@ final class DockWindowPreviewController {
     private func closePanel() {
         cancelWork()
         currentTarget = nil
+        cache.pruneExpired(at: now)
         guard let panel else { return }
         guard isPanelVisible else {
             panel.parent?.removeChildWindow(panel)
@@ -405,7 +411,7 @@ final class DockWindowPreviewController {
         let active = machine.phase != .idle
         if active, localMonitor == nil {
             localMonitor = NSEvent.addLocalMonitorForEvents(
-                matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .keyDown]
+                matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
             ) { [weak self] event in
                 Task { @MainActor [weak self] in self?.handleLocalEvent(event) }
                 return event
@@ -414,15 +420,11 @@ final class DockWindowPreviewController {
             NSEvent.removeMonitor(localMonitor)
             self.localMonitor = nil
         }
-        // No system-wide key monitor: moving the pointer away already closes the panel, and a
-        // global key listener would observe typing in other apps.
+        // No key monitor: the Dock and the preview never take key focus, so keystrokes go to the frontmost
+        // app; moving the pointer away closes the panel, and a global key listener would observe typing.
     }
 
     private func handleLocalEvent(_ event: NSEvent) {
-        if event.type == .keyDown {
-            if event.keyCode == Self.escapeKeyCode { dismiss() }
-            return
-        }
         // Clicks and scrolls inside the panel belong to it. Anywhere else (a tile click keeps its
         // normal action, a drag, a context menu, scrolling the Dock) closes the panel.
         if let panel, isPanelVisible, event.windowNumber == panel.windowNumber { return }

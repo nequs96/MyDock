@@ -392,6 +392,167 @@ import Testing
         #expect(controller.recoveryError != nil)
     }
 
+    // MARK: Lane C part 2: OS services
+
+    @Test func thePreviewCacheCreatesNoDirectoryUntilItStores() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LaneC-NoPreviews-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = WindowPreviewDiskCache(directoryURL: directory)
+        cache.removeAll()
+        #expect(!FileManager.default.fileExists(atPath: directory.path))
+        #expect(cache.preview(for: String(repeating: "a", count: 64)) == nil)
+        #expect(!FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    @Test func linkItemsOpenOnlyWebAddresses() {
+        let file = DockItem(type: .link, title: "Local", url: URL(fileURLWithPath: "/etc/hosts"))
+        let scheme = DockItem(type: .link, title: "Handler", url: URL(string: "x-example-handler://run"))
+        let web = DockItem(type: .link, title: "Example", url: URL(string: "https://example.com/path"))
+        #expect(AppLauncher.openTarget(for: file) == nil)
+        #expect(AppLauncher.openTarget(for: scheme) == nil)
+        #expect(AppLauncher.openTarget(for: web)?.absoluteString == "https://example.com/path")
+    }
+
+    @Test func oneUnreadableShortcutDropsOnlyItself() {
+        let valid = UUID()
+        let unreadable = UUID()
+        let json = """
+        {"\(valid.uuidString)": {"keyCode": 12, "modifierMask": 3, "keyLabel": "Q"},
+         "\(unreadable.uuidString)": {"keyCode": "twelve"},
+         "not-a-uuid": {"keyCode": 13, "modifierMask": 3, "keyLabel": "W"}}
+        """
+        let bindings = DockShortcutStore.decodedBindings(from: Data(json.utf8))
+        #expect(bindings.count == 1)
+        #expect(bindings[valid] == DockShortcut(keyCode: 12, modifierMask: 3, keyLabel: "Q"))
+        #expect(DockShortcutStore.decodedBindings(from: Data("[]".utf8)).isEmpty)
+        #expect(DockShortcutStore.decodedBindings(from: nil).isEmpty)
+    }
+
+    @Test func memoryAndDiskReadingsMatchActivityMonitorAndFinder() {
+        // App memory is anonymous pages minus purgeable ones; file cache is not "used".
+        #expect(SystemActivityReader.memoryUsedBytes(internalPages: 100, purgeablePages: 20, wiredPages: 30,
+                                                     compressedPages: 10, pageBytes: 4) == 480)
+        #expect(SystemActivityReader.memoryUsedBytes(internalPages: 5, purgeablePages: 9, wiredPages: 1,
+                                                     compressedPages: 0, pageBytes: 16) == 16)
+        #expect(VolumeCapacityPolicy.availableBytes(importantUsage: 900, plain: 400) == 900)
+        #expect(VolumeCapacityPolicy.availableBytes(importantUsage: 0, plain: 400) == 400)
+        #expect(VolumeCapacityPolicy.availableBytes(importantUsage: nil, plain: -1) == 0)
+        #expect(VolumeCapacityPolicy.availableBytes(importantUsage: nil, plain: nil) == nil)
+    }
+
+    @Test func aPlayingTrackAdvancesBetweenReads() {
+        let read = Date(timeIntervalSince1970: 1_000)
+        var snapshot = NowPlayingSnapshot(title: "Song", artist: "Artist", album: "", isPlaying: true,
+                                          position: 30, duration: 40, updatedAt: read, artworkURL: nil)
+        #expect(snapshot.livePosition(at: read.addingTimeInterval(3)) == 33)
+        #expect(snapshot.livePosition(at: read.addingTimeInterval(60)) == 40)
+        #expect(snapshot.livePosition(at: read.addingTimeInterval(-5)) == 30)
+        snapshot.isPlaying = false
+        #expect(snapshot.livePosition(at: read.addingTimeInterval(3)) == 30)
+    }
+
+    @Test func cancellingWhileTheLastTargetOpensStillFinishes() async {
+        let targets = [link("One"), link("Two")]
+        let launcher = LaneCWorkspaceLauncher()
+        let run = WorkspaceStartRun(targets: targets, launcher: launcher)
+        launcher.onOpen = { item in if item.id == targets[1].id { run.cancel() } }
+        await run.start()
+        #expect(run.phase == .finished)
+        #expect(run.results.map(\.outcome) == [.opened, .opened])
+    }
+
+    @Test func aCancelledStartTaskStopsTheRemainingTargets() async {
+        let targets = [link("One"), link("Two"), link("Three")]
+        let launcher = LaneCWorkspaceLauncher()
+        let run = WorkspaceStartRun(targets: targets, launcher: launcher)
+        let task = Task { await run.start() }
+        launcher.onOpen = { _ in task.cancel() }
+        await task.value
+        #expect(run.phase == .cancelled)
+        #expect(run.results.map(\.outcome) == [.opened, .cancelled, .cancelled])
+        #expect(launcher.opened == [targets[0].id])
+    }
+
+    @Test func installedAppScansAreReusedOnlyWhileRecentAndUnchanged() async {
+        let memo = InstalledAppScanMemo()
+        let start = Date(timeIntervalSince1970: 1_000)
+        await memo.store(InstalledAppScan(applications: [], unreadableLocations: 3), signature: [1, 2], at: start)
+        let reused = await memo.recent(signature: [1, 2], now: start.addingTimeInterval(30))
+        let changedRoot = await memo.recent(signature: [1, 5], now: start.addingTimeInterval(30))
+        let expired = await memo.recent(signature: [1, 2], now: start.addingTimeInterval(InstalledAppScanMemo.maximumAge + 1))
+        #expect(reused?.unreadableLocations == 3)
+        #expect(changedRoot == nil)
+        #expect(expired == nil)
+    }
+
+    @Test func symlinkedFoldersSortAndBrowseLikeFolders() throws {
+        let root = temporaryDirectory("LaneC-Symlink")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let real = root.appendingPathComponent("Real", isDirectory: true)
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: real.appendingPathComponent("inside.txt"))
+        try Data("x".utf8).write(to: root.appendingPathComponent("A file.txt"))
+        let linked = root.appendingPathComponent("Linked")
+        try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: real)
+        let entries = try FolderContentsReader.listing(at: root).entries
+        #expect(entries.map(\.url.lastPathComponent) == ["Linked", "Real", "A file.txt"])
+        #expect(entries.first(where: { $0.url.lastPathComponent == "Linked" })?.isDirectory == true)
+        let inside = try FolderContentsReader.listing(at: linked).entries
+        #expect(inside.map(\.url.lastPathComponent) == ["inside.txt"])
+    }
+
+    // MARK: Lane C part 2: Dock window and app shell
+
+    @Test func editsThatChangeNothingVisibleLeaveTheStatusButtonAlone() {
+        var state = PersistentState()
+        let profile = DockProfile(name: "Work", kind: .custom, items: [])
+        state.profiles = [profile]
+        state.settings.activeCustomProfileID = profile.id
+        state.settings.showActiveProfileNameInMenuBar = true
+        let before = MenuBarStatusButtonModel(state: state, hasUnsavedChanges: false, persistenceError: nil)
+        state.settings.customDockSize = 0.8
+        #expect(MenuBarStatusButtonModel(state: state, hasUnsavedChanges: false, persistenceError: nil) == before)
+        let unsaved = MenuBarStatusButtonModel(state: state, hasUnsavedChanges: true, persistenceError: "Disk full")
+        #expect(unsaved != before)
+        #expect(unsaved.toolTip.contains("Disk full"))
+    }
+
+    @Test func onlyTheDocksOwnMenusKeepItShown() {
+        let dockWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+        let settingsWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+        let monitor = DockRevealMonitor(snapshot: { _ in nil }, present: { _ in }, ownsMenuWindow: { $0 === dockWindow })
+        let picker = NSMenu()
+        let tileMenu = NSMenu()
+        monitor.menuBeganTracking(ObjectIdentifier(picker), eventWindow: settingsWindow)
+        #expect(monitor.menuTrackingDepth == 0)
+        monitor.menuBeganTracking(ObjectIdentifier(tileMenu), eventWindow: dockWindow)
+        #expect(monitor.menuTrackingDepth == 1)
+        monitor.menuEndedTracking(ObjectIdentifier(picker))
+        #expect(monitor.menuTrackingDepth == 1)
+        monitor.menuEndedTracking(ObjectIdentifier(tileMenu))
+        #expect(monitor.menuTrackingDepth == 0)
+        // An accessibility action opens a menu without an event window: it still keeps the Dock shown.
+        monitor.menuBeganTracking(ObjectIdentifier(tileMenu), eventWindow: nil)
+        #expect(monitor.menuTrackingDepth == 1)
+    }
+
+    @Test func expiredThumbnailsArePrunedWithoutATouch() {
+        var cache = WindowPreviewThumbnailCache<Int>(capacity: 4, maximumAge: 10)
+        cache.store(1, for: "old", at: 0)
+        cache.store(2, for: "new", at: 8)
+        cache.pruneExpired(at: 15)
+        #expect(cache.count == 1)
+        #expect(cache.image(for: "new", at: 15) == 2)
+        cache.pruneExpired(at: 100)
+        #expect(cache.count == 0)
+    }
+
+    @Test func interruptedRecoveryFailuresAreDiagnosed() {
+        #expect(DiagnosticEventCode.nativeInterruptedRecoveryFailed.category == .nativeDock)
+        #expect(UpdateCheckError.tooLarge.localizedDescription == "The release information is too large to read.")
+        #expect(LoginItemState.requiresApproval.message == "macOS approval is required in Login Items.")
+    }
+
     // MARK: Helpers
 
     private func window(processID: pid_t, app: String, title: String, minimized: Bool, index: Int = 0,
@@ -399,6 +560,10 @@ import Testing
         DockWindowDescriptor(processID: processID, windowIndex: index, bundleIdentifier: "com.example.\(app.lowercased())",
                              applicationName: app, title: title, isMinimized: minimized,
                              accessibilityIdentifier: identifier, accessibilityObservation: observation)
+    }
+
+    private func link(_ title: String) -> DockItem {
+        DockItem(type: .link, title: title, url: URL(string: "https://example.com/\(title.lowercased())"))
     }
 
     private func isRollbackFailure(_ error: Error?) -> Bool {
@@ -511,4 +676,18 @@ private final class LaneCFreezeProvider: DockSwitchFreezeProviding {
     }
 
     func end(_ sessionID: UUID) { endCount += 1 }
+}
+
+@MainActor
+private final class LaneCWorkspaceLauncher: WorkspaceLaunching {
+    var onOpen: ((DockItem) -> Void)?
+    private(set) var opened: [UUID] = []
+    func isMissing(_ item: DockItem) -> Bool { false }
+    func isRunning(_ item: DockItem) -> Bool { false }
+    func activate(_ item: DockItem) -> Bool { false }
+    func open(_ item: DockItem) async -> String? {
+        opened.append(item.id)
+        onOpen?(item)
+        return nil
+    }
 }

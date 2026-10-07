@@ -66,6 +66,14 @@ final class CustomDockWindowController {
         case .hide, .dwell: self.hideDockPanel()
         case .suppress: self.hideDockPanelForSystemDock()
         }
+    }, ownsMenuWindow: { [weak self] window in
+        guard let self else { return false }
+        var candidate: NSWindow? = window
+        while let current = candidate {
+            if current === self.panel || current === self.revealPanel { return true }
+            candidate = current.parent
+        }
+        return false
     })
 
     init(store: ProfileStore, openSettings: @escaping (MyDockSettingsPage) -> Void = { _ in },
@@ -147,7 +155,7 @@ final class CustomDockWindowController {
     private func tearDownPresentation() {
         setLiveMonitorsVisible(false)
         WindowAccessibilityMonitor.shared.setEnabled(false)
-        DockWindowPreviewController.shared.dismiss()
+        DockWindowPreviewController.shared.dockDidHide()
         lastPresentation = nil
         presentationVisible = false
         transitionGeneration = UUID()
@@ -488,7 +496,7 @@ final class CustomDockWindowController {
         revealPanel?.orderFrontRegardless()
         setLiveMonitorsVisible(false)
         WindowAccessibilityMonitor.shared.setEnabled(false)
-        DockWindowPreviewController.shared.dismiss()
+        DockWindowPreviewController.shared.dockDidHide()
     }
 
     private func hideDockPanelForSystemDock() {
@@ -497,7 +505,7 @@ final class CustomDockWindowController {
         revealPanel?.orderOut(nil)
         setLiveMonitorsVisible(false)
         WindowAccessibilityMonitor.shared.setEnabled(false)
-        DockWindowPreviewController.shared.dismiss()
+        DockWindowPreviewController.shared.dockDidHide()
     }
 
     /// H4: a style or Off/Reduce Motion change while a reveal/hide transition is running must not leave

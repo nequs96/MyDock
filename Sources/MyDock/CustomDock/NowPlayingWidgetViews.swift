@@ -144,6 +144,13 @@ private struct NowPlayingPopoutWidgetView: View {
         #endif
         return monitor.runningSources
     }
+    /// A live track advances between reads; render QA fixtures keep their fixed position.
+    private var extrapolatesPosition: Bool {
+        #if DEBUG
+        if NowPlayingQAFixture.override != nil { return false }
+        #endif
+        return true
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
@@ -315,25 +322,29 @@ private struct NowPlayingPopoutWidgetView: View {
                 Spacer(minLength: 0)
             }
             if layout == .full {
-                VStack(spacing: 4) {
-                    GeometryReader { geometry in
-                        Capsule().fill(Color.primary.opacity(0.12))
-                            .overlay(alignment: .leading) {
-                                Capsule().fill(Color.primary.opacity(0.7))
-                                    .frame(width: geometry.size.width * NowPlayingPresentation.progress(position: snapshot.position, duration: snapshot.duration))
-                            }
+                // Reads arrive every few seconds; while playing, the elapsed time advances each second in between.
+                TimelineView(.animation(minimumInterval: 1, paused: !(snapshot.isPlaying && extrapolatesPosition))) { context in
+                    let position = extrapolatesPosition ? snapshot.livePosition(at: context.date) : snapshot.position
+                    VStack(spacing: 4) {
+                        GeometryReader { geometry in
+                            Capsule().fill(Color.primary.opacity(0.12))
+                                .overlay(alignment: .leading) {
+                                    Capsule().fill(Color.primary.opacity(0.7))
+                                        .frame(width: geometry.size.width * NowPlayingPresentation.progress(position: position, duration: snapshot.duration))
+                                }
+                        }
+                        .frame(height: 4)
+                        .accessibilityElement()
+                        .accessibilityLabel("Playback position")
+                        .accessibilityValue("\(NowPlayingPresentation.timeString(position)) of \(NowPlayingPresentation.timeString(snapshot.duration))")
+                        HStack {
+                            Text(NowPlayingPresentation.timeString(position))
+                            Spacer()
+                            Text(NowPlayingPresentation.timeString(snapshot.duration))
+                        }
+                        .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                     }
-                    .frame(height: 4)
-                    .accessibilityElement()
-                    .accessibilityLabel("Playback position")
-                    .accessibilityValue("\(NowPlayingPresentation.timeString(snapshot.position)) of \(NowPlayingPresentation.timeString(snapshot.duration))")
-                    HStack {
-                        Text(NowPlayingPresentation.timeString(snapshot.position))
-                        Spacer()
-                        Text(NowPlayingPresentation.timeString(snapshot.duration))
-                    }
-                    .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
                 }
             }
         }

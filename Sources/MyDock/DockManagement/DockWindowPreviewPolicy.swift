@@ -34,7 +34,7 @@ struct WindowPreviewHoverMachine: Equatable {
         case exitPanel
         /// A deadline wake-up.
         case tick
-        /// Escape, a click, the Dock hiding or the setting turning off.
+        /// A click, the Dock hiding or the setting turning off.
         case dismiss
     }
 
@@ -358,6 +358,12 @@ struct WindowPreviewThumbnailCache<Image> {
     mutating func removeAll() {
         entries = [:]
         recency = []
+    }
+
+    /// Drops screenshots past their maximum age, so other apps' windows are not kept in memory after a hover.
+    mutating func pruneExpired(at now: TimeInterval) {
+        let expired = entries.filter { now - $0.value.storedAt < 0 || now - $0.value.storedAt > maximumAge }.map(\.key)
+        for key in expired { remove(key) }
     }
 
     private mutating func remove(_ key: String) {

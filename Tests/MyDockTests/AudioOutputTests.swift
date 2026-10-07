@@ -19,6 +19,8 @@ private final class FakeAudioHardware: AudioOutputHardware {
     var scalars: [Key: Double] = [:]
     var writes: [Key] = []
     var ignoresSetDefault = false
+    var failsReads = false
+    var failsSetDefault = false
     var setDefaultCalls = 0
     var totalCalls = 0
     var observations: [Observation] = []
@@ -53,12 +55,17 @@ private final class FakeAudioHardware: AudioOutputHardware {
         scalars[key] = value
     }
 
-    func allDeviceIDs() throws -> [UInt32] { totalCalls += 1; return order }
+    func allDeviceIDs() throws -> [UInt32] {
+        totalCalls += 1
+        if failsReads { throw AudioOutputError.system(-1) }
+        return order
+    }
     func describe(_ deviceID: UInt32) -> AudioDeviceDescription? { totalCalls += 1; return descriptions[deviceID] }
     func defaultOutputDeviceID() throws -> UInt32? { totalCalls += 1; return defaultID }
     func setDefaultOutputDeviceID(_ deviceID: UInt32) throws {
         totalCalls += 1
         setDefaultCalls += 1
+        if failsSetDefault { throw AudioOutputError.system(-2) }
         if !ignoresSetDefault { defaultID = deviceID }
     }
     func isSettable(_ deviceID: UInt32, _ control: AudioControlAddress) -> Bool {
@@ -75,10 +82,16 @@ private final class FakeAudioHardware: AudioOutputHardware {
         writes.append(key)
         scalars[key] = value
     }
+    var changeHandlers: [(observation: Observation, onChange: @Sendable () -> Void)] = []
     func startObserving(_ onChange: @escaping @Sendable () -> Void) -> (any AudioOutputObservation)? {
         let observation = Observation()
         observations.append(observation)
+        changeHandlers.append((observation, onChange))
         return observation
+    }
+    /// What Core Audio does when a device is plugged in or the default output changes elsewhere.
+    func fireChange() {
+        for entry in changeHandlers where !entry.observation.cancelled { entry.onChange() }
     }
     var liveObservations: Int { observations.filter { !$0.cancelled }.count }
 
@@ -334,6 +347,66 @@ struct AudioOutputTests {
 
         service.unsubscribe(popout)
         #expect(fake.liveControlDevices.isEmpty)
+    }
+
+    // MARK: Changes made outside MyDock and hardware errors (S18-020)
+
+    @Test func devicesPluggedInElsewhereAppearAfterTheChangeNotification() async throws {
+        let fake = Self.fixture()
+        let service = Self.service(fake)
+        let popout = UUID()
+        service.subscribe(popout, popout: true)
+        #expect(!service.devices.contains { $0.uid == "headphones" })
+        fake.add(60, "headphones", "Studio Headphones", transport: .usb)
+        fake.defaultID = 60
+        // The device list and the default output notify together; the burst is read once.
+        fake.fireChange()
+        fake.fireChange()
+        try await eventually { service.currentDevice?.uid == "headphones" }
+        #expect(service.devices.contains { $0.uid == "headphones" })
+        #expect(service.lastError == nil)
+        service.unsubscribe(popout)
+    }
+
+    @Test func changesAfterTheDockHidesAreIgnored() async throws {
+        let fake = Self.fixture()
+        let service = Self.service(fake)
+        let face = UUID()
+        service.setDockVisible(true)
+        service.subscribe(face)
+        #expect(service.isObserving)
+        service.setDockVisible(false)
+        #expect(!service.isObserving)
+        let calls = fake.totalCalls
+        fake.add(60, "headphones", "Studio Headphones", transport: .usb)
+        // A callback already in flight when the listener was removed must not read the hardware.
+        for entry in fake.changeHandlers { entry.onChange() }
+        for _ in 0..<5 { await Task.yield() }
+        #expect(fake.totalCalls == calls)
+        #expect(!service.devices.contains { $0.uid == "headphones" })
+    }
+
+    @Test func hardwareErrorsClearTheListAndSayWhy() {
+        let fake = Self.fixture()
+        let service = Self.service(fake)
+        service.refresh()
+        #expect(!service.devices.isEmpty)
+        fake.failsReads = true
+        service.refresh()
+        #expect(service.devices.isEmpty && service.currentID == nil && service.controls == .none)
+        #expect(service.lastError == .system(-1))
+        #expect(service.lastError?.message == "Couldn\u{2019}t change the output.")
+    }
+
+    @Test func aRefusedSwitchKeepsItsErrorAfterTheReadBack() {
+        let fake = Self.fixture()
+        let service = Self.service(fake)
+        service.refresh()
+        let target = service.devices.first { $0.uid == "airpods" }!
+        fake.failsSetDefault = true
+        service.select(target)
+        #expect(service.lastError == .system(-2))
+        #expect(service.currentDevice?.uid == "builtin")
     }
 
     private func eventually(_ condition: () -> Bool) async throws {
