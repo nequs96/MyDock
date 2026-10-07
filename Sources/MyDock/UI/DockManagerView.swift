@@ -296,11 +296,11 @@ struct DockManagerView: View {
         .accessibilityLabel(sidebarAccessibilityLabel(for: profile))
         .contextMenu {
             Button(profile.kind == .native ? "Apply to macOS Dock" : "Activate") { useProfile(profile) }
-            Button("Rename") { requestProfileSelection(profile.id); openDocks(); if selectedProfileID == profile.id { beginRename(profile) } }
+            Button("Rename…") { requestProfileSelection(profile.id); openDocks(); if selectedProfileID == profile.id { beginRename(profile) } }
             Button("Export Dock…") { exportProfile(profile) }
             Button("Duplicate") { duplicateProfile(profile); openDocks() }
             Button("Save as Personal Preset") { store.personalPresets.record(profile, reason: "Personal preset") }
-            Button("Delete…", role: .destructive) { profileToDelete = profile.id; confirmingProfileDeletion = true }
+            Button("Delete Dock…", role: .destructive) { profileToDelete = profile.id; confirmingProfileDeletion = true }
         }
     }
 
@@ -856,7 +856,7 @@ struct DockManagerView: View {
                                     Text(item.displayName)
                                     Spacer()
                                     if item.type == .application {
-                                        Button("Choose App…") { substitutePresetApp(item.id) }
+                                        Button("Choose Application…") { substitutePresetApp(item.id) }
                                     }
                                     Button("Remove") { resolvedPreset?.items.removeAll { $0.id == item.id } }
                                 }

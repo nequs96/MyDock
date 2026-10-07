@@ -133,9 +133,9 @@ struct PX1DockEssentialsTests {
                                     windows: [minimized], runningMediaSources: [], recentApplications: [latest])
         let ids = model.entries.map(\.id)
         let runIndex = ids.firstIndex(of: running.id.uuidString)
-        let boundaryIndex = ids.firstIndex(of: DockRenderEntry.boundary("recent").id)
+        let boundaryIndex = ids.firstIndex(of: DockRenderEntry.boundary(.recent).id)
         let recentIndex = ids.firstIndex(of: latest.id.uuidString)
-        let windowsIndex = ids.firstIndex(of: DockRenderEntry.boundary("windows").id)
+        let windowsIndex = ids.firstIndex(of: DockRenderEntry.boundary(.windows).id)
         let trashIndex = ids.firstIndex(of: DockRenderModel.systemTrash.id.uuidString)
         #expect(runIndex != nil && boundaryIndex != nil && recentIndex != nil && windowsIndex != nil && trashIndex != nil)
         if let runIndex, let boundaryIndex, let recentIndex, let windowsIndex, let trashIndex {
@@ -152,14 +152,14 @@ struct PX1DockEssentialsTests {
         let item = recent("rec", "/Applications/Rec.app").item
         let off = DockRenderModel(profile: profile, settings: settings, unpinnedRunningApplications: [], windows: [],
                                   runningMediaSources: [], recentApplications: [item])
-        #expect(!off.entries.contains { $0.id == DockRenderEntry.boundary("recent").id })
+        #expect(!off.entries.contains { $0.id == DockRenderEntry.boundary(.recent).id })
         settings.showRecentApps = true
         let empty = DockRenderModel(profile: profile, settings: settings, unpinnedRunningApplications: [], windows: [],
                                     runningMediaSources: [], recentApplications: [])
-        #expect(!empty.entries.contains { $0.id == DockRenderEntry.boundary("recent").id })
+        #expect(!empty.entries.contains { $0.id == DockRenderEntry.boundary(.recent).id })
         let on = DockRenderModel(profile: profile, settings: settings, unpinnedRunningApplications: [], windows: [],
                                  runningMediaSources: [], recentApplications: [item])
-        #expect(on.entries.contains { $0.id == DockRenderEntry.boundary("recent").id })
+        #expect(on.entries.contains { $0.id == DockRenderEntry.boundary(.recent).id })
         #expect(on.entries.contains { $0.id == item.id.uuidString })
     }
 
@@ -175,7 +175,7 @@ struct PX1DockEssentialsTests {
         // The pinned-end line already separates pinned items from the recents: never two in a row.
         let visible = DockSeparatorPolicy.visibleSeparatorIDs(model.entries)
         #expect(visible.contains(DockRenderEntry.insertion.id))
-        #expect(!visible.contains(DockRenderEntry.boundary("recent").id))
+        #expect(!visible.contains(DockRenderEntry.boundary(.recent).id))
     }
 
     @Test func recentsTrackingNeverRunsUnderIsolation() {

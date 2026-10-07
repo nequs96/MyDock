@@ -24,15 +24,10 @@ struct RevealHandleView: View {
     var position: DockPosition
     var isVisible: Bool
     @DockAccessibilityStyle() private var accessibility
-    @Environment(\.colorScheme) private var scheme
 
     private var thickness: CGFloat { accessibility.contrast == .increased ? 4 : 3 }
     private var fill: Color {
-        let increased = accessibility.contrast == .increased
-        if accessibility.reduceTransparency {
-            return increased ? .primary : Color(white: scheme == .dark ? 0.52 : 0.62)
-        }
-        return Color.primary.opacity(increased ? 0.8 : 0.26)
+        DockDesign.DockChrome.revealHandle(accessibility.contrast, reduceTransparency: accessibility.reduceTransparency)
     }
 
     var body: some View {
@@ -53,12 +48,24 @@ struct RevealHandleView: View {
     }
 }
 
+/// Values one Dock body pass reads for every tile, computed once per pass: the projected profile,
+/// its effective settings and the render model each rebuild every item.
+private struct DockPass {
+    var profile: DockProfile
+    var settings: AppSettings
+    var model: DockRenderModel
+    var runningPinnedIDs: Set<UUID>
+    var recentIDs: Set<UUID>
+    var runningBundleIdentifiers: Set<String>
+}
+
 struct CustomDockView: View {
     @ObservedObject private var systemAppearance = DockSystemAppearance.shared
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var store: ProfileStore
     @ObservedObject private var runtimeCache: WidgetRuntimeCache
     private var sourceProfile: DockProfile
+    /// Recomputed on every read: body passes read `DockPass.profile` instead; actions read this.
     var profile: DockProfile {
         isPreview ? sourceProfile : store.presentationProfile(store.state.profiles.first(where: { $0.id == sourceProfile.id }) ?? sourceProfile)
     }
@@ -74,6 +81,7 @@ struct CustomDockView: View {
         self.usesLivePreviewData = usesLivePreviewData
         self.openSettings = openSettings
     }
+    /// Recomputed on every read: body passes read `DockPass.settings` instead; actions read this.
     private var settings: AppSettings { store.effectiveSettings(for: profile) }
     var openSettings: (MyDockSettingsPage) -> Void = { _ in }
     @Namespace private var profileTransformation
@@ -93,6 +101,9 @@ struct CustomDockView: View {
     @State private var resizeDidChange = false
     @State private var resizeGripHovered = false
     @State private var linkIconMessage: String?
+    /// The media players that are running. Only this changes the Dock, so the Dock reads it alone
+    /// instead of observing every Now Playing snapshot and artwork update.
+    @State private var runningMediaSources: Set<NowPlayingSource> = NowPlayingMonitor.shared.runningSources
     @ObservedObject private var accessibility = AccessibilityDisplayState.shared
     @DockAccessibilityStyle() private var accessibilityStyle
     @Namespace private var popoutGlass
@@ -104,31 +115,31 @@ struct CustomDockView: View {
     /// Items just dropped into a new place; they settle back to full size on `Motion.morph`.
     @State private var settlingItemIDs: Set<UUID> = []
     @ObservedObject private var windowMonitor = WindowAccessibilityMonitor.shared
-    @ObservedObject private var nowPlayingMonitor = NowPlayingMonitor.shared
     @ObservedObject private var dockBadgeMonitor = DockBadgeMonitor.shared
     @ObservedObject private var recentApplicationsTracker = RecentApplicationsTracker.shared
     /// The application tile a Finder drag is hovering, highlighted like a selected tile.
     @State private var dropTargetedItemID: UUID?
 
-    private var popoutMaxHeight: CGFloat {
-        let screen = DockDisplaySelection.screen(selectedID: settings.customDockDisplayID).screen
+    private func popoutMaxHeight(displayID: UInt32?) -> CGFloat {
+        let screen = DockDisplaySelection.screen(selectedID: displayID).screen
         let visibleHeight = screen?.visibleFrame.height ?? 720
         return min(600, max(180, visibleHeight - 160))
     }
 
-    @ViewBuilder private var switchProfileMenu: some View {
+    /// Profile choices show the active one with the menu's native checkmark.
+    @ViewBuilder private func switchProfileMenu(settings: AppSettings) -> some View {
         Menu("Switch Profile") {
             if !store.nativeProfiles.isEmpty {
                 Menu("macOS Dock") {
                     ForEach(store.nativeProfiles) { candidate in
-                        profileMenuButton(candidate, isActive: settings.activeNativeProfileID == candidate.id)
+                        profileMenuToggle(candidate, isActive: settings.activeNativeProfileID == candidate.id)
                     }
                 }
             }
             if !store.customProfiles.isEmpty {
                 Menu("Custom Dock") {
                     ForEach(store.customProfiles) { candidate in
-                        profileMenuButton(candidate, isActive: settings.activeCustomProfileID == candidate.id)
+                        profileMenuToggle(candidate, isActive: settings.activeCustomProfileID == candidate.id)
                     }
                 }
             }
@@ -160,92 +171,33 @@ struct CustomDockView: View {
     }
 
     private func chooseApplication() {
-        let panel = NSOpenPanel()
-        panel.title = "Add Application to Custom Dock"
-        panel.prompt = "Add Application"
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.applicationBundle]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = DockItemPrompts.chooseApplication() else { return }
         store.add(.application(at: url), to: profile.id)
     }
 
     private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.title = "Add Folder to Custom Dock"
-        panel.prompt = "Add Folder"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = DockItemPrompts.chooseFolder() else { return }
         store.add(.file(at: url, isFolder: true), to: profile.id)
     }
 
     private func chooseFile() {
-        let panel = NSOpenPanel()
-        panel.title = "Add File to Custom Dock"
-        panel.prompt = "Add File"
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = DockItemPrompts.chooseFile() else { return }
         store.add(.file(at: url), to: profile.id)
     }
 
     private func addWebLink() {
-        let alert = NSAlert()
-        alert.messageText = "Add a Web Link"
-        alert.informativeText = "Enter an HTTP or HTTPS address."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        field.placeholderString = "https://example.com"
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Add Link")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        guard let url = DockLinkPolicy.validatedURL(field.stringValue) else {
-            let error = NSAlert()
-            error.messageText = "Enter a valid web address"
-            error.informativeText = "MyDock accepts HTTP and HTTPS links only."
-            error.runModal()
-            return
-        }
+        guard let url = DockItemPrompts.webLink() else { return }
         store.add(.link(url, title: ""), to: profile.id)
     }
 
     private func renameLink(_ item: DockItem) {
-        let alert = NSAlert()
-        alert.messageText = "Rename Link"
-        alert.informativeText = "Choose a name shown in this Dock. Clear the field to use the site's host name."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        field.stringValue = item.title
-        field.placeholderString = item.url?.host
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Save Name")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let title = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let title = DockItemPrompts.linkName(for: item) else { return }
         let fallback = item.url?.host ?? item.url?.absoluteString ?? item.title
         store.updateItem(item.id, in: profile.id) { $0.title = title.isEmpty ? fallback : String(title.prefix(120)) }
     }
 
     private func changeLinkAddress(_ item: DockItem) {
-        let alert = NSAlert()
-        alert.messageText = "Change Link Address"
-        alert.informativeText = "Use a valid HTTP or HTTPS address."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
-        field.stringValue = item.url?.absoluteString ?? "https://"
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Save Address")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        guard let url = DockLinkPolicy.validatedURL(field.stringValue) else {
-            let error = NSAlert()
-            error.messageText = "Enter a valid web address"
-            error.informativeText = "MyDock accepts HTTP and HTTPS links only."
-            error.runModal()
-            return
-        }
+        guard let url = DockItemPrompts.linkAddress(for: item) else { return }
         let previousHost = item.url?.host?.lowercased()
         let previousDefaultTitle = item.url?.host
         store.updateItem(item.id, in: profile.id) { current in
@@ -255,6 +207,7 @@ struct CustomDockView: View {
         }
     }
 
+    /// A fetched icon simply appears on the tile; only a failure explains itself.
     private func fetchLinkIcon(_ item: DockItem) {
         guard let destination = item.url else { return }
         Task { @MainActor in
@@ -272,17 +225,14 @@ struct CustomDockView: View {
                 current.linkIcon = nil
                 current.linkFaviconData = data
             }
-            linkIconMessage = "The site icon was saved locally."
         }
     }
 
-    private func profileMenuButton(_ candidate: DockProfile, isActive: Bool) -> some View {
-        Button {
-            activateProfileFromContextMenu(candidate)
-        } label: {
-            if isActive { Label(candidate.name, systemImage: "checkmark") }
-            else { Text(candidate.name) }
-        }
+    private func profileMenuToggle(_ candidate: DockProfile, isActive: Bool) -> some View {
+        Toggle(candidate.name, isOn: Binding(
+            get: { isActive },
+            set: { if $0 { activateProfileFromContextMenu(candidate) } }
+        ))
     }
 
     private func activateProfileFromContextMenu(_ candidate: DockProfile) {
@@ -296,20 +246,20 @@ struct CustomDockView: View {
                 try await NativeDockController.shared.apply(current)
                 store.recordAppliedNativeProfile(current.id)
             } catch {
-                let alert = NSAlert()
-                alert.messageText = "Could not switch the macOS Dock"
-                alert.informativeText = error.localizedDescription
-                alert.runModal()
+                DockItemPrompts.showError("Could not switch the macOS Dock", error.localizedDescription)
             }
         }
     }
 
     var body: some View {
+        let pass = makePass()
+        let settings = pass.settings
         let horizontal = settings.customDockPosition == .bottom
-        let size = CGFloat(min(max(settings.customDockSize, 0.65), 1.5))
+        let size = DockSurfaceMetrics.clampedScale(settings.customDockSize)
+        let padding = DockSurfaceMetrics.padding(settings: settings, scale: size)
         GeometryReader { geometry in
-            let contentLength = estimatedContentLength(size: size)
-            let viewportLength = max(0, (horizontal ? geometry.size.width : geometry.size.height) - (settings.magnificationEnabled ? 32 : 22) * size)
+            let contentLength = estimatedContentLength(pass, size: size)
+            let viewportLength = max(0, (horizontal ? geometry.size.width : geometry.size.height) - 2 * padding)
             let needsJumpControls = DockOverflowPolicy.needsJumpControls(contentLength: contentLength,
                                                                          viewportLength: viewportLength)
             ScrollViewReader { proxy in
@@ -318,11 +268,11 @@ struct CustomDockView: View {
                         HStack(spacing: needsJumpControls ? 4 * size : 0) {
                             if needsJumpControls { overflowJumpButton(proxy: proxy, horizontal: true, toEnd: false, size: size) }
                             DockScrollView(.horizontal) {
-                                LazyHStack(spacing: CGFloat(settings.customDockItemSpacing) * size) { itemViews(horizontal: true, size: size) }
+                                LazyHStack(spacing: CGFloat(settings.customDockItemSpacing) * size) { itemViews(pass, horizontal: true, size: size) }
                                     .coordinateSpace(name: "dockItems")
                                     .onContinuousHover(coordinateSpace: .named("dockItems")) { phase in updateHover(phase, horizontal: true) }
                                     .padding(.horizontal, 1)
-                                    .modifier(DockItemStackPresentation(glassGroup: usesGlassGroup,
+                                    .modifier(DockItemStackPresentation(glassGroup: usesGlassGroup(settings),
                                         moduleRadius: DockSurfaceMetrics.moduleRadius(settings: settings, scale: size)))
                             }
                             .scrollDisabled(popouts.anchorID != nil)
@@ -335,11 +285,11 @@ struct CustomDockView: View {
                         VStack(spacing: needsJumpControls ? 4 * size : 0) {
                             if needsJumpControls { overflowJumpButton(proxy: proxy, horizontal: false, toEnd: false, size: size) }
                             DockScrollView(.vertical) {
-                                LazyVStack(spacing: CGFloat(settings.customDockItemSpacing) * size) { itemViews(horizontal: false, size: size) }
+                                LazyVStack(spacing: CGFloat(settings.customDockItemSpacing) * size) { itemViews(pass, horizontal: false, size: size) }
                                     .coordinateSpace(name: "dockItems")
                                     .onContinuousHover(coordinateSpace: .named("dockItems")) { phase in updateHover(phase, horizontal: false) }
                                     .padding(.vertical, 1)
-                                    .modifier(DockItemStackPresentation(glassGroup: usesGlassGroup,
+                                    .modifier(DockItemStackPresentation(glassGroup: usesGlassGroup(settings),
                                         moduleRadius: DockSurfaceMetrics.moduleRadius(settings: settings, scale: size)))
                             }
                             .scrollDisabled(popouts.anchorID != nil)
@@ -350,20 +300,20 @@ struct CustomDockView: View {
                         }
                     }
                 }
-                .padding((settings.magnificationEnabled ? 16 : 11) * size)
+                .padding(padding)
             }
         }
         .background {
-            DockMaterialSurface(settings: settings, color: profileColor)
+            DockMaterialSurface(settings: settings, color: profileColor(pass.profile))
         }
-        .animation(DockMotionPolicy.profileTransformAnimation(reduceMotion: reducesMotion, animationsEnabled: settings.dockAnimationsEnabled), value: profile.id)
-        .animation(DockMotionPolicy.reorderAnimation(reduceMotion: reducesMotion, animationsEnabled: settings.dockAnimationsEnabled), value: profile.items.map(\.id))
+        .animation(DockMotionPolicy.profileTransformAnimation(reduceMotion: reducesMotion, animationsEnabled: settings.dockAnimationsEnabled), value: pass.profile.id)
+        .animation(DockMotionPolicy.reorderAnimation(reduceMotion: reducesMotion, animationsEnabled: settings.dockAnimationsEnabled), value: pass.profile.items.map(\.id))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environment(\.colorScheme, DockColorSchemePolicy.scheme(theme: settings.customDockTheme, material: settings.customDockMaterial,
                                                                   system: systemAppearance.scheme))
         .contextMenu {
             if !isPreview {
-                switchProfileMenu
+                switchProfileMenu(settings: settings)
                 Divider()
                 addToDockMenu
                 Divider()
@@ -388,11 +338,12 @@ struct CustomDockView: View {
             if !isPreview || usesLivePreviewData { runtimeApplications = RuntimeDockApplications.items() }
             refreshMissingTargets()
         }
-        .onChange(of: profile.items) { _ in reconcilePopouts(); refreshMissingTargets() }
+        .onReceive(NowPlayingMonitor.shared.$runningSources.removeDuplicates()) { runningMediaSources = $0 }
+        .onChange(of: pass.profile.items) { _ in reconcilePopouts(); refreshMissingTargets() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in refreshMissingTargets() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didUnmountNotification)) { _ in refreshMissingTargets() }
         .onChange(of: settings.showTrash) { _ in reconcilePopouts() }
-        .onChange(of: nowPlayingMonitor.runningSources) { _ in reconcilePopouts() }
+        .onChange(of: runningMediaSources) { _ in reconcilePopouts() }
         .onExitCommand { popouts.dismiss() }
         .onDisappear { if resizeStartSize != nil { store.finishDockResize(for: profile.id); DockInteractionState.isResizing = false } }
         .alert("Site Icon", isPresented: Binding(
@@ -405,13 +356,16 @@ struct CustomDockView: View {
         }
     }
 
+    /// Reads the live settings, not a pass snapshot: the drag compares against each resize step.
     private func resizeGrip(horizontal: Bool, showsLine: Bool) -> some View {
-        let scale = CGFloat(settings.customDockSize)
+        let scale = DockSurfaceMetrics.clampedScale(settings.customDockSize)
         let layoutSize = DockResizeGripGeometry.layoutSize(horizontal: horizontal, scale: scale)
         let hitSize = DockResizeGripGeometry.hitSize(horizontal: horizontal, scale: scale)
         let outset = DockResizeGripGeometry.hitOutset(horizontal: horizontal, scale: scale)
+        let contrast = accessibilityStyle.contrast
         return RoundedRectangle(cornerRadius: 1)
-            .fill(Color.primary.opacity(resizeGripHovered ? 0.45 : showsLine ? 0.20 : 0))
+            .fill(resizeGripHovered ? DockDesign.DockChrome.separatorHighlight(contrast)
+                  : showsLine ? DockDesign.DockChrome.separator(contrast) : Color.clear)
             .frame(width: horizontal ? 1 : 30, height: horizontal ? 30 : 1)
             .frame(width: layoutSize.width, height: layoutSize.height)
             .frame(width: hitSize.width, height: hitSize.height)
@@ -453,16 +407,15 @@ struct CustomDockView: View {
             .accessibilityAdjustableAction { direction in
                 let delta: Double
                 switch direction { case .increment: delta = 0.05; case .decrement: delta = -0.05; @unknown default: return }
-                store.setDockSize(min(max(settings.customDockSize + delta, 0.65), 1.5), for: profile.id)
+                store.setDockSize(Double(DockSurfaceMetrics.clampedScale(settings.customDockSize + delta)), for: profile.id)
                 store.flush()
             }
             .accessibilityAction(named: "Reset size") { store.setDockSize(1, for: profile.id); store.flush() }
     }
 
-    private func estimatedContentLength(size: CGFloat) -> CGFloat {
-        let model = renderModel
-        return isPreview ? DockSeparatorPolicy.previewContentLength(model.entries, settings: settings, scale: size)
-            : model.contentLength(settings: settings, scale: size)
+    private func estimatedContentLength(_ pass: DockPass, size: CGFloat) -> CGFloat {
+        isPreview ? DockSeparatorPolicy.previewContentLength(pass.model.entries, settings: pass.settings, scale: size)
+            : pass.model.contentLength(settings: pass.settings, scale: size)
     }
 
     /// The entries drawn: previews end at their last tile (`DockSeparatorPolicy.previewCollapsedEntryIDs`).
@@ -476,23 +429,23 @@ struct CustomDockView: View {
         let symbol = horizontal
             ? (toEnd ? "chevron.right" : "chevron.left")
             : (toEnd ? "chevron.down" : "chevron.up")
+        let contrast = accessibilityStyle.contrast
         return Button {
-            let entries = drawnEntries(renderModel)
+            let entries = drawnEntries(makePass().model)
             guard let targetID = (toEnd ? entries.last : entries.first)?.id else { return }
             let anchor: UnitPoint = horizontal
                 ? (toEnd ? .trailing : .leading)
                 : (toEnd ? .bottom : .top)
-            if accessibility.reduceMotion {
+            DockDesign.Motion.perform(DockDesign.Motion.disclosure,
+                                      reduceMotion: reducesMotion || !settings.dockAnimationsEnabled) {
                 proxy.scrollTo(targetID, anchor: anchor)
-            } else {
-                withAnimation(.easeOut(duration: 0.22)) { proxy.scrollTo(targetID, anchor: anchor) }
             }
         } label: {
             Image(systemName: symbol)
                 .font(.system(size: 11 * size, weight: .bold))
                 .frame(width: 22 * size, height: 26 * size)
                 .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
+                .overlay(Capsule().stroke(DockDesign.Outline.color(contrast), lineWidth: DockDesign.Outline.controlWidth(contrast)))
         }
         .buttonStyle(.plain)
         .disabled(popouts.anchorID != nil)
@@ -501,14 +454,14 @@ struct CustomDockView: View {
     }
 
 
-    private var profileColor: Color {
+    private func profileColor(_ profile: DockProfile) -> Color {
         (DockProfileColor(rawValue: profile.color) ?? .blue).displayColor
     }
 
     /// One glass container around the items on macOS 26 so glass widget modules blend
     /// and morph with each other. Reduce Transparency and non-glass materials skip it.
     /// The Dock surface stays outside it: see `DockGlassComposition`.
-    private var usesGlassGroup: Bool {
+    private func usesGlassGroup(_ settings: AppSettings) -> Bool {
         DockGlassComposition.scope(material: settings.customDockMaterial,
                                    reduceTransparency: accessibilityStyle.reduceTransparency) == .itemStack
     }
@@ -533,27 +486,43 @@ struct CustomDockView: View {
         DispatchQueue.main.async { withAnimation(animation) { settlingItemIDs = [] } }
     }
 
+    /// The projected profile, its settings and the render model, built once for a body pass.
+    private func makePass() -> DockPass {
+        let profile = self.profile
+        let settings = store.effectiveSettings(for: profile)
+        let matches = runningMatches(profile: profile)
+        let recent = recentApplicationItems(profile: profile, settings: settings, matches: matches)
+        let model = DockRenderModel(profile: profile, settings: settings, unpinnedRunningApplications: matches.unpinnedRuntime,
+                                    windows: isPreview && !usesLivePreviewData ? [] : windowMonitor.windows,
+                                    runningMediaSources: isPreview && !usesLivePreviewData ? Set(NowPlayingSource.allCases) : runningMediaSources,
+                                    recentApplications: recent)
+        return DockPass(profile: profile, settings: settings, model: model,
+                        runningPinnedIDs: runningPinnedItemIDs(profile: profile, matches: matches),
+                        recentIDs: Set(recent.map(\.id)),
+                        runningBundleIdentifiers: Set(runtimeApplications.compactMap(\.bundleIdentifier)))
+    }
+
     /// Pinned apps whose installed copy is running. Unpinned runtime entries are running by construction.
-    private var runningPinnedItemIDs: Set<UUID> {
+    private func runningPinnedItemIDs(profile: DockProfile, matches: DockRunningAppMatches) -> Set<UUID> {
         #if DEBUG
         if isPreview && !usesLivePreviewData, let identifiers = previewRunningBundleIdentifiers {
             return Set(profile.items.filter { $0.type == .application && identifiers.contains($0.bundleIdentifier ?? "") }.map(\.id))
         }
         #endif
-        return runningMatches.runningPinnedItemIDs
+        return matches.runningPinnedItemIDs
     }
 
     /// Cached: body evaluations (hover, magnification) compare inputs and normalize no URL.
-    private var runningMatches: DockRunningAppMatches {
+    private func runningMatches(profile: DockProfile) -> DockRunningAppMatches {
         guard !isPreview || usesLivePreviewData else { return DockRunningAppMatches() }
         return runningAppCache.matches(runtime: runtimeApplications, profileItems: profile.items)
     }
 
     /// Recent, unpinned apps (the optional section after the running apps). None in previews.
-    private var recentApplicationItems: [DockItem] {
+    private func recentApplicationItems(profile: DockProfile, settings: AppSettings, matches: DockRunningAppMatches) -> [DockItem] {
         guard !isPreview, settings.showRecentApps else { return [] }
         return RuntimeDockApplications.recentItems(profile: profile, settings: settings, runtime: runtimeApplications,
-                                                   pinnedURLs: runningMatches.pinnedURLs)
+                                                   pinnedURLs: matches.pinnedURLs)
     }
 
     private func refreshMissingTargets() {
@@ -568,12 +537,12 @@ struct CustomDockView: View {
         return dockBadgeMonitor.badges[bundleIdentifier]
     }
 
-    @ViewBuilder private func itemViews(horizontal: Bool, size: CGFloat) -> some View {
-        let runningPinned = runningPinnedItemIDs
-        let model = renderModel
-        let recentIDs = Set(recentApplicationItems.map(\.id))
+    @ViewBuilder private func itemViews(_ pass: DockPass, horizontal: Bool, size: CGFloat) -> some View {
+        let settings = pass.settings
+        let model = pass.model
         let visibleSeparators = DockSeparatorPolicy.visibleSeparatorIDs(model.entries)
         let collapsed = isPreview ? DockSeparatorPolicy.previewCollapsedEntryIDs(model.entries) : []
+        let separator = DockDesign.DockChrome.separator(accessibilityStyle.contrast)
         ForEach(model.positionedEntries(settings: settings, scale: size).filter { !collapsed.contains($0.entry.id) },
                 id: \.visualID) { positioned in
             let entry = positioned.entry
@@ -589,66 +558,78 @@ struct CustomDockView: View {
                         .accessibilityLabel(item.displayName)
                     if isPreview { spacer.allowsHitTesting(false) }
                     else { spacer
-                        .draggable(DockDragPayload(profileID: profile.id, itemIDs: [item.id]))
+                        .draggable(DockDragPayload(profileID: pass.profile.id, itemIDs: [item.id]))
                         .dropDestination(for: DockDragPayload.self) { values, _ in handleTypedDrop(values, before: item.id) }
                     }
                 } else {
-                    itemView(item, horizontal: horizontal, size: size, pinned: pinned, center: positioned.center,
-                             isRunning: pinned ? runningPinned.contains(item.id)
-                                : !recentIDs.contains(item.id)
-                                    && DockRunningIndicatorPolicy.isRunning(item, pinned: false, runningURLs: [], resolvedURL: { nil }))
+                    itemView(item, profile: pass.profile, settings: settings, horizontal: horizontal, size: size,
+                             pinned: pinned, center: positioned.center,
+                             isRunning: DockTileRunningState.isRunning(item, pinned: pinned, isRecent: pass.recentIDs.contains(item.id),
+                                                                       runningPinnedIDs: pass.runningPinnedIDs,
+                                                                       runningBundleIdentifiers: pass.runningBundleIdentifiers))
                         .matchedGeometryEffect(id: positioned.visualID, in: profileTransformation)
                         .transition(.scale(scale: 0.85).combined(with: .opacity))
                 }
             case .insertion:
-                Group {
-                    // The line shows only when content follows; the grip and drop target always exist.
-                    let showsLine = visibleSeparators.contains(entry.id)
-                    if isPreview {
-                        RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(showsLine ? 0.20 : 0))
-                            .frame(width: horizontal ? 1 : 30, height: horizontal ? 30 : 1)
-                            .frame(width: horizontal ? 14 * size : 42 * size, height: horizontal ? 42 * size : 14 * size)
-                    } else { resizeGrip(horizontal: horizontal, showsLine: showsLine) }
+                // The line shows only when content follows; the grip and drop target always exist.
+                let showsLine = visibleSeparators.contains(entry.id)
+                if isPreview {
+                    RoundedRectangle(cornerRadius: 1).fill(showsLine ? separator : Color.clear)
+                        .frame(width: horizontal ? 1 : 30, height: horizontal ? 30 : 1)
+                        .frame(width: horizontal ? 14 * size : 42 * size, height: horizontal ? 42 * size : 14 * size)
+                        .help("Dock separator")
+                        .accessibilityLabel("Dock separator")
+                } else {
+                    // The grip names itself and its resize help; drops here land at the end of the pinned items.
+                    resizeGrip(horizontal: horizontal, showsLine: showsLine)
+                        .contentShape(Rectangle())
+                        .dropDestination(for: DockDropValue.self) { values, _ in
+                            let items = values.compactMap { if case .items(let payload) = $0 { payload } else { nil } }
+                            let urls = values.compactMap { if case .url(let url) = $0 { url } else { nil } }
+                            let moved = !items.isEmpty && handleTypedDrop(items, before: nil)
+                            let added = !urls.isEmpty && handleExternalDrop(urls)
+                            return moved || added
+                        }
                 }
-                    .contentShape(Rectangle())
-                    .help(isPreview ? "Dock separator" : "Drag to resize the Dock. Drop items here to place them at the end of pinned items.")
-                    .accessibilityLabel(isPreview ? "Dock separator" : "Resize Custom Dock")
-                    .dropDestination(for: DockDropValue.self) { values, _ in
-                        let items = values.compactMap { if case .items(let payload) = $0 { payload } else { nil } }
-                        let urls = values.compactMap { if case .url(let url) = $0 { url } else { nil } }
-                        let moved = !items.isEmpty && handleTypedDrop(items, before: nil)
-                        let added = !urls.isEmpty && handleExternalDrop(urls)
-                        return moved || added
-                    }
             case .boundary(let kind):
-                RoundedRectangle(cornerRadius: 1).fill(.primary.opacity(visibleSeparators.contains(entry.id) ? 0.16 : 0))
+                RoundedRectangle(cornerRadius: 1).fill(visibleSeparators.contains(entry.id) ? separator : Color.clear)
                     .frame(width: horizontal ? 1 : 30, height: horizontal ? 30 : 1)
                     .padding(.horizontal, horizontal ? 2 * size : 0)
                     .padding(.vertical, horizontal ? 0 : 2 * size)
-                    .help(kind == "running" ? "Drop a pinned app here to unpin it" : kind == "recent" ? "Recent apps" : "Minimized windows")
+                    .help(Self.boundaryHelp(kind))
                     .dropDestination(for: DockDragPayload.self) { values, _ in
-                        kind == "running" && handleTypedDrop(values, before: nil, unpin: true)
+                        kind == .running && handleTypedDrop(values, before: nil, unpin: true)
                     }
             case .window(let window):
-                WindowDockTile(window: window, size: 48 * size, preview: windowMonitor.preview(for: window),
-                               switchProfileMenu: AnyView(switchProfileMenu))
-                    .scaleEffect(magnification(center: positioned.center, isWidget: false), anchor: magnificationAnchor)
+                WindowDockTile(window: window, size: 48 * size, preview: windowMonitor.preview(for: window)) {
+                    switchProfileMenu(settings: settings)
+                }
+                .scaleEffect(magnification(center: positioned.center, isWidget: false, settings: settings),
+                             anchor: Self.unitPoint(facing: settings.customDockPosition))
             }
         }
     }
 
-    @ViewBuilder private func itemView(_ item: DockItem, horizontal: Bool, size: CGFloat, pinned: Bool, center: CGFloat = 0,
-                                       isRunning: Bool = false) -> some View {
+    private static func boundaryHelp(_ kind: DockBoundaryKind) -> String {
+        switch kind {
+        case .running: "Drop a pinned app here to unpin it"
+        case .recent: "Recent apps"
+        case .windows: "Minimized windows"
+        }
+    }
+
+    @ViewBuilder private func itemView(_ item: DockItem, profile: DockProfile, settings: AppSettings, horizontal: Bool,
+                                       size: CGFloat, pinned: Bool, center: CGFloat = 0, isRunning: Bool = false) -> some View {
         let tileWidth = DockSurfaceMetrics.itemLength(item, settings: settings, scale: size)
+        let edgeAnchor = Self.unitPoint(facing: settings.customDockPosition)
+        let isMissing = missingTargetIDs.contains(item.id)
+        let tileBadge = self.badge(for: item)
         let tile = Button {
             guard !isPreview else { return }
             if item.type == .widget {
-                if longPressTriggeredItemID == item.id {
-                    longPressTriggeredItemID = nil
-                    return
-                }
                 popouts.toggle(item.id)
             } else if item.type == .folder {
+                // A long press already opened the folder's popout; this release is not a click.
                 if longPressTriggeredItemID == item.id {
                     longPressTriggeredItemID = nil
                     return
@@ -656,8 +637,9 @@ struct CustomDockView: View {
                 AppLauncher.open(item)
             }
             else {
+                let minimizesFocusedApp = settings.clickFocusedAppToMinimize
                 Task { @MainActor in
-                    if settings.clickFocusedAppToMinimize, let identity = AppLauncher.runningIdentity(for: item),
+                    if minimizesFocusedApp, let identity = AppLauncher.runningIdentity(for: item),
                        await WindowAccessibilityService.minimizeFocusedWindow(of: identity) { return }
                     AppLauncher.open(item)
                 }
@@ -714,7 +696,7 @@ struct CustomDockView: View {
             // Pressed/active while its popout is open; render-only, so hit areas are unchanged.
             .modifier(DockPopoutAnchorState(isActive: isActivePopoutAnchor(item)))
             .overlay(alignment: .bottomTrailing) {
-                if missingTargetIDs.contains(item.id) {
+                if isMissing {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 11 * size, weight: .semibold))
                         .foregroundStyle(.orange)
@@ -723,32 +705,34 @@ struct CustomDockView: View {
                 }
             }
             .overlay(alignment: .topTrailing) {
-                if let badge = badge(for: item) {
+                if let tileBadge {
                     // Side Docks keep the badge inside the one-tile-wide column (D4).
                     let offset = DockBadgePlacement.offset(position: settings.customDockPosition, scale: size)
-                    DockBadgeView(text: badge, scale: size)
+                    DockBadgeView(text: tileBadge, scale: size)
                         .offset(x: offset.width, y: offset.height)
+                        // Read as part of the tile's value instead.
+                        .accessibilityHidden(true)
                 }
             }
-            .help(missingTargetIDs.contains(item.id) ? "\(item.displayName) · Saved location unavailable" : item.displayName)
+            .help(isMissing ? "\(item.displayName) · Saved location unavailable" : item.displayName)
         }
         .buttonStyle(.plain)
-        .accessibilityHint(missingTargetIDs.contains(item.id)
-            ? "Saved location unavailable. Re-add the item from its current location."
-            : "")
-        .scaleEffect(magnification(center: center, isWidget: item.type == .widget), anchor: magnificationAnchor)
+        .modifier(DockTileAccessibilityModifier(item: item,
+                                                value: DockTileAccessibility.value(isRunning: isRunning, isMissing: isMissing, badge: tileBadge),
+                                                isSelected: isActivePopoutAnchor(item)))
+        .accessibilityHint(isMissing ? "Saved location unavailable. Re-add the item from its current location." : "")
+        .scaleEffect(magnification(center: center, isWidget: item.type == .widget, settings: settings), anchor: edgeAnchor)
         .scaleEffect(DockMotionPolicy.settleScale(isSettling: settlingItemIDs.contains(item.id), reduceMotion: reducesMotion),
-                     anchor: magnificationAnchor)
+                     anchor: edgeAnchor)
         // After magnification: the dot stays at the screen-edge side while the icon grows.
-        .overlay(alignment: runningIndicatorAlignment) {
+        .overlay(alignment: Self.alignment(facing: settings.customDockPosition)) {
             // Inside the tile's 3 pt inset and the icon canvas margin: clear of the artwork and
             // never clipped by the scroll viewport.
             if isRunning { DockRunningIndicator(scale: size) }
         }
         .zIndex(hoveredItemID == item.id ? 2 : 0)
         .onHover { isHovered in
-            guard settings.magnificationEnabled,
-                  !accessibility.reduceMotion else {
+            guard settings.magnificationEnabled, DockMagnificationSupport.isAvailable, !reducesMotion else {
                 hoveredItemID = nil
                 return
             }
@@ -763,16 +747,14 @@ struct CustomDockView: View {
                 if longPressTriggeredItemID == item.id { longPressTriggeredItemID = nil }
             }
         })
-        .animation(accessibility.reduceMotion || !settings.dockAnimationsEnabled ? nil : .easeOut(duration: 0.12), value: hoverPosition == nil)
+        .animation(DockMotionPolicy.hoverAnimation(reduceMotion: reducesMotion, animationsEnabled: settings.dockAnimationsEnabled),
+                   value: hoverPosition == nil)
+        // Like the macOS Dock: the item's own actions first, app-wide choices last.
         .contextMenu {
-            switchProfileMenu
-            Divider()
-            Button("Settings…", systemImage: "gearshape") { openSettings(.dock) }
-            Divider()
             if item.type == .widget {
                 Button("Configure Widget…") { popouts.open(item.id) }
-                if item.id != systemTrashItem.id, settings.customDockPosition == .bottom {
-                    Menu("Widget layout") {
+                if pinned, settings.customDockPosition == .bottom {
+                    Menu("Widget Layout") {
                         ForEach(WidgetPresentationCatalog.options(for: item.widgetKind ?? item.title)) { option in
                             Button(option.title) {
                                 store.updateWidgetConfiguration(itemID: item.id, in: profile.id) { $0.widgetLayout = option.layout }
@@ -780,25 +762,26 @@ struct CustomDockView: View {
                         }
                     }
                 }
-                Button("Duplicate Widget", systemImage: "plus.square.on.square") {
-                    store.duplicateWidget(item.id, in: profile.id)
+                // The system Trash is not one of this Dock's items, so it cannot be duplicated.
+                if pinned {
+                    Button("Duplicate Widget", systemImage: "plus.square.on.square") {
+                        _ = store.duplicateWidget(item.id, in: profile.id)
+                    }
                 }
             } else if item.type == .folder {
                 Button("Browse Contents") { popouts.open(item.id) }
                 Button("Open in Finder") { AppLauncher.open(item) }
                 Divider()
-                Button("Customize Folder…", systemImage: "folder.badge.gearshape") { editFolderName(item) }
+                Button("Customize Folder…", systemImage: "folder.badge.gearshape") { editFolderName(item, profileID: profile.id) }
                 Menu("Icon Color") {
                     ForEach(DockProfileColor.allCases) { color in
-                        Button {
-                            store.updateItem(item.id, in: profile.id) { $0.folderIconColor = color }
-                        } label: {
-                            if item.folderIconColor == color { Label(color.title, systemImage: "checkmark") }
-                            else { Text(color.title) }
-                        }
+                        Toggle(color.title, isOn: Binding(
+                            get: { item.folderIconColor == color },
+                            set: { isOn in if isOn { store.updateItem(item.id, in: profile.id) { $0.folderIconColor = color } } }
+                        ))
                     }
                 }
-                Button("Set Letter…") { editFolderLetter(item) }
+                Button("Set Letter…") { editFolderLetter(item, profileID: profile.id) }
                 Toggle("Show Name Below Icon", isOn: Binding(
                     get: { item.showsFolderLabel },
                     set: { value in store.updateItem(item.id, in: profile.id) { $0.showFolderLabel = value } }
@@ -815,15 +798,16 @@ struct CustomDockView: View {
                 Button("Rename Link…", systemImage: "pencil") { renameLink(item) }
                 Button("Change Address…", systemImage: "link") { changeLinkAddress(item) }
                 Menu("Choose Icon") {
-                    Button("Site Icon or Default") {
-                        store.updateItem(item.id, in: profile.id) { $0.linkIcon = nil }
-                    }
+                    Toggle("Site Icon or Default", isOn: Binding(
+                        get: { item.linkIcon == nil },
+                        set: { isOn in if isOn { store.updateItem(item.id, in: profile.id) { $0.linkIcon = nil } } }
+                    ))
                     ForEach(DockLinkIcon.allCases) { icon in
-                        Button {
-                            store.updateItem(item.id, in: profile.id) { $0.linkIcon = icon }
-                        } label: {
-                            if item.linkIcon == icon { Label(icon.title, systemImage: "checkmark") }
-                            else { Label(icon.title, systemImage: icon.rawValue) }
+                        Toggle(isOn: Binding(
+                            get: { item.linkIcon == icon },
+                            set: { isOn in if isOn { store.updateItem(item.id, in: profile.id) { $0.linkIcon = icon } } }
+                        )) {
+                            Label(icon.title, systemImage: icon.rawValue)
                         }
                     }
                 }
@@ -835,7 +819,7 @@ struct CustomDockView: View {
                 }
             } else if item.type == .file, let fileURL = item.url {
                 Button("Open") { AppLauncher.open(item) }
-                Button("Reveal in Finder") {
+                Button("Show in Finder") {
                     guard AppRuntimeEnvironment.allowsNativeEffects else { return }
                     NSWorkspace.shared.activateFileViewerSelecting([fileURL])
                 }
@@ -847,6 +831,7 @@ struct CustomDockView: View {
                 Button("Open") { AppLauncher.open(item) }
             }
             RunningApplicationMenuSection(item: item)
+            Divider()
             if pinned, [.application, .file, .folder].contains(item.type) {
                 Button("Locate…", systemImage: "folder.badge.questionmark") {
                     guard let repaired = AppLauncher.chooseReplacement(for: item) else { return }
@@ -858,12 +843,20 @@ struct CustomDockView: View {
             } else {
                 Button("Keep in Dock") { store.add(item.withFreshIdentity(), to: profile.id) }
             }
+            Divider()
+            switchProfileMenu(settings: settings)
+            Button("Settings…", systemImage: "gearshape") { openSettings(.dock) }
         }
-        .popover(isPresented: Binding(get: { popouts.anchorID == item.id }, set: { if !$0 { popouts.dismiss() } }), arrowEdge: popoutArrowEdge) {
+        // Only the tile whose popover is showing may dismiss it: after its tab closes, the anchor
+        // moves to another tile and this tile's popover reports closing.
+        .popover(isPresented: Binding(get: { popouts.anchorID == item.id },
+                                      set: { if !$0, popouts.anchorID == item.id { popouts.dismiss() } }),
+                 arrowEdge: Self.edge(facing: settings.customDockPosition)) {
             if let activeItem = popoutItem(for: popouts.activeID) {
+                let tabs = openPopoutTabs
                 VStack(alignment: .leading, spacing: 0) {
-                    if openPopoutTabs.count > 1 {
-                        popoutTabBar
+                    if tabs.count > 1 {
+                        popoutTabBar(tabs)
                             .padding(.horizontal, WidgetPopoutMetrics.padding)
                             .padding(.top, WidgetPopoutMetrics.padding)
                     }
@@ -881,17 +874,24 @@ struct CustomDockView: View {
                     }
                 }
                 // The popover window opens natively; its content springs in from the Dock side.
-                .modifier(DockPopoutAppearEffect(anchor: popoutAppearAnchor))
+                .modifier(DockPopoutAppearEffect(anchor: edgeAnchor))
                 // One surface: the popover's own material (opaque under Reduce Transparency).
                 .modifier(WidgetPopoverSurface())
-                .preferredColorScheme(settings.customDockTheme == .system ? nil : settings.customDockTheme == .dark ? .dark : .light)
-                .frame(minWidth: 250, minHeight: 150, maxHeight: popoutMaxHeight, alignment: .topLeading)
+                // The same scheme as the Dock, including the Midnight material's dark appearance.
+                .preferredColorScheme(DockColorSchemePolicy.scheme(theme: settings.customDockTheme, material: settings.customDockMaterial,
+                                                                   system: systemAppearance.scheme))
+                .frame(minWidth: 250, minHeight: 150, maxHeight: popoutMaxHeight(displayID: settings.customDockDisplayID),
+                       alignment: .topLeading)
                 .id(activeItem.id)
             }
         }
         .id(item.id.uuidString)
 
-        if pinned, popouts.anchorID == nil, !isPreview {
+        // One modifier chain per tile kind, whatever the popout state, so opening or closing a popout
+        // never rebuilds the tiles. The drop handlers reject drops while a popout is open.
+        if isPreview {
+            tile.allowsHitTesting(false).accessibilityHidden(true)
+        } else if pinned {
             if DockDropOpenPolicy.opensDroppedContent(on: item) {
                 // Files dropped ON an app tile open with that app; reordering is unchanged.
                 tile
@@ -899,24 +899,21 @@ struct CustomDockView: View {
                     .dropDestination(for: DockDropValue.self, action: { values, _ in
                         handleApplicationTileDrop(values, on: item, before: item.id, unpin: false)
                     }, isTargeted: { setDropTarget($0, for: item) })
-                    .help("\(item.displayName) · Drag to reorder")
             } else {
                 tile
                     .draggable(DockDragPayload(profileID: profile.id, itemIDs: [item.id]))
                     .dropDestination(for: DockDragPayload.self) { values, _ in
                         handleTypedDrop(values, before: item.id)
                     }
-                    .help("\(item.displayName) · Drag to reorder")
             }
-        } else if !isPreview, !pinned, item.type == .application,
-                  popouts.anchorID == nil {
-            tile.allowsHitTesting(!isPreview)
+        } else if item.type == .application {
+            tile
                 .draggable(DockDragPayload(profileID: profile.id, itemIDs: [item.id]))
                 .dropDestination(for: DockDropValue.self, action: { values, _ in
                     handleApplicationTileDrop(values, on: item, before: nil, unpin: true)
                 }, isTargeted: { setDropTarget($0, for: item) })
         } else {
-            tile.allowsHitTesting(!isPreview).accessibilityHidden(isPreview)
+            tile
         }
     }
 
@@ -929,51 +926,34 @@ struct CustomDockView: View {
         }
     }
 
-    private func editFolderName(_ item: DockItem) {
-        let alert = NSAlert()
-        alert.messageText = "Customize Folder"
-        alert.informativeText = "Choose a name shown in this Dock. Clear the field to use the folder’s Finder name."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        field.stringValue = item.folderCustomName ?? item.title
-        field.placeholderString = item.title
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Save Name")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        store.updateItem(item.id, in: profile.id) { $0.folderCustomName = name.isEmpty ? nil : name }
+    private func editFolderName(_ item: DockItem, profileID: UUID) {
+        guard let name = DockItemPrompts.folderName(for: item) else { return }
+        store.updateItem(item.id, in: profileID) { $0.folderCustomName = name.isEmpty ? nil : name }
     }
 
-    private func editFolderLetter(_ item: DockItem) {
-        let alert = NSAlert()
-        alert.messageText = "Folder Icon Letter"
-        alert.informativeText = "Enter one optional letter, or clear the field to remove it."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 180, height: 24))
-        field.stringValue = item.folderIconLetter ?? ""
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Save Letter")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let letter = String(field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()
-        store.updateItem(item.id, in: profile.id) { $0.folderIconLetter = letter.isEmpty ? nil : letter }
+    private func editFolderLetter(_ item: DockItem, profileID: UUID) {
+        guard let letter = DockItemPrompts.folderLetter(for: item) else { return }
+        store.updateItem(item.id, in: profileID) { $0.folderIconLetter = letter.isEmpty ? nil : letter }
     }
 
-    private var renderModel: DockRenderModel {
-        DockRenderModel(profile: profile, settings: settings, unpinnedRunningApplications: runningApps.map(\.item),
-                        windows: isPreview && !usesLivePreviewData ? [] : windowMonitor.windows, runningMediaSources: isPreview && !usesLivePreviewData ? Set(NowPlayingSource.allCases) : nowPlayingMonitor.runningSources,
-                        recentApplications: recentApplicationItems)
-    }
-
-    private var runningIndicatorAlignment: Alignment {
-        switch settings.customDockPosition {
+    private static func unitPoint(facing position: DockPosition) -> UnitPoint {
+        switch position {
         case .bottom: .bottom
         case .left: .leading
         case .right: .trailing
         }
     }
 
-    private var magnificationAnchor: UnitPoint {
-        switch settings.customDockPosition {
+    private static func alignment(facing position: DockPosition) -> Alignment {
+        switch position {
+        case .bottom: .bottom
+        case .left: .leading
+        case .right: .trailing
+        }
+    }
+
+    private static func edge(facing position: DockPosition) -> Edge {
+        switch position {
         case .bottom: .bottom
         case .left: .leading
         case .right: .trailing
@@ -987,46 +967,45 @@ struct CustomDockView: View {
         }
     }
 
-    private func magnification(center: CGFloat, isWidget: Bool) -> CGFloat {
-        if isWidget { return 1 }
-        let scale = CGFloat(settings.customDockSize)
-        guard !isPreview, popouts.anchorID == nil else { return 1 }
-        return DockContinuousMagnification.scale(center: center, pointer: hoverPosition, radius: 150 * scale,
-            isWidget: isWidget, enabled: settings.magnificationEnabled, reduceMotion: accessibility.reduceMotion)
+    /// No magnification on macOS 13, where the scroll view would clip the enlarged tiles.
+    private func magnification(center: CGFloat, isWidget: Bool, settings: AppSettings) -> CGFloat {
+        guard !isWidget, !isPreview, popouts.anchorID == nil else { return 1 }
+        return DockContinuousMagnification.scale(center: center, pointer: hoverPosition,
+            radius: 150 * DockSurfaceMetrics.clampedScale(settings.customDockSize), isWidget: isWidget,
+            enabled: settings.magnificationEnabled && DockMagnificationSupport.isAvailable, reduceMotion: reducesMotion)
     }
 
     private func handleTypedDrop(_ values: [DockDragPayload], before targetID: UUID?, unpin: Bool = false) -> Bool {
-        guard !isPreview, popouts.anchorID == nil, let value = values.first else { return false }
-        if let bundleID = value.runningBundleIdentifier {
-            // Compatibility with older drag producers: only an unambiguous
-            // installed copy may be pinned by a bundle-only payload.
-            let matches = draggableRuntimeApps.filter { $0.item.bundleIdentifier == bundleID }
-            guard !unpin, matches.count == 1 else { return false }
-            store.insert(matches[0].item.withFreshIdentity(), before: targetID, in: profile.id)
-            return true
-        }
-        guard value.profileID == profile.id, !value.itemIDs.isEmpty else { return false }
-        let running = draggableRuntimeApps.filter { value.itemIDs.contains($0.item.id) }
-        if !running.isEmpty {
-            guard !unpin, running.count == value.itemIDs.count else { return false }
-            let pinned = running.compactMap { store.insert($0.item.withFreshIdentity(), before: targetID, in: profile.id) }
+        guard !isPreview, popouts.anchorID == nil, let payload = values.first else { return false }
+        let profile = self.profile
+        return apply(DockDropRouter.typedDrop(payload, profile: profile, runtimeApps: draggableRuntimeApps(profile: profile),
+                                              before: targetID, unpin: unpin),
+                     in: profile.id)
+    }
+
+    private func apply(_ action: DockDropAction, in profileID: UUID) -> Bool {
+        switch action {
+        case .rejected:
+            return false
+        case .pin(let items, before: let targetID):
+            let pinned = items.compactMap { store.insert($0.withFreshIdentity(), before: targetID, in: profileID) }
             settle(Set(pinned))
             return true
+        case .move(let itemIDs, before: let targetID):
+            store.moveItems(itemIDs, before: targetID, in: profileID)
+            settle(itemIDs)
+            return true
+        case .unpin(let itemIDs):
+            store.removeItems(itemIDs, from: profileID)
+            return true
         }
-        if unpin {
-            let apps = profile.items.filter { value.itemIDs.contains($0.id) && $0.type == .application }
-            guard !apps.isEmpty else { return false }
-            store.removeItems(Set(apps.map(\.id)), from: profile.id)
-        } else {
-            store.moveItems(Set(value.itemIDs), before: targetID, in: profile.id)
-            settle(Set(value.itemIDs))
-        }
-        return true
     }
 
     /// Running and recent unpinned apps: both can be dragged into the pinned items.
-    private var draggableRuntimeApps: [RunningDockApp] {
-        runningApps + recentApplicationItems.map { RunningDockApp(id: $0.id.uuidString, item: $0) }
+    private func draggableRuntimeApps(profile: DockProfile) -> [DockItem] {
+        let matches = runningMatches(profile: profile)
+        return matches.unpinnedRuntime
+            + recentApplicationItems(profile: profile, settings: store.effectiveSettings(for: profile), matches: matches)
     }
 
     /// A drop ON an application tile: Dock items reorder as before; Finder files or addresses open
@@ -1042,9 +1021,10 @@ struct CustomDockView: View {
         return true
     }
 
-    /// Highlights an application tile only for Finder or address drags, not for Dock reordering.
+    /// Highlights an application tile only for Finder or address drags, not for Dock reordering,
+    /// and never while a popout is open (drops are rejected then).
     private func setDropTarget(_ isTargeted: Bool, for item: DockItem) {
-        if isTargeted {
+        if isTargeted, popouts.anchorID == nil {
             let types = NSPasteboard(name: .drag).types?.map(\.rawValue) ?? []
             dropTargetedItemID = DockDropOpenPolicy.carriesOpenableContent(typeIdentifiers: types) ? item.id : nil
         } else if dropTargetedItemID == item.id {
@@ -1054,64 +1034,54 @@ struct CustomDockView: View {
 
     private func handleExternalDrop(_ urls: [URL]) -> Bool {
         guard !isPreview, popouts.anchorID == nil else { return false }
-        var added = false
-        for url in urls.prefix(100) {
-            if url.isFileURL, FileManager.default.fileExists(atPath: url.path) {
-                let folder = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-                store.add(url.pathExtension == "app" ? .application(at: url) : .file(at: url, isFolder: folder), to: profile.id)
-                added = true
-            } else if let link = DockLinkPolicy.validatedURL(url.absoluteString) {
-                // The same policy as every other link entry: http(s) only, never credentials in the URL.
-                store.add(.link(link, title: link.host ?? link.absoluteString), to: profile.id)
-                added = true
-            }
-        }
-        return added
-    }
-
-    private var popoutArrowEdge: Edge {
-        switch settings.customDockPosition {
-        case .bottom: .bottom
-        case .left: .leading
-        case .right: .trailing
-        }
-    }
-
-    /// Popout content grows from the edge that faces the Dock.
-    private var popoutAppearAnchor: UnitPoint {
-        switch settings.customDockPosition {
-        case .bottom: .bottom
-        case .left: .leading
-        case .right: .trailing
-        }
+        let items = DockDropRouter.externalItems(
+            for: urls,
+            fileExists: { FileManager.default.fileExists(atPath: $0.path) },
+            isDirectory: { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true })
+        guard !items.isEmpty else { return false }
+        let profileID = profile.id
+        for item in items { store.add(item, to: profileID) }
+        return true
     }
 
     private var openPopoutTabs: [DockItem] {
         popouts.tabIDs.compactMap { popoutItem(for: $0) }
     }
 
-    private var popoutTabBar: some View {
-        DockScrollView(.horizontal) {
-            HStack(spacing: 4) {
-                ForEach(openPopoutTabs) { tab in
-                    HStack(spacing: 2) {
-                        Button(tab.displayName) { popouts.select(tab.id) }
-                            .buttonStyle(.bordered)
-                            .tint(popouts.activeID == tab.id ? Color.accentColor : Color.gray.opacity(0.8))
-                            .lineLimit(1)
-                        Button {
-                            popouts.close(tab.id)
-                        } label: {
-                            Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Close \(tab.displayName)")
-                        .accessibilityLabel("Close \(tab.displayName)")
+    /// Native segmented tabs: the selected tab is a real selection for VoiceOver, the keyboard and
+    /// Increase Contrast. One close button closes the tab that is showing.
+    private func popoutTabBar(_ tabs: [DockItem]) -> some View {
+        HStack(spacing: DockDesign.Space.xxs) {
+            DockScrollView(.horizontal) {
+                Picker("Open Popouts", selection: Binding(
+                    get: { popouts.activeID },
+                    set: { if let itemID = $0 { popouts.select(itemID) } }
+                )) {
+                    ForEach(tabs) { tab in
+                        Text(tab.displayName).lineLimit(1).tag(Optional(tab.id))
                     }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            .scrollIndicators(.hidden)
+            if let active = tabs.first(where: { $0.id == popouts.activeID }) {
+                Button {
+                    popouts.close(active.id)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .imageScale(.large)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help("Close \(active.displayName)")
+                .accessibilityLabel("Close \(active.displayName)")
             }
         }
-        .scrollIndicators(.hidden)
         .frame(height: 28)
     }
 
@@ -1122,9 +1092,10 @@ struct CustomDockView: View {
     }
 
     private func reconcilePopouts() {
+        let profile = self.profile
         var validIDs = Set(visibleProfileItems.map(\.id))
         if CustomDockVisibilityPolicy.showsSystemTrash(
-            isEnabled: settings.showTrash,
+            isEnabled: store.effectiveSettings(for: profile).showTrash,
             hasProfileTrashWidget: profile.items.contains(where: { $0.widgetKind == "Trash" })
         ) {
             validIDs.insert(systemTrashItem.id)
@@ -1139,20 +1110,40 @@ struct CustomDockView: View {
             return NowPlayingVisibilityPolicy.showsTile(
                 hideWhenClosed: configuration.nowPlayingHidesWhenClosed,
                 enabledSources: Set(configuration.nowPlayingEnabledSources),
-                runningSources: nowPlayingMonitor.runningSources)
+                runningSources: runningMediaSources)
         }
-    }
-
-    private var runningApps: [RunningDockApp] {
-        runningMatches.unpinnedRuntime.map { RunningDockApp(id: $0.id.uuidString, item: $0) }
     }
 }
 
-private struct WindowDockTile: View {
+/// What VoiceOver hears for a tile. Widget faces name themselves and read their own value; folder
+/// and link icons (a default folder, a fetched favicon) carry no description, so they get the
+/// item's name. Every tile adds its running, missing and badge state, and the tile under an open
+/// popout is selected.
+private struct DockTileAccessibilityModifier: ViewModifier {
+    var item: DockItem
+    var value: String
+    var isSelected: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        let traits: AccessibilityTraits = isSelected ? .isSelected : []
+        switch item.type {
+        case .widget:
+            content.accessibilityAddTraits(traits)
+        case .folder, .link:
+            content.accessibilityLabel(item.displayName).accessibilityValue(value).accessibilityAddTraits(traits)
+        case .application, .file, .spacer:
+            content.accessibilityValue(value).accessibilityAddTraits(traits)
+        }
+    }
+}
+
+/// A minimized window in the Dock's windows section (only minimized windows are listed there).
+private struct WindowDockTile<SwitchProfileMenu: View>: View {
     var window: DockWindowDescriptor
     var size: CGFloat
     var preview: NSImage?
-    var switchProfileMenu: AnyView
+    @ViewBuilder var switchProfileMenu: SwitchProfileMenu
+    @DockAccessibilityStyle() private var accessibility
 
     private var icon: NSImage {
         if let identity = window.applicationIdentity,
@@ -1169,22 +1160,20 @@ private struct WindowDockTile: View {
             Group {
                 if let preview {
                     Image(nsImage: preview).resizable().scaledToFit()
-                        .background(Color.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
-                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(0.09), lineWidth: 0.5))
+                        .background(DockDesign.selection, in: RoundedRectangle(cornerRadius: 5))
+                        .overlay(RoundedRectangle(cornerRadius: 5)
+                            .stroke(DockDesign.Outline.color(accessibility.contrast),
+                                    lineWidth: DockDesign.Outline.controlWidth(accessibility.contrast)))
                 } else {
                     Image(nsImage: icon).resizable().scaledToFit()
                 }
             }
                 .frame(width: size, height: size)
                 .padding(3)
-                .overlay(alignment: .bottomTrailing) {
-                    Circle().fill(window.isMinimized ? Color.orange : Color.green)
-                        .frame(width: 7, height: 7).overlay(Circle().stroke(.black.opacity(0.35), lineWidth: 0.5))
-                }
         }
         .buttonStyle(.plain)
         .help("\(window.title) · \(window.applicationName)")
-        .accessibilityLabel("\(window.isMinimized ? "Minimized window" : "Window"): \(window.title), \(window.applicationName)")
+        .accessibilityLabel("Minimized window: \(window.title), \(window.applicationName)")
         .contextMenu {
             Button("Restore Window") { WindowAccessibilityService.activate(window) }
             Button("Close Window") { WindowAccessibilityService.close(window) }
@@ -1206,11 +1195,6 @@ private struct SizeBasedScrollBounce: ViewModifier {
             content
         }
     }
-}
-
-private struct RunningDockApp: Identifiable {
-    var id: String
-    var item: DockItem
 }
 
 private struct DockScrollClip: ViewModifier {
@@ -1239,7 +1223,7 @@ private struct DockItemStackPresentation: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if glassGroup {
             // Spacing 0: modules blend only when they touch (morphs), never at rest.
-            DockGlassGroup(spacing: 0) { content.environment(\.dockModuleRadius, moduleRadius) }
+            DockGlassGroup(spacing: DockGlassComposition.moduleSpacing) { content.environment(\.dockModuleRadius, moduleRadius) }
         } else {
             content.environment(\.dockModuleRadius, moduleRadius)
         }

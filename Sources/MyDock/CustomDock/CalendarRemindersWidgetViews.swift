@@ -903,7 +903,7 @@ private struct RemindersPopoutWidgetView: View {
                     HStack {
                         Text("Reminder completed.").font(DockDesign.Grouped.footerFont).foregroundStyle(.secondary)
                         Spacer()
-                        Button("Undo completion") { undoCompletion(lastCompletedIdentifier) }
+                        Button("Undo Completion") { undoCompletion(lastCompletedIdentifier) }
                             .buttonStyle(.borderless).controlSize(.small).disabled(isChangingCompletion)
                     }
                     .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)

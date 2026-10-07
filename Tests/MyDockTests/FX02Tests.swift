@@ -124,30 +124,30 @@ struct FX02Tests {
         let other = runtime("/Applications/Notes.app", "com.apple.Notes")
         let trash = DockRenderModel.systemTrash
         let pinnedEnd = DockRenderEntry.insertion.id
-        let windows = DockRenderEntry.boundary("windows").id
-        let running = DockRenderEntry.boundary("running").id
+        let windows = DockRenderEntry.boundary(.windows).id
+        let running = DockRenderEntry.boundary(.running).id
 
         // Every QA Dock and preset preview: pinned items and nothing after them.
         #expect(DockSeparatorPolicy.visibleSeparatorIDs([.item(finder, pinned: true), .item(clock, pinned: true), .insertion]).isEmpty)
         // Trash or running apps follow: the pinned-end line shows.
         #expect(DockSeparatorPolicy.visibleSeparatorIDs([.item(finder, pinned: true), .insertion, .item(trash, pinned: false)]) == [pinnedEnd])
-        #expect(DockSeparatorPolicy.visibleSeparatorIDs([.item(finder, pinned: true), .insertion, .boundary("running"),
+        #expect(DockSeparatorPolicy.visibleSeparatorIDs([.item(finder, pinned: true), .insertion, .boundary(.running),
                                                          .item(other, pinned: false)]) == [pinnedEnd])
         // Running apps on with none running: the line still needs something after it.
-        #expect(DockSeparatorPolicy.visibleSeparatorIDs([.item(finder, pinned: true), .insertion, .boundary("running")]).isEmpty)
+        #expect(DockSeparatorPolicy.visibleSeparatorIDs([.item(finder, pinned: true), .insertion, .boundary(.running)]).isEmpty)
         // Nothing pinned: no line before the first tile.
-        #expect(DockSeparatorPolicy.visibleSeparatorIDs([.insertion, .boundary("running"), .item(other, pinned: false)]).isEmpty)
+        #expect(DockSeparatorPolicy.visibleSeparatorIDs([.insertion, .boundary(.running), .item(other, pinned: false)]).isEmpty)
         // A spacer is an invisible gap, not content.
         #expect(DockSeparatorPolicy.visibleSeparatorIDs([.item(.spacer(.regular), pinned: true), .insertion, .item(trash, pinned: false)]).isEmpty)
         // Never two lines in a row; the running boundary never draws.
         let window = DockWindowDescriptor(processID: 42, windowIndex: 0, bundleIdentifier: "app.example", applicationName: "Example",
                                           title: "Draft", isMinimized: true, accessibilityIdentifier: nil)
-        let ids = DockSeparatorPolicy.visibleSeparatorIDs([.item(finder, pinned: true), .insertion, .boundary("running"),
-                                                           .boundary("windows"), .window(window)])
+        let ids = DockSeparatorPolicy.visibleSeparatorIDs([.item(finder, pinned: true), .insertion, .boundary(.running),
+                                                           .boundary(.windows), .window(window)])
         #expect(ids == [pinnedEnd])
         #expect(!ids.contains(running))
         #expect(DockSeparatorPolicy.visibleSeparatorIDs([.item(finder, pinned: true), .insertion, .item(other, pinned: false),
-                                                         .boundary("windows"), .window(window)]) == [pinnedEnd, windows])
+                                                         .boundary(.windows), .window(window)]) == [pinnedEnd, windows])
     }
 
     @Test func defaultRenderModelsEndWithoutALine() {
@@ -174,7 +174,7 @@ struct FX02Tests {
                                     runningMediaSources: [])
         // The pinned-end slot and the empty running boundary collapse in previews only.
         #expect(DockSeparatorPolicy.previewCollapsedEntryIDs(model.entries)
-                == [DockRenderEntry.insertion.id, DockRenderEntry.boundary("running").id])
+                == [DockRenderEntry.insertion.id, DockRenderEntry.boundary(.running).id])
         let collapsedLength = (14 + 5) * scale + 2 * CGFloat(settings.customDockItemSpacing) * scale
         #expect(abs(DockSeparatorPolicy.previewContentLength(model.entries, settings: settings, scale: scale)
                     - (model.contentLength(settings: settings, scale: scale) - collapsedLength)) < 0.001)

@@ -264,7 +264,7 @@ private struct AILimitsPopoutView: View {
                     .help(reading.provider.setupInstructions)
                 if let command = reading.provider.statusLineSetupCommand {
                     HStack {
-                        Button("Copy statusLine value") {
+                        Button("Copy Status Line Command") {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(command, forType: .string)
                             copiedClaudeStatusLineCommand = true

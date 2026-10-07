@@ -252,7 +252,7 @@ final class CustomDockWindowController {
 
     private func place(_ panel: NSPanel, on screen: NSScreen, profile: DockProfile, settings: AppSettings, animate: Bool = false) -> NSRect {
         let visible = dockPlacementFrame(on: screen)
-        let scale = CGFloat(min(max(settings.customDockSize, 0.65), 1.5))
+        let scale = DockSurfaceMetrics.clampedScale(settings.customDockSize)
         let tileLength = (54 + (settings.magnificationEnabled ? 22 : 0)) * scale
         let runtimeApplications = RuntimeDockApplications.items()
         let pinnedApplicationURLs = RuntimeDockApplications.pinnedURLs(in: profile)

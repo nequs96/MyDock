@@ -120,7 +120,7 @@ enum AppLauncher {
         alert.addButton(withTitle: "Cancel")
         let force = alert.addButton(withTitle: "Force Quit")
         force.hasDestructiveAction = true
-        guard alert.runModal() == .alertSecondButtonReturn, let current = validatedApplication(identity) else { return }
+        guard DockModal.run(alert) == .alertSecondButtonReturn, let current = validatedApplication(identity) else { return }
         if !current.forceTerminate() {
             showFailure("Could not force quit \(name).")
         }
@@ -135,7 +135,7 @@ enum AppLauncher {
         panel.canChooseFiles = item.type != .folder
         panel.allowsMultipleSelection = false
         if item.type == .application { panel.allowedContentTypes = [.applicationBundle] }
-        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        guard DockModal.run(panel) == .OK, let url = panel.url else { return nil }
         var repaired = item
         repaired.url = url
         if item.type == .application { repaired.bundleIdentifier = Bundle(url: url)?.bundleIdentifier }

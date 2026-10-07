@@ -236,35 +236,4 @@ struct RedesignDockSurfaceTests {
         }
         #expect(DockSurfaceMetrics.moduleRadius(settings: settings, scale: 0) == DockDesign.Module.defaultRadius)
     }
-
-    @Test func runningIndicatorPolicy() {
-        let url = URL(fileURLWithPath: "/Applications/Safari.app")
-        let app = DockItem.application(at: url)
-        let running: Set<URL> = [InstalledApplicationIdentity.normalizedURL(url)]
-        #expect(DockRunningIndicatorPolicy.isRunning(app, pinned: true, runningURLs: running, resolvedURL: { nil }))
-        #expect(!DockRunningIndicatorPolicy.isRunning(app, pinned: true, runningURLs: [], resolvedURL: { nil }))
-        #expect(DockRunningIndicatorPolicy.isRunning(app, pinned: false, runningURLs: [], resolvedURL: { nil }))
-        var moved = app
-        moved.url = URL(fileURLWithPath: "/Volumes/Old/Safari.app")
-        #expect(DockRunningIndicatorPolicy.isRunning(moved, pinned: true, runningURLs: running, resolvedURL: { url }))
-        #expect(!DockRunningIndicatorPolicy.isRunning(.widget("Clock"), pinned: false, runningURLs: running, resolvedURL: { nil }))
-        #expect(!DockRunningIndicatorPolicy.isRunning(.file(at: url), pinned: true, runningURLs: running, resolvedURL: { url }))
-    }
-
-    @Test func runningIndicatorResolvesMovedAppsOnlyWhenItsBundleIsRunning() {
-        let url = URL(fileURLWithPath: "/Applications/Safari.app")
-        var moved = DockItem.application(at: url)
-        moved.url = URL(fileURLWithPath: "/Volumes/Old/Safari.app")
-        moved.bundleIdentifier = "com.apple.Safari"
-        let running: Set<URL> = [InstalledApplicationIdentity.normalizedURL(url)]
-        var resolutions = 0
-        let resolve: () -> URL? = { resolutions += 1; return url }
-        // Hover and magnification re-evaluate the Dock body; idle apps must not touch the disk.
-        #expect(!DockRunningIndicatorPolicy.isRunning(moved, pinned: true, runningURLs: running,
-                                                      runningBundleIdentifiers: ["com.apple.Terminal"], resolvedURL: resolve))
-        #expect(resolutions == 0)
-        #expect(DockRunningIndicatorPolicy.isRunning(moved, pinned: true, runningURLs: running,
-                                                     runningBundleIdentifiers: ["com.apple.Safari"], resolvedURL: resolve))
-        #expect(resolutions == 1)
-    }
 }

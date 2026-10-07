@@ -9,12 +9,13 @@ import Foundation
 enum DockDropOpenPolicy {
     static let maximumURLs = 100
 
-    /// Existing local files and http(s) addresses only. Anything else is ignored, so a drop that
-    /// carries nothing openable is rejected rather than silently launching the app.
+    /// Existing local files and web addresses that `DockLinkPolicy` accepts (http or https, no
+    /// credentials). Anything else is ignored, so a drop that carries nothing openable is rejected
+    /// rather than silently launching the app.
     static func openableURLs(_ urls: [URL], fileExists: (URL) -> Bool) -> [URL] {
         urls.prefix(maximumURLs).filter { url in
             if url.isFileURL { return fileExists(url) }
-            return ["https", "http"].contains(url.scheme?.lowercased() ?? "") && url.host != nil
+            return DockLinkPolicy.validatedURL(url.absoluteString) != nil
         }
     }
 
@@ -103,12 +104,12 @@ extension DockRenderModel {
         let trashID = Self.systemTrash.id
         let index = entries.firstIndex { entry in
             switch entry {
-            case .boundary(let kind): kind == "windows"
+            case .boundary(let kind): kind == .windows
             case .item(let item, let pinned): !pinned && item.id == trashID
             case .insertion, .window: false
             }
         } ?? entries.count
-        entries.insert(contentsOf: [DockRenderEntry.boundary("recent")] + items.map { DockRenderEntry.item($0, pinned: false) }, at: index)
+        entries.insert(contentsOf: [DockRenderEntry.boundary(.recent)] + items.map { DockRenderEntry.item($0, pinned: false) }, at: index)
     }
 }
 
@@ -134,18 +135,23 @@ final class RecentApplicationsTracker: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] notification in
                 guard let self,
-                      let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-                self.record(app)
+                      let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                      !app.isTerminated else { return }
+                self.record(bundleIdentifier: app.bundleIdentifier, name: app.localizedName, bundleURL: app.bundleURL,
+                            activationPolicy: app.activationPolicy)
             }
     }
 
-    private func record(_ app: NSRunningApplication) {
-        guard app.activationPolicy == .regular, !app.isTerminated,
-              let identifier = app.bundleIdentifier, let url = app.bundleURL,
-              identifier != Bundle.main.bundleIdentifier else { return }
-        let entry = RecentApplication(bundleIdentifier: identifier, name: app.localizedName ?? identifier, bundleURL: url)
-        let updated = RecentApplicationsPolicy.recording(entry, into: recents)
-            .filter { FileManager.default.fileExists(atPath: $0.bundleURL.path) }
+    /// Records one activation. Only regular apps other than MyDock count, and recents whose bundle
+    /// no longer exists are dropped. `fileExists` and `ownBundleIdentifier` are injectable for tests.
+    func record(bundleIdentifier: String?, name: String?, bundleURL: URL?,
+                activationPolicy: NSApplication.ActivationPolicy,
+                ownBundleIdentifier: String? = Bundle.main.bundleIdentifier,
+                fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) {
+        guard activationPolicy == .regular, let identifier = bundleIdentifier, let url = bundleURL,
+              identifier != ownBundleIdentifier else { return }
+        let entry = RecentApplication(bundleIdentifier: identifier, name: name ?? identifier, bundleURL: url)
+        let updated = RecentApplicationsPolicy.recording(entry, into: recents).filter { fileExists($0.bundleURL) }
         if updated != recents { recents = updated }
     }
 }

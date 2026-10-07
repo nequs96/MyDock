@@ -120,14 +120,15 @@ final class DockBadgeMonitor: ObservableObject {
         refreshTask?.cancel()
         refreshTask = nil
         guard isEnabled, dockIsVisible, DockBadgeReader.isSupported else {
-            badges = [:]
+            if !badges.isEmpty { badges = [:] }
             return
         }
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 let latest = await Task.detached(priority: .utility) { DockBadgeReader.read() }.value
                 guard !Task.isCancelled, let self else { return }
-                self.badges = latest
+                // Publishing only changes keeps the 5-second poll from redrawing an unchanged Dock.
+                if self.badges != latest { self.badges = latest }
                 do { try await Task.sleep(for: .seconds(5)) } catch { return }
             }
         }
