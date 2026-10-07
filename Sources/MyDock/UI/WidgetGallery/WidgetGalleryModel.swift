@@ -203,6 +203,13 @@ enum WidgetGalleryModel {
         return min(4, max(2, fitting))
     }
 
+    /// The result Return acts on is always the one drawn highlighted: the arrow-key selection, or the first result
+    /// while a search narrows the list. A gallery opened with no search highlights, and adds, nothing.
+    static func highlightedIndex(keyboardNavigation: Bool, hasQuery: Bool, selected: Int, count: Int) -> Int? {
+        guard count > 0, keyboardNavigation || hasQuery else { return nil }
+        return min(max(0, selected), count - 1)
+    }
+
     /// The entry the arrow keys reach from `index` in a flat list laid out `columns` wide:
     /// left/right step by one, up/down by a row, clamped to the list.
     static func movedIndex(from index: Int, direction: WidgetGalleryMoveDirection, columns: Int, count: Int) -> Int {

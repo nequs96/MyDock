@@ -254,7 +254,8 @@ struct DraftRecoveryAndPruningTests {
 @MainActor
 struct IsolatedGlobalServiceTests {
     @Test func localAIAccountReadersDoNotTouchTheRealAccountWhenIsolated() async throws {
-        #expect(AppRuntimeEnvironment.isIsolated)
+        // Stop before reading real ~/.codex logs or running the real limit readers if isolation were ever off.
+        try #require(AppRuntimeEnvironment.isIsolated)
         let activity = AIActivityReader.read(provider: .codex, range: .sevenDays)
         #expect(!activity.available)
         let snapshot = await AILimitsCollector.collect(providers: [.codex, .claude, .copilot])
@@ -264,7 +265,9 @@ struct IsolatedGlobalServiceTests {
         #expect(AIAccountService.detect(.codex).state == .unavailable)
     }
 
-    @Test func everyCredentialFacadeRefusesWritesAndDeletesWhenIsolated() {
+    @Test func everyCredentialFacadeRefusesWritesAndDeletesWhenIsolated() throws {
+        // Stop before any write or delete reaches the user's Keychain if isolation were ever off.
+        try #require(AppRuntimeEnvironment.isIsolated && !AppRuntimeEnvironment.allowsCredentials)
         #expect(throws: ValidationBoundaryError.self) { try StripeAPIKeyStore.write("rk_fixture", accountID: "acct") }
         #expect(throws: ValidationBoundaryError.self) { try StripeAPIKeyStore.delete(accountID: "acct") }
         #expect(throws: ValidationBoundaryError.self) { try PaddleAPIKeyStore.write("fixture", accountID: "acct") }

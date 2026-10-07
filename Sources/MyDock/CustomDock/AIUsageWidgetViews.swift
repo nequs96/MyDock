@@ -164,14 +164,15 @@ private struct AILimitsPopoutView: View {
                 controls
                 ForEach(orderedProviders.filter { configuration.aiLimitsVisibleProviders.contains($0) && ($0 == .codex || $0 == .claude) }) { provider in
                     AIAccountConnectionView(provider: provider, allowsAccountActions: store.allowsSystemChanges,
-                                            showsLimitsSetup: true, refresh: { await refresh() })
+                                            showsLimitsSetup: true, refresh: { await refresh(force: true) })
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: limitsRefreshKey) {
             guard !snapshotRendering else { return }
-            await refresh()
+            // Opening the popout loads only a reading older than the update interval.
+            await refresh(force: false)
         }
         .onDisappear {
             refreshRequestID = UUID()
@@ -348,14 +349,14 @@ private struct AILimitsPopoutView: View {
     private func update(_ body: (inout WidgetConfiguration) -> Void) {
         store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: body)
     }
-    private func refresh() async {
+    private func refresh(force: Bool) async {
         let requestID = UUID()
         refreshRequestID = requestID
         isRefreshing = true
         defer { if refreshRequestID == requestID { isRefreshing = false } }
         var currentItem = item
         currentItem.widgetConfiguration = configuration
-        await store.widgetData.refresh(item: currentItem, profileID: profileID)
+        await store.widgetData.refresh(item: currentItem, profileID: profileID, force: force)
     }
 }
 

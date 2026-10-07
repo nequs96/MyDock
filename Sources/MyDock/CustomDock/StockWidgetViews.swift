@@ -32,6 +32,14 @@ struct WatchlistCompactView: View {
 }
 
 enum StockFaceFormatting {
+    /// Market data names each trading session by its calendar day, stored as UTC midnight. Formatting it in UTC keeps
+    /// the session's own day; the Mac's time zone would show the previous day everywhere west of UTC.
+    static func sessionDate(_ date: Date, locale: Locale = .current) -> String {
+        var style = Date.FormatStyle(date: .abbreviated, time: .omitted, locale: locale, calendar: Calendar(identifier: .gregorian))
+        style.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        return date.formatted(style)
+    }
+
     static func percentText(_ percent: Double, locale: Locale = .current) -> String {
         (percent / 100).formatted(.percent.precision(.fractionLength(2)).sign(strategy: .always()).locale(locale))
     }
@@ -183,9 +191,9 @@ private struct StockPopoutView: View {
                                 currency: snapshot.currency)
                     .frame(height: 100)
                 HStack {
-                    Text(visiblePoints.first?.date.formatted(date: .abbreviated, time: .omitted) ?? "")
+                    Text(visiblePoints.first.map { StockFaceFormatting.sessionDate($0.date) } ?? "")
                     Spacer()
-                    Text(latest.date.formatted(date: .abbreviated, time: .omitted))
+                    Text(StockFaceFormatting.sessionDate(latest.date))
                 }
                 .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                 if configuration.stockShowsVolume {
@@ -271,6 +279,8 @@ private struct StockPopoutView: View {
         }
     }
 
+    /// Opening the popout loads only a reading older than the update interval; the refresh button forces a fetch.
+    /// Market data keys allow few requests a day.
     private func refresh() async {
         let requestID = UUID()
         refreshRequestID = requestID
@@ -278,7 +288,7 @@ private struct StockPopoutView: View {
         defer { if refreshRequestID == requestID { isRefreshing = false } }
         var currentItem = item
         currentItem.widgetConfiguration = configuration
-        await store.widgetData.refresh(item: currentItem, profileID: profileID)
+        await store.widgetData.refresh(item: currentItem, profileID: profileID, force: false)
         guard refreshRequestID == requestID, !Task.isCancelled else { return }
     }
 
@@ -351,7 +361,7 @@ private struct WatchlistPopoutView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .task(id: "\(configuration.watchlistSelectedSymbol)|\(selected?.currency ?? "")|\(interval)") {
             guard !snapshotRendering, !configuration.watchlistSelectedSymbol.isEmpty else { return }
-            await refreshSelected()
+            await refreshWatchlist()
         }
         .onChange(of: "\(configuration.watchlistSelectedSymbol)|\(selected?.currency ?? "")") { _ in
             refreshRequestID = UUID()
@@ -458,7 +468,7 @@ private struct WatchlistPopoutView: View {
                                     color: StockFaceFormatting.changeColor(snapshot.change),
                                     currency: snapshot.currency)
                         .frame(height: 72)
-                    Text("\(visiblePoints.count) trading sessions · \(visiblePoints.first?.date.formatted(date: .abbreviated, time: .omitted) ?? "")–\(latest.date.formatted(date: .abbreviated, time: .omitted))")
+                    Text("\(visiblePoints.count) trading sessions · \(visiblePoints.first.map { StockFaceFormatting.sessionDate($0.date) } ?? "")–\(StockFaceFormatting.sessionDate(latest.date))")
                         .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                     if configuration.stockShowsVolume { Text("Volume \(latest.volume.formatted())").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary) }
                 }
@@ -537,14 +547,16 @@ private struct WatchlistPopoutView: View {
         }
     }
 
-    private func refreshSelected() async {
+    /// One query loads every symbol, so opening the popout or switching symbol loads only a reading older than the
+    /// update interval; the refresh button forces a fetch.
+    private func refreshWatchlist() async {
         let requestID = UUID()
         refreshRequestID = requestID
         isRefreshing = true
         defer { if refreshRequestID == requestID { isRefreshing = false } }
         var currentItem = item
         currentItem.widgetConfiguration = configuration
-        await store.widgetData.refresh(item: currentItem, profileID: profileID)
+        await store.widgetData.refresh(item: currentItem, profileID: profileID, force: false)
         guard refreshRequestID == requestID, !Task.isCancelled else { return }
     }
 
@@ -639,7 +651,7 @@ private struct MarketSparkline: View {
                         .position(x: x, y: geometry.size.height / 2)
                     Circle().fill(color).frame(width: 7, height: 7).position(x: x, y: y)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(point.date.formatted(date: .abbreviated, time: .omitted))
+                        Text(StockFaceFormatting.sessionDate(point.date))
                         Text(point.close.formatted(.currency(code: currency)))
                             .fontWeight(.semibold)
                         Text("Volume \(point.volume.formatted())")
@@ -688,10 +700,10 @@ private struct MarketSparkline: View {
     private var accessibilityValue: String {
         guard let selectedIndex, points.indices.contains(selectedIndex) else {
             guard let latest = points.last else { return "No chart data" }
-            return "Latest: \(latest.date.formatted(date: .abbreviated, time: .omitted)), \(latest.close.formatted(.currency(code: currency))), volume \(latest.volume.formatted())"
+            return "Latest: \(StockFaceFormatting.sessionDate(latest.date)), \(latest.close.formatted(.currency(code: currency))), volume \(latest.volume.formatted())"
         }
         let point = points[selectedIndex]
-        return "\(point.date.formatted(date: .abbreviated, time: .omitted)), \(point.close.formatted(.currency(code: currency))), volume \(point.volume.formatted())"
+        return "\(StockFaceFormatting.sessionDate(point.date)), \(point.close.formatted(.currency(code: currency))), volume \(point.volume.formatted())"
     }
 }
 

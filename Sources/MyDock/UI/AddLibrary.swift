@@ -117,8 +117,12 @@ struct AddLibrary: View {
         return WidgetGalleryModel.isAdded(item, in: profile, recentlyAdded: recentlyAdded)
     }
     private func generation(_ item: DockItem) -> Int { addGenerations[WidgetGalleryModel.identity(item)] ?? 0 }
+    private var highlightedIndex: Int? {
+        WidgetGalleryModel.highlightedIndex(keyboardNavigation: keyboardNavigation, hasQuery: !query.isEmpty,
+                                            selected: selected, count: navigationEntries.count)
+    }
     private func isSelected(_ id: String) -> Bool {
-        keyboardNavigation && navigationEntries.indices.contains(selected) && navigationEntries[selected].id == id
+        highlightedIndex.map { navigationEntries[$0].id == id } ?? false
     }
     private func isFocused(_ id: String) -> Bool {
         #if DEBUG
@@ -511,13 +515,13 @@ struct AddLibrary: View {
         guard detail == nil else { return }
         if focusedTile != nil { tileKey(.returnKey, command: true); return }
         guard WidgetGalleryKeymap.action(for: .returnKey, command: true, context: .searchResults, canAdd: allowsAdding) == .addDefault,
-              navigationEntries.indices.contains(selected) else { return }
-        perform(navigationEntries[selected])
+              let index = highlightedIndex else { return }
+        perform(navigationEntries[index])
     }
     /// Tab from the search field lands on the highlighted widget tile, or the first one.
     private func focusTiles() -> Bool {
         guard detail == nil, tab == .widgets, !navigationEntries.isEmpty else { return false }
-        let index = keyboardNavigation && navigationEntries.indices.contains(selected) ? selected : 0
+        let index = highlightedIndex ?? 0
         keyboardNavigation = false
         focusedTile = navigationEntries[index].id
         return true
@@ -578,9 +582,11 @@ struct AddLibrary: View {
         }
     }
 
+    /// With nothing highlighted, the first arrow press highlights the first result instead of skipping it.
     private func moveSelection(_ offset: Int) {
+        let current = highlightedIndex
         keyboardNavigation = true
-        selected = min(max(0, navigationEntries.count - 1), max(0, selected + offset))
+        selected = current.map { min(max(0, navigationEntries.count - 1), max(0, $0 + offset)) } ?? 0
     }
     /// Return in the search field: adds the highlighted result's default size (the detail's
     /// selected size while it is open), as it always has.
@@ -588,7 +594,7 @@ struct AddLibrary: View {
         let context: WidgetGalleryKeyContext = detail == nil ? .searchResults : .detail
         switch WidgetGalleryKeymap.action(for: .returnKey, context: context, canAdd: allowsAdding) {
         case .addSelectedSize: if let detail { addWidget(detail, layout: detailLayout) }
-        case .addDefault: if navigationEntries.indices.contains(selected) { perform(navigationEntries[selected]) }
+        case .addDefault: if let index = highlightedIndex { perform(navigationEntries[index]) }
         default: break
         }
     }

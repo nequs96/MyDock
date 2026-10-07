@@ -217,6 +217,48 @@ import Testing
         #expect(configuration.stripeCurrency == "GBP", "a currency the account reported before stays selected")
     }
 
+    /// S11-001: a trading session stored as UTC midnight keeps its own day wherever the Mac is.
+    @Test func stockSessionDatesKeepTheirDayWestOfUTC() throws {
+        let session = try #require(ISO8601DateFormatter().date(from: "2026-10-06T00:00:00Z"))
+        let english = Locale(identifier: "en_US")
+        #expect(StockFaceFormatting.sessionDate(session, locale: english) == "Oct 6, 2026")
+        var newYork = Date.FormatStyle(date: .abbreviated, time: .omitted, locale: english, calendar: Calendar(identifier: .gregorian))
+        newYork.timeZone = try #require(TimeZone(identifier: "America/New_York"))
+        #expect(session.formatted(newYork) == "Oct 5, 2026", "the old formatting showed the previous day")
+    }
+
+    /// S11-002: opening a Stock, Watchlist or AI Limits popout reuses a reading newer than the update interval;
+    /// only the refresh button forces a fetch, so a market data key's few daily requests last.
+    @MainActor
+    @Test func openingADataPopoutDoesNotRefetchAFreshReading() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"), allowsSystemChanges: false)
+        var stock = DockItem.widget("Stock")
+        stock.widgetConfiguration?.stockSymbol = "AAPL"
+        let profileID = try store.createProfile(DockProfile(name: "Markets", kind: .custom, items: [stock]))
+        let loads = LoadCounter()
+        let coordinator = WidgetDataCoordinator(store: store) { _, _ in
+            await loads.increment()
+            return .stock(StockMarketSnapshot(symbol: "AAPL", points: [], currency: "USD", fetchedAt: .now))
+        }
+        await coordinator.refresh(item: stock, profileID: profileID, force: false)
+        await coordinator.refresh(item: stock, profileID: profileID, force: false)
+        #expect(await loads.count == 1)
+        await coordinator.refresh(item: stock, profileID: profileID)
+        #expect(await loads.count == 2)
+    }
+
+    /// S15-001: Return adds only the result drawn highlighted; a gallery opened without a search adds nothing.
+    @MainActor
+    @Test func returnAddsOnlyTheHighlightedResult() {
+        #expect(WidgetGalleryModel.highlightedIndex(keyboardNavigation: false, hasQuery: false, selected: 0, count: 5) == nil)
+        #expect(WidgetGalleryModel.highlightedIndex(keyboardNavigation: false, hasQuery: true, selected: 0, count: 5) == 0)
+        #expect(WidgetGalleryModel.highlightedIndex(keyboardNavigation: true, hasQuery: false, selected: 3, count: 5) == 3)
+        #expect(WidgetGalleryModel.highlightedIndex(keyboardNavigation: true, hasQuery: true, selected: 9, count: 5) == 4)
+        #expect(WidgetGalleryModel.highlightedIndex(keyboardNavigation: true, hasQuery: true, selected: 0, count: 0) == nil)
+    }
+
     @Test func mainDisplayIsThePrimaryDisplayNotTheFocusedOne() {
         // AppKit lists the primary display (menu bar, origin at zero) first.
         let displays: [UInt32] = [7, 8, 9]
@@ -238,4 +280,9 @@ import Testing
         model.entries = [.item(item, pinned: true), .item(item, pinned: false)]
         #expect(model.positionedEntries(settings: AppSettings(), scale: 1).count == 2)
     }
+}
+
+private actor LoadCounter {
+    private(set) var count = 0
+    func increment() { count += 1 }
 }

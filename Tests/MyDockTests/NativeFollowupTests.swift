@@ -5,8 +5,9 @@ import Testing
 @testable import MyDock
 
 struct NativeFollowupTests {
-    @Test @MainActor func defaultUpdateCheckFailsClosedInIsolatedValidation() async {
-        #expect(!AppRuntimeEnvironment.allowsNetwork)
+    @Test @MainActor func defaultUpdateCheckFailsClosedInIsolatedValidation() async throws {
+        // Stop before a real update request if isolation were ever off.
+        try #require(!AppRuntimeEnvironment.allowsNetwork)
         let service = UpdateCheckService()
         await service.check(repositoryURL: "https://github.com/fixture/mydock")
         #expect(!service.checking && service.releaseURL == nil)
