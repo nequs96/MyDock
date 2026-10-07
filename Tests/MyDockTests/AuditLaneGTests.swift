@@ -102,7 +102,7 @@ import UserNotifications
             #expect(PermissionOverviewRow.events(.event, status: .fullAccess).granted)
             #expect(PermissionOverviewRow.events(.event, status: .writeOnly).state == .denied)
         }
-        #expect(PermissionOverviewRow.location(.authorizedWhenInUse).granted)
+        #expect(PermissionOverviewRow.location(.authorizedAlways).granted)
         #expect(PermissionOverviewRow.location(.restricted).summary == "Not granted")
         #expect(PermissionOverviewRow.automation.summary == "Per-app")
         #expect(PermissionOverviewRow.events(.event, status: .denied).pane == .calendars)

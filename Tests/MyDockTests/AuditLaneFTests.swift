@@ -402,7 +402,7 @@ import Testing
     // MARK: Part 3: pickers, weather, system and business
 
     @Test func decodedPickerValuesAlwaysHaveAMatchingOption() throws {
-        func decode(_ json: String) throws -> WidgetConfiguration { try JSONDecoder().decode(WidgetConfiguration.self, from: Data(json.utf8)) }
+        func decode(_ json: String) throws -> MyDock.WidgetConfiguration { try JSONDecoder().decode(MyDock.WidgetConfiguration.self, from: Data(json.utf8)) }
         #expect(try decode(#"{"stockRefreshIntervalMinutes":90}"#).stockRefreshIntervalMinutes == 60)
         #expect(try decode(#"{"stockRefreshIntervalMinutes":500}"#).stockRefreshIntervalMinutes == 360)
         #expect(try decode(#"{"stockRefreshIntervalMinutes":5000}"#).stockRefreshIntervalMinutes == 1_440)
