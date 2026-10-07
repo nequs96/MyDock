@@ -2240,10 +2240,9 @@ struct ProfileStoreTests {
             await AILimitsCollector.collect(providers: [.codex, .claude],
                                             adapters: [WaitingCodex(probe: probe), TrackingClaude()])
         }
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        var budget = PollBudget()
         while !(await probe.hasStarted(.codex)) {
-            guard ContinuousClock.now < deadline else { Issue.record("The Codex reader never started"); break }
-            await Task.yield()
+            guard (try? await budget.wait()) == true else { Issue.record("The Codex reader never started"); break }
         }
         worker.cancel()
         _ = await worker.value

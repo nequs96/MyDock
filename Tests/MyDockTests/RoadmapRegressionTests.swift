@@ -116,8 +116,8 @@ struct RoadmapRegressionTests {
         try await limiter.acquire()
         let cancelled = Task { try await limiter.acquire() }
         // Cancel only once the waiter is queued, so the test exercises the queued-waiter path.
-        let deadline = Date.now.addingTimeInterval(10)
-        while await limiter.waiterCount == 0, Date.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        var budget = PollBudget()
+        while await limiter.waiterCount == 0, try await budget.wait() {}
         #expect(await limiter.waiterCount == 1)
         cancelled.cancel()
         do { try await cancelled.value; Issue.record("Cancelled refresh acquired a permit") }

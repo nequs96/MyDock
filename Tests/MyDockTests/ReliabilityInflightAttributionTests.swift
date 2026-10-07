@@ -6,12 +6,11 @@ private actor AttributionGate {
     struct StartTimeout: Error {}
     private var started = false
     private var onRelease: CheckedContinuation<Void, Never>?
-    /// Polls with a deadline, so a loader that is never called fails the test instead of hanging the run.
-    func waitForStart(timeout: Duration = .seconds(10)) async throws {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
+    /// Polls within a `PollBudget`, so a loader that is never called fails the test instead of hanging the run.
+    func waitForStart() async throws {
+        var budget = PollBudget()
         while !started {
-            guard ContinuousClock.now < deadline else { throw StartTimeout() }
-            try await Task.sleep(for: .milliseconds(5))
+            guard try await budget.wait() else { throw StartTimeout() }
         }
     }
     func hold() async {

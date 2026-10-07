@@ -10,12 +10,11 @@ actor AuditLaneIGate {
     private var released = false
     private var holders: [CheckedContinuation<Void, Never>] = []
 
-    /// True once `hold` has been entered; false after `timeout` if the loader never ran.
-    func waitForStart(timeout: Duration = .seconds(10)) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
+    /// True once `hold` has been entered; false once the `PollBudget` is spent if the loader never ran.
+    func waitForStart(minimumPolls: Int = 500, timeout: Duration = .seconds(30)) async -> Bool {
+        var budget = PollBudget(minimumPolls: minimumPolls, timeout: timeout)
         while !started {
-            guard ContinuousClock.now < deadline else { return false }
-            try? await Task.sleep(for: .milliseconds(5))
+            guard (try? await budget.wait()) == true else { return false }
         }
         return true
     }
@@ -55,7 +54,7 @@ actor AuditLaneIGate {
     }
 
     @Test func gateReportsALoaderThatNeverStarts() async {
-        let started = await AuditLaneIGate().waitForStart(timeout: .milliseconds(20))
+        let started = await AuditLaneIGate().waitForStart(minimumPolls: 1, timeout: .milliseconds(20))
         #expect(!started)
     }
 }

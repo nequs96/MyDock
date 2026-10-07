@@ -147,10 +147,9 @@ struct BoundedSubprocessCaptureTests {
 
     /// Polls for a file the child script writes once it is running.
     private func waitForFile(_ url: URL) async throws {
-        let deadline = Date.now.addingTimeInterval(10)
+        var budget = PollBudget()
         while !FileManager.default.fileExists(atPath: url.path) {
-            guard Date.now < deadline else { throw ChildDidNotStart() }
-            try await Task.sleep(for: .milliseconds(10))
+            guard try await budget.wait() else { throw ChildDidNotStart() }
         }
     }
 

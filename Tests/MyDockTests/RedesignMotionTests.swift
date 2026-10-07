@@ -202,9 +202,9 @@ struct RedesignMotionTests {
             window.sendEvent(event)
             try await Task.sleep(for: .milliseconds(50))
         }
-        // SwiftUI may dispatch the action after the event returns; wait for it with a deadline.
-        let deadline = Date.now.addingTimeInterval(2)
-        while counter.value == 0, Date.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        // SwiftUI may dispatch the action after the event returns; wait for it within a poll budget.
+        var budget = PollBudget()
+        while counter.value == 0, try await budget.wait() {}
         window.close()
         return counter.value
     }

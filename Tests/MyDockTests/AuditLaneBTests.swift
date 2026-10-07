@@ -361,9 +361,9 @@ struct AuditLaneBCodexTests {
             let probe: Probe
             let provider: AIProvider = .codex
             func read(now: Date) async throws -> AIProviderLimitReading {
-                // Waits (with a deadline) until Claude has started, which only happens when readers run concurrently.
-                let deadline = Date.now.addingTimeInterval(5)
-                while !(await probe.hasStarted(.claude)), Date.now < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
+                // Waits (within a poll budget) until Claude has started, which only happens when readers run concurrently.
+                var budget = PollBudget()
+                while !(await probe.hasStarted(.claude)), try await budget.wait() {}
                 let sawClaude = await probe.hasStarted(.claude)
                 return AIProviderLimitReading(provider: provider, availability: sawClaude ? .available : .error, windows: [])
             }
