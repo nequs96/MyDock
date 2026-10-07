@@ -84,7 +84,7 @@ final class ProfileEditSessionCoordinator: ObservableObject {
         store.replaceProfile(merged)
         if store.hasUnpersistedChanges { store.flush() }
         guard !store.hasUnpersistedChanges else {
-            throw EditSessionSaveError.failed(store.persistenceError ?? "The profile could not be saved.")
+            throw EditSessionSaveError.failed(store.persistenceError ?? "The Dock could not be saved.")
         }
         drafts[id] = DockProfileDraft(profile: merged)
         return merged
@@ -115,7 +115,7 @@ final class ProfileEditSessionCoordinator: ObservableObject {
         guard hasUnsavedChanges else { return true }
         let alert = NSAlert()
         alert.messageText = "Save your Dock changes?"
-        alert.informativeText = "Your profile drafts have changes that are not saved."
+        alert.informativeText = "Some Docks have edits that are not saved."
         alert.addButton(withTitle: "Save Changes")
         alert.addButton(withTitle: "Discard Changes")
         alert.addButton(withTitle: "Cancel " + action)

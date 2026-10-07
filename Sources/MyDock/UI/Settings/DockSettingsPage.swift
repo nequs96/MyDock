@@ -34,7 +34,7 @@ extension SettingsView {
             if let errorMessage = nativeDockVisibility.errorMessage {
                 HStack(alignment: .top, spacing: 10) {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundStyle(.orange)
+                        .font(.caption).foregroundStyle(DockDesign.Status.warning)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     Button("Retry") {
@@ -46,8 +46,8 @@ extension SettingsView {
                     }.controlSize(.small)
                 }
             }
-            SettingsControlRow(title: "macOS Dock profile") {
-                Picker("macOS Dock profile", selection: Binding(
+            SettingsControlRow(title: "macOS Dock") {
+                Picker("macOS Dock", selection: Binding(
                     get: {
                         isApplyingNativeProfile
                             ? nativeProfileSwitchTargetID
@@ -55,7 +55,7 @@ extension SettingsView {
                     },
                     set: { selectNativeProfile($0) }
                 )) {
-                    Text("No profile").tag(Optional<UUID>.none)
+                    Text("None").tag(Optional<UUID>.none)
                     ForEach(store.nativeProfiles) { Text($0.name).tag(Optional($0.id)) }
                 }
             }
@@ -63,7 +63,7 @@ extension SettingsView {
             if isApplyingNativeProfile {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Applying \(store.nativeProfiles.first(where: { $0.id == nativeProfileSwitchTargetID })?.name ?? "macOS Dock profile")…")
+                    Text("Applying \(store.nativeProfiles.first(where: { $0.id == nativeProfileSwitchTargetID })?.name ?? "macOS Dock")…")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -71,7 +71,7 @@ extension SettingsView {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(nativeProfileSwitchMessage)
                         .font(.caption)
-                        .foregroundStyle(nativeProfileSwitchFailedID == nil ? Color.secondary : Color.orange)
+                        .foregroundStyle(nativeProfileSwitchFailedID == nil ? Color.secondary : DockDesign.Status.warning)
                         .textSelection(.enabled)
                     Spacer(minLength: 0)
                     if let nativeProfileSwitchFailedID {
@@ -81,8 +81,8 @@ extension SettingsView {
                     }
                 }
             }
-            SettingsControlRow(title: "Custom Dock profile") {
-                Picker("Custom Dock profile", selection: Binding(
+            SettingsControlRow(title: "Custom Dock") {
+                Picker("Custom Dock", selection: Binding(
                     get: { store.state.settings.activeCustomProfileID },
                     set: { store.setActiveCustomProfile($0) }
                 )) {
@@ -126,11 +126,11 @@ extension SettingsView {
             ))
             if store.state.settings.automaticallySaveNativeDockChanges,
                store.state.settings.activeNativeProfileID == nil {
-                Text("Select a macOS Dock profile to start automatic saving.")
+                Text("Choose a macOS Dock above to start automatic saving.")
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
             }
             if let message = nativeDockAutoSave.errorMessage, store.state.settings.automaticallySaveNativeDockChanges {
-                Text(message).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Text(message).font(.caption).foregroundStyle(DockDesign.Status.warning).fixedSize(horizontal: false, vertical: true)
             }
             GroupedRow("Freeze desktop during Dock restart", subtitle: supportsScreenCaptureFreeze
                            ? "Holds one frame per display in memory. Switching works without Screen Recording."
@@ -174,7 +174,7 @@ extension SettingsView {
         }
         guard let profile = store.nativeProfiles.first(where: { $0.id == id }) else {
             nativeProfileSwitchFailedID = nil
-            nativeProfileSwitchMessage = "That macOS Dock profile is no longer available. Refresh the profile list and try again."
+            nativeProfileSwitchMessage = "That macOS Dock is no longer available."
             return
         }
 

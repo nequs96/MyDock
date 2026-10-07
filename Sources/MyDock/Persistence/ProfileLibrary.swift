@@ -60,7 +60,7 @@ final class ProfileLibrary: ObservableObject {
             catch is DecodingError { throw EditSessionSaveError.failed(Self.unreadablePreset) }
             _ = try BackupManager.makeArchive(from: [profile])
         }
-        guard profile.kind == .custom else { throw EditSessionSaveError.failed("Personal presets must be Custom Dock profiles.") }
+        guard profile.kind == .custom else { throw EditSessionSaveError.failed("Personal presets must be Custom Docks.") }
         record(ProfileSanitizer.newIdentity(ProfileSanitizer.sanitize(profile)), reason: "Imported preset")
         if let errorMessage { throw EditSessionSaveError.failed(errorMessage) }
     }

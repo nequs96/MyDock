@@ -150,13 +150,16 @@ struct RedesignGalleryTests {
     }
 
     @Test func arrowKeysMoveFocusByItemAndRow() {
-        #expect(WidgetGalleryModel.movedIndex(from: 0, direction: .right, columns: 3, count: 10) == 1)
-        #expect(WidgetGalleryModel.movedIndex(from: 0, direction: .left, columns: 3, count: 10) == 0)
-        #expect(WidgetGalleryModel.movedIndex(from: 1, direction: .down, columns: 3, count: 10) == 4)
-        #expect(WidgetGalleryModel.movedIndex(from: 8, direction: .down, columns: 3, count: 10) == 9)
-        #expect(WidgetGalleryModel.movedIndex(from: 4, direction: .up, columns: 3, count: 10) == 1)
-        #expect(WidgetGalleryModel.movedIndex(from: 1, direction: .up, columns: 3, count: 10) == 0)
-        #expect(WidgetGalleryModel.movedIndex(from: 0, direction: .down, columns: 3, count: 0) == 0)
+        // One section of ten tiles, three wide: rows 0-2, 3-5, 6-8 and 9.
+        let ids = (0..<10).map { String($0) }
+        let rows = WidgetGalleryModel.gridRows(heroIDs: [], heroColumns: 3, sections: [ids], columns: 3)
+        #expect(WidgetGalleryModel.movedID(from: "0", direction: .right, rows: rows) == "1")
+        #expect(WidgetGalleryModel.movedID(from: "0", direction: .left, rows: rows) == "0")
+        #expect(WidgetGalleryModel.movedID(from: "1", direction: .down, rows: rows) == "4")
+        #expect(WidgetGalleryModel.movedID(from: "8", direction: .down, rows: rows) == "9")
+        #expect(WidgetGalleryModel.movedID(from: "4", direction: .up, rows: rows) == "1")
+        #expect(WidgetGalleryModel.movedID(from: "1", direction: .up, rows: rows) == "1")
+        #expect(WidgetGalleryModel.movedID(from: "0", direction: .down, rows: []) == nil)
     }
 
     @Test func previewsUseTheCreationConfigurationForEveryFamily() throws {

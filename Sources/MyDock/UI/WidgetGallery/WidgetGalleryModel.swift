@@ -266,20 +266,6 @@ enum WidgetGalleryModel {
         return min(max(0, selected), count - 1)
     }
 
-    /// The entry the arrow keys reach from `index` in a flat list laid out `columns` wide:
-    /// left/right step by one, up/down by a row, clamped to the list.
-    static func movedIndex(from index: Int, direction: WidgetGalleryMoveDirection, columns: Int, count: Int) -> Int {
-        guard count > 0 else { return 0 }
-        let step: Int
-        switch direction {
-        case .left: step = -1
-        case .right: step = 1
-        case .up: step = -max(1, columns)
-        case .down: step = max(1, columns)
-        }
-        return min(count - 1, max(0, index + step))
-    }
-
     /// The Widgets segment as drawn: the Suggested row chunked by `heroColumns`, then every section
     /// chunked by `columns`. Each section starts a new row, so rows can be shorter than `columns`.
     static func gridRows(heroIDs: [String], heroColumns: Int, sections: [[String]], columns: Int) -> [[String]] {

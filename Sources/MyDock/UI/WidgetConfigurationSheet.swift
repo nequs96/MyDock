@@ -261,7 +261,7 @@ enum WidgetSheetRemoval {
             // The draft was saved or discarded elsewhere; only the store's write is still owed.
             store.flush()
             if store.hasUnpersistedChanges {
-                throw EditSessionSaveError.failed(store.persistenceError ?? "The profile could not be saved.")
+                throw EditSessionSaveError.failed(store.persistenceError ?? "The Dock could not be saved.")
             }
         }
         pending[itemID] = nil

@@ -159,7 +159,7 @@ struct CommandLibrary: View {
                 ScrollView {
                     LazyVStack(spacing: 2) {
                         if rows.isEmpty {
-                            GalleryEmptyState(title: "No Matches", detail: profile.kind == .custom ? "Try an app or widget name." : "Try an app name or spacer.", compact: true)
+                            GalleryEmptyState(title: "No Results", detail: "Try another search.", compact: true)
                         }
                         ForEach(Array(rows.enumerated()), id: \.element.id) { index, entry in
                             if let section = entry.section, index == 0 || rows[index - 1].section != section {
@@ -205,7 +205,7 @@ struct CommandLibrary: View {
                                     if let secondary = entry.secondary { Button(secondary.label, action: secondary.run) }
                                     if let item = entry.item, item.type == .widget {
                                         ForEach(WidgetPresentationCatalog.options(for: item.widgetKind ?? item.title)) { option in
-                                            Button((profile.items.contains { $0.widgetKind == item.widgetKind } ? "Add another · " : "Add · ") + option.title) {
+                                            Button((profile.items.contains { $0.widgetKind == item.widgetKind } ? "Add Another · " : "Add · ") + option.title) {
                                                 var configured = item
                                                 var configuration = configured.widgetConfiguration ?? WidgetConfiguration()
                                                 configuration.widgetLayout = option.layout

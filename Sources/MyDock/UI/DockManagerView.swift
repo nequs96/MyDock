@@ -80,6 +80,14 @@ struct DockManagerView: View {
     /// Why the draft could not be saved, shown in the Unsaved Dock Changes dialog.
     @State private var pendingSaveFailure: String?
     private var saveState: ProfileSaveFeedback? { selectedProfileID.flatMap { edits.saveStates[$0] } }
+    /// A warning always alerts; a save failure alerts once, and the banner keeps showing it while
+    /// later edits fail the same way.
+    private var showsPersistenceAlert: Bool {
+        if store.persistenceWarning != nil { return true }
+        guard let error = store.persistenceError else { return false }
+        return error != acknowledgedPersistenceError
+    }
+    private var persistenceAlertTitle: String { store.persistenceError != nil ? "MyDock couldn’t save" : "MyDock data" }
     @Environment(\.undoManager) private var undoManager
 
     private var selectedProfile: DockProfile? {
@@ -245,10 +253,7 @@ struct DockManagerView: View {
                 shortcutProfile = nil
             }
         }
-        .alert(store.persistenceError != nil ? "MyDock couldn’t save" : "MyDock data", isPresented: Binding(get: {
-            // A failure alerts once; the banner keeps showing it while later edits fail the same way.
-            store.persistenceWarning != nil || (store.persistenceError.map { $0 != acknowledgedPersistenceError } ?? false)
-        }, set: { presented in
+        .alert(persistenceAlertTitle, isPresented: Binding(get: { showsPersistenceAlert }, set: { presented in
             guard !presented else { return }
             if let error = store.persistenceError { acknowledgedPersistenceError = error }
             store.dismissPersistenceNotice()
@@ -384,7 +389,6 @@ struct DockManagerView: View {
                                 .font(DockDesign.title).textFieldStyle(.plain).multilineTextAlignment(.center)
                                 .focused($profileNameFocused).frame(maxWidth: 440)
                                 .accessibilityIdentifier("manager.profile.name")
-                                .id(profile.id)
                                 .task { profileNameFocused = true }
                                 .onChange(of: profileNameFocused) { focused in
                                     if !focused { commitRename() }
@@ -394,6 +398,9 @@ struct DockManagerView: View {
                                     saveDraft()
                                 }
                                 .onExitCommand { renamingProfile = false }
+                                // Last, so renaming another Dock builds a new field: its task focuses it, and
+                                // the focus the previous field loses cannot end the new rename.
+                                .id(profile.id)
                         } else {
                             Text(profile.name).font(DockDesign.title).lineLimit(2).truncationMode(.tail).multilineTextAlignment(.center)
                                 .padding(.horizontal, 24)
@@ -502,7 +509,7 @@ struct DockManagerView: View {
             }
             if item.type == .widget && selectedItemIDs.count == 1 {
                 SettingsControlRow(title: "Layout") {
-                    Picker("Layout", selection: Binding(get: { WidgetPresentationCatalog.resolvedLayout(for: item.widgetKind ?? item.title, configuration: item.widgetConfiguration ?? WidgetConfiguration(), compactDefault: store.effectiveSettings(for: profile).customDockWidgetStyle == .compact) }, set: { value in
+                    Picker("Layout", selection: Binding(get: { WidgetPresentationCatalog.resolvedLayout(for: item.widgetKind ?? item.title, configuration: item.widgetConfiguration ?? WidgetConfiguration(), compactDefault: store.effectiveSettings(profileID: profile.id).customDockWidgetStyle == .compact) }, set: { value in
                         updateDraft { draft in
                             guard let index = draft.items.firstIndex(where: { $0.id == item.id }) else { return }
                             // A widget saved without a configuration uses the defaults; write through them.
@@ -613,6 +620,8 @@ struct DockManagerView: View {
     }
 
     private func exportProfile(_ profile: DockProfile) {
+        // A name still being typed is part of what is exported.
+        commitRename()
         do {
             let current = try edits.save(profile.id) ?? profile
             dockExport = PortableDockExportRequest(profiles: [current], selectedID: current.id, includePersonalData: false)
