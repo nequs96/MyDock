@@ -34,7 +34,7 @@ Local builds are ad-hoc signed and not notarized. If Gatekeeper blocks the app y
 ## Using MyDock
 
 - **Docks:** Manage Docks opens one window with Docks, Explore and Settings in the sidebar. Select and drag items directly in the Dock preview; changes save automatically and support Undo.
-- **Explore:** nine starter Docks (Everyday, Deep focus, Creative space, Build & code, Commerce, Home office, Travel, AI workspace and System monitor). Preview one, swap or remove its apps, then create it.
+- **Explore:** nine starter Docks (Everyday, Deep focus, Creative space, Build & code, Commerce, Home office, Travel, AI workspace and System monitor). Preview one, swap or remove its apps, then create it. A new Dock goes live only when you choose **Activate** in the editor.
 - **Add Item and ⌘K:** Add Item opens the searchable app and widget library, with a size pager for each widget. ⌘K searches commands, saved snippets, links and shelf files.
 - **Settings:** General, Dock Setup, Appearance, Behavior, Shortcuts, Integrations and Permissions. Appearance offers five styles (Clear, Glass, Frosted, Solid and Midnight) for every Dock or for one Dock.
 
@@ -63,16 +63,17 @@ Each widget has its own layout and icon style. A popout shows the reading first,
 - **Start Workspace:** opens a Dock's apps, folders, files and links in order. It never quits or closes anything, and switching to that Dock is a separate opt-in.
 - **Portable Dock packages:** export one Dock; import always creates a new Dock and never carries credentials or account IDs.
 - **Automatic switching** (off by default): simple app or time rules that switch between Custom Docks, with a manual override.
-- **Next meeting:** Calendar shows the next relevant event, with Join only for recognised https meeting links.
-- **System Activity** can add optional Network and Storage detail sections (off by default).
+- **Next meeting:** Calendar shows the next relevant event, skipping events marked Free, with Join only for recognised https meeting links.
+- **System Activity** has Network and Storage detail sections in its popout, on for a new widget and off for widgets saved before they existed.
 
 ## Privacy and permissions
 
 | Access | Used for | When it is requested |
 |---|---|---|
 | Accessibility | Window lists, minimize and restore, window previews, app badges | Only when you turn on one of those features |
-| Screen Recording | Window thumbnails and the optional desktop freeze during native Dock switches | Only when you turn on Cache window previews or the desktop freeze; hover previews never ask and show titles without it |
+| Screen Recording | Window thumbnails and the optional desktop freeze during native Dock switches | Only when you turn on Minimized window thumbnails or the desktop freeze; hover previews never ask and show titles without it |
 | Calendar, Reminders, Location | Events, reminders and current-location weather | When the widget first needs them; city search needs no Location |
+| Desktop, Documents and Downloads folders | Storage scans in System Activity | Asked by macOS only when Scan Folders reads those folders |
 | Automation | Music and Spotify in Now Playing; Finder for Empty Trash | When a player is queried, or after you confirm Empty Trash |
 | Network | Weather, market and business data, GitHub Copilot usage, site icons | Only for the widget or action named; nothing about your Docks is uploaded |
 

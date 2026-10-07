@@ -23,9 +23,9 @@ Quit the copy you are replacing, then rebuild its bundle to update. Profile data
 
 ## Signing for wider distribution
 
-For distribution outside this machine, sign the app with an Apple Developer ID certificate and notarize it. The ad-hoc signature produced by the build script is only for local development. The Xcode project's Release configuration enables the hardened runtime and includes an Apple Events entitlement; it still needs a full Xcode build, Developer ID signing, notarization, and final behavior checks. The manual update checker opens a validated publisher release page; it does not download or replace the app executable.
+For distribution outside this machine, sign the app with an Apple Developer ID certificate and notarize it. The ad-hoc signature produced by the build script is only for local development. The generated Xcode project's Release configuration enables the hardened runtime and includes an Apple Events entitlement; it still needs a full Xcode build, Developer ID signing, notarization, and final behavior checks. The manual update checker opens a validated publisher release page; it does not download or replace the app executable.
 
-The repository also includes [an Xcode project and Focus filter build guide](XCODE_BUILD.md) for a full Xcode toolchain and Developer ID signing.
+For a full Xcode toolchain and Developer ID signing, generate the Xcode project with `./GenerateXcodeProject.sh` (it is not checked in); see [the Xcode and Focus filter build guide](XCODE_BUILD.md).
 
 See [permissions and data handling](PERMISSIONS.md) before enabling features that require additional system access.
 
@@ -39,4 +39,4 @@ With full Xcode selected and XcodeGen available, run:
 
 Use a fresh distribution output directory outside the repository; keep `build/` for the canonical development app. The script builds with full Xcode, requires extracted App Intents metadata, checks both architectures, signs with the hardened runtime and Apple Events entitlement, verifies the signature, submits/staples the app and DMG, assesses Gatekeeper and writes a SHA-256 checksum. A named notarization credential must already be stored in Keychain. No signing identity, account credentials or notarization success is supplied by this repository.
 
-Settings → General → Application → **Launch at login** can register the installed app with Login Items and open approval settings when needed. Put the app in a stable Applications location before testing this. Update discovery requires the actual publisher's HTTPS GitHub repository URL and runs only on request. No release repository is configured by default. Open acceptance is in [the implementation status](IMPLEMENTATION_STATUS.md).
+Settings → General → Application → **Launch at login** can register the installed app with Login Items and open approval settings when needed. Put the app in a stable Applications location before testing this. Update discovery requires the actual publisher's HTTPS GitHub repository URL and runs only on request. No release repository is configured by default; **Check for Updates** is always available and, without an **Update source**, opens that field and explains what is missing. Open acceptance is in [the implementation status](IMPLEMENTATION_STATUS.md).
