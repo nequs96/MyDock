@@ -33,9 +33,7 @@ struct N4TrashIsolationTests {
             try? FileManager.default.removeItem(at: dir)
         }
         let status = TrashStatus(trashURL: dir, allowsNativeEffects: true)
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !status.needsFullDiskAccess, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(status.needsFullDiskAccess)
+        try await pollUntil { status.needsFullDiskAccess }
         #expect(status.errorMessage == nil && status.itemCount == 0)
     }
 

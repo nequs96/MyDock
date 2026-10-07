@@ -71,10 +71,9 @@ struct RoadmapRegressionTests {
         _ = store.createProfile(kind: .custom, name: "Visible")
         try await Task.sleep(for: .milliseconds(30))
         store.updateWidgetConfiguration(itemID: item.id, in: hiddenID) { $0.focusDurationSeconds = 1 }
-        // Polls until completion; the generous ceiling only matters on loaded CI runners.
-        let deadline = Date.now.addingTimeInterval(15)
-        while store.state.profiles.first(where: { $0.id == hiddenID })?.items.first?.widgetConfiguration?.focusStartedAt != nil,
-              Date.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        try await pollUntil {
+            store.state.profiles.first(where: { $0.id == hiddenID })?.items.first?.widgetConfiguration?.focusStartedAt == nil
+        }
         let c = try #require(store.state.profiles.first(where: { $0.id == hiddenID })?.items.first?.widgetConfiguration)
         #expect(c.focusStartedAt == nil)
         #expect(c.focusElapsedBeforeStart == 1)

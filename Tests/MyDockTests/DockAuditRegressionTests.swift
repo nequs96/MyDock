@@ -362,15 +362,15 @@ struct DockAuditRegressionTests {
         let (_, directory) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
         let window = previewWindow(title: "Document")
-        var allowed = true
+        let allowed = AuditFlag()
         let gate = AuditCaptureGate()
         let monitor = WindowAccessibilityMonitor(
             previewCache: WindowPreviewDiskCache(directoryURL: directory), sampleWindows: { [window] },
-            captureWindows: { _, _ in await gate.capture() }, canCapture: { allowed })
+            captureWindows: { _, _ in await gate.capture() }, canCapture: { allowed.isOn })
         defer { monitor.setEnabled(false) }
         monitor.setEnabled(true, previewsEnabled: true)
         try await waitUntil { gate.count == 1 }
-        allowed = false
+        allowed.isOn = false
         gate.finish(1, windowID: window.id, width: 10)
         try await Task.sleep(for: .milliseconds(30))
         #expect(monitor.previews.isEmpty)
@@ -563,13 +563,17 @@ struct DockAuditRegressionTests {
     }
 
     private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
-        try #require(condition())
+        try await pollUntil(condition)
     }
 }
 
 private enum AuditProviderError: Error { case unavailable }
+
+/// A switch the main-actor closures under test read; a captured local `var` would be mutated after capture.
+@MainActor
+private final class AuditFlag {
+    var isOn = true
+}
 
 @MainActor
 private final class AuditAutoHideBackend: DockAutoHidePreferencesBackend {

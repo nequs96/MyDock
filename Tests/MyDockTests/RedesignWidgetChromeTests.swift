@@ -133,7 +133,7 @@ struct RedesignWidgetChromeTests {
         #expect(WidgetIconAppearance.allCases.map(\.displayTitle) == ["Color", "Soft", "Mono", "Outline"])
     }
 
-    @Test func moduleTypeNeverDropsBelowTheMinimumSize() {
+    @Test @MainActor func moduleTypeNeverDropsBelowTheMinimumSize() {
         for size in DockDesign.Module.ValueSize.allCases {
             #expect(DockDesign.Module.pointSize(size) * WidgetModuleMetrics.minimumScale(size) >= DockDesign.Module.minimumTextSize - 0.001)
         }
@@ -155,7 +155,7 @@ struct RedesignWidgetChromeTests {
         #expect(NetworkRateText.short(-5) == "0")
     }
 
-    @Test func samplesAndFreshnessAreMinimalAndLabelled() {
+    @Test @MainActor func samplesAndFreshnessAreMinimalAndLabelled() {
         #expect(WidgetCardPreview.accessibilityLabel(kind: "Weather") == "Weather, sample preview")
         #expect(WidgetFreshnessState.fresh.dotColor != nil)
         #expect(WidgetFreshnessState.stale.dotColor != nil)

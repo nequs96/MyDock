@@ -129,8 +129,7 @@ struct NativeFollowupTests {
         state = revealState()
         monitor.sample()
         // The dwell is a real 350 ms sleep; poll for its result instead of racing it on loaded CI runners.
-        let deadline = Date.now.addingTimeInterval(15)
-        while decisions.count < 4, Date.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        try await pollUntil { decisions.count >= 4 }
         #expect(decisions == [.hide, .hide, .hide, .show])
         monitor.stop()
     }

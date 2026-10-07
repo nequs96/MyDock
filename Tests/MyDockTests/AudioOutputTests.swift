@@ -337,9 +337,7 @@ struct AudioOutputTests {
     }
 
     private func eventually(_ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
-        try #require(condition())
+        try await pollUntil(condition)
     }
 
     // MARK: Face reading
