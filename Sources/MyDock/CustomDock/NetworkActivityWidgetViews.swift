@@ -78,8 +78,8 @@ final class NetworkActivityMonitor: ObservableObject {
         if let previousReading {
             interfaces = NetworkRateCalculator.rates(previous: previousReading, current: reading)
             hasCompletedRateSample = true
-            let download = interfaces.compactMap(\.receivedBytesPerSecond).reduce(0, +)
-            let upload = interfaces.compactMap(\.sentBytesPerSecond).reduce(0, +)
+            let download = NetworkRateCalculator.physicalTotal(interfaces, \.receivedBytesPerSecond)
+            let upload = NetworkRateCalculator.physicalTotal(interfaces, \.sentBytesPerSecond)
             downloadHistory = Array((downloadHistory + [download]).suffix(30))
             uploadHistory = Array((uploadHistory + [upload]).suffix(30))
         } else {
@@ -88,7 +88,8 @@ final class NetworkActivityMonitor: ObservableObject {
                 NetworkInterfaceRate(name: $0.name,
                                      receivedBytesPerSecond: nil,
                                      sentBytesPerSecond: nil,
-                                     addresses: $0.addresses)
+                                     addresses: $0.addresses,
+                                     isPhysical: $0.isPhysical)
             }
         }
         previousReading = reading
@@ -96,10 +97,7 @@ final class NetworkActivityMonitor: ObservableObject {
     }
 
     private func completeAggregate(_ keyPath: KeyPath<NetworkInterfaceRate, Double?>) -> Double? {
-        guard !interfaces.isEmpty else { return nil }
-        let values = interfaces.compactMap { $0[keyPath: keyPath] }
-        guard values.count == interfaces.count else { return nil }
-        return values.reduce(0, +)
+        NetworkRateCalculator.completePhysicalTotal(interfaces, keyPath)
     }
 }
 

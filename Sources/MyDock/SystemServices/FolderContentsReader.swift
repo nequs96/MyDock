@@ -37,9 +37,12 @@ enum FolderContentsReader {
     static func listing(at folderURL: URL,
                         displayLimit: Int = defaultDisplayLimit,
                         enumerationCap: Int = defaultEnumerationCap) throws -> FolderContentsListing {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .isSymbolicLinkKey]
+        // The enumerator does not descend into a symbolic link at its root, so a browsed link lists its target.
+        let isLinkedRoot = (try? folderURL.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true
         guard let enumerator = FileManager.default.enumerator(
-            at: folderURL,
-            includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
+            at: isLinkedRoot ? folderURL.resolvingSymlinksInPath() : folderURL,
+            includingPropertiesForKeys: Array(keys),
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants],
             errorHandler: nil
         ) else {
@@ -53,7 +56,11 @@ enum FolderContentsReader {
                 capped = true
                 break
             }
-            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            var values = try? url.resourceValues(forKeys: keys)
+            if values?.isSymbolicLink == true {
+                // A link to a folder sorts and browses like that folder, as in Finder; the entry keeps the link's URL.
+                values = try? url.resolvingSymlinksInPath().resourceValues(forKeys: keys)
+            }
             let browsable = values?.isDirectory == true && values?.isPackage != true
             collected.append(FolderContentsEntry(url: url, isDirectory: browsable,
                                                  displayName: FileManager.default.displayName(atPath: url.path)))
@@ -64,11 +71,6 @@ enum FolderContentsReader {
         }
         try Task.checkCancellation()
         return bounded(collected, displayLimit: displayLimit, enumerationCapped: capped)
-    }
-
-    /// Full, unbounded listing for callers that need every entry.
-    static func entries(at folderURL: URL) throws -> [FolderContentsEntry] {
-        try listing(at: folderURL, displayLimit: Int.max, enumerationCap: Int.max).entries
     }
 
     /// Sorts folders first then by localized name, and keeps only the first `displayLimit` entries.

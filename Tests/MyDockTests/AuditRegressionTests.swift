@@ -155,7 +155,7 @@ import Testing
             try FileManager.default.createDirectory(at: folder.appendingPathComponent(name), withIntermediateDirectories: true)
         }
         try Data("x".utf8).write(to: folder.appendingPathComponent("readme.txt"))
-        let entries = try FolderContentsReader.entries(at: folder)
+        let entries = try FolderContentsReader.listing(at: folder).entries
         let browsable = Set(entries.filter(\.isDirectory).map(\.url.lastPathComponent))
         #expect(browsable == ["Projects"])
         #expect(entries.first?.url.lastPathComponent == "Projects", "only real folders sort first")

@@ -30,6 +30,7 @@ enum DiagnosticEventCode: String, Codable {
     case nativeApplyFailed
     case nativeRollbackFailed
     case nativeInterruptedRecoverySucceeded
+    case nativeInterruptedRecoveryFailed
     case customDockShown
     case customDockHidden
     case permissionStatusRefreshed
@@ -60,7 +61,7 @@ enum DiagnosticEventCode: String, Codable {
         case .stateRecovered, .stateRecoveryFailed, .stateSaveFailed, .stateSaveRecovered,
              .runtimeCacheRecovered, .runtimeCacheSaveFailed: .persistence
         case .nativeApplyStarted, .nativeApplySucceeded, .nativeApplyFailed,
-             .nativeRollbackFailed, .nativeInterruptedRecoverySucceeded: .nativeDock
+             .nativeRollbackFailed, .nativeInterruptedRecoverySucceeded, .nativeInterruptedRecoveryFailed: .nativeDock
         case .customDockShown, .customDockHidden: .customDock
         case .permissionStatusRefreshed: .permissions
         case .backupExported, .backupImported, .backupOperationFailed: .backup

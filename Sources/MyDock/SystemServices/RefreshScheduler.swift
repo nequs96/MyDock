@@ -1,10 +1,19 @@
+import Combine
 import Foundation
 
 /// Shares one run-loop timer across transient widget and system refreshes.
 /// Consumers keep no timer of their own and are removed when their task ends.
+/// Timers carry a tolerance and nearly due subscriptions fire together, so the OS can coalesce
+/// wake-ups; nothing fires while the displays sleep or the session is switched out.
 @MainActor
 final class RefreshScheduler {
-    static let shared = RefreshScheduler()
+    static let shared: RefreshScheduler = {
+        let scheduler = RefreshScheduler()
+        scheduler.presenceObservation = SystemPresenceMonitor.shared.$isAway.removeDuplicates().sink { [weak scheduler] away in
+            MainActor.assumeIsolated { scheduler?.setSystemAway(away) }
+        }
+        return scheduler
+    }()
 
     private struct Subscription {
         var interval: TimeInterval
@@ -15,6 +24,8 @@ final class RefreshScheduler {
     private var subscriptions: [UUID: Subscription] = [:]
     private var timer: Timer?
     private var dockIsVisible = true
+    private var systemIsAway = false
+    private var presenceObservation: AnyCancellable?
     private var demand = RefreshDemandLedger()
     /// Number of tick yields delivered to subscribers. Used by fixtures to prove zero work when idle.
     private(set) var deliveredTickCount = 0
@@ -29,7 +40,7 @@ final class RefreshScheduler {
     }
 
     /// True while the Dock or any other visible consumer (popout, editor) needs refreshes.
-    var isActive: Bool { RefreshDemandLedger.isActive(dockVisible: dockIsVisible, demand: demand) }
+    var isActive: Bool { !systemIsAway && RefreshDemandLedger.isActive(dockVisible: dockIsVisible, demand: demand) }
     var subscriptionCount: Int { subscriptions.count }
     var hasArmedTimer: Bool { timer != nil }
 
@@ -75,6 +86,13 @@ final class RefreshScheduler {
         scheduleNextTick()
     }
 
+    /// Display sleep or a switched-out session: nobody can see a reading, so no subscription fires.
+    func setSystemAway(_ away: Bool) {
+        guard systemIsAway != away else { return }
+        systemIsAway = away
+        scheduleNextTick()
+    }
+
     private func remove(_ identifier: UUID) {
         subscriptions.removeValue(forKey: identifier)
         scheduleNextTick()
@@ -89,6 +107,7 @@ final class RefreshScheduler {
         let nextTimer = Timer(timeInterval: max(0.01, delay), repeats: false) { [weak self] _ in
             Task { @MainActor in self?.fireDueSubscriptions() }
         }
+        nextTimer.tolerance = RefreshSchedulePolicy.timerTolerance(forDelay: delay)
         timer = nextTimer
         RunLoop.main.add(nextTimer, forMode: .common)
     }
@@ -98,7 +117,10 @@ final class RefreshScheduler {
     func fireDueSubscriptions(now: Date) {
         guard isActive else { return }
         for identifier in Array(subscriptions.keys) {
-            guard var subscription = subscriptions[identifier], subscription.nextFire <= now else { continue }
+            // Subscriptions due within their coalescing window fire with this wake-up instead of arming their own.
+            guard var subscription = subscriptions[identifier],
+                  subscription.nextFire.timeIntervalSince(now) <= RefreshSchedulePolicy.coalescingWindow(forInterval: subscription.interval)
+            else { continue }
             subscription.continuation.yield(now)
             deliveredTickCount += 1
             subscription.nextFire = now.addingTimeInterval(subscription.interval)
@@ -112,6 +134,16 @@ enum RefreshSchedulePolicy {
     static func normalizedInterval(_ interval: TimeInterval) -> TimeInterval {
         guard interval.isFinite else { return 60 }
         return min(max(interval, 1), 24 * 60 * 60)
+    }
+
+    /// How early a subscription may fire so it shares a wake-up with another one.
+    static func coalescingWindow(forInterval interval: TimeInterval) -> TimeInterval {
+        min(1, max(0, interval) * 0.1)
+    }
+
+    /// Lets the OS batch the scheduler's timer with other wake-ups.
+    static func timerTolerance(forDelay delay: TimeInterval) -> TimeInterval {
+        min(1, max(0.1, delay * 0.1))
     }
 }
 

@@ -52,6 +52,8 @@ final class CustomDockWindowController {
     private var commandScrollDelta: CGFloat = 0
     private var usingDisplayFallback = false
     private var noScreenAvailable = false
+    /// One queued update stands for every runtime publication that arrives before it runs.
+    private var updateScheduled = false
     private let store: ProfileStore
     private let openSettings: (MyDockSettingsPage) -> Void
     private let overviewIsPresent: (NSRect, [NSRect]) -> Bool
@@ -64,6 +66,14 @@ final class CustomDockWindowController {
         case .hide, .dwell: self.hideDockPanel()
         case .suppress: self.hideDockPanelForSystemDock()
         }
+    }, ownsMenuWindow: { [weak self] window in
+        guard let self else { return false }
+        var candidate: NSWindow? = window
+        while let current = candidate {
+            if current === self.panel || current === self.revealPanel { return true }
+            candidate = current.parent
+        }
+        return false
     })
 
     init(store: ProfileStore, openSettings: @escaping (MyDockSettingsPage) -> Void = { _ in },
@@ -78,10 +88,9 @@ final class CustomDockWindowController {
         }
         runtimeObservations.append(store.runtimeCache.$entries.dropFirst().receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                guard let self else { return }
                 // Cache publication updates the observed faces. Geometry-only signatures
                 // keep the current hosting root intact when readings change.
-                self.update(state: self.store.state)
+                self?.scheduleUpdate()
             })
         runtimeObservations.append(store.$dockResizePreview.dropFirst()
             .throttle(for: .milliseconds(8), scheduler: RunLoop.main, latest: true)
@@ -93,8 +102,7 @@ final class CustomDockWindowController {
             })
         screenObservation = NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
             .receive(on: RunLoop.main).sink { [weak self] _ in
-                guard let self else { return }
-                self.update(state: self.store.state)
+                self?.scheduleUpdate()
             }
         let workspaceNotifications = NSWorkspace.shared.notificationCenter
         applicationObservation = Publishers.Merge(
@@ -103,8 +111,7 @@ final class CustomDockWindowController {
         )
         .receive(on: RunLoop.main)
         .sink { [weak self] _ in
-            guard let self else { return }
-            self.update(state: self.store.state)
+            self?.scheduleUpdate()
         }
         runtimeObservations += [
             NotificationCenter.default.publisher(for: Self.animationPreviewNotification).sink { [weak self] notification in
@@ -117,16 +124,56 @@ final class CustomDockWindowController {
                     self.presentDock(visible: true)
                 }
             },
-            WindowAccessibilityMonitor.shared.$windows.dropFirst().sink { [weak self] _ in
-                Task { @MainActor [weak self] in guard let self else { return }; self.update(state: self.store.state) }
-            },
+            // Only minimized windows are Dock tiles; title churn in other windows changes no layout.
+            WindowAccessibilityMonitor.shared.$windows.map { $0.filter(\.isMinimized) }.removeDuplicates().dropFirst()
+                .sink { [weak self] _ in
+                    Task { @MainActor [weak self] in self?.scheduleUpdate() }
+                },
             NowPlayingMonitor.shared.$runningSources.dropFirst().sink { [weak self] _ in
-                Task { @MainActor [weak self] in guard let self else { return }; self.update(state: self.store.state) }
+                Task { @MainActor [weak self] in self?.scheduleUpdate() }
             },
             RecentApplicationsTracker.shared.$recents.dropFirst().sink { [weak self] _ in
-                Task { @MainActor [weak self] in guard let self else { return }; self.update(state: self.store.state) }
+                Task { @MainActor [weak self] in self?.scheduleUpdate() }
             }
         ]
+    }
+
+    /// Runtime publications (readings, windows, app launches, screens) arrive in bursts. Each burst
+    /// runs one update with the latest state instead of one full layout pass per event.
+    private func scheduleUpdate() {
+        guard !updateScheduled else { return }
+        updateScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            updateScheduled = false
+            update(state: store.state)
+        }
+    }
+
+    /// Orders both panels out and stops everything that runs only while the Dock is presented. Bumps the
+    /// transition generation and cancels a running fade, so a reveal in flight cannot finish on a hidden panel.
+    private func tearDownPresentation() {
+        setLiveMonitorsVisible(false)
+        WindowAccessibilityMonitor.shared.setEnabled(false)
+        DockWindowPreviewController.shared.dockDidHide()
+        lastPresentation = nil
+        presentationVisible = false
+        transitionGeneration = UUID()
+        transitionInFlight = nil
+        if let panel {
+            panel.contentView?.layer?.removeAnimation(forKey: "dockPresentationScale")
+            // Setting the property directly under a zero-duration group cancels the running animator animation.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                context.allowsImplicitAnimation = false
+                panel.animator().alphaValue = 0
+            }
+            panel.alphaValue = 0
+            panel.orderOut(nil)
+        }
+        revealPanel?.orderOut(nil)
+        revealMonitor.stop()
+        stopProfileGestureMonitoring()
     }
 
     func update(state: PersistentState) {
@@ -141,30 +188,12 @@ final class CustomDockWindowController {
               let authoredProfile = state.profiles.first(where: { $0.id == profileID && $0.kind == .custom }) else {
             usingDisplayFallback = false
             noScreenAvailable = false
-            setLiveMonitorsVisible(false)
-            WindowAccessibilityMonitor.shared.setEnabled(false)
-            DockWindowPreviewController.shared.dismiss()
-            lastPresentation = nil
-            presentationVisible = false
-            panel?.alphaValue = 0
-            panel?.orderOut(nil)
-            revealPanel?.orderOut(nil)
-            revealMonitor.stop()
-            stopProfileGestureMonitoring()
+            tearDownPresentation()
             return
         }
         let profile = store.presentationProfile(authoredProfile)
         guard let screen = screen(for: state.settings) else {
-            setLiveMonitorsVisible(false)
-            WindowAccessibilityMonitor.shared.setEnabled(false)
-            DockWindowPreviewController.shared.dismiss()
-            lastPresentation = nil
-            presentationVisible = false
-            panel?.alphaValue = 0
-            panel?.orderOut(nil)
-            revealPanel?.orderOut(nil)
-            revealMonitor.stop()
-            stopProfileGestureMonitoring()
+            tearDownPresentation()
             return
         }
         // The preview subscriber owns frame changes during a drag. Replacing
@@ -193,7 +222,7 @@ final class CustomDockWindowController {
             PerformanceSignposts.noteRootAssignment()
 #endif
             hosting.surfaceCornerRadius = CGFloat(resolvedSettings.customDockCornerRadius)
-            expandedFrame = place(panel, on: screen, profile: profile, settings: resolvedSettings, animate: !resizing)
+            expandedFrame = place(panel, on: screen, profile: profile, settings: resolvedSettings, model: layout, animate: !resizing)
         } else {
             let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 84),
                                 styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -210,11 +239,12 @@ final class CustomDockWindowController {
             hosting.surfaceCornerRadius = CGFloat(resolvedSettings.customDockCornerRadius)
             panel.contentView = hosting
             self.panel = panel
-            expandedFrame = place(panel, on: screen, profile: profile, settings: resolvedSettings)
+            expandedFrame = place(panel, on: screen, profile: profile, settings: resolvedSettings, model: layout)
         }
         revealMonitor.startSampling()
         updateRevealPanel(on: screen, shouldShowHandle: state.settings.showRevealHandle)
-        configureWindowMode(desktop: state.settings.customDockDesktopMode)
+        configureWindowMode(desktop: state.settings.customDockDesktopMode,
+                            autoHide: state.settings.automaticallyHideCustomDock)
         startProfileGestureMonitoring()
         if (state.settings.automaticallyHideCustomDock && !state.settings.customDockDesktopMode)
             || state.settings.hideCustomDockWhenSystemDockAppears {
@@ -250,24 +280,40 @@ final class CustomDockWindowController {
                                          mode: store.state.settings.setupMode)
     }
 
-    private func place(_ panel: NSPanel, on screen: NSScreen, profile: DockProfile, settings: AppSettings, animate: Bool = false) -> NSRect {
+    /// `model` is the layout `update` already built for these settings; the resize preview passes none.
+    private func place(_ panel: NSPanel, on screen: NSScreen, profile: DockProfile, settings: AppSettings,
+                       model prebuilt: DockRenderModel? = nil, animate: Bool = false) -> NSRect {
         let visible = dockPlacementFrame(on: screen)
         let scale = DockSurfaceMetrics.clampedScale(settings.customDockSize)
         let tileLength = (54 + (settings.magnificationEnabled ? 22 : 0)) * scale
-        let runtimeApplications = RuntimeDockApplications.items()
-        let pinnedApplicationURLs = RuntimeDockApplications.pinnedURLs(in: profile)
-        let model = DockRenderModel(profile: profile, settings: settings, runningApplications: runtimeApplications,
+        let model: DockRenderModel
+        if let prebuilt {
+            model = prebuilt
+        } else {
+            let runtimeApplications = RuntimeDockApplications.items()
+            let pinnedApplicationURLs = RuntimeDockApplications.pinnedURLs(in: profile)
+            model = DockRenderModel(profile: profile, settings: settings, runningApplications: runtimeApplications,
                                     windows: WindowAccessibilityMonitor.shared.windows,
                                     runningMediaSources: NowPlayingMonitor.shared.runningSources,
                                     pinnedApplicationURLs: pinnedApplicationURLs,
                                     recentApplications: RuntimeDockApplications.recentItems(profile: profile, settings: settings,
                                         runtime: runtimeApplications, pinnedURLs: pinnedApplicationURLs))
+        }
         let itemLength = model.contentLength(settings: settings, scale: scale) + (settings.magnificationEnabled ? 32 : 22) * scale
         let frame = DockPanelGeometry.frame(position: settings.customDockPosition, placementArea: visible,
                                             contentLength: itemLength, crossLength: tileLength + 22 * scale,
                                             floatingInset: settings.customDockFloatingInset)
         currentFloatingInset = settings.customDockFloatingInset
-        panel.setFrame(frame, display: true, animate: animate && presentationVisible && settings.dockAnimationsEnabled && !AccessibilityDisplayState.shared.reduceMotion)
+        if animate && presentationVisible && settings.dockAnimationsEnabled && !AccessibilityDisplayState.shared.reduceMotion {
+            // The animator runs alongside the main thread; setFrame(_:display:animate:) would block it for the resize.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                context.allowsImplicitAnimation = true
+                panel.animator().setFrame(frame, display: true)
+            }
+        } else {
+            panel.setFrame(frame, display: true)
+        }
         return frame
     }
 
@@ -277,7 +323,11 @@ final class CustomDockWindowController {
 
         let content = RevealHandleView(position: currentPosition, isVisible: shouldShowHandle)
         if let revealPanel {
-            revealPanel.contentView = NSHostingView(rootView: content)
+            if let hosting = revealPanel.contentView as? NSHostingView<RevealHandleView> {
+                hosting.rootView = content
+            } else {
+                revealPanel.contentView = NSHostingView(rootView: content)
+            }
             revealPanel.setFrame(revealFrame, display: true, animate: false)
         } else {
             let handle = NSPanel(contentRect: revealFrame,
@@ -296,13 +346,13 @@ final class CustomDockWindowController {
         }
     }
 
-    private func configureWindowMode(desktop: Bool) {
+    private func configureWindowMode(desktop: Bool, autoHide: Bool) {
         // Desktop mode sits just above Finder's desktop-icon window, so clicks reach the Dock rather than Finder,
         // and stays put through Mission Control and Show Desktop.
         let level = desktop ? NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1) : .floating
         let behavior: NSWindow.CollectionBehavior = desktop
             ? [.canJoinAllSpaces, .stationary, .ignoresCycle]
-            : [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+            : DockWindowSpacePolicy.collectionBehavior(autoHide: autoHide)
         panel?.isFloatingPanel = !desktop
         panel?.level = level
         panel?.collectionBehavior = behavior
@@ -433,8 +483,9 @@ final class CustomDockWindowController {
     }
 
     private func configureWindowMonitoring(_ settings: AppSettings) {
+        // Click-to-minimize reads the focused window on demand; only minimized-window tiles need sampling.
         WindowAccessibilityMonitor.shared.setEnabled(
-            settings.showMinimizedWindows || settings.clickFocusedAppToMinimize,
+            settings.showMinimizedWindows,
             previewsEnabled: settings.showMinimizedWindows && settings.showWindowPreviews
         )
     }
@@ -445,7 +496,7 @@ final class CustomDockWindowController {
         revealPanel?.orderFrontRegardless()
         setLiveMonitorsVisible(false)
         WindowAccessibilityMonitor.shared.setEnabled(false)
-        DockWindowPreviewController.shared.dismiss()
+        DockWindowPreviewController.shared.dockDidHide()
     }
 
     private func hideDockPanelForSystemDock() {
@@ -454,7 +505,7 @@ final class CustomDockWindowController {
         revealPanel?.orderOut(nil)
         setLiveMonitorsVisible(false)
         WindowAccessibilityMonitor.shared.setEnabled(false)
-        DockWindowPreviewController.shared.dismiss()
+        DockWindowPreviewController.shared.dockDidHide()
     }
 
     /// H4: a style or Off/Reduce Motion change while a reveal/hide transition is running must not leave
@@ -539,5 +590,14 @@ final class CustomDockWindowController {
                 panel?.orderOut(nil)
             }
         }
+    }
+}
+
+/// Which Spaces the floating Custom Dock joins.
+enum DockWindowSpacePolicy {
+    /// Like Apple's Dock, an always-visible Custom Dock stays out of full-screen Spaces instead of covering
+    /// the app's content; an auto-hiding one joins them and reveals at the screen edge.
+    static func collectionBehavior(autoHide: Bool) -> NSWindow.CollectionBehavior {
+        autoHide ? [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle] : [.canJoinAllSpaces, .ignoresCycle]
     }
 }

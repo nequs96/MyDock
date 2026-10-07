@@ -79,16 +79,15 @@ final class WorkspaceStartRun: ObservableObject {
         guard phase == .preview else { return }
         phase = .running
         for index in results.indices {
-            if cancelRequested { break }
+            // A torn-down sheet cancels its task; that stops the remaining targets like Cancel does.
+            if cancelRequested || Task.isCancelled { break }
             results[index].outcome = .opening
             results[index].outcome = await perform(results[index].item)
         }
-        if cancelRequested {
-            for index in results.indices where !results[index].outcome.isFinal { results[index].outcome = .cancelled }
-            phase = .cancelled
-        } else {
-            phase = .finished
-        }
+        // Cancel pressed while the last target opened stops nothing: every target finished.
+        let unattempted = results.indices.filter { !results[$0].outcome.isFinal }
+        for index in unattempted { results[index].outcome = .cancelled }
+        phase = unattempted.isEmpty ? .finished : .cancelled
     }
 
     /// Stops the targets that have not started. A target already opening completes.
@@ -138,7 +137,7 @@ struct SystemWorkspaceLauncher: WorkspaceLaunching {
 
     func activate(_ item: DockItem) -> Bool {
         guard AppRuntimeEnvironment.allowsNativeEffects, let app = AppLauncher.runningApplication(for: item) else { return false }
-        return app.activate(options: [.activateIgnoringOtherApps])
+        return AppActivation.activate(app)
     }
 
     func open(_ item: DockItem) async -> String? {

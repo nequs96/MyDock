@@ -193,11 +193,10 @@ struct ProductRuntimeTests {
         #expect(DockItemOrderingPolicy.moving(items, ids: [items[0].id], before: items[0].id) == items)
     }
 
-    @Test func windowRestoreNeverGuessesDuplicateTitlesOrIdentifiers() {
-        let candidates = [WindowRestoreCandidate(identifier: "one", title: "Untitled"), .init(identifier: "two", title: "Untitled")]
-        #expect(WindowRestoreIdentity.match(identifier: nil, title: "Untitled", candidates: candidates) == nil)
-        #expect(WindowRestoreIdentity.match(identifier: "two", title: "Untitled", candidates: candidates) == 1)
-        #expect(WindowRestoreIdentity.match(identifier: "one", title: "Untitled", candidates: [candidates[0], candidates[0]]) == nil)
+    @Test func windowRestoreNeverGuessesBetweenMatchingWindows() {
+        #expect(WindowRestoreIdentity.uniqueIndex([1]) == 1)
+        #expect(WindowRestoreIdentity.uniqueIndex([0, 1]) == nil)
+        #expect(WindowRestoreIdentity.uniqueIndex([]) == nil)
     }
 
     @Test func profileAppearanceInheritsAndOverridesWithoutChangingBehavior() throws {

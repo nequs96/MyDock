@@ -6,6 +6,8 @@ struct NetworkInterfaceCounters: Equatable, Sendable, Identifiable {
     var receivedBytes: UInt64?
     var sentBytes: UInt64?
     var addresses: [String]
+    /// False for tunnels, bridges and peer-to-peer links, whose traffic a physical interface also counts.
+    var isPhysical: Bool = true
     var id: String { name }
 }
 
@@ -19,6 +21,7 @@ struct NetworkInterfaceRate: Equatable, Sendable, Identifiable {
     var receivedBytesPerSecond: Double?
     var sentBytesPerSecond: Double?
     var addresses: [String]
+    var isPhysical: Bool = true
     var id: String { name }
 }
 
@@ -33,7 +36,8 @@ enum NetworkRateCalculator {
                 return NetworkInterfaceRate(name: interface.name,
                                             receivedBytesPerSecond: nil,
                                             sentBytesPerSecond: nil,
-                                            addresses: interface.addresses)
+                                            addresses: interface.addresses,
+                                            isPhysical: interface.isPhysical)
             }
             let downloadRate = zipOptional(before.receivedBytes, interface.receivedBytes)
                 .flatMap { plausibleDelta(from: $0.0, to: $0.1) }
@@ -44,9 +48,24 @@ enum NetworkRateCalculator {
             return NetworkInterfaceRate(name: interface.name,
                                         receivedBytesPerSecond: downloadRate,
                                         sentBytesPerSecond: uploadRate,
-                                        addresses: interface.addresses)
+                                        addresses: interface.addresses,
+                                        isPhysical: interface.isPhysical)
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Total throughput over physical interfaces only, so VPN, bridged and peer-to-peer traffic is not counted twice.
+    static func physicalTotal(_ rates: [NetworkInterfaceRate], _ keyPath: KeyPath<NetworkInterfaceRate, Double?>) -> Double {
+        rates.filter(\.isPhysical).compactMap { $0[keyPath: keyPath] }.reduce(0, +)
+    }
+
+    /// The physical total, or nil until every physical interface has a rate.
+    static func completePhysicalTotal(_ rates: [NetworkInterfaceRate], _ keyPath: KeyPath<NetworkInterfaceRate, Double?>) -> Double? {
+        let physical = rates.filter(\.isPhysical)
+        guard !physical.isEmpty else { return nil }
+        let values = physical.compactMap { $0[keyPath: keyPath] }
+        guard values.count == physical.count else { return nil }
+        return values.reduce(0, +)
     }
 
     /// A decrease is a 32-bit wrap only when the previous value was near the top of the range and the
@@ -59,15 +78,24 @@ enum NetworkRateCalculator {
         return wrapped <= modulus / 2 ? wrapped : nil
     }
 
-    static func counterDelta(from previous: UInt64, to current: UInt64) -> UInt64 {
-        guard current < previous else { return current - previous }
-        let modulus = UInt64(UInt32.max) + 1
-        return (modulus - min(previous, modulus - 1)) + min(current, modulus - 1)
-    }
-
     private static func zipOptional(_ lhs: UInt64?, _ rhs: UInt64?) -> (UInt64, UInt64)? {
         guard let lhs, let rhs else { return nil }
         return (lhs, rhs)
+    }
+}
+
+/// Tells physical links (Ethernet, Wi-Fi, cellular) from interfaces that carry the same traffic again.
+enum NetworkInterfaceKindPolicy {
+    /// Tunnels (VPN), bridges, AirDrop/peer-to-peer links, Internet Sharing and VLAN-style interfaces.
+    private static let virtualPrefixes = ["utun", "ipsec", "ppp", "gif", "stf", "bridge", "awdl", "llw", "anpi",
+                                          "ap", "vmenet", "feth", "vlan", "bond", "pktap"]
+    /// `if_data.ifi_type` values: IFT_ETHER (Ethernet and Wi-Fi), IFT_IEEE80211, IFT_CELLULAR.
+    private static let physicalTypes: Set<UInt8> = [0x06, 0x47, 0xff]
+
+    static func isPhysical(name: String, interfaceType: UInt8?) -> Bool {
+        guard !virtualPrefixes.contains(where: { name.hasPrefix($0) }) else { return false }
+        guard let interfaceType else { return true }
+        return physicalTypes.contains(interfaceType)
     }
 }
 
@@ -75,6 +103,7 @@ enum NetworkInterfaceReader {
     private struct MutableInterface {
         var receivedBytes: UInt64?
         var sentBytes: UInt64?
+        var interfaceType: UInt8?
         var addresses = Set<String>()
     }
 
@@ -105,6 +134,7 @@ enum NetworkInterfaceReader {
                     let data = rawData.assumingMemoryBound(to: if_data.self).pointee
                     record.receivedBytes = UInt64(data.ifi_ibytes)
                     record.sentBytes = UInt64(data.ifi_obytes)
+                    record.interfaceType = data.ifi_type
                 }
             }
             records[name] = record
@@ -114,7 +144,8 @@ enum NetworkInterfaceReader {
             NetworkInterfaceCounters(name: name,
                                      receivedBytes: record.receivedBytes,
                                      sentBytes: record.sentBytes,
-                                     addresses: record.addresses.sorted())
+                                     addresses: record.addresses.sorted(),
+                                     isPhysical: NetworkInterfaceKindPolicy.isPhysical(name: name, interfaceType: record.interfaceType))
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         return NetworkCountersReading(uptime: ProcessInfo.processInfo.systemUptime, interfaces: interfaces)
     }

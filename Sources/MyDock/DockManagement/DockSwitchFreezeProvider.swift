@@ -19,7 +19,12 @@ final class NoDockSwitchFreezeProvider: DockSwitchFreezeProviding {
 final class ScreenCaptureDockSwitchFreezeProvider: DockSwitchFreezeProviding {
     private struct Session {
         var windows: [NSWindow]
+        var timeout: Task<Void, Never>?
     }
+
+    /// The overlay ignores input, so it never outlives a normal Dock relaunch for long, even when the
+    /// switch is slow or fails and rolls back.
+    static let maximumDuration: Duration = .seconds(3)
 
     private let isEnabled: @MainActor () -> Bool
     private var sessions: [UUID: Session] = [:]
@@ -40,8 +45,9 @@ final class ScreenCaptureDockSwitchFreezeProvider: DockSwitchFreezeProviding {
                 }
                 let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
                 let configuration = SCStreamConfiguration()
-                configuration.width = display.width
-                configuration.height = display.height
+                // SCDisplay reports points; capture at the screen's pixel size so Retina frames stay sharp.
+                configuration.width = Int((CGFloat(display.width) * screen.backingScaleFactor).rounded())
+                configuration.height = Int((CGFloat(display.height) * screen.backingScaleFactor).rounded())
                 configuration.showsCursor = false
                 let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
                 captures.append((screen, image))
@@ -67,7 +73,11 @@ final class ScreenCaptureDockSwitchFreezeProvider: DockSwitchFreezeProviding {
                 return window
             }
             let sessionID = UUID()
-            sessions[sessionID] = Session(windows: windows)
+            let timeout = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: ScreenCaptureDockSwitchFreezeProvider.maximumDuration) } catch { return }
+                self?.end(sessionID)
+            }
+            sessions[sessionID] = Session(windows: windows, timeout: timeout)
             windows.forEach { $0.orderFrontRegardless() }
             await Task.yield()
             return sessionID
@@ -78,6 +88,7 @@ final class ScreenCaptureDockSwitchFreezeProvider: DockSwitchFreezeProviding {
 
     func end(_ sessionID: UUID) {
         guard let session = sessions.removeValue(forKey: sessionID) else { return }
+        session.timeout?.cancel()
         session.windows.forEach { $0.orderOut(nil) }
     }
 }

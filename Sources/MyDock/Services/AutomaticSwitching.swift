@@ -220,9 +220,20 @@ enum AutomaticSwitchRuleText {
         return "an app"
     }
 
-    static func timeString(_ minute: Int) -> String {
+    /// The time in the calendar locale's clock, 12- or 24-hour, matching the system time format.
+    static func timeString(_ minute: Int, calendar: Calendar = .current) -> String {
         let clamped = AutomaticSwitchRule.clampedMinute(minute)
-        return String(format: "%d:%02d", clamped / 60, clamped % 60)
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = calendar.locale ?? .current
+        formatter.timeZone = calendar.timeZone
+        formatter.setLocalizedDateFormatFromTemplate("jmm")
+        // 1 January has no daylight saving transition, so every minute of the day exists.
+        guard let date = calendar.date(from: DateComponents(year: 2001, month: 1, day: 1,
+                                                            hour: clamped / 60, minute: clamped % 60)) else {
+            return String(format: "%d:%02d", clamped / 60, clamped % 60)
+        }
+        return formatter.string(from: date)
     }
 
     static func weekdaySummary(_ weekdays: [Int], calendar: Calendar = .current) -> String {
@@ -243,7 +254,7 @@ enum AutomaticSwitchRuleText {
         case .appFrontmost:
             return "When \(appName(rule)) is frontmost"
         case .timeWindow:
-            return "\(weekdaySummary(rule.weekdays, calendar: calendar)) \(timeString(rule.startMinute))–\(timeString(rule.endMinute))"
+            return "\(weekdaySummary(rule.weekdays, calendar: calendar)) \(timeString(rule.startMinute, calendar: calendar))–\(timeString(rule.endMinute, calendar: calendar))"
         }
     }
 

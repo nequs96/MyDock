@@ -5,7 +5,9 @@ import Testing
 
 @MainActor
 struct WindowPreviewCacheTests {
-    @Test func cacheIdentitySurvivesProcessRestartAndRejectsDuplicateTitles() {
+    /// Descriptors without a native identity key on the app and the trimmed title only. Sampled windows carry
+    /// their app's launch date and AX object, so their previews never outlive the app (AuditLaneCTests).
+    @Test func cacheIdentityWithoutNativeIdentityTrimsTitlesAndRejectsDuplicates() {
         let original = descriptor(processID: 42, windowIndex: 1, title: "Planning")
         let relaunched = descriptor(processID: 900, windowIndex: 0, title: " Planning ")
         let originalKey = WindowPreviewCacheIdentity.uniqueKeys(for: [original])[original.id]
@@ -46,13 +48,13 @@ struct WindowPreviewCacheTests {
         let relaunchedCache = WindowPreviewDiskCache(directoryURL: directory,
                                                      now: { currentDate },
                                                      maximumAge: 60)
-        #expect(relaunchedCache.image(for: key) != nil)
+        #expect(relaunchedCache.preview(for: key)?.image != nil)
         let file = directory.appendingPathComponent(key).appendingPathExtension("jpg")
         let permissions = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
         #expect(permissions?.intValue == 0o600)
 
         currentDate = start.addingTimeInterval(61)
-        #expect(relaunchedCache.image(for: key) == nil)
+        #expect(relaunchedCache.preview(for: key) == nil)
         #expect(!FileManager.default.fileExists(atPath: file.path))
     }
 

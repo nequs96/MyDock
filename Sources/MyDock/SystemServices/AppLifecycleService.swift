@@ -17,14 +17,15 @@ enum LoginItemState: Equatable {
     }
 
     var registrationRequested: Bool { self == .enabled || self == .requiresApproval }
+    /// The one copy of the login status, shown as the Application section footer in Settings.
     var message: String {
         switch self {
-        case .unavailable: "Login launch is unavailable in this build or isolated session."
+        case .unavailable: "Login launch is unavailable in this session."
         case .notRegistered: "Not registered to launch at login."
-        case .enabled: "Registered and allowed to launch at login."
-        case .requiresApproval: "Registered, but macOS approval is required before MyDock can launch at login."
-        case .notFound: "macOS could not find this login service. Check the installed app in Login Items."
-        case .unknown: "macOS returned an unrecognized login-item status. Check Login Items."
+        case .enabled: "Allowed to launch at login."
+        case .requiresApproval: "macOS approval is required in Login Items."
+        case .notFound: "macOS could not find this login service."
+        case .unknown: "Check the login status in Login Items."
         }
     }
 }
@@ -87,6 +88,19 @@ enum ReleaseVersion {
     }
 }
 
+enum UpdateCheckError: LocalizedError, Equatable {
+    case noRelease, mismatch, tooLarge, unreadable
+
+    var errorDescription: String? {
+        switch self {
+        case .noRelease: "This repository has no public release."
+        case .mismatch: "The release does not match this repository."
+        case .tooLarge: "The release information is too large to read."
+        case .unreadable: "The release information could not be read."
+        }
+    }
+}
+
 @MainActor
 final class UpdateCheckService: ObservableObject {
     @Published private(set) var message: String?
@@ -108,18 +122,20 @@ final class UpdateCheckService: ObservableObject {
             let data: Data
             do {
                 let result = try await BoundedHTTPFetch.fetch(URLRequest(url: repository.apiURL), session: session, maximumBytes: 128 * 1_024)
-                guard result.response.statusCode == 200 else { throw EditSessionSaveError.failed("No public release is available from this repository.") }
+                guard result.response.statusCode == 200 else { throw UpdateCheckError.noRelease }
                 data = result.data
-            } catch is BoundedHTTPFetchError {
-                throw EditSessionSaveError.failed("The release response could not be read.")
+            } catch let error as BoundedHTTPFetchError {
+                throw error == .tooLarge ? UpdateCheckError.tooLarge : UpdateCheckError.unreadable
             }
             struct Release: Decodable { var tag_name: String; var html_url: URL; var draft: Bool; var prerelease: Bool }
-            let release = try JSONDecoder().decode(Release.self, from: data)
-            guard !release.draft, !release.prerelease, repository.validates(release.html_url) else { throw EditSessionSaveError.failed("The release response did not match this publisher repository.") }
+            guard let release = try? JSONDecoder().decode(Release.self, from: data) else { throw UpdateCheckError.unreadable }
+            guard !release.draft, !release.prerelease, repository.validates(release.html_url) else { throw UpdateCheckError.mismatch }
             if ReleaseVersion.isNewer(release.tag_name, than: Product.marketingVersion) {
                 message = "\(release.tag_name) is available. Review the publisher’s release and installer."
                 releaseURL = release.html_url
             } else { message = "No newer stable version is listed. Installed: \(Product.marketingVersion)." }
+        } catch is CancellationError {
+            message = nil
         } catch { message = error.localizedDescription }
     }
 }

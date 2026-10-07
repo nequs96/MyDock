@@ -11,6 +11,13 @@ struct NowPlayingSnapshot: Equatable, Sendable {
     var duration: TimeInterval
     var updatedAt: Date
     var artworkURL: URL?
+
+    /// The position at `date`: a playing track advances from the moment it was read, up to its duration.
+    func livePosition(at date: Date) -> TimeInterval {
+        guard isPlaying else { return position }
+        let advanced = position + max(0, date.timeIntervalSince(updatedAt))
+        return duration > 0 ? min(duration, advanced) : advanced
+    }
 }
 
 enum NowPlayingCommand {
@@ -113,6 +120,8 @@ final class NowPlayingMonitor: ObservableObject {
     private var dockIsVisible = false
     private var schedulerDemand: RefreshDemandToken?
     private var pendingReads: [NowPlayingSource: Task<Void, Never>] = [:]
+    /// Sources whose playback command finished while a read was in flight; that read may predate the command.
+    private var rereadRequested: Set<NowPlayingSource> = []
     private var commandTasks: [NowPlayingSource: Task<Void, Never>] = [:]
 
     private init() {
@@ -177,7 +186,9 @@ final class NowPlayingMonitor: ObservableObject {
         }
     }
 
-    func refresh(_ source: NowPlayingSource) {
+    /// `afterCommand`: a read already in flight may have started before the command, so one more read follows
+    /// it. Periodic refreshes skip a busy source; the in-flight read is recent enough.
+    func refresh(_ source: NowPlayingSource, afterCommand: Bool = false) {
         guard NSRunningApplication.runningApplications(withBundleIdentifier: source.bundleIdentifier).contains(where: { !$0.isTerminated }) else {
             snapshots[source] = nil
             errors[source] = nil
@@ -185,14 +196,23 @@ final class NowPlayingMonitor: ObservableObject {
             return
         }
 
-        guard pendingReads[source] == nil else { return }
+        guard pendingReads[source] == nil else {
+            if afterCommand { rereadRequested.insert(source) }
+            return
+        }
         pendingReads[source] = Task { [weak self] in
             guard let self else { return }
-            defer { pendingReads[source] = nil }
+            defer {
+                pendingReads[source] = nil
+                // One more read once this one ends, so a command's result is not lost to a read that started before it.
+                if rereadRequested.remove(source) != nil, !Task.isCancelled { refresh(source) }
+            }
         let artworkStatement = source == .spotify
             ? "try\nset trackArtworkURL to artwork url of current track as text\nend try"
             : ""
+        // Checked outside the tell block: an Apple Event to a player that is quitting would launch it again.
         let script = """
+        if application id "\(source.bundleIdentifier)" is not running then return ""
         tell application id "\(source.bundleIdentifier)"
             if player state is stopped then return ""
             set trackName to name of current track as text
@@ -251,8 +271,9 @@ final class NowPlayingMonitor: ObservableObject {
         commandTasks[source] = Task { [weak self] in
             await previous?.value
             guard let self, !Task.isCancelled else { return }
-            _ = await execute(script, source: source)
-            refresh(source)
+            // A user action: allow time for the first-run Automation consent prompt.
+            _ = await execute(script, source: source, timeout: 60)
+            refresh(source, afterCommand: true)
         }
     }
 
@@ -262,6 +283,7 @@ final class NowPlayingMonitor: ObservableObject {
               let bundleIdentifier = application.bundleIdentifier,
               let source = NowPlayingSource.allCases.first(where: { $0.bundleIdentifier == bundleIdentifier }) else { return }
         pendingReads[source]?.cancel()
+        rereadRequested.remove(source)
         commandTasks[source]?.cancel()
         snapshots[source] = nil
         errors[source] = nil
@@ -277,17 +299,24 @@ final class NowPlayingMonitor: ObservableObject {
         case .appleMusic:
             artworkTasks[source] = Task { [weak self] in
                 guard let self else { return }
-                let data = await musicArtworkData()
+                let response = await musicArtworkResponse()
+                // Hex decoding and image downsampling run off the main thread.
+                let decoded = await Task.detached(priority: .utility) {
+                    response.flatMap(BoundedAutomationRunner.artworkData(from:)).flatMap(NowPlayingArtwork.decodedThumbnail(from:))
+                }.value
                 guard !Task.isCancelled, artworkKeys[source] == key else { return }
-                artwork[source] = data.flatMap { NowPlayingArtwork.thumbnail(from: $0) }
+                artwork[source] = decoded?.image
                 artworkTasks[source] = nil
             }
         case .spotify:
             guard let url = snapshot.artworkURL else { return }
             artworkTasks[source] = Task { [weak self] in
                 let data = await NowPlayingArtwork.fetchSpotifyArtwork(at: url)
+                let decoded = await Task.detached(priority: .utility) {
+                    data.flatMap(NowPlayingArtwork.decodedThumbnail(from:))
+                }.value
                 guard let self, self.artworkKeys[source] == key, !Task.isCancelled else { return }
-                self.artwork[source] = data.flatMap { NowPlayingArtwork.thumbnail(from: $0) }
+                self.artwork[source] = decoded?.image
                 self.artworkTasks[source] = nil
             }
         }
@@ -300,8 +329,10 @@ final class NowPlayingMonitor: ObservableObject {
         artwork[source] = nil
     }
 
-    private func musicArtworkData() async -> Data? {
+    /// The raw `«data …»` reply; decoding happens off the main actor.
+    private func musicArtworkResponse() async -> String? {
         let script = """
+        if application id "com.apple.Music" is not running then return missing value
         tell application id "com.apple.Music"
             try
                 return raw data of artwork 1 of current track
@@ -310,13 +341,12 @@ final class NowPlayingMonitor: ObservableObject {
             end try
         end tell
         """
-        guard let response = try? await BoundedAutomationRunner.run(script, sourceForm: true, maximumBytes: 4 * 1_024 * 1_024) else { return nil }
-        return BoundedAutomationRunner.artworkData(from: response)
+        return try? await BoundedAutomationRunner.run(script, sourceForm: true, maximumBytes: 4 * 1_024 * 1_024)
     }
 
-    private func execute(_ sourceText: String, source: NowPlayingSource) async -> String? {
+    private func execute(_ sourceText: String, source: NowPlayingSource, timeout: TimeInterval = 8) async -> String? {
         do {
-            let response = try await BoundedAutomationRunner.run(sourceText)
+            let response = try await BoundedAutomationRunner.run(sourceText, timeout: timeout)
             guard !Task.isCancelled else { return nil }
             errors[source] = nil
             return response
@@ -345,31 +375,51 @@ enum AutomationError: Error, Equatable {
 }
 
 enum BoundedAutomationRunner {
-    static func run(_ source: String, sourceForm: Bool = false, maximumBytes: Int = 65_536) async throws -> String {
+    /// `timeout` bounds background reads; explicit user actions pass a longer one, because the first
+    /// Apple Event to an app waits for the user to answer the Automation consent prompt.
+    static func run(_ source: String, sourceForm: Bool = false, maximumBytes: Int = 65_536,
+                    timeout: TimeInterval = 8) async throws -> String {
         try AppRuntimeEnvironment.requireNativeEffects()
         let output = try await BoundedSubprocessCapture.runCancellable(
             executableURL: URL(fileURLWithPath: "/usr/bin/osascript"),
             arguments: ["-s", sourceForm ? "s" : "h", "-e", source],
-            maximumOutputBytes: maximumBytes, maximumErrorBytes: 4_096, timeout: 8)
+            maximumOutputBytes: maximumBytes, maximumErrorBytes: 4_096, timeout: timeout)
         guard output.terminationStatus == 0 else {
             throw AutomationError.classify(exitStatus: output.terminationStatus, standardError: output.standardError)
         }
         return String(decoding: output.standardOutput, as: UTF8.self).trimmingCharacters(in: .newlines)
     }
 
+    /// Decodes `«data TYPE0123…»` over UTF-8 bytes: megabytes of hex must not walk grapheme clusters.
     static func artworkData(from response: String) -> Data? {
         guard response.hasPrefix("«data "), response.hasSuffix("»") else { return nil }
-        let payload = response.dropFirst(6).dropLast().dropFirst(4)
-        guard payload.count <= 4 * 1_024 * 1_024, payload.count.isMultiple(of: 2) else { return nil }
-        var data = Data()
-        var index = payload.startIndex
-        while index < payload.endIndex {
-            let end = payload.index(index, offsetBy: 2)
-            guard let byte = UInt8(payload[index..<end], radix: 16) else { return nil }
-            data.append(byte)
-            index = end
+        let body = response.dropFirst(6).dropLast()
+        // Skip the four-character type code (PNGf, JPEG, …).
+        guard let payloadStart = body.index(body.startIndex, offsetBy: 4, limitedBy: body.endIndex) else { return nil }
+        let hex = body[payloadStart...].utf8
+        let byteCount = hex.count
+        guard byteCount <= 4 * 1_024 * 1_024, byteCount.isMultiple(of: 2) else { return nil }
+        var data = Data(capacity: byteCount / 2)
+        var high: UInt8?
+        for character in hex {
+            guard let nibble = hexValue(character) else { return nil }
+            if let pending = high {
+                data.append(pending << 4 | nibble)
+                high = nil
+            } else {
+                high = nibble
+            }
         }
         return data.isEmpty ? nil : data
+    }
+
+    private static func hexValue(_ character: UInt8) -> UInt8? {
+        switch character {
+        case 0x30...0x39: return character - 0x30
+        case 0x41...0x46: return character - 0x41 + 10
+        case 0x61...0x66: return character - 0x61 + 10
+        default: return nil
+        }
     }
 }
 
@@ -377,6 +427,9 @@ enum NowPlayingCopy {
     static func automationMessage(for error: Error, sourceTitle: String) -> String {
         if (error as? AutomationError) == .permissionDenied {
             return "MyDock is not allowed to control \(sourceTitle). Turn on Automation for MyDock in System Settings \u{2192} Privacy & Security \u{2192} Automation, then try again."
+        }
+        if (error as? BoundedSubprocessCaptureError) == .timedOut {
+            return "\(sourceTitle) did not respond in time. If macOS asks for permission, allow it, then try again."
         }
         return "MyDock couldn't read or control \(sourceTitle). The player may be unresponsive or quit; try again."
     }

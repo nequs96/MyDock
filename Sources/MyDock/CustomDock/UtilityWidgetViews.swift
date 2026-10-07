@@ -12,19 +12,11 @@ struct DiskSpaceSnapshot: Equatable, Sendable {
     var isLow: Bool { usedFraction > 0.9 }
     static func read() -> Self? {
         let url = FileManager.default.homeDirectoryForCurrentUser
-        guard let values = try? url.resourceValues(forKeys: VolumeFreeSpace.keys.union([.volumeLocalizedNameKey, .volumeTotalCapacityKey])),
-              let total = values.volumeTotalCapacity, total > 0, let available = VolumeFreeSpace.availableBytes(values) else { return nil }
-        return Self(name: values.volumeLocalizedName ?? "Home volume", totalBytes: Int64(total), availableBytes: max(0, available))
-    }
-}
-
-/// Free space as Finder and System Settings report it: space macOS can purge on demand counts as available,
-/// so the low-space state does not fire while the system would free room itself.
-enum VolumeFreeSpace {
-    static var keys: Set<URLResourceKey> { [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey] }
-    static func availableBytes(_ values: URLResourceValues) -> Int64? {
-        if let important = values.volumeAvailableCapacityForImportantUsage, important > 0 { return important }
-        return values.volumeAvailableCapacity.map { Int64($0) }
+        guard let values = try? url.resourceValues(forKeys: VolumeCapacityPolicy.resourceKeys),
+              let total = values.volumeTotalCapacity, total > 0,
+              let available = VolumeCapacityPolicy.availableBytes(importantUsage: values.volumeAvailableCapacityForImportantUsage,
+                                                                  plain: values.volumeAvailableCapacity) else { return nil }
+        return Self(name: values.volumeLocalizedName ?? "Startup disk", totalBytes: Int64(total), availableBytes: available)
     }
 }
 

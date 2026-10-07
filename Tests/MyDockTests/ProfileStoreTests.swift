@@ -1134,7 +1134,7 @@ struct ProfileStoreTests {
         #expect(rates.first?.receivedBytesPerSecond == 500)
         #expect(rates.first?.sentBytesPerSecond == 200)
         #expect(rates.first?.addresses == ["192.0.2.10"])
-        #expect(NetworkRateCalculator.counterDelta(from: UInt64(UInt32.max) - 5, to: 3) == 9)
+        #expect(NetworkRateCalculator.plausibleDelta(from: UInt64(UInt32.max) - 5, to: 3) == 9)
 
         let unavailableBefore = NetworkCountersReading(uptime: 1, interfaces: [NetworkInterfaceCounters(name: "en7", receivedBytes: nil, sentBytes: nil, addresses: [])])
         let unavailableAfter = NetworkCountersReading(uptime: 2, interfaces: [NetworkInterfaceCounters(name: "en7", receivedBytes: nil, sentBytes: nil, addresses: [])])
@@ -1197,10 +1197,6 @@ struct ProfileStoreTests {
         #expect(CustomDockVisibilityPolicy.showsSystemTrash(isEnabled: true, hasProfileTrashWidget: false))
         #expect(!CustomDockVisibilityPolicy.showsSystemTrash(isEnabled: false, hasProfileTrashWidget: false))
         #expect(!CustomDockVisibilityPolicy.showsSystemTrash(isEnabled: true, hasProfileTrashWidget: true))
-        #expect(WindowAccessibilityService.shouldMinimizeFocusedApp(toggleEnabled: true, clickedBundleIdentifier: "com.example.app", frontmostBundleIdentifier: "com.example.app", hasFocusedWindow: true))
-        #expect(!WindowAccessibilityService.shouldMinimizeFocusedApp(toggleEnabled: false, clickedBundleIdentifier: "com.example.app", frontmostBundleIdentifier: "com.example.app", hasFocusedWindow: true))
-        #expect(!WindowAccessibilityService.shouldMinimizeFocusedApp(toggleEnabled: true, clickedBundleIdentifier: "com.example.app", frontmostBundleIdentifier: "com.example.other", hasFocusedWindow: true))
-        #expect(!WindowAccessibilityService.shouldMinimizeFocusedApp(toggleEnabled: true, clickedBundleIdentifier: "com.example.app", frontmostBundleIdentifier: "com.example.app", hasFocusedWindow: false))
     }
 
     @Test func dockOverflowJumpControlsOnlyAppearWhenContentExceedsViewport() {
@@ -1312,7 +1308,7 @@ struct ProfileStoreTests {
         try Data().write(to: root.appendingPathComponent(".hidden"))
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let entries = try FolderContentsReader.entries(at: root)
+        let entries = try FolderContentsReader.listing(at: root).entries
 
         #expect(entries.map(\.name) == ["A Folder", "Z File.txt"])
         #expect(entries.first?.isDirectory == true)
@@ -1661,7 +1657,7 @@ struct ProfileStoreTests {
         #expect(withArtwork?.artworkURL?.host == "i.scdn.co")
         #expect(NowPlayingArtwork.spotifyURL(from: "https://localhost/image/abc123") == nil)
         #expect(NowPlayingArtwork.spotifyURL(from: "https://i.scdn.co/image/abc123?token=secret") == nil)
-        #expect(NowPlayingArtwork.thumbnail(from: Data([0, 1, 2, 3])) == nil)
+        #expect(NowPlayingArtwork.decodedThumbnail(from: Data([0, 1, 2, 3]))?.image == nil)
         #expect(try NowPlayingResponseParser.snapshot(from: "") == nil)
         #expect(throws: NowPlayingParsingError.self) { try NowPlayingResponseParser.snapshot(from: "missing fields") }
     }

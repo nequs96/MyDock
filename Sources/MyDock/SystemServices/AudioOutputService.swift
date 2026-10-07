@@ -1,5 +1,6 @@
 import CoreAudio
 import Foundation
+import OSLog
 
 // MARK: - Models
 
@@ -73,6 +74,8 @@ enum AudioOutputError: Error, Equatable, Sendable {
         if status == OSStatus(kAudioHardwareBadDeviceError) || status == OSStatus(kAudioHardwareBadObjectError) {
             self = .deviceUnavailable
         } else {
+            // The code is for diagnosis only; the person sees a plain sentence.
+            Logger(subsystem: Product.bundleIdentifier, category: "audio-output").error("Core Audio call failed: OSStatus \(status)")
             self = .system(status)
         }
     }
@@ -87,7 +90,7 @@ enum AudioOutputError: Error, Equatable, Sendable {
         case .volumeNotSettable: "This device’s volume is controlled by the device."
         case .muteNotSettable: "This device can’t be muted from the Mac."
         case .invalidValue: "That value isn’t valid."
-        case .system(let status): "Couldn’t change the output (error \(status))."
+        case .system: "Couldn’t change the output."
         case .failed: "Couldn’t change the output."
         }
     }
@@ -313,6 +316,7 @@ final class AudioOutputService: ObservableObject {
     /// Volume and mute listeners follow the current device while the device list is observed.
     private var controlObservation: (any AudioOutputObservation)?
     private var observedControlDeviceID: UInt32?
+    private var hardwareRefreshScheduled = false
 
     init(hardware: any AudioOutputHardware = CoreAudioOutputHardware(),
          scheduler: RefreshScheduler = .shared,
@@ -357,13 +361,23 @@ final class AudioOutputService: ObservableObject {
         if shouldObserve {
             refresh()
             observation = hardware.startObserving { [weak self] in
-                Task { @MainActor in self?.hardwareChanged() }
+                Task { @MainActor in self?.scheduleHardwareRefresh() }
             }
         } else {
             observation?.cancel()
             observation = nil
         }
         updateControlObservation()
+    }
+
+    /// The device list and the default output usually change together; one refresh covers the burst.
+    private func scheduleHardwareRefresh() {
+        guard !hardwareRefreshScheduled else { return }
+        hardwareRefreshScheduled = true
+        Task { @MainActor [weak self] in
+            self?.hardwareRefreshScheduled = false
+            self?.hardwareChanged()
+        }
     }
 
     private func hardwareChanged() {

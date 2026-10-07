@@ -7,10 +7,15 @@ struct CachedWindowPreview {
     var storedAt: Date
 }
 
+/// A disk entry belongs to one native window for one run of its app: the key includes the app's launch
+/// date and the window's AX object, so a later window that reuses a common title ("Untitled", "New Tab")
+/// never shows an earlier window's screenshot. Previews therefore do not survive an app relaunch.
 enum WindowPreviewCacheIdentity {
     private struct TitleKey: Hashable {
         var bundleIdentifier: String
         var installationPath: String
+        var lifetime: String
+        var window: String
         var title: String
     }
 
@@ -19,14 +24,18 @@ enum WindowPreviewCacheIdentity {
             let bundleIdentifier = descriptor.bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = normalizedTitle(descriptor.identityTitle)
             guard !bundleIdentifier.isEmpty, !title.isEmpty else { return nil }
-            return (descriptor, TitleKey(bundleIdentifier: bundleIdentifier, installationPath: descriptor.applicationIdentity.map { InstalledApplicationIdentity.normalizedURL($0.bundleURL).path } ?? "", title: title))
+            let lifetime = descriptor.applicationIdentity?.launchDate.map { String($0.timeIntervalSince1970) } ?? ""
+            let window = descriptor.accessibilityObservation.map { String($0.nativeHash) } ?? ""
+            return (descriptor, TitleKey(bundleIdentifier: bundleIdentifier,
+                                         installationPath: descriptor.applicationIdentity.map { InstalledApplicationIdentity.normalizedURL($0.bundleURL).path } ?? "",
+                                         lifetime: lifetime, window: window, title: title))
         }
         let counts = Dictionary(grouping: keyedDescriptors, by: \.1).mapValues(\.count)
         let idCounts = Dictionary(grouping: keyedDescriptors, by: { $0.0.id }).mapValues(\.count)
         var result: [String: String] = [:]
         for (descriptor, key) in keyedDescriptors {
             guard counts[key] == 1, idCounts[descriptor.id] == 1 else { continue }
-            let identity = "\(Product.bundleIdentifier).window-preview.v2\n\(key.bundleIdentifier)\n\(key.installationPath)\n\(key.title)"
+            let identity = "\(Product.bundleIdentifier).window-preview.v3\n\(key.bundleIdentifier)\n\(key.installationPath)\n\(key.lifetime)\n\(key.window)\n\(key.title)"
             let digest = SHA256.hash(data: Data(identity.utf8))
                 .map { String(format: "%02x", $0) }
                 .joined()
@@ -63,17 +72,12 @@ final class WindowPreviewDiskCache {
         self.maximumAge = maximumAge
         self.maximumEntryCount = maximumEntryCount
         self.maximumTotalBytes = maximumTotalBytes
-        prepareDirectory()
+        // The directory is created on the first store, so users who never keep previews get none.
         prune()
     }
 
     func pruneExpired() {
-        prepareDirectory()
         prune()
-    }
-
-    func image(for key: String) -> NSImage? {
-        preview(for: key)?.image
     }
 
     func preview(for key: String) -> CachedWindowPreview? {

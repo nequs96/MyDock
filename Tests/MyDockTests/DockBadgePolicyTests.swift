@@ -14,7 +14,8 @@ struct DockBadgePolicyTests {
     }
 
     @Test func badgeLabelsBoundUnexpectedText() {
-        #expect(DockBadgeValuePolicy.visibleLabel("New message") == "New mess")
+        #expect(DockBadgeValuePolicy.visibleLabel("New message") == "New mes…")
+        #expect(DockBadgeValuePolicy.visibleLabel("Reminder") == "Reminder")
     }
 
     @Test func badgeMappingSkipsEmptyAndZeroAndKeepsOneValuePerApp() {
