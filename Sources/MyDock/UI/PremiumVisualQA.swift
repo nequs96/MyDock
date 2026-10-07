@@ -640,9 +640,9 @@ enum PremiumVisualQA {
             setup.widgetConfiguration?.aiActivitySnapshot = nil
             try await render(HStack(spacing: 20) {
                 ForEach([54.0, 108.0, 144.0, 196.0], id: \.self) { width in
-                    AppleWidgetCard(item: tile, width: width, showsLabels: true, fallback: AnyView(AIActivityCompactView(item: tile)))
+                    AppleWidgetCard(item: tile, width: width, fallback: AnyView(AIActivityCompactView(item: tile)))
                 }
-                AppleWidgetCard(item: setup, width: 144, showsLabels: true, fallback: AnyView(AIActivityCompactView(item: setup)))
+                AppleWidgetCard(item: setup, width: 144, fallback: AnyView(AIActivityCompactView(item: setup)))
             }.padding(20).background(DockDesign.page), name: "ai-tiles-" + suffix, size: NSSize(width: 786, height: 100), scheme: scheme, directory: directory)
         }
     }

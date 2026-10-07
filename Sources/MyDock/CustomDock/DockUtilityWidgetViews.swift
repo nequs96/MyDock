@@ -156,7 +156,9 @@ struct FileShelfView: View {
                 }
             }
             UndoNotice(pending: $undoPending) { removed in
-                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { removed.restore(into: &$0.shelfFiles, capacity: FileShelfPolicy.capacity) }
+                var restored = 0
+                let result = store.updateWidgetConfiguration(itemID: item.id, in: profileID) { restored = removed.restore(into: &$0.shelfFiles, capacity: FileShelfPolicy.capacity) }
+                return result == .accepted && restored > 0
             }
             .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
             if let message { WidgetPopoutCaption(message).accessibilityLabel(message) }
@@ -339,7 +341,9 @@ struct TextSnippetsView: View {
                 }
             }
             UndoNotice(pending: $undoPending) { removed in
-                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { removed.restore(into: &$0.textSnippets, capacity: 50) }
+                var restored = 0
+                let result = store.updateWidgetConfiguration(itemID: item.id, in: profileID) { restored = removed.restore(into: &$0.textSnippets, capacity: 50) }
+                return result == .accepted && restored > 0
             }
             .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
             if let message { WidgetPopoutCaption(message) }
@@ -478,7 +482,9 @@ struct QuickLinksView: View {
                 }
             }
             UndoNotice(pending: $undoPending) { removed in
-                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { removed.restore(into: &$0.quickLinks, capacity: 50) }
+                var restored = 0
+                let result = store.updateWidgetConfiguration(itemID: item.id, in: profileID) { restored = removed.restore(into: &$0.quickLinks, capacity: 50) }
+                return result == .accepted && restored > 0
             }
             .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
             if let message { WidgetPopoutCaption(message) }

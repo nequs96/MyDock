@@ -193,10 +193,9 @@ struct FX03Tests {
     }
 
     @Test func modulesCentreWithoutALabel() {
-        #expect(ModuleAlignmentPolicy.alignment(narrow: false, showsLabel: true, keepsLeading: true) == .leading)
-        #expect(ModuleAlignmentPolicy.alignment(narrow: false, showsLabel: false, keepsLeading: true) == .center)
-        #expect(ModuleAlignmentPolicy.alignment(narrow: false, showsLabel: false, keepsLeading: false) == .center)
-        #expect(ModuleAlignmentPolicy.alignment(narrow: true, showsLabel: true, keepsLeading: true) == .center)
+        #expect(ModuleAlignmentPolicy.alignment(narrow: false, showsLabel: true) == .leading)
+        #expect(ModuleAlignmentPolicy.alignment(narrow: false, showsLabel: false) == .center)
+        #expect(ModuleAlignmentPolicy.alignment(narrow: true, showsLabel: true) == .center)
         #expect(!ModuleAlignmentPolicy.fillsRow(narrow: false, showsLabel: false, keepsLeading: true))
         #expect(ModuleAlignmentPolicy.fillsRow(narrow: false, showsLabel: true, keepsLeading: true))
     }

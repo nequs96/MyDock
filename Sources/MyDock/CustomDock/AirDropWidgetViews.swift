@@ -34,7 +34,8 @@ struct AirDropDockFace: View {
 
 private struct AirDropCompactTile: View {
     @State private var isDropTargeted = false
-    @State private var anchorView: NSView?
+    /// The sharing picker's anchor. A reference box, so recording it is not a state change during a view update.
+    @State private var anchor = AirDropAnchorBox()
     @Environment(\.dockWidgetContentWidth) private var width
     @Environment(\.dockModuleRadius) private var moduleRadius
 
@@ -43,7 +44,7 @@ private struct AirDropCompactTile: View {
         ZStack {
             AirDropDockFace(targeted: isDropTargeted)
 
-            AirDropTileAnchor { anchorView = $0 }
+            AirDropTileAnchor(box: anchor)
                 .allowsHitTesting(false)
 
             if isDropTargeted {
@@ -52,7 +53,7 @@ private struct AirDropCompactTile: View {
                     .allowsHitTesting(false)
             }
         }
-        .frame(width: width, height: 54)
+        .frame(width: width, height: DockDesign.Module.height)
         .contentShape(shape)
         .onDrop(of: [UTType.fileURL, UTType.url], isTargeted: $isDropTargeted, perform: shareDroppedItems)
         .help("Drop files or links to share with AirDrop")
@@ -73,7 +74,7 @@ private struct AirDropCompactTile: View {
         guard !compatibleProviders.isEmpty else { return false }
 
         AirDropDroppedItemLoader.load(compatibleProviders) { urls in
-            guard !urls.isEmpty, let anchorView else { return }
+            guard !urls.isEmpty, let anchorView = anchor.view else { return }
             NSSharingServicePicker(items: urls)
                 .show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxY)
         }
@@ -81,18 +82,23 @@ private struct AirDropCompactTile: View {
     }
 }
 
+private final class AirDropAnchorBox {
+    weak var view: NSView?
+}
+
 private struct AirDropTileAnchor: NSViewRepresentable {
-    var onCreate: (NSView) -> Void
+    var box: AirDropAnchorBox
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         view.setAccessibilityElement(false)
-        onCreate(view)
+        box.view = view
         return view
     }
 
+    /// Only a new box needs the view; this writes no SwiftUI state.
     func updateNSView(_ view: NSView, context: Context) {
-        onCreate(view)
+        if box.view !== view { box.view = view }
     }
 }
 

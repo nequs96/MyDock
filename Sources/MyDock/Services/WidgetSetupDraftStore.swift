@@ -97,6 +97,12 @@ final class WidgetSetupDraftStore: ObservableObject {
     func saveNote(_ text: String, for itemID: UUID, in profileID: UUID, to store: ProfileStore) throws {
         // An obsolete debounce completion must not overwrite a newer pending edit.
         if let draft = noteDrafts[itemID], draft.profileID != profileID || draft.text != text { return }
+        // Opening and closing an unchanged note writes nothing: the saved text already matches.
+        if !store.hasUnpersistedChanges,
+           store.state.profiles.first(where: { $0.id == profileID })?.items.first(where: { $0.id == itemID })?.widgetConfiguration?.noteText == text {
+            noteWasSaved(text, for: itemID)
+            return
+        }
         updateNoteDraft(text, for: itemID, in: profileID)
         try store.updateWidgetConfigurationAndPersist(itemID: itemID, in: profileID) { $0.noteText = text }
         noteWasSaved(text, for: itemID)

@@ -20,19 +20,40 @@ enum WidgetFreshnessPresentation {
     /// "Retry" only after a failed or stale reading; otherwise it is a plain "Refresh".
     static func refreshLabel(_ state: WidgetFreshnessState) -> String { state == .stale ? "Retry" : "Refresh" }
 
-    /// A failed refresh is stale whether or not an older reading is kept.
+    /// How far a reading may sit in the future (clock skew) before its age is unknown.
+    static let futureTolerance: TimeInterval = 60
+
+    /// A failed refresh is stale whether or not an older reading is kept. A reading dated in the future
+    /// (a clock change, an imported Dock) has no honest age, so it is stale too.
     static func state(isRefreshing: Bool, updatedAt: Date?, failed: Bool, now: Date, maximumAge: TimeInterval) -> WidgetFreshnessState {
         if isRefreshing { return .updating }
         if failed { return .stale }
         guard let updatedAt else { return .empty }
-        return max(0, now.timeIntervalSince(updatedAt)) > maximumAge ? .stale : .fresh
+        let age = now.timeIntervalSince(updatedAt)
+        return age < -futureTolerance || age > maximumAge ? .stale : .fresh
+    }
+
+    /// When a reading was saved, relative to `now`: "just now" under a minute (never "in 0 seconds"),
+    /// "5 minutes ago", and the date itself for a timestamp in the future.
+    static func relativeText(_ updatedAt: Date, now: Date) -> String {
+        let age = now.timeIntervalSince(updatedAt)
+        if abs(age) < futureTolerance { return "just now" }
+        if age < 0 { return updatedAt.formatted(date: .abbreviated, time: .shortened) }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        formatter.dateTimeStyle = .numeric
+        return formatter.localizedString(for: updatedAt, relativeTo: now)
+    }
+
+    /// A watchlist is as old as its oldest ticker; one that never loaded leaves it without a complete reading.
+    static func watchlistFetchedAt(_ stocks: [WatchlistStock]) -> Date? {
+        let dates = stocks.map { $0.snapshot?.fetchedAt }
+        return dates.contains(where: { $0 == nil }) ? nil : dates.compactMap { $0 }.min()
     }
 
     /// The short status line beside the refresh control.
     static func status(_ state: WidgetFreshnessState, updatedAt: Date?, now: Date = .now) -> String {
-        // Under a minute reads "just now", never "in 0 seconds".
-        let relative = updatedAt.map { abs(now.timeIntervalSince($0)) < 60 ? "just now"
-            : $0.formatted(.relative(presentation: .numeric, unitsStyle: .wide)) }
+        let relative = updatedAt.map { relativeText($0, now: now) }
         switch state {
         case .updating: return "Updating…"
         case .empty: return "No saved data yet"
@@ -107,14 +128,14 @@ struct WidgetFreshnessLine: View {
                 } else if let color = state.dotColor {
                     Circle().fill(color).frame(width: 6, height: 6).accessibilityHidden(true)
                 }
-                Text(status).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                Text(status).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
                 if showsRefreshControl {
                     Spacer(minLength: 8)
                     WidgetRefreshButton(state: state, action: refresh)
                 }
             }
             if let error {
-                Text(error).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(error).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -136,7 +157,7 @@ struct WidgetCoordinatorFreshness {
         case "Paddle": return c.paddleSnapshot?.fetchedAt
         case "Shopify": return c.shopifySnapshot?.fetchedAt
         case "Stock": return c.stockSnapshot?.fetchedAt
-        case "Watchlist": return c.watchlistStocks.compactMap { $0.snapshot?.fetchedAt }.min()
+        case "Watchlist": return WidgetFreshnessPresentation.watchlistFetchedAt(c.watchlistStocks)
         case "AI Limits": return c.aiLimitsSnapshot?.fetchedAt
         case "AI Activity": return c.aiActivitySnapshot?.fetchedAt
         default: return nil
@@ -222,7 +243,11 @@ struct WidgetFreshnessIndicator: View {
         } else if item.widgetKind != "AI Limits", // its face shows a per-provider stale mark itself
                   let query = WidgetDataQuery.make(kind: item.widgetKind, configuration: c), coordinator.errors[query] != nil {
             Circle().fill(WidgetPalette.warning)
-                .overlay { if accessibility.contrast == .increased { Circle().strokeBorder(Color.primary.opacity(0.6), lineWidth: 1) } }
+                .overlay {
+                    if accessibility.contrast == .increased {
+                        Circle().strokeBorder(DockDesign.Outline.color(.increased), lineWidth: DockDesign.Outline.controlWidth(.increased))
+                    }
+                }
                 .frame(width: 6, height: 6)
                 .padding(.top, inset).padding(.trailing, inset)
                 .help("Saved data · open this widget to review the refresh error")

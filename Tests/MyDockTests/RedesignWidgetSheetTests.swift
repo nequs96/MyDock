@@ -88,9 +88,6 @@ struct RedesignWidgetSheetTests {
             WidgetAppearanceWriter.setIconAppearance(appearance, itemID: items[2].id, profileID: profileID, store: store)
             #expect(configuration(store, profileID, items[2].id)?.iconAppearance == appearance)
         }
-        #expect(!WidgetAppearanceOptions.showsIconStyle(kind: "Sticky Note"))
-        #expect(!WidgetAppearanceOptions.showsIconStyle(kind: "Time Progress"))
-        #expect(WidgetAppearanceOptions.showsIconStyle(kind: "Clock"))
     }
 
     @Test func dataSectionFollowsCapabilities() {

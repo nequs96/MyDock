@@ -12,9 +12,19 @@ struct DiskSpaceSnapshot: Equatable, Sendable {
     var isLow: Bool { usedFraction > 0.9 }
     static func read() -> Self? {
         let url = FileManager.default.homeDirectoryForCurrentUser
-        guard let values = try? url.resourceValues(forKeys: [.volumeLocalizedNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey]),
-              let total = values.volumeTotalCapacity, total > 0, let available = values.volumeAvailableCapacity else { return nil }
-        return Self(name: values.volumeLocalizedName ?? "Startup disk", totalBytes: Int64(total), availableBytes: Int64(max(0, available)))
+        guard let values = try? url.resourceValues(forKeys: VolumeFreeSpace.keys.union([.volumeLocalizedNameKey, .volumeTotalCapacityKey])),
+              let total = values.volumeTotalCapacity, total > 0, let available = VolumeFreeSpace.availableBytes(values) else { return nil }
+        return Self(name: values.volumeLocalizedName ?? "Startup disk", totalBytes: Int64(total), availableBytes: max(0, available))
+    }
+}
+
+/// Free space as Finder and System Settings report it: space macOS can purge on demand counts as available,
+/// so the low-space state does not fire while the system would free room itself.
+enum VolumeFreeSpace {
+    static var keys: Set<URLResourceKey> { [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey] }
+    static func availableBytes(_ values: URLResourceValues) -> Int64? {
+        if let important = values.volumeAvailableCapacityForImportantUsage, important > 0 { return important }
+        return values.volumeAvailableCapacity.map { Int64($0) }
     }
 }
 
@@ -495,7 +505,9 @@ struct QuickChecklistView: View {
                 }
             }
             UndoNotice(pending: $undoPending) { removed in
-                store.updateWidgetConfiguration(itemID: item.id, in: profileID) { removed.restore(into: &$0.checklistEntries, capacity: 100) }
+                var restored = 0
+                let result = store.updateWidgetConfiguration(itemID: item.id, in: profileID) { restored = removed.restore(into: &$0.checklistEntries, capacity: 100) }
+                return result == .accepted && restored > 0
             }
             .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
             WidgetPopoutCaption(entries.count >= 100 ? "The checklist is full: remove a task to add another." : "Saved locally with your profile.")

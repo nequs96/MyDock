@@ -47,6 +47,10 @@ enum DockDesign {
     enum Module {
         /// Today's widget container radius, used when no Dock geometry is known.
         static let defaultRadius: CGFloat = 16
+        /// Every widget module is this tall; side Docks also make it this wide.
+        static let height: CGFloat = 54
+        /// Modules at or below this width use the narrow (side-Dock) grammar.
+        static let narrowWidth: CGFloat = 54
         /// Concentric with the Dock: module radius = Dock radius − Dock padding, never negative.
         static func radius(dockRadius: CGFloat, dockPadding: CGFloat) -> CGFloat {
             guard dockRadius.isFinite, dockPadding.isFinite else { return 0 }
@@ -80,6 +84,11 @@ enum DockDesign {
         /// Short label under the value; draw it with `.secondary`.
         static let label = Font.system(size: 11, weight: .medium)
         static let labelLarge = Font.system(size: 12, weight: .medium)
+        /// A short title inside a module or a small panel: a note, a track, a window list's app name.
+        static let title = Font.system(size: 12, weight: .semibold)
+        static let titleLarge = Font.system(size: 13, weight: .semibold)
+        /// The smallest annotation (an hour, a badge): `minimumTextSize`, medium.
+        static let annotation = Font.system(size: minimumTextSize, weight: .medium)
         /// Smallest text the redesign draws anywhere.
         static let minimumTextSize: CGFloat = 10
         static let maxTextLines = 2
@@ -91,6 +100,8 @@ enum DockDesign {
         static func opaqueFill(_ scheme: ColorScheme) -> Color {
             scheme == .dark ? Color(white: 0.16) : Color(white: 0.96)
         }
+        /// The Dark Dock material: one midnight fill for the live Dock, its editor and its style swatches.
+        static let midnightFill = Color(red: 0.10, green: 0.12, blue: 0.16)
         /// Strength of a tint mixed into fallback and opaque surfaces.
         static let fallbackTintOpacity: Double = 0.18
     }
