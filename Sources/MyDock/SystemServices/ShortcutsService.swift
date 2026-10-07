@@ -59,7 +59,7 @@ enum ShortcutsCatalog {
             throw ShortcutsServiceError.commandFailed("MyDock could not safely read the Shortcuts catalog output.")
         }
         guard captured.terminationStatus == 0 else {
-            throw ShortcutsServiceError.commandFailed(String(decoding: captured.standardError, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+            throw ShortcutsServiceError.commandFailed(ShortcutRunMessages.detail(from: captured.standardError))
         }
         return String(decoding: captured.standardOutput, as: UTF8.self)
     }
@@ -71,19 +71,27 @@ enum ShortcutRunMessages {
 
     static func completed() -> String { "Completed" }
     static func cancelling() -> String { "Cancelling…" }
-    static func cancelled() -> String { "Cancelled" }
+    /// Cancel stops the `shortcuts` command MyDock waits on. The run itself belongs to the Shortcuts
+    /// runtime, which may keep going, so the status does not claim the shortcut was stopped.
+    /// It is short enough for the one-line Status value; Open Shortcuts sits beside it.
+    static func cancelled() -> String { "Stopped waiting (may still run)" }
     static func running() -> String { "Running…" }
 
     /// A short, bounded failure message that includes the first useful stderr text.
     static func failed(exitCode: Int32, standardError: Data) -> String {
+        let stderrDetail = Self.detail(from: standardError)
+        let base = "Shortcut failed (exit code \(exitCode))."
+        return stderrDetail.isEmpty ? base : "\(base) \(stderrDetail)"
+    }
+
+    /// The first two lines of stderr on one line, at most `maximumDetailCharacters` long; empty when there is none.
+    static func detail(from standardError: Data) -> String {
         let text = String(decoding: standardError.prefix(maximumStderrBytes), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let firstLines = text.split(whereSeparator: \.isNewline).prefix(2).joined(separator: " ")
-        let detail = firstLines.count > maximumDetailCharacters
+        return firstLines.count > maximumDetailCharacters
             ? String(firstLines.prefix(maximumDetailCharacters)) + "…"
             : firstLines
-        let base = "Shortcut failed (exit code \(exitCode))."
-        return detail.isEmpty ? base : "\(base) \(detail)"
     }
 }
 
@@ -126,7 +134,8 @@ final class ShortcutExecutionService: ObservableObject {
             do {
                 let captured = try await BoundedSubprocessCapture.runCancellable(
                     executableURL: commandURL,
-                    arguments: ["run", name],
+                    // "--" ends option parsing, so a name that starts with "-" is still the shortcut's name.
+                    arguments: ["run", "--", name],
                     maximumOutputBytes: 8 * 1_024 * 1_024,
                     maximumErrorBytes: ShortcutRunMessages.maximumStderrBytes,
                     timeout: .infinity)
@@ -169,7 +178,7 @@ final class ShortcutExecutionService: ObservableObject {
         guard runs.removeValue(forKey: runID) != nil else { return }
         let wasCancelled = cancelledRuns.remove(runID) != nil
         if !runs.values.contains(where: { $0.name == name }) { runningNames.remove(name) }
-        // A shortcut the user cancelled reports "Cancelled" even if the child exited non-zero.
+        // A shortcut the user cancelled reports the cancelled status even if the child exited non-zero.
         statusByShortcut[name] = wasCancelled ? ShortcutRunMessages.cancelled() : result
     }
 }

@@ -132,7 +132,7 @@ struct ConnectionsCenterView: View {
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 SecureField(provider == .stripe ? "Restricted rk_ key" : "Paddle Billing API key", text: $secret).textFieldStyle(DockTextFieldStyle()).disabled(busy)
-                Text(provider == .stripe ? "Stripe: read-only Account, Balance, Balance Transactions, and Subscriptions." : PaddleAPIKeyStore.permissionSetupCopy)
+                Text(provider == .stripe ? "Stripe: read-only \(StripeAPIKeyStore.requiredReadAccess)." : PaddleAPIKeyStore.permissionSetupCopy)
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {

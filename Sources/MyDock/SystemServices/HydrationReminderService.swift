@@ -6,7 +6,7 @@ enum HydrationReminderError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .permissionDenied: "MyDock does not have permission to send reminder notifications. Enable them in System Settings and try again."
+        case .permissionDenied: NotificationAuthorization.deniedMessage
         }
     }
 }
@@ -30,12 +30,9 @@ protocol HydrationNotificationCenter {
 @MainActor
 struct LiveHydrationNotificationCenter: HydrationNotificationCenter {
     func authorization() async -> HydrationNotificationAuthorization {
-        switch await UNUserNotificationCenter.current().notificationSettings().authorizationStatus {
-        case .authorized, .provisional, .ephemeral: .authorized
-        case .denied: .denied
-        case .notDetermined: .notDetermined
-        @unknown default: .denied
-        }
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        if NotificationAuthorization.isDeliverable(status) { return .authorized }
+        return status == .notDetermined ? .notDetermined : .denied
     }
 
     func requestAuthorization() async throws -> Bool {
@@ -139,7 +136,6 @@ enum HydrationReminderService {
 
     static func schedule(itemID: UUID, operationID: UUID, intervalMinutes: Int) async throws {
         try AppRuntimeEnvironment.requireNativeEffects()
-        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         try await schedule(itemID: itemID, operationID: operationID, intervalMinutes: intervalMinutes,
                            center: LiveHydrationNotificationCenter(), promptForAuthorization: true)
     }
@@ -159,7 +155,7 @@ enum HydrationReminderService {
         }
         guard generations.isCurrent(itemID: itemID, operationID: operationID) else { return }
         let identifier = notificationID(for: itemID, operationID: operationID)
-        let minutes = min(max(intervalMinutes, 30), 240)
+        let minutes = WidgetConfiguration.clampedHydrationReminderInterval(intervalMinutes)
         try await center.add(identifier: identifier, intervalMinutes: minutes)
         guard generations.isCurrent(itemID: itemID, operationID: operationID) else {
             center.remove(identifiers: [identifier])
@@ -177,8 +173,8 @@ enum HydrationReminderService {
         center.remove(identifiers: obsolete)
     }
 
-    static func cancel(itemID: UUID, operationID: UUID) {
-        generations.begin(itemID: itemID, operationID: operationID)
+    static func cancel(itemID: UUID) {
+        generations.end(itemID: itemID)
         guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         cancelPending(itemID: itemID, center: LiveHydrationNotificationCenter())
     }

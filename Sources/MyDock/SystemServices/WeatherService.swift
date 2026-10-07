@@ -6,6 +6,7 @@ enum WeatherServiceError: LocalizedError {
     case serviceUnavailable
     case malformedResponse
     case locationDenied
+    case rateLimited
 
     var errorDescription: String? {
         switch self {
@@ -14,6 +15,7 @@ enum WeatherServiceError: LocalizedError {
         case .serviceUnavailable: "The weather service is unavailable. Check your connection and try again."
         case .malformedResponse: "The weather service returned data MyDock couldn't use."
         case .locationDenied: "Location access is unavailable. You can still search for a city manually."
+        case .rateLimited: "The weather service is busy. Try again in a few minutes."
         }
     }
 }
@@ -40,7 +42,9 @@ struct OpenMeteoWeatherProvider: WeatherProvider {
         ]
         guard let url = components?.url else { throw WeatherServiceError.invalidSearch }
         let (data, _) = try await fetch(url)
-        let response = try JSONDecoder().decode(GeocodingResponse.self, from: data)
+        let response: GeocodingResponse
+        do { response = try JSONDecoder().decode(GeocodingResponse.self, from: data) }
+        catch { throw WeatherServiceError.malformedResponse }
         let results = response.results ?? []
         guard !results.isEmpty else { throw WeatherServiceError.locationNotFound }
         return results.map { result in
@@ -72,32 +76,36 @@ struct OpenMeteoWeatherProvider: WeatherProvider {
     }
 
     static func decodeForecast(_ data: Data, location: WeatherLocation, fetchedAt: Date = .now) throws -> WeatherForecast {
-        let response = try JSONDecoder().decode(ForecastResponse.self, from: data)
+        let response: ForecastResponse
+        do { response = try JSONDecoder().decode(ForecastResponse.self, from: data) }
+        catch { throw WeatherServiceError.malformedResponse }
         // Finite-but-absurd readings (either unit) are malformed data, not something to format or cache.
+        // The ranges also exclude NaN and infinity.
         let temperatureRange = -500.0...500.0
         guard temperatureRange.contains(response.current.temperature),
               temperatureRange.contains(response.current.apparentTemperature),
               (0.0...1_000.0).contains(response.current.windSpeed),
               response.current.precipitation.isFinite, (0.0...10_000.0).contains(response.current.precipitation),
               (0...100).contains(response.current.relativeHumidity),
-              response.hourly.temperature.allSatisfy({ temperatureRange.contains($0) }),
+              response.hourly.temperature.allSatisfy({ value in value.map { temperatureRange.contains($0) } ?? true }),
               response.hourly.time.allSatisfy({ $0.isFinite && abs($0) < 4_102_444_800 }) else {
             throw WeatherServiceError.malformedResponse
         }
         let hours = min(response.hourly.time.count,
                         min(response.hourly.temperature.count, response.hourly.weatherCode.count))
-        let hourly = (0..<hours).map { index in
+        // Open-Meteo sends null for hours a model does not cover: an hour without a temperature or
+        // code is skipped, and a missing precipitation probability is simply absent.
+        let hourly = (0..<hours).compactMap { index -> WeatherHour? in
+            guard let temperature = response.hourly.temperature[index],
+                  let weatherCode = response.hourly.weatherCode[index] else { return nil }
             let precipitationProbability = response.hourly.precipitationProbability.flatMap { values in
                 index < values.count ? values[index] : nil
             }
             return WeatherHour(timestamp: Date(timeIntervalSince1970: response.hourly.time[index]),
-                               temperature: response.hourly.temperature[index],
+                               temperature: temperature,
                                precipitationProbability: precipitationProbability,
-                               weatherCode: response.hourly.weatherCode[index])
+                               weatherCode: weatherCode)
         }
-        guard response.current.temperature.isFinite,
-              response.current.apparentTemperature.isFinite,
-              response.current.windSpeed.isFinite else { throw WeatherServiceError.malformedResponse }
         return WeatherForecast(temperature: response.current.temperature,
                               apparentTemperature: response.current.apparentTemperature,
                               relativeHumidity: response.current.relativeHumidity,
@@ -119,10 +127,13 @@ struct OpenMeteoWeatherProvider: WeatherProvider {
         request.setValue("MyDock weather widget", forHTTPHeaderField: "User-Agent")
         do {
             let (data, response) = try await BoundedHTTPFetch.fetch(request, session: session ?? Self.ephemeral, maximumBytes: 2_000_000)
+            if response.statusCode == 429 { throw WeatherServiceError.rateLimited }
             guard (200..<300).contains(response.statusCode) else { throw WeatherServiceError.serviceUnavailable }
             return (data, response)
         } catch let error as WeatherServiceError {
             throw error
+        } catch BoundedHTTPFetchError.tooLarge, BoundedHTTPFetchError.notHTTP {
+            throw WeatherServiceError.malformedResponse
         } catch {
             throw WeatherServiceError.serviceUnavailable
         }
@@ -227,9 +238,9 @@ private struct CurrentPayload: Decodable {
 
 private struct HourlyPayload: Decodable {
     var time: [TimeInterval]
-    var temperature: [Double]
-    var precipitationProbability: [Int]?
-    var weatherCode: [Int]
+    var temperature: [Double?]
+    var precipitationProbability: [Int?]?
+    var weatherCode: [Int?]
 
     enum CodingKeys: String, CodingKey {
         case time

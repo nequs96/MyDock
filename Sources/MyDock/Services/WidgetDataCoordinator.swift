@@ -330,8 +330,8 @@ final class WidgetDataCoordinator: ObservableObject {
         case "AI Activity":
             let provider = c.aiActivityProvider
             let range = c.aiActivityRange
-            let worker = Task.detached(priority: .utility) { AIActivityReader.read(provider: provider, range: range) }
-            return .activity(await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() })
+            // The scan runs on a utility queue, not a Swift-concurrency thread; cancelling the refresh stops it.
+            return .activity(await AIActivityReader.readInBackground(provider: provider, range: range))
         default: throw MarketDataError.invalidResponse
         }
     }

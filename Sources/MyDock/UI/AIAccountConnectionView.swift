@@ -79,8 +79,13 @@ struct AIAccountConnectionView: View {
                     .disabled(!allowsAccountActions || checking)
                     .accessibilityInputLabels([Text("Find Account")])
                     .accessibilityLabel("Find \(provider.title) account on this Mac")
-                if !settingsPresentation, provider == .claude, showsLimitsSetup, status?.state == .signedIn, !limitsEnabled {
-                    Button("Enable Limits") { enableLimits() }.disabled(!allowsAccountActions)
+                if !settingsPresentation, provider == .claude, showsLimitsSetup {
+                    if limitsEnabled {
+                        Button("Turn Off Limits") { disableLimits() }.disabled(!allowsAccountActions)
+                            .help("Restores Claude Code’s previous status line and removes the limits snapshot.")
+                    } else if status?.state == .signedIn {
+                        Button("Enable Limits") { enableLimits() }.disabled(!allowsAccountActions)
+                    }
                 }
             }.controlSize(.small)
     }
@@ -98,7 +103,13 @@ struct AIAccountConnectionView: View {
             accountActions.padding(12).frame(maxWidth: .infinity, alignment: .leading)
             if provider == .claude, showsLimitsSetup {
                 if limitsEnabled {
-                    GroupedRow("Limits sync", subtitle: "Requires Claude Code 2.1.251 or later.", value: "On")
+                    GroupedRow("Limits sync", subtitle: "Requires Claude Code 2.1.251 or later.") {
+                        Button("Turn Off") { disableLimits() }
+                            .controlSize(.small)
+                            .disabled(!allowsAccountActions || checking)
+                            .accessibilityLabel("Turn off Claude Code limits sync")
+                            .help("Restores Claude Code’s previous status line and removes the limits snapshot.")
+                    }
                 } else {
                     GroupedRow("Enable Limits", role: .button) { enableLimits() }
                         .disabled(!allowsAccountActions || checking || status?.state != .signedIn)
@@ -117,17 +128,34 @@ struct AIAccountConnectionView: View {
             limitsEnabled = true
             message = "Limits sync enabled. Start or restart Claude Code and use it once to receive limits."
             Task { await refresh() }
+        } catch let error as ClaudeLimitsSetupError {
+            message = error.localizedDescription
+        } catch { message = "Could not update Claude Code settings. Your existing settings were preserved." }
+    }
+
+    private func disableLimits() {
+        do {
+            try ClaudeLimitsSetup.disable(directory: directory)
+            limitsEnabled = false
+            message = "Limits sync is off. Claude Code’s previous status line is restored."
+            Task { await refresh() }
+        } catch let error as ClaudeLimitsSetupError {
+            message = error.localizedDescription
         } catch { message = "Could not update Claude Code settings. Your existing settings were preserved." }
     }
 
     private func findAccount(refreshData: Bool) async {
         guard allowsAccountActions, !checking else { return }
         checking = true
-        let detected = await Task.detached(priority: .utility) { AIAccountService.detect(provider) }.value
+        let detected = await AIAccountService.detectInBackground(provider)
         guard !Task.isCancelled else { checking = false; return }
         status = detected
         lastChecked = .now
-        if provider == .claude { limitsEnabled = ClaudeLimitsSetup.isEnabled(directory: directory) }
+        if provider == .claude {
+            // Limits sync that is already on moves to this version's bridge; nothing is added while it is off.
+            try? ClaudeLimitsSetup.upgradeIfOutdated(directory: directory)
+            limitsEnabled = ClaudeLimitsSetup.isEnabled(directory: directory)
+        }
         checking = false
         if detected.state == .signedIn { message = nil }
         if refreshData { await refresh() }

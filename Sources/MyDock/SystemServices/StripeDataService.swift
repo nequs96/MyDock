@@ -72,10 +72,10 @@ struct StripeCurrencyMetrics: Codable, Hashable, Identifiable {
     var id: String { currency }
     var arpuMinor: Decimal {
         guard payingSubscribers > 0 else { return .zero }
-        return netAfterFeesMinorDecimalDivide(mrrMinor, by: Decimal(payingSubscribers))
+        return decimalDivide(mrrMinor, by: Decimal(payingSubscribers))
     }
 
-    private func netAfterFeesMinorDecimalDivide(_ value: Decimal, by divisor: Decimal) -> Decimal {
+    private func decimalDivide(_ value: Decimal, by divisor: Decimal) -> Decimal {
         var source = value
         var denominator = divisor
         var result = Decimal.zero
@@ -93,8 +93,12 @@ struct StripeSnapshot: Codable, Hashable {
     var periodEnd: Date
     var currencies: [StripeCurrencyMetrics]
     var unsupportedSubscriptionItems: Int
+    /// Metrics whose source list exceeded the refresh budget. They are shown as unavailable rather than as a partial total.
+    var unavailableMetrics: Set<StripeMetric>? = nil
 
     var currencyCodes: [String] { currencies.map(\.currency).sorted() }
+
+    func isAvailable(_ metric: StripeMetric) -> Bool { !(unavailableMetrics?.contains(metric) ?? false) }
 
     func metrics(for currency: String) -> StripeCurrencyMetrics? {
         currencies.first { $0.currency == currency.uppercased() }
@@ -142,8 +146,8 @@ struct URLSessionStripeDataTransport: StripeDataTransport {
         do {
             let (data, response) = try await BoundedHTTPFetch.fetch(request, session: Self.session, maximumBytes: 5000000)
             return StripeHTTPResponse(statusCode: response.statusCode, data: data)
-        } catch is BoundedHTTPFetchError {
-            throw StripeDataError.invalidResponse
+        } catch let error as BoundedHTTPFetchError {
+            throw StripeDataError.transfer(error)
         }
     }
 }
@@ -157,6 +161,7 @@ enum StripeDataError: LocalizedError {
     case rateLimited
     case paginationLimit
     case httpStatus(Int)
+    case transfer(BoundedHTTPFetchError)
 
     var errorDescription: String? {
         switch self {
@@ -164,17 +169,30 @@ enum StripeDataError: LocalizedError {
         case .restrictedKeyRequired: "Stripe requires a restricted key beginning with rk_. Secret keys are not accepted."
         case .invalidResponse: "Stripe returned data MyDock could not read. Try again later."
         case .invalidRequest: "Stripe rejected the request. Check the key and its read permissions."
-        case .missingPermission: "This Stripe key needs read access for Core → Balance and Billing → Subscriptions."
+        case .missingPermission: "This Stripe key needs read access to \(StripeAPIKeyStore.requiredReadAccess)."
         case .rateLimited: "Stripe rate-limited the request. The last successful values are still shown."
-        case .paginationLimit: "This Stripe account has more records than MyDock can safely load in one refresh. MyDock did not use a partial total."
+        case .paginationLimit: "This Stripe account has more than \(StripeAPIProvider.recordBudget.formatted()) records of one kind for this period, more than MyDock loads in one refresh. MyDock did not use a partial total."
         case .httpStatus(let code): "Stripe is temporarily unavailable (HTTP \(code))."
+        case .transfer(let error): error.message(provider: "Stripe")
         }
     }
 }
 
 struct StripeAPIProvider: Sendable {
+    /// Requests pin the API version the parser and its fixtures model, so an account's default version cannot change the shapes read.
+    static let apiVersion = "2025-03-31.basil"
+    static let defaultMaximumPages = 10
+    static let pageSize = 100
+    /// Rows loaded per list before that list's metrics are reported as unavailable.
+    static var recordBudget: Int { defaultMaximumPages * pageSize }
+    /// Balance-transaction types that count as revenue. Each is listed separately so payouts, fees and transfers
+    /// never use the budget.
+    static let revenueTransactionTypes = ["charge", "refund", "payment", "payment_refund", "payment_reversal"]
+    static let revenueMetrics: Set<StripeMetric> = [.revenue, .netAfterFees]
+    static let subscriptionMetrics: Set<StripeMetric> = [.mrr, .arr, .payingSubscribers, .arpu]
+
     var transport: any StripeDataTransport = URLSessionStripeDataTransport()
-    var maximumPages = 10
+    var maximumPages = StripeAPIProvider.defaultMaximumPages
     /// Subscriptions whose embedded item list is partial are completed through /v1/subscription_items, within this many expansions.
     var maximumItemExpansions = 20
 
@@ -190,13 +208,31 @@ struct StripeAPIProvider: Sendable {
 
         let interval = period.interval(endingAt: now, calendar: calendar)
         let balanceData = try await get(path: "/v1/balance", parameters: [:], apiKey: key)
-        let transactionRows = try await allRows(path: "/v1/balance_transactions",
-                                                parameters: ["created[gte]": String(Int(interval.start.timeIntervalSince1970)),
-                                                             "created[lte]": String(Int(interval.end.timeIntervalSince1970))],
-                                                apiKey: key)
-        let activeSubscriptions = try await allRows(path: "/v1/subscriptions", parameters: ["status": "active"], apiKey: key)
-        let pastDueSubscriptions = try await allRows(path: "/v1/subscriptions", parameters: ["status": "past_due"], apiKey: key)
-        let subscriptions = try await completingItems(activeSubscriptions + pastDueSubscriptions, apiKey: key)
+        // A list over budget makes only its own metrics unavailable; balance and the other list still publish.
+        var unavailable: Set<StripeMetric> = []
+        var transactionRows: [[String: Any]] = []
+        do {
+            for type in Self.revenueTransactionTypes {
+                let rows = try await allRows(path: "/v1/balance_transactions",
+                                             parameters: ["type": type,
+                                                          "created[gte]": String(Int(interval.start.timeIntervalSince1970)),
+                                                          "created[lte]": String(Int(interval.end.timeIntervalSince1970))],
+                                             apiKey: key)
+                transactionRows.append(contentsOf: rows)
+            }
+        } catch StripeDataError.paginationLimit {
+            transactionRows = []
+            unavailable.formUnion(Self.revenueMetrics)
+        }
+        var subscriptions: [[String: Any]] = []
+        do {
+            let activeSubscriptions = try await allRows(path: "/v1/subscriptions", parameters: ["status": "active"], apiKey: key)
+            let pastDueSubscriptions = try await allRows(path: "/v1/subscriptions", parameters: ["status": "past_due"], apiKey: key)
+            subscriptions = try await completingItems(activeSubscriptions + pastDueSubscriptions, apiKey: key)
+        } catch StripeDataError.paginationLimit {
+            subscriptions = []
+            unavailable.formUnion(Self.subscriptionMetrics)
+        }
         return try StripeSnapshotParser.snapshot(accountID: accountID,
                                                  accountName: accountName,
                                                  balanceData: balanceData,
@@ -204,7 +240,8 @@ struct StripeAPIProvider: Sendable {
                                                  subscriptionRows: subscriptions,
                                                  period: period,
                                                  interval: interval,
-                                                 now: now)
+                                                 now: now,
+                                                 unavailableMetrics: unavailable)
     }
 
     /// The Stripe account ID behind a key, or nil when it cannot be determined (for example without Account read access).
@@ -252,9 +289,9 @@ struct StripeAPIProvider: Sendable {
     private func allRows(path: String, parameters: [String: String], apiKey: String) async throws -> [[String: Any]] {
         var result: [[String: Any]] = []
         var cursor: String?
-        for pageIndex in 0..<max(1, maximumPages) {
+        for _ in 0..<max(1, maximumPages) {
             var pageParameters = parameters
-            pageParameters["limit"] = "100"
+            pageParameters["limit"] = String(Self.pageSize)
             if let cursor { pageParameters["starting_after"] = cursor }
             let data = try await get(path: path, parameters: pageParameters, apiKey: apiKey)
             guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -266,8 +303,8 @@ struct StripeAPIProvider: Sendable {
                 throw StripeDataError.invalidResponse
             }
             cursor = nextCursor
-            if pageIndex == max(1, maximumPages) - 1 { throw StripeDataError.paginationLimit }
         }
+        // Every page in the budget had more rows after it.
         throw StripeDataError.paginationLimit
     }
 
@@ -285,6 +322,7 @@ struct StripeAPIProvider: Sendable {
         request.timeoutInterval = 25
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(Self.apiVersion, forHTTPHeaderField: "Stripe-Version")
         let response = try await transport.response(for: request)
         switch response.statusCode {
         case 200..<300: return response.data
@@ -313,7 +351,8 @@ enum StripeSnapshotParser {
                          subscriptionRows: [[String: Any]],
                          period: StripePeriod,
                          interval: DateInterval,
-                         now: Date = .now) throws -> StripeSnapshot {
+                         now: Date = .now,
+                         unavailableMetrics: Set<StripeMetric> = []) throws -> StripeSnapshot {
         guard let balance = try object(balanceData), !accountID.isEmpty else {
             throw StripeDataError.invalidResponse
         }
@@ -342,7 +381,7 @@ enum StripeSnapshotParser {
                   interval.start.timeIntervalSince1970 <= created,
                   created <= interval.end.timeIntervalSince1970,
                   let type = row["type"] as? String,
-                  ["charge", "refund", "payment", "payment_refund", "payment_reversal"].contains(type),
+                  StripeAPIProvider.revenueTransactionTypes.contains(type),
                   let currency = row["currency"] as? String,
                   let code = ensure(currency),
                   let amount = decimal(row["amount"]),
@@ -416,7 +455,8 @@ enum StripeSnapshotParser {
                               periodStart: interval.start,
                               periodEnd: interval.end,
                               currencies: currencies,
-                              unsupportedSubscriptionItems: unsupportedItems)
+                              unsupportedSubscriptionItems: unsupportedItems,
+                              unavailableMetrics: unavailableMetrics.isEmpty ? nil : unavailableMetrics)
     }
 
     private static func monthlyAmount(_ amount: Decimal, interval: String, intervalCount: Int) -> Decimal? {
@@ -467,64 +507,41 @@ enum StripeSnapshotParser {
     }
 
     private static func validCurrency(_ currency: String) -> Bool {
-        currency.count == 3 && currency.unicodeScalars.allSatisfy { CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ").contains($0) }
+        currency.count == 3 && currency.unicodeScalars.allSatisfy { currencyLetters.contains($0) }
     }
+
+    private static let currencyLetters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 }
 
 enum StripeAPIKeyStore {
-    private static var service: String { Product.bundleIdentifier + ".integration-credentials" }
-    private static let directoryKey = Product.bundleIdentifier + ".stripe-connected-accounts"
+    /// The read permissions a restricted key needs, shared by the setup copy and the missing-permission error.
+    static let requiredReadAccess = "Account, Balance, Balance Transactions, and Subscriptions"
+    fileprivate static let directoryKey = Product.bundleIdentifier + ".stripe-connected-accounts"
 
     static func isRestrictedKey(_ value: String) -> Bool {
         value.hasPrefix("rk_") && value.count > 3 && value.count <= 200 && !value.contains { $0.isWhitespace }
     }
 
     static func read(accountID: String) throws -> String? {
-        guard AppRuntimeEnvironment.allowsCredentials else { return nil }
-        var query = baseQuery(accountID: accountID)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data,
-              let value = String(data: data, encoding: .utf8) else { throw KeychainError(status) }
+        guard let data = try item(accountID).readData(credential: credentialName) else { return nil }
+        guard let value = String(data: data, encoding: .utf8) else { throw IntegrationKeychainError(credential: credentialName, operation: .read, status: errSecDecode) }
         return value
     }
 
     static func write(_ value: String, accountID: String) throws {
         try AppRuntimeEnvironment.requireCredentials()
         guard isRestrictedKey(value) else { throw StripeDataError.restrictedKeyRequired }
-        let data = Data(value.utf8)
-        let query = baseQuery(accountID: accountID)
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var addQuery = query
-            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            addQuery[kSecValueData as String] = data
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            guard addStatus == errSecSuccess else { throw KeychainError(addStatus) }
-        } else if status != errSecSuccess {
-            throw KeychainError(status)
-        }
+        try item(accountID).write(Data(value.utf8), credential: credentialName)
     }
 
     static func delete(accountID: String) throws {
-        try AppRuntimeEnvironment.requireCredentials()
-        let status = SecItemDelete(baseQuery(accountID: accountID) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status) }
+        try item(accountID).delete(credential: credentialName)
     }
 
-    private static func baseQuery(accountID: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: "stripe.\(accountID)"]
-    }
+    private static let credentialName = "The Stripe key"
 
-    private struct KeychainError: LocalizedError {
-        var status: OSStatus
-        init(_ status: OSStatus) { self.status = status }
-        var errorDescription: String? { "The Stripe key could not be saved in Keychain (\(status))." }
+    private static func item(_ accountID: String) -> IntegrationKeychainItem {
+        IntegrationKeychainItem(account: "stripe.\(accountID)")
     }
 }
 
@@ -541,40 +558,23 @@ struct StripeConnectedAccount: Codable, Hashable, Identifiable {
 }
 
 enum StripeConnectionDirectory {
+    private static var directory: ConnectionDirectory<StripeConnectedAccount> { .init(defaultsKey: StripeAPIKeyStore.directoryKey) }
+
     static func accounts(defaults: UserDefaults = AppRuntimeEnvironment.defaults) -> [StripeConnectedAccount] {
-        guard let data = defaults.data(forKey: StripeAPIKeyStore.directoryKeyForDirectory),
-              let accounts = try? JSONDecoder().decode([StripeConnectedAccount].self, from: data) else { return [] }
-        return accounts
+        directory.entries(defaults: defaults)
     }
 
     static func save(_ account: StripeConnectedAccount, key: String, defaults: UserDefaults = AppRuntimeEnvironment.defaults) throws {
         try StripeAPIKeyStore.write(key, accountID: account.id)
-        var accounts = self.accounts(defaults: defaults)
-        accounts.removeAll { $0.id == account.id }
-        accounts.append(account)
-        if let data = try? JSONEncoder().encode(accounts) {
-            defaults.set(data, forKey: StripeAPIKeyStore.directoryKeyForDirectory)
-        }
+        directory.insert(account, defaults: defaults)
     }
 
     static func update(_ account: StripeConnectedAccount, defaults: UserDefaults = AppRuntimeEnvironment.defaults) {
-        var accounts = self.accounts(defaults: defaults)
-        guard let index = accounts.firstIndex(where: { $0.id == account.id }) else { return }
-        accounts[index] = account
-        if let data = try? JSONEncoder().encode(accounts) {
-            defaults.set(data, forKey: StripeAPIKeyStore.directoryKeyForDirectory)
-        }
+        directory.update(account, defaults: defaults)
     }
 
     static func remove(accountID: String, defaults: UserDefaults = AppRuntimeEnvironment.defaults) throws {
         try StripeAPIKeyStore.delete(accountID: accountID)
-        let remaining = accounts(defaults: defaults).filter { $0.id != accountID }
-        if let data = try? JSONEncoder().encode(remaining) {
-            defaults.set(data, forKey: StripeAPIKeyStore.directoryKeyForDirectory)
-        }
+        directory.remove(id: accountID, defaults: defaults)
     }
-}
-
-private extension StripeAPIKeyStore {
-    static var directoryKeyForDirectory: String { directoryKey }
 }

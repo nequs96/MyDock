@@ -28,22 +28,11 @@ enum GitHubCopilotCredentialStore {
         authority.invalidate()
         NotificationCenter.default.post(name: didChange, object: nil)
     }
-    private static let account = "github-copilot"
-    private static var service: String { Product.bundleIdentifier + ".integration-credentials" }
+    private static let item = IntegrationKeychainItem(account: "github-copilot")
 
     static func read() throws -> GitHubCopilotCredentials? {
-        guard AppRuntimeEnvironment.allowsCredentials else { return nil }
-        var query = baseQuery
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess else {
-            throw GitHubCopilotCredentialError.keychain(status)
-        }
-        guard let data = result as? Data,
-              let credentials = try? JSONDecoder().decode(GitHubCopilotCredentials.self, from: data),
+        guard let data = try item.readData(failure: GitHubCopilotCredentialError.keychain) else { return nil }
+        guard let credentials = try? JSONDecoder().decode(GitHubCopilotCredentials.self, from: data),
               GitHubCopilotUsernamePolicy.isValid(credentials.username),
               !credentials.token.isEmpty else {
             throw GitHubCopilotCredentialError.corruptEntry
@@ -65,32 +54,13 @@ enum GitHubCopilotCredentialStore {
         }
         let data = try JSONEncoder().encode(GitHubCopilotCredentials(username: normalizedUsername,
                                                                       token: normalizedToken))
-        let status = SecItemUpdate(baseQuery as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var query = baseQuery
-            query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            query[kSecValueData as String] = data
-            let addStatus = SecItemAdd(query as CFDictionary, nil)
-            guard addStatus == errSecSuccess else { throw GitHubCopilotCredentialError.keychain(addStatus) }
-        } else if status != errSecSuccess {
-            throw GitHubCopilotCredentialError.keychain(status)
-        }
+        try item.write(data, failure: GitHubCopilotCredentialError.keychain)
         changed()
     }
 
     static func delete() throws {
-        try AppRuntimeEnvironment.requireCredentials()
-        let status = SecItemDelete(baseQuery as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw GitHubCopilotCredentialError.keychain(status)
-        }
+        try item.delete(failure: GitHubCopilotCredentialError.keychain)
         changed()
-    }
-
-    private static var baseQuery: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: account]
     }
 }
 
@@ -250,13 +220,15 @@ enum GitHubCopilotBillingClient {
         guard (200..<300).contains(response.statusCode) else {
             throw GitHubCopilotBillingError.httpStatus(response.statusCode)
         }
-        var data = Data()
-        data.reserveCapacity(16_384)
-        for try await byte in bytes {
-            guard data.count < GitHubCopilotBillingParser.maximumResponseBytes else {
-                throw GitHubCopilotBillingError.responseTooLarge
-            }
-            data.append(byte)
+        let data: Data
+        do {
+            data = try await BoundedHTTPFetch.collect(bytes, expectedLength: response.expectedContentLength,
+                                                      maximumBytes: GitHubCopilotBillingParser.maximumResponseBytes,
+                                                      maximumDuration: 30)
+        } catch BoundedHTTPFetchError.tooLarge {
+            throw GitHubCopilotBillingError.responseTooLarge
+        } catch BoundedHTTPFetchError.deadlineExceeded {
+            throw URLError(.timedOut)
         }
         return try GitHubCopilotBillingParser.reading(from: data,
                                                       username: credentials.username,

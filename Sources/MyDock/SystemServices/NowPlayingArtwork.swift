@@ -48,18 +48,11 @@ enum NowPlayingArtwork {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("image/*", forHTTPHeaderField: "Accept")
         do {
-            let (bytes, response) = try await session.bytes(for: request, delegate: NoArtworkRedirects())
-            guard let response = response as? HTTPURLResponse,
-                  (200..<300).contains(response.statusCode),
-                  response.mimeType?.lowercased().hasPrefix("image/") == true,
-                  response.expectedContentLength <= Int64(maximumRemoteBytes) else { return nil }
-            var data = Data()
-            if response.expectedContentLength > 0 { data.reserveCapacity(Int(response.expectedContentLength)) }
-            for try await byte in bytes {
-                guard data.count < maximumRemoteBytes, !Task.isCancelled else { return nil }
-                data.append(byte)
-            }
-            return Task.isCancelled ? nil : data
+            let (data, response) = try await BoundedHTTPFetch.fetch(request, session: session, maximumBytes: maximumRemoteBytes,
+                                                                    delegate: NoArtworkRedirects())
+            guard !Task.isCancelled, (200..<300).contains(response.statusCode),
+                  response.mimeType?.lowercased().hasPrefix("image/") == true else { return nil }
+            return data
         } catch {
             return nil
         }

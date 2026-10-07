@@ -105,12 +105,13 @@ final class UpdateCheckService: ObservableObject {
             configuration.timeoutIntervalForRequest = 8; configuration.timeoutIntervalForResource = 12
             configuration.httpCookieStorage = nil; configuration.urlCredentialStorage = nil
             let session = URLSession(configuration: configuration); defer { session.invalidateAndCancel() }
-            let (bytes, response) = try await session.bytes(from: repository.apiURL)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw EditSessionSaveError.failed("No public release is available from this repository.") }
-            var data = Data()
-            for try await byte in bytes {
-                guard data.count < 128 * 1_024, !Task.isCancelled else { throw CancellationError() }
-                data.append(byte)
+            let data: Data
+            do {
+                let result = try await BoundedHTTPFetch.fetch(URLRequest(url: repository.apiURL), session: session, maximumBytes: 128 * 1_024)
+                guard result.response.statusCode == 200 else { throw EditSessionSaveError.failed("No public release is available from this repository.") }
+                data = result.data
+            } catch is BoundedHTTPFetchError {
+                throw EditSessionSaveError.failed("The release response could not be read.")
             }
             struct Release: Decodable { var tag_name: String; var html_url: URL; var draft: Bool; var prerelease: Bool }
             let release = try JSONDecoder().decode(Release.self, from: data)

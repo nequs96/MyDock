@@ -5,12 +5,16 @@ enum CurrentLocationError: LocalizedError, Equatable {
     case unavailable
     case timedOut
     case staleOrInaccurate
+    case busy
+    case servicesDisabled
 
     var errorDescription: String? {
         switch self {
         case .unavailable: "Your current location could not be determined. You can still search for a city manually."
         case .timedOut: "Your location was not available in time. Check Location Services, or search for a city manually."
         case .staleOrInaccurate: "MyDock could not get a recent, accurate location fix. Try again, or search for a city manually."
+        case .busy: "A location request is already in progress."
+        case .servicesDisabled: "Location Services is off. Turn it on in System Settings → Privacy & Security → Location Services, or search for a city manually."
         }
     }
 }
@@ -52,7 +56,11 @@ final class CurrentLocationService: NSObject, @preconcurrency CLLocationManagerD
 
     func currentLocation() async throws -> WeatherLocation {
         try AppRuntimeEnvironment.requireNativeEffects()
-        guard pendingContinuation == nil else { throw WeatherServiceError.serviceUnavailable }
+        // With Location Services off system-wide no prompt appears, so fail now rather than at the deadline.
+        // Apple notes this check can block, so it runs off the main actor.
+        let servicesEnabled = await Task.detached(priority: .userInitiated) { CLLocationManager.locationServicesEnabled() }.value
+        guard servicesEnabled else { throw CurrentLocationError.servicesDisabled }
+        guard pendingContinuation == nil else { throw CurrentLocationError.busy }
         let requestID = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in

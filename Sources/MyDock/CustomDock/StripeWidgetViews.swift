@@ -13,7 +13,10 @@ struct StripeWidgetProvider: DockWidgetProvider {
 struct StripeCompactView: View {
     var item: DockItem
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
-    private var values: StripeCurrencyMetrics? { configuration.stripeSnapshot?.metrics(for: configuration.stripeDisplayCurrency) }
+    private var metricUnavailable: Bool { configuration.stripeSnapshot?.isAvailable(configuration.stripeMetric) == false }
+    private var values: StripeCurrencyMetrics? {
+        metricUnavailable ? nil : configuration.stripeSnapshot?.metrics(for: configuration.stripeDisplayCurrency)
+    }
 
     var body: some View {
         FacesBBusinessDockFace(kind: "Stripe", title: configuration.stripeDisplayName, metric: configuration.stripeMetric.title,
@@ -21,7 +24,8 @@ struct StripeCompactView: View {
             currency: configuration.stripeMetric == .payingSubscribers ? nil : configuration.stripeDisplayCurrency,
             fullValue: values.map { StripeMetricFormatter.text(for: configuration.stripeMetric, values: $0) },
             context: configuration.stripePeriod.faceToken,
-            emptyValue: configuration.stripeSnapshot != nil || !configuration.stripeAccountID.isEmpty ? "No data" : "Connect")
+            emptyValue: metricUnavailable ? "Unavailable"
+                : configuration.stripeSnapshot != nil || !configuration.stripeAccountID.isEmpty ? "No data" : "Connect")
     }
 }
 
@@ -46,7 +50,8 @@ private struct StripePopoutView: View {
 
     private var configuration: WidgetConfiguration { item.widgetConfiguration ?? WidgetConfiguration() }
     private var snapshot: StripeSnapshot? { configuration.stripeSnapshot }
-    private var currencyMetrics: StripeCurrencyMetrics? { snapshot?.metrics(for: configuration.stripeDisplayCurrency) }
+    private var metricUnavailable: Bool { snapshot?.isAvailable(configuration.stripeMetric) == false }
+    private var currencyMetrics: StripeCurrencyMetrics? { metricUnavailable ? nil : snapshot?.metrics(for: configuration.stripeDisplayCurrency) }
     private var setupDraft: StripeConnectionDraft { setupDrafts.stripeDraft(for: item.id) }
     /// A reading always shows a currency the account reported, so a reading without figures reported nothing at all.
     private var emptyCaption: String? {
@@ -63,6 +68,10 @@ private struct StripePopoutView: View {
                         caption:
                             "\(configuration.stripeMetric.title) · \(configuration.stripeMetric.popoutUnit(currency: configuration.stripeDisplayCurrency)) · \(snapshot?.period.title ?? configuration.stripePeriod.title)"
                     )
+                } else if metricUnavailable {
+                    WidgetPopoutHero(
+                        value: "Unavailable",
+                        caption: "Over \(StripeAPIProvider.recordBudget.formatted()) records to load, so no partial total is shown.")
                 } else {
                     WidgetPopoutHero(
                         value: snapshot == nil && configuration.stripeAccountID.isEmpty ? "Connect Stripe" : "No data",
@@ -176,7 +185,7 @@ private struct StripePopoutView: View {
             }
         }
         .help(
-            "Grant read-only Account, Balance, Balance Transactions, and Subscriptions access. MyDock never requests write access. An unfinished form stays in memory for this widget until connected or cleared; its key is never written to profile data or backups."
+            "Grant read-only \(StripeAPIKeyStore.requiredReadAccess) access. MyDock never requests write access. An unfinished form stays in memory for this widget until connected or cleared; its key is never written to profile data or backups."
         )
     }
 
