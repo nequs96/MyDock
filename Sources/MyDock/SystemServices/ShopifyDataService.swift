@@ -83,6 +83,9 @@ struct ShopifySnapshot: Codable, Hashable {
     var trafficBreakdown: [ShopifyBreakdownEntry]
     var productBreakdownIncompleteOrders: Int
     var trafficAttributedOrders: Int
+    /// How many counted orders the product and traffic breakdowns cover: the most recent ones, because line items
+    /// and visits cost far more to fetch than totals. Nil in readings saved before sampling (all orders).
+    var breakdownSampleOrders: Int? = nil
 
     var averageOrderValue: Decimal? {
         guard orderCount > 0 else { return nil }
@@ -179,11 +182,61 @@ enum ShopifyDataError: LocalizedError, Equatable {
 struct ShopifyAPIProvider: Sendable {
     static let apiVersion = "2026-07"
     static let orderLimit = 10_000
+    /// Shopify rejects a query whose requested cost is over 1,000 points. A connection costs 2 plus `first` times the
+    /// cost of each node, so totals and the much costlier line items and visits are fetched by separate queries.
+    static let maximumQueryCost = 1_000
+    static let detailLineItemLimit = 30
     var transport: any ShopifyDataTransport = URLSessionShopifyDataTransport()
+    /// Totals pages: 2 + 250 × 3 = 752 points.
     var pageSize = 250
     var maximumOrders = Self.orderLimit
     /// Hard stop for the number of order pages per refresh, independent of how many orders they contain.
     var maximumPages = 60
+    /// Detail pages (the most recent orders only): 2 + 20 × 38 = 762 points.
+    var detailPageSize = 20
+    var maximumDetailPages = 5
+    /// A THROTTLED response waits for Shopify's cost bucket to refill, a bounded number of times.
+    var maximumThrottleRetries = 3
+    var throttleWait: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+
+    static func connectionCost(first: Int, nodeCost: Int) -> Int { 2 + first * nodeCost }
+    /// Each order, its money bag and the shop amount.
+    static func totalsQueryCost(pageSize: Int) -> Int { connectionCost(first: pageSize, nodeCost: 3) }
+    /// Each order, its line items, and two visits with their UTM parameters.
+    static func detailQueryCost(pageSize: Int) -> Int {
+        connectionCost(first: pageSize, nodeCost: 1 + connectionCost(first: detailLineItemLimit, nodeCost: 1) + 5)
+    }
+
+    static let totalsQuery = #"""
+    query Orders($query: String!, $after: String, $first: Int!) {
+      orders(first: $first, after: $after, query: $query, sortKey: CREATED_AT) {
+        nodes {
+          id
+          createdAt
+          cancelledAt
+          test
+          currentTotalPriceSet { shopMoney { amount currencyCode } }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+    """#
+
+    static let detailQuery = """
+    query OrderDetails($query: String!, $after: String, $first: Int!) {
+      orders(first: $first, after: $after, query: $query, sortKey: CREATED_AT, reverse: true) {
+        nodes {
+          id
+          lineItems(first: \(detailLineItemLimit)) { nodes { name currentQuantity } pageInfo { hasNextPage } }
+          customerJourneySummary {
+            firstVisit { source utmParameters { source medium campaign } }
+            lastVisit { source utmParameters { source medium campaign } }
+          }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+    """
 
     struct Connection: Sendable {
         var store: ShopifyConnectedStore
@@ -246,6 +299,20 @@ struct ShopifyAPIProvider: Sendable {
             after = next
         } while orders.count < maximumOrders
 
+        // Product and traffic details for the most recent orders. Totals stay exact when they cannot be read.
+        if orders.contains(where: { !$0.isTest && $0.cancelledAt == nil && interval.contains($0.createdAt) }) {
+            do {
+                let details = try await fetchOrderDetails(domain: domain, token: tokenCredential.accessToken, query: query)
+                orders = orders.map { order -> ShopifyOrderRecord in
+                    guard let id = order.id, let detail = details[id] else { return order }
+                    return order.with(detail)
+                }
+            } catch {
+                try Task.checkCancellation()
+                orders = orders.map { $0.withoutDetails() }
+            }
+        }
+
         let snapshot = try ShopifySnapshotParser.snapshot(orders: orders,
                                                           store: store,
                                                           period: period,
@@ -303,28 +370,9 @@ struct ShopifyAPIProvider: Sendable {
     }
 
     private func fetchOrders(domain: String, token: String, query: String, after: String?) async throws -> OrderPage {
-        let queryText = #"""
-        query Orders($query: String!, $after: String, $first: Int!) {
-          orders(first: $first, after: $after, query: $query, sortKey: CREATED_AT) {
-            nodes {
-              id
-              createdAt
-              cancelledAt
-              test
-              currentTotalPriceSet { shopMoney { amount currencyCode } }
-              lineItems(first: 250) { nodes { name currentQuantity } pageInfo { hasNextPage } }
-              customerJourneySummary {
-                firstVisit { source utmParameters { source medium campaign } }
-                lastVisit { source utmParameters { source medium campaign } }
-              }
-            }
-            pageInfo { hasNextPage endCursor }
-          }
-        }
-        """#
         let data = try await graphQL(domain: domain,
                                      token: token,
-                                     query: queryText,
+                                     query: Self.totalsQuery,
                                      variables: ["query": query,
                                                  "after": after.map { $0 as Any } ?? NSNull(),
                                                  "first": min(max(pageSize, 1), 250)])
@@ -336,7 +384,50 @@ struct ShopifyAPIProvider: Sendable {
         return OrderPage(orders: records, hasNextPage: hasNext, endCursor: pageInfo["endCursor"] as? String)
     }
 
+    /// Line items and visits for the most recent orders in the period, keyed by order ID.
+    private func fetchOrderDetails(domain: String, token: String, query: String) async throws -> [String: ShopifyOrderDetails] {
+        var details: [String: ShopifyOrderDetails] = [:]
+        var after: String?
+        var visitedCursors = Set<String>()
+        for _ in 0..<max(1, maximumDetailPages) {
+            try Task.checkCancellation()
+            let data = try await graphQL(domain: domain,
+                                         token: token,
+                                         query: Self.detailQuery,
+                                         variables: ["query": query,
+                                                     "after": after.map { $0 as Any } ?? NSNull(),
+                                                     "first": min(max(detailPageSize, 1), 20)])
+            guard let connection = data["orders"] as? [String: Any],
+                  let nodes = connection["nodes"] as? [[String: Any]],
+                  let pageInfo = connection["pageInfo"] as? [String: Any],
+                  let hasNext = pageInfo["hasNextPage"] as? Bool else { throw ShopifyDataError.invalidResponse }
+            for node in nodes {
+                guard let id = node["id"] as? String, !id.isEmpty,
+                      let detail = try ShopifySnapshotParser.orderDetails(node) else { continue }
+                details[id] = detail
+            }
+            guard hasNext, let next = pageInfo["endCursor"] as? String, !next.isEmpty,
+                  visitedCursors.insert(next).inserted else { break }
+            after = next
+        }
+        return details
+    }
+
+    /// Retries a THROTTLED query after Shopify's bucket has had time to refill; other errors pass through.
     private func graphQL(domain: String, token: String, query: String, variables: [String: Any]) async throws -> [String: Any] {
+        var attempt = 0
+        while true {
+            do {
+                return try await graphQLOnce(domain: domain, token: token, query: query, variables: variables)
+            } catch let throttle as ShopifyThrottle {
+                attempt += 1
+                guard attempt <= maximumThrottleRetries else { throw ShopifyDataError.rateLimited }
+                try await throttleWait(throttle.wait)
+            }
+        }
+    }
+
+    private func graphQLOnce(domain: String, token: String, query: String, variables: [String: Any]) async throws -> [String: Any] {
         guard let url = URL(string: "https://\(domain)/admin/api/\(Self.apiVersion)/graphql.json") else { throw ShopifyDataError.invalidStore }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -355,6 +446,10 @@ struct ShopifyAPIProvider: Sendable {
         }
         guard let root = try JSONSerialization.jsonObject(with: response.data) as? [String: Any] else { throw ShopifyDataError.invalidResponse }
         if let errors = root["errors"] as? [[String: Any]], !errors.isEmpty {
+            // Throttling arrives as HTTP 200 with a THROTTLED error, not as HTTP 429.
+            if errors.contains(where: { ($0["extensions"] as? [String: Any])?["code"] as? String == "THROTTLED" }) {
+                throw ShopifyThrottle(wait: ShopifyThrottle.duration(from: root["extensions"] as? [String: Any]))
+            }
             let messages = errors.compactMap { $0["message"] as? String }
             if messages.contains(where: { $0.localizedCaseInsensitiveContains("access denied") || $0.localizedCaseInsensitiveContains("read_orders") }) {
                 throw ShopifyDataError.missingPermission
@@ -396,6 +491,21 @@ struct ShopifyAPIProvider: Sendable {
     }
 }
 
+/// Shopify's cost bucket was empty. Waits for what the query needs, from the response's throttle status.
+struct ShopifyThrottle: Error {
+    var wait: Duration
+
+    static func duration(from extensions: [String: Any]?) -> Duration {
+        let cost = extensions?["cost"] as? [String: Any]
+        let status = cost?["throttleStatus"] as? [String: Any]
+        let requested = (cost?["requestedQueryCost"] as? NSNumber)?.doubleValue ?? Double(ShopifyAPIProvider.maximumQueryCost)
+        let available = (status?["currentlyAvailable"] as? NSNumber)?.doubleValue ?? 0
+        let rate = (status?["restoreRate"] as? NSNumber)?.doubleValue ?? 50
+        let seconds = rate > 0 ? (requested - available) / rate : 10
+        return .milliseconds(Int(min(10, max(1, seconds.isFinite ? seconds : 10)) * 1_000))
+    }
+}
+
 struct ShopifyOrderRecord {
     struct LineItem {
         var name: String
@@ -408,6 +518,32 @@ struct ShopifyOrderRecord {
     var amount: Decimal
     var currency: String
     var lineItems: [LineItem]
+    var lineItemsTruncated: Bool
+    var trafficSource: String?
+    /// False when the order's line items and visits were not fetched; the breakdowns cover the most recent orders.
+    var hasDetails = true
+
+    func with(_ details: ShopifyOrderDetails) -> ShopifyOrderRecord {
+        var copy = self
+        copy.lineItems = details.lineItems
+        copy.lineItemsTruncated = details.lineItemsTruncated
+        copy.trafficSource = details.trafficSource
+        copy.hasDetails = true
+        return copy
+    }
+
+    func withoutDetails() -> ShopifyOrderRecord {
+        var copy = self
+        copy.lineItems = []
+        copy.lineItemsTruncated = false
+        copy.trafficSource = nil
+        copy.hasDetails = false
+        return copy
+    }
+}
+
+struct ShopifyOrderDetails {
+    var lineItems: [ShopifyOrderRecord.LineItem]
     var lineItemsTruncated: Bool
     var trafficSource: String?
 }
@@ -429,6 +565,7 @@ enum ShopifySnapshotParser {
         var sources: [String: Int] = [:]
         var incomplete = 0
         var attributed = 0
+        var sampled = 0
         var daily: [Date: (amount: Decimal, orders: Int)] = [:]
         for order in orders where interval.contains(order.createdAt) {
             guard !order.isTest, order.cancelledAt == nil else { continue }
@@ -438,6 +575,8 @@ enum ShopifySnapshotParser {
             let day = calendar.startOfDay(for: order.createdAt)
             daily[day, default: (.zero, 0)].amount += order.amount
             daily[day, default: (.zero, 0)].orders += 1
+            guard order.hasDetails else { continue }
+            sampled += 1
             for line in order.lineItems where line.currentQuantity > 0 {
                 products[line.name, default: 0] += line.currentQuantity
             }
@@ -466,7 +605,8 @@ enum ShopifySnapshotParser {
                                productBreakdown: products.map { ShopifyBreakdownEntry(name: $0.key, units: $0.value, orders: 0) }.sorted { $0.units > $1.units }.prefix(10).map { $0 },
                                trafficBreakdown: sources.map { ShopifyBreakdownEntry(name: $0.key, units: 0, orders: $0.value) }.sorted { $0.orders > $1.orders }.prefix(10).map { $0 },
                                productBreakdownIncompleteOrders: incomplete,
-                               trafficAttributedOrders: attributed)
+                               trafficAttributedOrders: attributed,
+                               breakdownSampleOrders: sampled)
     }
 
     fileprivate static func orderRecord(_ raw: [String: Any]) throws -> ShopifyOrderRecord {
@@ -477,9 +617,24 @@ enum ShopifySnapshotParser {
               let amountString = shopMoney["amount"] as? String,
               let amount = Decimal(string: amountString, locale: Locale(identifier: "en_US_POSIX")),
               amount.isFinite, abs(amount) <= Decimal(string: "1000000000000000") ?? 1_000_000_000_000_000,
-              let currency = shopMoney["currencyCode"] as? String,
-              let lineConnection = raw["lineItems"] as? [String: Any],
-              let lineNodes = lineConnection["nodes"] as? [[String: Any]],
+              let currency = shopMoney["currencyCode"] as? String else { throw ShopifyDataError.invalidResponse }
+        let details = try orderDetails(raw)
+        return ShopifyOrderRecord(id: raw["id"] as? String,
+                                  createdAt: createdAt,
+                                  cancelledAt: date(raw["cancelledAt"] as? String),
+                                  isTest: isTest,
+                                  amount: amount,
+                                  currency: currency.uppercased(),
+                                  lineItems: details?.lineItems ?? [],
+                                  lineItemsTruncated: details?.lineItemsTruncated ?? false,
+                                  trafficSource: details?.trafficSource,
+                                  hasDetails: details != nil)
+    }
+
+    /// Line items and the visit source; nil when the response did not ask for them (the totals query).
+    static func orderDetails(_ raw: [String: Any]) throws -> ShopifyOrderDetails? {
+        guard let lineConnection = raw["lineItems"] as? [String: Any] else { return nil }
+        guard let lineNodes = lineConnection["nodes"] as? [[String: Any]],
               let linePage = lineConnection["pageInfo"] as? [String: Any] else { throw ShopifyDataError.invalidResponse }
         let lineItems = try lineNodes.map { line -> ShopifyOrderRecord.LineItem in
             guard let name = line["name"] as? String,
@@ -496,15 +651,9 @@ enum ShopifySnapshotParser {
             ?? (lastVisit?["source"] as? String)
             ?? (firstUTM?["source"] as? String)
             ?? (firstVisit?["source"] as? String)
-        return ShopifyOrderRecord(id: raw["id"] as? String,
-                                  createdAt: createdAt,
-                                  cancelledAt: date(raw["cancelledAt"] as? String),
-                                  isTest: isTest,
-                                  amount: amount,
-                                  currency: currency.uppercased(),
-                                  lineItems: lineItems,
-                                  lineItemsTruncated: linePage["hasNextPage"] as? Bool ?? false,
-                                  trafficSource: source.map { String($0.prefix(100)) })
+        return ShopifyOrderDetails(lineItems: lineItems,
+                                   lineItemsTruncated: linePage["hasNextPage"] as? Bool ?? false,
+                                   trafficSource: source.map { String($0.prefix(100)) })
     }
 
     static func records(from nodes: [[String: Any]]) throws -> [ShopifyOrderRecord] {

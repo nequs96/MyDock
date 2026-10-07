@@ -2144,7 +2144,8 @@ struct ProfileStoreTests {
         #expect(connection.store.timeZoneID == "America/New_York")
         #expect(result.snapshot.orderCount == 2)
         #expect(result.snapshot.orderValue == Decimal(string: "17.5"))
-        #expect(requests.count == 4)
+        // The access token, store metadata, two totals pages and one page of recent-order details.
+        #expect(requests.count == 5)
         #expect(requests.first?.url?.path == "/admin/oauth/access_token")
         #expect(requests.filter { $0.url?.path.contains("graphql.json") == true }.allSatisfy {
             $0.value(forHTTPHeaderField: "X-Shopify-Access-Token") == "fixture-access-token"

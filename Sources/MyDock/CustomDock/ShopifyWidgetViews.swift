@@ -201,6 +201,25 @@ private struct ShopifyPopoutView: View {
 
     @ViewBuilder
     private func breakdowns(_ snapshot: ShopifySnapshot) -> some View {
+        // Line items and visits are read for the most recent orders only; totals always cover every order.
+        let sampled = snapshot.breakdownSampleOrders ?? snapshot.orderCount
+        if snapshot.orderCount > 0 && sampled == 0 {
+            Text("Product and traffic details are unavailable for this period.")
+                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                breakdownColumns(snapshot, sampled: sampled)
+                if sampled < snapshot.orderCount {
+                    Text("Products and traffic: the latest \(sampled.formatted()) of \(snapshot.orderCount.formatted()) orders.")
+                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func breakdownColumns(_ snapshot: ShopifySnapshot, sampled: Int) -> some View {
         HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Units by product").font(DockDesign.Grouped.subtitleFont.weight(.semibold))
@@ -216,7 +235,7 @@ private struct ShopifyPopoutView: View {
                     }
                 }
                 if snapshot.productBreakdownIncompleteOrders > 0 {
-                    Text("Some orders contain over 250 line items; product counts are incomplete.")
+                    Text("Some orders have more than \(ShopifyAPIProvider.detailLineItemLimit) line items; product counts are incomplete.")
                         .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.orange)
                 }
             }
@@ -232,7 +251,7 @@ private struct ShopifyPopoutView: View {
                             Text(row.orders.formatted()).monospacedDigit()
                         }.font(DockDesign.Grouped.subtitleFont)
                     }
-                    Text("Attributed orders: \(snapshot.trafficAttributedOrders) of \(snapshot.orderCount)")
+                    Text("Attributed orders: \(snapshot.trafficAttributedOrders) of \(sampled)")
                         .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                 }
             }

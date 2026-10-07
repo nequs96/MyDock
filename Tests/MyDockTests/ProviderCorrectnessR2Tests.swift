@@ -253,6 +253,11 @@ private actor ScriptedShopifyTransport: ShopifyDataTransport {
     }
 }
 
+private actor ThrottleWaitRecorder {
+    private(set) var values: [Duration] = []
+    func record(_ value: Duration) { values.append(value) }
+}
+
 private func shopifyNode(_ id: String, amount: String = "10.00") -> [String: Any] {
     ["id": id, "createdAt": "2026-09-24T11:00:00Z", "test": false,
      "currentTotalPriceSet": ["shopMoney": ["amount": amount, "currencyCode": "USD"]],
@@ -293,6 +298,56 @@ struct ShopifyPaginationGuardTests {
         var pages = [shopifyPage(["o1"], next: "c0")]
         for index in 1..<20 { pages.append(shopifyPage([], next: "c\(index)")) }
         await #expect(throws: ShopifyDataError.incompletePagination) { _ = try await run(pages, maximumPages: 5) }
+    }
+
+    /// S03-001: totals and the costlier line items and visits are separate queries, each under Shopify's
+    /// 1,000-point single-query limit.
+    @Test func everyShopifyQueryStaysUnderTheSingleQueryCostLimit() {
+        let provider = ShopifyAPIProvider()
+        #expect(ShopifyAPIProvider.totalsQueryCost(pageSize: provider.pageSize) <= ShopifyAPIProvider.maximumQueryCost)
+        #expect(ShopifyAPIProvider.detailQueryCost(pageSize: provider.detailPageSize) <= ShopifyAPIProvider.maximumQueryCost)
+        #expect(!ShopifyAPIProvider.totalsQuery.contains("lineItems"))
+        #expect(!ShopifyAPIProvider.totalsQuery.contains("customerJourneySummary"))
+        #expect(ShopifyAPIProvider.detailQuery.contains("lineItems(first: \(ShopifyAPIProvider.detailLineItemLimit))"))
+        #expect(ShopifyAPIProvider.detailQuery.contains("reverse: true"))
+    }
+
+    @Test func breakdownsCoverTheMostRecentOrdersAndSayHowMany() async throws {
+        func light(_ id: String) -> [String: Any] {
+            var node = shopifyNode(id)
+            node["lineItems"] = nil
+            node["customerJourneySummary"] = nil
+            return node
+        }
+        let totals: [String: Any] = ["nodes": ["o1", "o2", "o3"].map(light), "pageInfo": ["hasNextPage": false, "endCursor": NSNull()]]
+        var detailed = shopifyNode("o3")
+        detailed["lineItems"] = ["nodes": [["name": "Mug", "currentQuantity": 2]], "pageInfo": ["hasNextPage": false]]
+        let details: [String: Any] = ["nodes": [detailed, shopifyNode("o2")], "pageInfo": ["hasNextPage": false, "endCursor": NSNull()]]
+        let snapshot = try await run([totals, details])
+        #expect(snapshot.orderCount == 3 && snapshot.orderValue == 30)
+        #expect(snapshot.breakdownSampleOrders == 2)
+        #expect(snapshot.productBreakdown == [ShopifyBreakdownEntry(name: "Mug", units: 2, orders: 0)])
+    }
+
+    /// S03-006: Shopify throttles with HTTP 200 and a THROTTLED error; MyDock waits for the bucket, then reports
+    /// rate limiting instead of a raw provider message.
+    @Test func throttledQueriesWaitAndRetryThenReportRateLimiting() async throws {
+        let throttled = try JSONSerialization.data(withJSONObject: [
+            "errors": [["message": "Throttled", "extensions": ["code": "THROTTLED"]]],
+            "extensions": ["cost": ["requestedQueryCost": 752,
+                                    "throttleStatus": ["maximumAvailable": 1000, "currentlyAvailable": 2, "restoreRate": 50]]]])
+        let page = try JSONSerialization.data(withJSONObject: ["data": ["orders": shopifyPage(["o1"], next: nil)]])
+        let waits = ThrottleWaitRecorder()
+        let provider = ShopifyAPIProvider(transport: ScriptedShopifyTransport(bodies: [throttled, page]), pageSize: 2,
+                                          throttleWait: { await waits.record($0) })
+        let snapshot = try await provider.snapshot(store: store, credential: credential, period: .today, now: now).snapshot
+        #expect(snapshot.orderCount == 1)
+        #expect(await waits.values == [.seconds(10)])
+        let stubborn = ShopifyAPIProvider(transport: ScriptedShopifyTransport(bodies: [throttled]), pageSize: 2,
+                                          maximumThrottleRetries: 1, throttleWait: { _ in })
+        await #expect(throws: ShopifyDataError.rateLimited) {
+            _ = try await stubborn.snapshot(store: store, credential: credential, period: .today, now: now)
+        }
     }
 
     @Test func ordersWithoutAnIdentityAreRejectedBecauseTheyCannotBeDeduplicated() async throws {
