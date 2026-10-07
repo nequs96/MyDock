@@ -969,7 +969,7 @@ struct CustomDockView: View {
 
     /// No magnification on macOS 13, where the scroll view would clip the enlarged tiles.
     private func magnification(center: CGFloat, isWidget: Bool, settings: AppSettings) -> CGFloat {
-        guard !isWidget, !isPreview, popouts.anchorID == nil else { return 1 }
+        guard !isPreview, popouts.anchorID == nil else { return 1 }
         return DockContinuousMagnification.scale(center: center, pointer: hoverPosition,
             radius: 150 * DockSurfaceMetrics.clampedScale(settings.customDockSize), isWidget: isWidget,
             enabled: DockMagnificationSupport.isActive(settings), reduceMotion: reducesMotion)

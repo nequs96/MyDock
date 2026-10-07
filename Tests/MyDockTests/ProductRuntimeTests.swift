@@ -184,6 +184,7 @@ struct ProductRuntimeTests {
         let near = DockContinuousMagnification.scale(center: 50, pointer: 51, radius: 100, isWidget: false, enabled: true, reduceMotion: false)
         #expect(abs(scale - near) < 0.001)
         #expect(DockContinuousMagnification.scale(center: 50, pointer: 50, radius: 100, isWidget: false, enabled: true, reduceMotion: true) == 1)
+        #expect(DockContinuousMagnification.scale(center: 50, pointer: 50, radius: 100, isWidget: true, enabled: true, reduceMotion: false) == 1)
     }
 
     @Test func groupMovePreservesRelativeOrderAndSupportsEnd() {

@@ -194,12 +194,13 @@ enum RuntimeDockApplications {
 }
 
 enum DockContinuousMagnification {
+    /// Tiles near the pointer grow by up to 38 %. Widgets keep their size, so a face never rescales under the pointer.
     static func scale(center: CGFloat, pointer: CGFloat?, radius: CGFloat, isWidget: Bool,
                       enabled: Bool, reduceMotion: Bool) -> CGFloat {
-        guard enabled, !reduceMotion, let pointer, radius > 0 else { return 1 }
+        guard enabled, !reduceMotion, !isWidget, let pointer, radius > 0 else { return 1 }
         let proximity = max(0, 1 - abs(center - pointer) / radius)
         let wave = (1 - cos(proximity * .pi)) / 2
-        return 1 + wave * (isWidget ? 0.20 : 0.38)
+        return 1 + wave * 0.38
     }
 }
 
