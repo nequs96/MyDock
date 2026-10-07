@@ -113,14 +113,14 @@ final class ProfileLibrary: ObservableObject {
             data = encoded
         } catch { errorMessage = "Library could not be saved: \(error.localizedDescription)"; return }
         guard writesInBackground else {
-            finishWrite(Result { try Self.write(data, to: fileURL) })
+            finishWrite(Self.writeResult(data, to: fileURL))
             return
         }
         writeRevision &+= 1
         let revision = writeRevision
         let fileURL = fileURL
         Self.writeQueue.async { [weak self] in
-            let result = Result { try Self.write(data, to: fileURL) }
+            let result = Self.writeResult(data, to: fileURL)
             Task { @MainActor [weak self] in
                 // Writes run in order, so only the latest one decides what the library reports.
                 guard let self, revision == self.writeRevision else { return }
@@ -138,5 +138,16 @@ final class ProfileLibrary: ObservableObject {
 
     nonisolated private static func write(_ data: Data, to fileURL: URL) throws {
         try PrivateAtomicFile.write(data, to: fileURL)
+    }
+
+    /// The write as a value. A plain do/catch, not `Result { … }`: that closure form in `persist()` crashed the Swift
+    /// compiler's closure-lifetime pass (ClosureLifetimeFixup) on CI.
+    nonisolated private static func writeResult(_ data: Data, to fileURL: URL) -> Result<Void, Error> {
+        do {
+            try write(data, to: fileURL)
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
     }
 }
