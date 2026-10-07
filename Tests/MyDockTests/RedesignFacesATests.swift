@@ -19,7 +19,7 @@ struct RedesignFacesATests {
         let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 5, hour: 9))!
         #expect(CalendarFacePresentation.compactStatus(event(start: -7200, end: -3600, now: now), now: now, calendar: calendar) == "Ended")
         #expect(CalendarFacePresentation.compactStatus(event(start: 0, end: 86_400, now: now, allDay: true), now: now, calendar: calendar) == "All day")
-        #expect(CalendarFacePresentation.compactStatus(event(start: -600, end: 1800, now: now), now: now, calendar: calendar).hasPrefix("Now · until "))
+        #expect(CalendarFacePresentation.compactStatus(event(start: -600, end: 1800, now: now), now: now, calendar: calendar).hasPrefix("Now · ends "))
         #expect(CalendarFacePresentation.compactStatus(event(start: 45 * 60, end: 75 * 60, now: now), now: now, calendar: calendar) == "In 45 min")
         #expect(CalendarFacePresentation.compactStatus(event(start: 20, end: 600, now: now), now: now, calendar: calendar) == "In 1 min")
         #expect(CalendarFacePresentation.compactStatus(event(start: 26 * 3600, end: 27 * 3600, now: now), now: now, calendar: calendar).hasPrefix("Tomorrow "))

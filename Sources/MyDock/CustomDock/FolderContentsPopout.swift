@@ -23,31 +23,32 @@ struct FolderContentsPopout: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // The widget popout header: a quiet glyph and name, then circle buttons.
             HStack(spacing: 8) {
                 if directoryStack.count > 1 {
-                    Button { directoryStack.removeLast() } label: {
-                        Image(systemName: "chevron.left").frame(width: 24, height: 24)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Back")
+                    Button { directoryStack.removeLast() } label: { Image(systemName: "chevron.left") }
+                        .buttonStyle(WidgetCircleButtonStyle())
+                        .keyboardShortcut("[", modifiers: .command)
+                        .accessibilityLabel("Back")
+                        .help("Back (⌘[)")
                 }
-                Image(systemName: "folder.fill").foregroundStyle(.tint)
+                Image(systemName: "folder.fill").foregroundStyle(.secondary).accessibilityHidden(true)
                 Text(directoryStack.count == 1 ? (folderName ?? currentURL.lastPathComponent) : currentURL.lastPathComponent)
-                    .font(.headline).lineLimit(1)
+                    .font(DockDesign.Grouped.titleFont.weight(.semibold)).lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 4)
                 Button {
-                    NSWorkspace.shared.open(currentURL)
+                    openItem(currentURL)
                 } label: { Image(systemName: "arrow.up.forward.app") }
-                .buttonStyle(.plain).help("Open in Finder")
+                .buttonStyle(WidgetCircleButtonStyle()).accessibilityLabel("Open in Finder").help("Open in Finder")
                 Button(action: onClose) { Image(systemName: "xmark") }
-                    .buttonStyle(.plain).help("Close folder")
+                    .buttonStyle(WidgetCircleButtonStyle()).accessibilityLabel("Close Folder").help("Close folder")
             }
             .padding(12)
-            Divider()
             if isLoading {
                 VStack(spacing: 10) {
                     ProgressView()
-                    Text("Loading folder…").font(.caption).foregroundStyle(.secondary)
+                    Text("Loading folder…").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityElement(children: .combine)
@@ -63,27 +64,35 @@ struct FolderContentsPopout: View {
                                 if entry.isDirectory {
                                     directoryStack.append(entry.url)
                                 } else {
-                                    NSWorkspace.shared.open(entry.url)
+                                    openItem(entry.url)
                                 }
                             } label: {
-                                HStack(spacing: 9) {
-                                    Image(nsImage: NSWorkspace.shared.icon(forFile: entry.url.path))
-                                        .resizable().scaledToFit().frame(width: 22, height: 22)
-                                    Text(entry.name).lineLimit(1)
+                                HStack(spacing: DockDesign.Grouped.glyphSpacing) {
+                                    Image(nsImage: FolderEntryIcon.image(for: entry.url))
+                                        .resizable().scaledToFit().frame(width: 22, height: 22).accessibilityHidden(true)
+                                    Text(entry.name).font(DockDesign.Grouped.titleFont).lineLimit(1)
                                     Spacer(minLength: 6)
-                                    if entry.isDirectory { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary) }
+                                    if entry.isDirectory {
+                                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                                            .accessibilityHidden(true)
+                                    }
                                 }
                                 .contentShape(Rectangle())
-                                .padding(.horizontal, 9).padding(.vertical, 5)
+                                .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding).padding(.vertical, 5)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityHint(entry.isDirectory ? "Shows this folder's contents" : "Opens in its default app")
                             .contextMenu {
-                                Button("Open in Finder") { NSWorkspace.shared.open(entry.url) }
-                                Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([entry.url]) }
+                                // A file opens in its default app, so the item says Open; Reveal in Finder shows it in Finder.
+                                Button("Open") { openItem(entry.url) }
+                                Button("Reveal in Finder") {
+                                    guard AppRuntimeEnvironment.allowsNativeEffects else { return }
+                                    NSWorkspace.shared.activateFileViewerSelecting([entry.url])
+                                }
                             }
                         }
                         if let summary = listing?.omittedSummary {
-                            Text(summary).font(.caption).foregroundStyle(.secondary)
+                            Text(summary).font(DockDesign.Grouped.footerFont).foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity).padding(.vertical, 6)
                         }
                     }
@@ -97,14 +106,17 @@ struct FolderContentsPopout: View {
         .onExitCommand(perform: onClose)
     }
 
+    /// Opening launches apps or drives Finder, so isolated validation sessions never do it.
+    private func openItem(_ url: URL) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// The same status hero the widget popouts use.
     private func emptyState(title: String, symbol: String, message: String) -> some View {
-        VStack(spacing: 8) {
-            Image(systemName: symbol).font(.title).foregroundStyle(.secondary)
-            Text(title).font(.headline)
-            Text(message).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(20)
+        WidgetPopoutHero(value: title, caption: message, symbol: symbol, forcedStyle: .status)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(20)
     }
 
     private func loadEntries(at url: URL) async {
@@ -126,5 +138,19 @@ struct FolderContentsPopout: View {
             errorMessage = error.localizedDescription
             isLoading = false
         }
+    }
+}
+
+/// Folder row icons, fetched once per path instead of on every render while scrolling.
+@MainActor
+enum FolderEntryIcon {
+    private static let cache: NSCache<NSString, NSImage> = { let cache = NSCache<NSString, NSImage>(); cache.countLimit = 512; return cache }()
+
+    static func image(for url: URL) -> NSImage {
+        let key = url.path as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        cache.setObject(icon, forKey: key)
+        return icon
     }
 }

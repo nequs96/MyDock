@@ -12,11 +12,13 @@ struct NowPlayingSnapshot: Equatable, Sendable {
     var updatedAt: Date
     var artworkURL: URL?
 
-    /// The position at `date`: a playing track advances from the moment it was read, up to its duration.
+    /// The position at `date`: a playing track advances from the moment it was read, so the popout ticks every second
+    /// instead of stepping by the poll interval. It never passes the track's end or runs backwards.
     func livePosition(at date: Date) -> TimeInterval {
-        guard isPlaying else { return position }
+        guard isPlaying, position.isFinite else { return position }
         let advanced = position + max(0, date.timeIntervalSince(updatedAt))
-        return duration > 0 ? min(duration, advanced) : advanced
+        guard duration.isFinite, duration > 0 else { return advanced }
+        return min(duration, advanced)
     }
 }
 

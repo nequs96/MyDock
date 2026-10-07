@@ -598,6 +598,14 @@ struct WidgetConfiguration: Codable, Hashable {
         case weatherLocation, weatherUnit, weatherLayout, weatherForecastHours, weatherBackground, cachedWeatherForecast
     }
 
+    /// The market update intervals the pickers offer; a decoded value snaps to the nearest so the picker never shows blank.
+    static let stockRefreshIntervalOptions = [60, 180, 360, 720, 1_440]
+    static func snappedStockRefreshInterval(_ minutes: Int) -> Int {
+        // Bounded first, so a corrupt extreme value cannot overflow the distance arithmetic.
+        let bounded = min(max(minutes, 0), 10_000)
+        return stockRefreshIntervalOptions.min { abs($0 - bounded) < abs($1 - bounded) } ?? 360
+    }
+
     init() {
         cardWidth = .standard
         iconStyle = .live
@@ -735,7 +743,7 @@ struct WidgetConfiguration: Codable, Hashable {
         stockName = try values.decodeIfPresent(String.self, forKey: .stockName) ?? ""
         stockCurrency = try values.decodeIfPresent(String.self, forKey: .stockCurrency) ?? "USD"
         stockRange = values.lenient(StockChartRange.self, forKey: .stockRange) ?? .month
-        stockRefreshIntervalMinutes = min(max(try values.decodeIfPresent(Int.self, forKey: .stockRefreshIntervalMinutes) ?? 360, 60), 1_440)
+        stockRefreshIntervalMinutes = Self.snappedStockRefreshInterval(try values.decodeIfPresent(Int.self, forKey: .stockRefreshIntervalMinutes) ?? 360)
         stockShowsVolume = try values.decodeIfPresent(Bool.self, forKey: .stockShowsVolume) ?? false
         stockSnapshot = values.lenient(StockMarketSnapshot.self, forKey: .stockSnapshot)
         watchlistStocks = try values.decodeIfPresent([WatchlistStock].self, forKey: .watchlistStocks) ?? []
@@ -771,7 +779,7 @@ struct WidgetConfiguration: Codable, Hashable {
         aiLimitsSnapshot = values.lenient(AILimitsSnapshot.self, forKey: .aiLimitsSnapshot)
         aiCopilotMonthlyCreditAllowance = try values.decodeIfPresent(Int.self, forKey: .aiCopilotMonthlyCreditAllowance)
             .flatMap { (1...1_000_000).contains($0) ? $0 : nil }
-        aiActivityProvider = values.lenient(AIProvider.self, forKey: .aiActivityProvider) ?? .codex
+        aiActivityProvider = values.lenient(AIProvider.self, forKey: .aiActivityProvider).flatMap { AIProvider.localActivityProviders.contains($0) ? $0 : nil } ?? .codex
         aiActivityRange = values.lenient(AIActivityRange.self, forKey: .aiActivityRange) ?? .today
         aiActivityChartStyle = values.lenient(AIActivityChartStyle.self, forKey: .aiActivityChartStyle) ?? .sparkline
         aiActivitySnapshot = values.lenient(AIActivitySnapshot.self, forKey: .aiActivitySnapshot)

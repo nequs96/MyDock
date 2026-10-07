@@ -55,8 +55,9 @@ struct RedesignFacesBTests {
         #expect(!value.isEmpty && !value.hasSuffix("+"))
         snapshot.partial = true
         #expect(AIFacePresentation.activityValue(snapshot: snapshot) == value + "+")
+        // An estimate is marked as one: "~" instead of the partial "+".
         snapshot.estimated = true
-        #expect(AIFacePresentation.activityValue(snapshot: snapshot) == value)
+        #expect(AIFacePresentation.activityValue(snapshot: snapshot) == "~" + value)
         snapshot.available = false
         #expect(AIFacePresentation.activityValue(snapshot: snapshot) == "No data")
         #expect(AIFacePresentation.activityValue(snapshot: nil) == "Set up")
@@ -87,9 +88,9 @@ struct RedesignFacesBTests {
         snapshot.estimated = false
         #expect(AIFacePresentation.narrowActivityValue(snapshot: snapshot) == "644M+")
         snapshot.estimated = true
-        #expect(AIFacePresentation.narrowActivityValue(snapshot: snapshot) == "644M")
+        #expect(AIFacePresentation.narrowActivityValue(snapshot: snapshot) == "~644M")
         snapshot.totals.totalTokens = 999
-        #expect(AIFacePresentation.narrowActivityValue(snapshot: snapshot) == "999")
+        #expect(AIFacePresentation.narrowActivityValue(snapshot: snapshot) == "~999")
         #expect(AIFacePresentation.narrowActivityValue(snapshot: nil) == "Set up")
     }
     @Test func networkFiltersIdleLinkLocalInterfacesWithoutLosingTraffic() {
@@ -128,12 +129,11 @@ struct RedesignFacesBTests {
         #expect(SystemActivityFormatting.bytes(1_500_000_000, locale: english).contains("1.5"))
     }
     @Test func businessSetupHasOneAccountFieldAndNoUnconnectedSettings() {
-        for policy in [StripeSetupPresentation.showsSettings, PaddleSetupPresentation.showsSettings, ShopifySetupPresentation.showsSettings] {
-            #expect(!policy("", false))
-            #expect(policy("connected-id", false))
-            #expect(policy("", true))
-            #expect(policy("connected-id", true))
-        }
+        let policy = BusinessSetupPresentation.showsSettings
+        #expect(!policy("", false))
+        #expect(policy("connected-id", false))
+        #expect(policy("", true))
+        #expect(policy("connected-id", true))
     }
 
     #if DEBUG

@@ -21,13 +21,64 @@ enum SavedCollectionFacePresentation {
         }
     }
     /// The label line: the short name when narrow, the most recent item when wide, otherwise a short noun.
-    static func label(kind: String, latest: String?, layout: WidgetLayout, narrow: Bool) -> String {
+    /// A collection with entries but no showable name (Text Snippets) reads "Saved", never the empty-state hint.
+    static func label(kind: String, latest: String?, layout: WidgetLayout, narrow: Bool, count: Int = 0) -> String {
         if narrow { return shortName(kind: kind) }
-        if layout == .wide { return latest.flatMap { $0.isEmpty ? nil : $0 } ?? emptyHint(kind: kind) }
+        if layout == .wide {
+            return latest.flatMap { $0.isEmpty ? nil : $0 } ?? (count > 0 ? (kind == "File Shelf" ? "Shelf" : "Saved") : emptyHint(kind: kind))
+        }
         return kind == "File Shelf" ? "Shelf" : "Saved"
     }
     /// The value with its unit, e.g. "2 snippets"; never a bare number.
     static func valueText(kind: String, count: Int) -> String { "\(count) " + SavedCollectionUnit.text(kind: kind, count: count) }
+    /// The most recent entry's name for the wide label. Text Snippets hold private text (older unnamed snippets
+    /// carry the start of their text as a name), so the Dock face only ever shows their count.
+    static func latest(kind: String, configuration: WidgetConfiguration) -> String? {
+        switch kind {
+        case "File Shelf": configuration.shelfFiles.last?.url.lastPathComponent
+        case "Text Snippets": nil
+        default: configuration.quickLinks.last?.title
+        }
+    }
+}
+
+/// The saved-collection size limits ProfileSemanticValidator enforces, applied while typing instead of failing on Save.
+enum SavedCollectionLimits {
+    static let titleBytes = 400
+    static let snippetTextBytes = 40_000
+
+    /// The longest prefix of `text` that fits in `bytes` UTF-8 bytes, cut between characters.
+    static func clamped(_ text: String, bytes: Int) -> String {
+        guard text.utf8.count > bytes else { return text }
+        var result = ""
+        var used = 0
+        for character in text {
+            let size = String(character).utf8.count
+            guard used + size <= bytes else { break }
+            result.append(character)
+            used += size
+        }
+        return result
+    }
+
+    @MainActor static func clamping(_ binding: Binding<String>, bytes: Int) -> Binding<String> {
+        Binding(get: { binding.wrappedValue }, set: { binding.wrappedValue = clamped($0, bytes: bytes) })
+    }
+
+    /// "36,512 / 40,000 bytes" once a snippet's text passes nine tenths of its limit, otherwise nil.
+    static func snippetUsage(_ text: String) -> String? {
+        let used = text.utf8.count
+        guard used > snippetTextBytes * 9 / 10 else { return nil }
+        return "\(used.formatted()) / \(snippetTextBytes.formatted()) bytes"
+    }
+}
+
+extension TextSnippet {
+    /// The name shown in the popout: the user's name, or for an unnamed snippet a one-line preview of its text.
+    var displayTitle: String {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? SavedCollectionSearch.oneLinePreview(text, limit: 40) : name
+    }
 }
 
 /// The saved-collection module: the count with its unit ("2 snippets") and one short label.
@@ -44,16 +95,10 @@ struct SavedCollectionDockFace: View {
         default: configuration.quickLinks.count
         }
     }
-    private var latest: String? {
-        switch kind {
-        case "File Shelf": configuration.shelfFiles.last?.url.lastPathComponent
-        case "Text Snippets": configuration.textSnippets.last?.title
-        default: configuration.quickLinks.last?.title
-        }
-    }
+    private var latest: String? { SavedCollectionFacePresentation.latest(kind: kind, configuration: configuration) }
     var body: some View {
         let narrow = WidgetModuleMetrics.isNarrow(width)
-        ModuleStack(kind: kind, label: SavedCollectionFacePresentation.label(kind: kind, latest: latest, layout: layout, narrow: narrow),
+        ModuleStack(kind: kind, label: SavedCollectionFacePresentation.label(kind: kind, latest: latest, layout: layout, narrow: narrow, count: count),
                     value: "\(count)", unit: SavedCollectionUnit.text(kind: kind, count: count),
                     valueColor: count == 0 ? .secondary : .primary, keepsLeading: !narrow)
             .moduleInsets()
@@ -88,6 +133,8 @@ struct FileShelfDropSurface<Content: View>: View {
             .overlay(shape.strokeBorder(targeted ? DockDesign.accent : .clear, lineWidth: 2).allowsHitTesting(false))
             .onDrop(of: [UTType.fileURL], isTargeted: $targeted) { providers in
                 guard AppRuntimeEnvironment.allowsNativeEffects else { return false }
+                // A full shelf refuses the drop, so it never shows an accept that then keeps nothing.
+                guard (item.widgetConfiguration?.shelfFiles.count ?? 0) < FileShelfPolicy.capacity else { return false }
                 let compatible = providers.prefix(FileShelfPolicy.capacity).filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
                 guard !compatible.isEmpty else { return false }
                 AirDropDroppedItemLoader.load(compatible.map { ($0, UTType.fileURL.identifier) }) { urls in
@@ -99,14 +146,38 @@ struct FileShelfDropSurface<Content: View>: View {
     }
 }
 
+/// One shelf entry's resolved location and whether its original is there. Resolving a bookmark and checking the
+/// file can block on a slow or disconnected volume, so the shelf does it off the main thread once per change.
+struct ShelfFileAvailability: Equatable, Sendable {
+    var url: URL
+    var exists: Bool
+
+    static func resolve(_ entries: [ShelfFile],
+                        fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) -> [UUID: ShelfFileAvailability] {
+        var result: [UUID: ShelfFileAvailability] = [:]
+        for entry in entries where result[entry.id] == nil {
+            let url = entry.resolvedURL
+            result[entry.id] = ShelfFileAvailability(url: url, exists: fileExists(url))
+        }
+        return result
+    }
+}
+
 struct FileShelfView: View {
     @ObservedObject var store: ProfileStore
     var item: DockItem
     var profileID: UUID
     @State private var message: String?
     @State private var undoPending: RemovedEntries<ShelfFile>?
+    @State private var availability: [UUID: ShelfFileAvailability] = [:]
+    /// Bumped by Retry and Locate so the shelf checks its files again without any change to the entries.
+    @State private var availabilityRequest = 0
     private var entries: [ShelfFile] { item.widgetConfiguration?.shelfFiles ?? [] }
-    private var availableURLs: [URL] { entries.map(\.resolvedURL).filter { FileManager.default.fileExists(atPath: $0.path) } }
+    /// Until the first check finishes an entry reads as its stored location and as present, so nothing flashes as missing.
+    private func shelfState(_ entry: ShelfFile) -> ShelfFileAvailability {
+        availability[entry.id] ?? ShelfFileAvailability(url: entry.url, exists: true)
+    }
+    private var availableURLs: [URL] { entries.compactMap { entry -> URL? in let resolved = shelfState(entry); return resolved.exists ? resolved.url : nil } }
     /// Separators start at the file name, past its glyph.
     private static let rowSeparatorInset = DockDesign.Grouped.separatorInset
     var body: some View {
@@ -150,7 +221,7 @@ struct FileShelfView: View {
                             let pending = RemovedEntries.capture(Set(entries.map(\.id)), from: entries, message: "Shelf cleared. Original files are unchanged.")
                             if case .accepted = store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: { $0.shelfFiles = [] }) { undoPending = pending; message = nil }
                         }
-                        .buttonStyle(.borderless).foregroundStyle(Color(nsColor: .systemRed))
+                        .buttonStyle(.borderless).foregroundStyle(WidgetPalette.critical)
                     }
                     .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
                 }
@@ -163,9 +234,17 @@ struct FileShelfView: View {
             .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
             if let message { WidgetPopoutCaption(message).accessibilityLabel(message) }
             if !AppRuntimeEnvironment.allowsNativeEffects { WidgetPopoutCaption(utilityIsolatedActionMessage) }
-            WidgetPopoutCaption("Removing an item leaves the original file in place.")
-                .help("The shelf keeps references, not copies. Copy files here, then paste them in Finder with ⌘V.")
         }
+        .task(id: ShelfAvailabilityKey(entries: entries, request: availabilityRequest)) {
+            let current = entries
+            let resolved = await Task.detached(priority: .userInitiated) { ShelfFileAvailability.resolve(current) }.value
+            guard !Task.isCancelled else { return }
+            availability = resolved
+        }
+    }
+    private struct ShelfAvailabilityKey: Equatable {
+        var entries: [ShelfFile]
+        var request: Int
     }
     private var fileList: some View {
         GroupedSection(separatorInset: Self.rowSeparatorInset) {
@@ -173,16 +252,26 @@ struct FileShelfView: View {
         }
     }
     private func fileRow(_ entry: ShelfFile) -> some View {
-        let url = entry.resolvedURL
-        let exists = FileManager.default.fileExists(atPath: url.path)
+        let resolved = shelfState(entry)
+        let url = resolved.url
+        let exists = resolved.exists
         return WidgetPopoutRow {
             HStack(spacing: DockDesign.Grouped.glyphSpacing) {
-                GroupedRowGlyph(symbol: exists ? "doc.fill" : "exclamationmark.triangle.fill", color: exists ? .gray : .orange)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(url.lastPathComponent).font(DockDesign.Grouped.titleFont).lineLimit(1)
-                    Text(exists ? url.deletingLastPathComponent().abbreviatingWithTildeInPath : "Original unavailable · moved or deleted")
-                        .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                // Click or Return opens the file, as a link row opens its link; the rest is in the context menu.
+                Button { openFile(url) } label: {
+                    HStack(spacing: DockDesign.Grouped.glyphSpacing) {
+                        GroupedRowGlyph(symbol: exists ? "doc.fill" : "exclamationmark.triangle.fill", color: exists ? .gray : WidgetPalette.warning)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(url.lastPathComponent).font(DockDesign.Grouped.titleFont).lineLimit(1)
+                            Text(exists ? url.deletingLastPathComponent().abbreviatingWithTildeInPath : "Original unavailable · moved or deleted")
+                                .font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer(minLength: 4)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).disabled(!exists)
+                .accessibilityLabel(exists ? "Open \(url.lastPathComponent)" : "\(url.lastPathComponent), original unavailable")
                 if !exists {
                     Button("Locate…") { locate(entry) }.buttonStyle(.borderless).controlSize(.small)
                         .accessibilityLabel("Locate \(url.lastPathComponent)")
@@ -193,10 +282,7 @@ struct FileShelfView: View {
         }
         .contentShape(Rectangle())
         .contextMenu {
-            Button("Open") {
-                guard AppRuntimeEnvironment.allowsNativeEffects else { message = utilityIsolatedActionMessage; return }
-                if !NSWorkspace.shared.open(url) { message = "This file could not be opened." }
-            }.disabled(!exists)
+            Button("Open") { openFile(url) }.disabled(!exists)
             Button("Reveal in Finder") {
                 guard AppRuntimeEnvironment.allowsNativeEffects else { message = utilityIsolatedActionMessage; return }
                 NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -207,19 +293,29 @@ struct FileShelfView: View {
         }
         .onDrag { AppRuntimeEnvironment.allowsNativeEffects && exists ? NSItemProvider(contentsOf: url) ?? NSItemProvider() : NSItemProvider() }
     }
+    private func openFile(_ url: URL) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { message = utilityIsolatedActionMessage; return }
+        if !NSWorkspace.shared.open(url) { message = "This file could not be opened." }
+    }
     private func chooseFiles() {
         guard AppRuntimeEnvironment.allowsNativeEffects else { message = utilityIsolatedActionMessage; return }
         let panel = NSOpenPanel()
         panel.title = "Add to File Shelf"; panel.prompt = "Keep in Shelf"
         panel.canChooseFiles = true; panel.canChooseDirectories = true; panel.allowsMultipleSelection = true
         guard panel.runModal() == .OK else { return }
-        store.updateWidgetConfiguration(itemID: item.id, in: profileID) { $0.shelfFiles = FileShelfPolicy.adding(panel.urls, to: $0.shelfFiles) }
-        message = nil
+        let chosen = panel.urls
+        var added = 0
+        let result = store.updateWidgetConfiguration(itemID: item.id, in: profileID) {
+            let updated = FileShelfPolicy.adding(chosen, to: $0.shelfFiles)
+            added = updated.count - $0.shelfFiles.count
+            $0.shelfFiles = updated
+        }
+        message = WidgetConfigurationLookup.rejection(result) ?? FileShelfPolicy.skippedMessage(chosen: chosen.count, added: added)
     }
     private func locate(_ entry: ShelfFile) {
         guard AppRuntimeEnvironment.allowsNativeEffects else { message = utilityIsolatedActionMessage; return }
         let panel = NSOpenPanel()
-        panel.title = "Locate \(entry.resolvedURL.lastPathComponent)"; panel.prompt = "Use This File"
+        panel.title = "Locate \(shelfState(entry).url.lastPathComponent)"; panel.prompt = "Use This File"
         panel.canChooseFiles = true; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let chosen = panel.url else { return }
         switch FileShelfPolicy.relocating(entry.id, to: chosen, in: entries) {
@@ -228,6 +324,7 @@ struct FileShelfView: View {
                 if case let .relocated(updated) = FileShelfPolicy.relocating(entry.id, to: chosen, in: $0.shelfFiles) { $0.shelfFiles = updated }
             }
             message = "Shelf item now points to \(chosen.lastPathComponent)."
+            availabilityRequest += 1
         case let .duplicate(name): message = "\(name) is already on this shelf, so the missing item was left unchanged. Remove it or choose a different file."
         case .notFound: message = "That file could not be found. The shelf item was left unchanged."
         case .notFileURL: message = "Choose a file on this Mac. The shelf item was left unchanged."
@@ -238,6 +335,7 @@ struct FileShelfView: View {
             store.updateWidgetConfiguration(itemID: item.id, in: profileID) { if let updated = FileShelfPolicy.refreshingStaleBookmarks($0.shelfFiles) { $0.shelfFiles = updated } }
         }
         let missing = entries.filter { !FileShelfPolicy.isAvailable($0) }.count
+        availabilityRequest += 1
         message = missing == 0 ? "All shelf items are available." : "\(missing) shelf item\(missing == 1 ? "" : "s") still unavailable. Reconnect the drive or use Locate…"
     }
     private func remove(_ id: UUID) {
@@ -275,6 +373,11 @@ struct TextSnippetsView: View {
     @State private var editingID: UUID?
     @State private var draftLoaded = false
     @State private var undoPending: RemovedEntries<TextSnippet>?
+    /// The saved snippets lead; the editor sits behind a disclosure that opens with no snippets, for editing and for a draft.
+    @State private var editorExpanded = false
+    @Environment(\.widgetPopoutShowsHero) private var showsHero
+    @Environment(\.widgetPopoutContext) private var popoutContext
+    private var inSheet: Bool { WidgetPopoutContext.resolve(explicit: popoutContext, showsHero: showsHero) == .sheet }
     init(store: ProfileStore, item: DockItem, profileID: UUID) {
         self.store = store; self.item = item; self.profileID = profileID
         self.drafts = store.utilityDrafts
@@ -290,39 +393,6 @@ struct TextSnippetsView: View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
             utilityDraftNotice(kind: "snippet", retained: retainedDraft != nil, waitingToResume: waitingToResume,
                                error: drafts.errorMessage, resume: resumeDraft, discard: discardDraft, retry: { _ = drafts.flush() })
-            VStack(alignment: .leading, spacing: 10) {
-                GroupedSection(editingID == nil ? "New Snippet" : "Edit Snippet", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
-                    WidgetPopoutRow {
-                        TextField("Snippet name (optional)", text: $title).textFieldStyle(.plain).font(DockDesign.Grouped.titleFont)
-                            .accessibilityLabel("Snippet name").disabled(waitingToResume)
-                    }
-                    WidgetPopoutRow(verticalPadding: 4) {
-                        TextEditor(text: $text)
-                            .font(DockDesign.Grouped.titleFont)
-                            .scrollContentBackground(.hidden)
-                            .frame(height: 84)
-                            .overlay(alignment: .topLeading) {
-                                if text.isEmpty {
-                                    Text("Snippet text").font(DockDesign.Grouped.titleFont).foregroundStyle(.secondary)
-                                        .padding(.leading, 5).allowsHitTesting(false).accessibilityHidden(true)
-                                }
-                            }
-                            .accessibilityLabel("Snippet text")
-                            .disabled(waitingToResume)
-                    }
-                }
-                HStack(spacing: 10) {
-                    Button("Use Clipboard") {
-                        guard AppRuntimeEnvironment.allowsNativeEffects else { message = utilityIsolatedActionMessage; return }
-                        if let value = NSPasteboard.general.string(forType: .string), !value.isEmpty { text = value; message = nil }
-                        else { message = "The clipboard has no text to save." }
-                    }
-                    .buttonStyle(GalleryGlassButtonStyle()).disabled(waitingToResume)
-                    Spacer()
-                    PillButton(editingID == nil ? "Save Snippet" : "Save Changes", action: save)
-                        .disabled(waitingToResume || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (editingID == nil && entries.count >= 50))
-                }
-            }
             if entries.isEmpty {
                 GroupedSection {
                     GroupedRow("No snippets yet", subtitle: "Save an email reply, address, command or any text you reuse.", symbol: "doc.on.clipboard", color: .gray)
@@ -346,14 +416,64 @@ struct TextSnippetsView: View {
                 return result == .accepted && restored > 0
             }
             .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+            WidgetPopoutSettingsDisclosure(editingID == nil ? "New Snippet" : "Edit Snippet", isExpanded: $editorExpanded) {
+                editor
+            }
             if let message { WidgetPopoutCaption(message) }
-            WidgetPopoutCaption(entries.count >= 50 ? "Snippet collection full. Remove one to add another." : "Saved locally. Clipboard text is read only when you click Use Clipboard.")
+            if entries.count >= 50 { WidgetPopoutCaption("Snippet collection full. Remove one to add another.") }
         }
-        .onAppear { draftLoaded = retainedDraft == nil }
+        .onAppear {
+            draftLoaded = retainedDraft == nil
+            if entries.isEmpty || retainedDraft != nil { editorExpanded = true }
+        }
         .onChange(of: title) { _ in retainDraft() }
         .onChange(of: text) { _ in retainDraft() }
         .onChange(of: editingID) { _ in retainDraft() }
         .onDisappear { retainDraft(); _ = drafts.flush() }
+    }
+    private var editor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // In the Dock popout the disclosure names the form; in the settings sheet the section does.
+            GroupedSection(inSheet ? (editingID == nil ? "New Snippet" : "Edit Snippet") : nil,
+                           separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+                WidgetPopoutRow {
+                    TextField("Snippet name (optional)", text: SavedCollectionLimits.clamping($title, bytes: SavedCollectionLimits.titleBytes))
+                        .textFieldStyle(.plain).font(DockDesign.Grouped.titleFont)
+                        .accessibilityLabel("Snippet name").disabled(waitingToResume)
+                }
+                WidgetPopoutRow(verticalPadding: 4) {
+                    TextEditor(text: $text)
+                        .font(DockDesign.Grouped.titleFont)
+                        .scrollContentBackground(.hidden)
+                        .frame(height: 84)
+                        .overlay(alignment: .topLeading) {
+                            if text.isEmpty {
+                                Text("Snippet text").font(DockDesign.Grouped.titleFont).foregroundStyle(.secondary)
+                                    .padding(.leading, 5).allowsHitTesting(false).accessibilityHidden(true)
+                            }
+                        }
+                        .accessibilityLabel("Snippet text")
+                        .disabled(waitingToResume)
+                }
+            }
+            // The size limit only shows near it, as in Notes; above it Save stays off and the text stays here.
+            if let usage = SavedCollectionLimits.snippetUsage(text) {
+                WidgetPopoutCaption(usage, color: text.utf8.count > SavedCollectionLimits.snippetTextBytes ? WidgetPalette.critical : .secondary)
+            }
+            HStack(spacing: 10) {
+                Button("Use Clipboard") {
+                    guard AppRuntimeEnvironment.allowsNativeEffects else { message = utilityIsolatedActionMessage; return }
+                    if let value = NSPasteboard.general.string(forType: .string), !value.isEmpty { text = value; message = nil }
+                    else { message = "The clipboard has no text to save." }
+                }
+                .buttonStyle(WidgetRowTextButtonStyle()).disabled(waitingToResume)
+                .help("Clipboard text is read only when you click Use Clipboard. Snippets are saved locally.")
+                Spacer()
+                PillButton(editingID == nil ? "Save Snippet" : "Save Changes", action: save)
+                    .disabled(waitingToResume || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                              || text.utf8.count > SavedCollectionLimits.snippetTextBytes || (editingID == nil && entries.count >= 50))
+            }
+        }
     }
     private var snippetList: some View {
         GroupedSection(separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
@@ -361,16 +481,21 @@ struct TextSnippetsView: View {
                 WidgetPopoutRow {
                     HStack(alignment: .top, spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.title).font(DockDesign.Grouped.titleFont.weight(.semibold)).lineLimit(1)
+                            // An unnamed snippet shows its text only here, in the popout, never on the Dock face.
+                            if !entry.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text(entry.title).font(DockDesign.Grouped.titleFont.weight(.semibold)).lineLimit(1)
+                            }
                             Text(entry.text).font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        Button("Copy") { message = copyUtilityText(entry.text) ? "Copied \(entry.title). Paste with ⌘V." : utilityCopyFailureMessage }
-                            .buttonStyle(.borderless).controlSize(.small)
-                            .accessibilityLabel("Copy \(entry.title)")
-                        WidgetRowIconButton(symbol: "pencil", label: "Edit \(entry.title)") { editingID = entry.id; title = entry.title; text = entry.text }
+                        WidgetRowIconButton(symbol: "doc.on.doc", label: "Copy \(entry.displayTitle)") {
+                            message = copyUtilityText(entry.text) ? "Copied \(entry.displayTitle). Paste with ⌘V." : utilityCopyFailureMessage
+                        }
+                        WidgetRowIconButton(symbol: "pencil", label: "Edit \(entry.displayTitle)") {
+                            editingID = entry.id; title = entry.title; text = entry.text; editorExpanded = true
+                        }
                             .disabled(hasInput || waitingToResume)
-                        WidgetRowIconButton(symbol: "minus.circle", label: "Remove \(entry.title)") { removeSnippet(entry) }
+                        WidgetRowIconButton(symbol: "minus.circle", label: "Remove \(entry.displayTitle)") { removeSnippet(entry) }
                             .disabled(editingID == entry.id)
                     }
                 }
@@ -381,7 +506,8 @@ struct TextSnippetsView: View {
         guard !waitingToResume else { return }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let entry = TextSnippet(id: editingID ?? UUID(), title: name.isEmpty ? String(text.prefix(40)).replacingOccurrences(of: "\n", with: " ") : name, text: text)
+        // A blank name stays blank: the snippet's text is never turned into a visible name.
+        let entry = TextSnippet(id: editingID ?? UUID(), title: name, text: text)
         do {
             try drafts.update(DockUtilityFormDraft(editingID: editingID, title: title, body: text), itemID: item.id, in: profileID, kind: .snippet)
             try store.updateWidgetConfigurationAndPersist(itemID: item.id, in: profileID) { config in
@@ -397,7 +523,7 @@ struct TextSnippetsView: View {
         }
     }
     private func removeSnippet(_ entry: TextSnippet) {
-        let pending = RemovedEntries.capture([entry.id], from: entries, message: "Removed \(entry.title).")
+        let pending = RemovedEntries.capture([entry.id], from: entries, message: "Removed \(entry.displayTitle).")
         if case .accepted = store.updateWidgetConfiguration(itemID: item.id, in: profileID, update: { $0.textSnippets.removeAll { $0.id == entry.id } }) { undoPending = pending }
     }
     private func retainDraft() {
@@ -408,6 +534,7 @@ struct TextSnippetsView: View {
     private func resumeDraft() {
         guard let draft = retainedDraft else { return }
         title = draft.title; text = draft.body; editingID = draft.editingID; draftLoaded = true; message = nil
+        editorExpanded = true
     }
     private func discardDraft() {
         guard drafts.discard(itemID: item.id, in: profileID, kind: .snippet) else { return }
@@ -461,7 +588,8 @@ struct QuickLinksView: View {
             VStack(alignment: .leading, spacing: 10) {
                 GroupedSection(editingID == nil ? "Add Link" : "Edit Link", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
                     WidgetPopoutRow {
-                        TextField("Website name (optional)", text: $title).textFieldStyle(.plain).font(DockDesign.Grouped.titleFont)
+                        TextField("Website name (optional)", text: SavedCollectionLimits.clamping($title, bytes: SavedCollectionLimits.titleBytes))
+                            .textFieldStyle(.plain).font(DockDesign.Grouped.titleFont)
                             .accessibilityLabel("Website name").disabled(waitingToResume)
                     }
                     WidgetPopoutRow {
@@ -475,7 +603,7 @@ struct QuickLinksView: View {
                         if let value = NSPasteboard.general.string(forType: .string), DockLinkPolicy.validatedURL(value) != nil { address = value; message = nil }
                         else { message = "Copy a complete HTTP or HTTPS link first." }
                     }
-                    .buttonStyle(GalleryGlassButtonStyle()).disabled(waitingToResume)
+                    .buttonStyle(WidgetRowTextButtonStyle()).disabled(waitingToResume)
                     Spacer()
                     PillButton(editingID == nil ? "Save Link" : "Save Changes", action: save)
                         .disabled(waitingToResume || address.isEmpty || (editingID == nil && entries.count >= 50))
@@ -488,7 +616,7 @@ struct QuickLinksView: View {
             }
             .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
             if let message { WidgetPopoutCaption(message) }
-            WidgetPopoutCaption(entries.count >= 50 ? "Link collection full. Remove one to add another." : "Saved locally with this Dock. Click a link to open it in your default browser.")
+            if entries.count >= 50 { WidgetPopoutCaption("Link collection full. Remove one to add another.") }
         }
         .onAppear { draftLoaded = retainedDraft == nil }
         .onChange(of: title) { _ in retainDraft() }
@@ -514,6 +642,7 @@ struct QuickLinksView: View {
                                 Spacer(minLength: 4)
                             }.contentShape(Rectangle())
                         }.buttonStyle(.plain).accessibilityLabel("Open \(entry.title)")
+                        .help("Open in your default browser")
                         WidgetRowIconButton(symbol: "doc.on.doc", label: "Copy \(entry.title) URL") {
                             message = copyUtilityText(entry.url.absoluteString) ? "Link copied." : utilityCopyFailureMessage
                         }
@@ -532,7 +661,8 @@ struct QuickLinksView: View {
         guard address.utf8.count <= 8_192, let url = DockLinkPolicy.validatedURL(address) else { message = "Enter a complete HTTP or HTTPS link."; return }
         guard !entries.contains(where: { $0.url == url && $0.id != editingID }) else { message = "This link is already saved."; return }
         let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let entry = QuickLink(id: editingID ?? UUID(), title: String((name.isEmpty ? url.host ?? "Website" : name).prefix(100)), url: url)
+        let entry = QuickLink(id: editingID ?? UUID(), title: SavedCollectionLimits.clamped(String((name.isEmpty ? url.host ?? "Website" : name).prefix(100)),
+                                                                                       bytes: SavedCollectionLimits.titleBytes), url: url)
         do {
             try drafts.update(DockUtilityFormDraft(editingID: editingID, title: title, body: address), itemID: item.id, in: profileID, kind: .link)
             try store.updateWidgetConfigurationAndPersist(itemID: item.id, in: profileID) { config in
@@ -584,7 +714,7 @@ private func utilityDraftNotice(kind: String, retained: Bool, waitingToResume: B
                 }
             }
             if let error {
-                GroupedRow(error, symbol: "exclamationmark.triangle.fill", color: .orange) {
+                GroupedRow(error, symbol: "exclamationmark.triangle.fill", color: WidgetPalette.warning) {
                     Button("Retry Draft Save", action: retry).buttonStyle(.borderless).controlSize(.small)
                 }
             }
@@ -675,7 +805,7 @@ struct UnitConverterView: View {
                 }
                 Spacer()
                 Button(copied ? "Copied" : "Copy Result") { copied = copyUtilityText(resultText) }
-                    .buttonStyle(GalleryGlassButtonStyle()).disabled(result == nil)
+                    .buttonStyle(WidgetRowTextButtonStyle()).disabled(result == nil)
             }
             .padding(.leading, DockDesign.Grouped.rowHorizontalPadding)
         }

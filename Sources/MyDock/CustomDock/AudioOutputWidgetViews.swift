@@ -46,7 +46,7 @@ struct AudioOutputDockFace: View {
 
 private struct AudioOutputCompactView: View {
     @Environment(\.dockWidgetContentWidth) private var contentWidth
-    @StateObject private var service = AudioOutputService.shared
+    @ObservedObject private var service = AudioOutputService.shared
     @State private var subscriptionID = UUID()
 
     private var reading: AudioOutputFaceReading {
@@ -67,30 +67,27 @@ private struct AudioOutputCompactView: View {
 private struct AudioOutputPopoutView: View {
     @Environment(\.widgetPopoutShowsHero) private var showsHero
     @Environment(\.widgetAccent) private var accent
-    @StateObject private var service = AudioOutputService.shared
+    @ObservedObject private var service = AudioOutputService.shared
     @State private var subscriptionID = UUID()
-    /// The slider's value while it is being dragged, so the thumb follows the pointer.
-    @State private var draftVolume: Double?
     private let kind = "Audio Output"
 
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetPopoutMetrics.spacing) {
-            if showsHero {
-                hero
-                deviceList
-                controlsSection
-                if let error = service.lastError {
-                    Label(error.message, systemImage: "exclamationmark.triangle")
-                        .font(DockDesign.Grouped.footerFont).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
-                        .accessibilityElement(children: .combine)
-                }
+            // With Customize open only the hero steps aside; the devices and controls stay.
+            if showsHero { hero }
+            deviceList
+            controlsSection
+            if let error = service.lastError {
+                Label(error.message, systemImage: "exclamationmark.triangle")
+                    .font(DockDesign.Grouped.footerFont).foregroundStyle(WidgetPalette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+                    .accessibilityElement(children: .combine)
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .onAppear { if showsHero { service.subscribe(subscriptionID, popout: true) } }
+        .onAppear { service.subscribe(subscriptionID, popout: true) }
         .onDisappear { service.unsubscribe(subscriptionID) }
     }
 
@@ -153,7 +150,7 @@ private struct AudioOutputPopoutView: View {
         if controls.volume != nil || controls.isMuted != nil {
             GroupedSection {
                 if let volume = controls.volume {
-                    volumeRow(current: draftVolume ?? volume)
+                    volumeRow(current: volume)
                 }
                 if let muted = controls.isMuted {
                     GroupedRow("Mute", isOn: Binding(get: { muted }, set: { service.setMuted($0) }))
@@ -169,12 +166,9 @@ private struct AudioOutputPopoutView: View {
         WidgetPopoutRow {
             HStack(spacing: 10) {
                 Image(systemName: "speaker.fill").font(.system(size: 11)).foregroundStyle(.secondary).accessibilityHidden(true)
-                Slider(value: Binding(get: { current }, set: { value in
-                    draftVolume = value
-                    service.setVolume(value)
-                }), in: 0...1, onEditingChanged: { editing in
-                    if !editing { draftVolume = nil }
-                })
+                // Bound to the device's volume, which a successful write updates at once, so the slider
+                // also follows the volume keys and other apps, and snaps back after a refused write.
+                Slider(value: Binding(get: { current }, set: { service.setVolume($0) }), in: 0...1)
                 .accessibilityLabel("Volume")
                 .accessibilityValue(AudioOutputPresentation.percentText(current))
                 Image(systemName: "speaker.wave.3.fill").font(.system(size: 11)).foregroundStyle(.secondary).accessibilityHidden(true)

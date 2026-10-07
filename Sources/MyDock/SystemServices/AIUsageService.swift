@@ -12,6 +12,8 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable {
     case antigravity
 
     var id: String { rawValue }
+    /// The providers with a local activity source; AI Activity offers and decodes only these.
+    static let localActivityProviders: [AIProvider] = [.codex, .claude, .grok]
     var title: String {
         switch self {
         case .codex: "Codex"
@@ -410,11 +412,10 @@ struct AIActivitySnapshot: Codable, Hashable {
         return "\(totals.totalTokens.formatted()) tokens"
     }
 
-    /// Marks a total honestly: "~" when duplicates could not be ruled out (it may be too high),
-    /// "+" when some records could not be read (a lower bound). Estimates carry their own label.
+    /// Marks a total honestly: "~" when it is approximate (a local estimate, or duplicates could not be ruled out, so it
+    /// may be too high), "+" when some records could not be read (a lower bound).
     func qualified(_ value: String) -> String {
-        if estimated { return value }
-        if possiblyOverstated { return "~" + value }
+        if estimated || possiblyOverstated { return "~" + value }
         return partial ? value + "+" : value
     }
 }

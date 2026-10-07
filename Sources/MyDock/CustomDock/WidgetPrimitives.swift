@@ -560,10 +560,7 @@ struct SystemTelemetryDockFace: View {
     @Environment(\.widgetAccent) private var accent
     private let kind = "System Activity"
     private var value: String { cpu.map { "\(Int($0.rounded()))%" } ?? "—" }
-    private var stateColor: Color {
-        guard let cpu else { return .primary }
-        return cpu >= 90 ? WidgetPalette.critical : cpu >= 75 ? WidgetPalette.warning : .primary
-    }
+    private var stateColor: Color { SystemActivityState.color(cpu: cpu) }
     private var chartColor: Color { stateColor == .primary ? WidgetPalette.resolved(kind: kind, accent: accent) : stateColor }
     var body: some View {
         Group {
@@ -626,14 +623,15 @@ struct SystemTelemetryDockFace: View {
 }
 
 enum NetworkRateText {
+    /// One clamp for every rate surface: the Dock face, the popout and the related rows agree.
     static func full(_ value: Double?) -> String {
-        guard let value, value.isFinite else { return "—" }
-        return ByteCountFormatter.string(fromByteCount: Int64(min(Double(Int64.max / 2), max(0, value))), countStyle: .file) + "/s"
+        SystemDetailFormatting.rate(value) ?? "—"
     }
     /// Narrow faces: "2.4M", "148K", "0"; the decimal separator follows the locale ("2,4M").
     static func short(_ value: Double?, locale: Locale = .current) -> String {
         guard let value, value.isFinite else { return "—" }
-        let bytes = max(0, value)
+        // Bounded so Int(_:) below cannot trap on a pathological reading.
+        let bytes = min(max(0, value), 9.0e18)
         let units: [(Double, String)] = [(1e9, "G"), (1e6, "M"), (1e3, "K")]
         for (scale, suffix) in units where bytes >= scale {
             let scaled = bytes / scale
@@ -819,13 +817,9 @@ enum WeatherForecastFaceLayout {
     }
 }
 
-/// When a cached forecast stops reading as current: the face greys it and marks it, rather than
-/// showing yesterday's temperature as today's.
+/// The Weather face before any forecast. A stale forecast (WeatherFreshness, the popout's rule) is greyed and
+/// marked rather than shown as current.
 enum WeatherFaceFreshness {
-    static let maximumAge: TimeInterval = 3 * 3_600
-    static func isStale(fetchedAt: Date, now: Date) -> Bool {
-        WidgetFreshnessPresentation.state(isRefreshing: false, updatedAt: fetchedAt, failed: false, now: now, maximumAge: maximumAge) == .stale
-    }
     /// The face's value before any forecast: a city to set, a failed refresh, or the first load.
     static func placeholder(hasLocation: Bool, failed: Bool) -> String {
         !hasLocation ? "Set city" : failed ? "Unavailable" : "Loading"
@@ -850,7 +844,7 @@ struct WeatherDockFace: View {
         if let forecast = configuration.cachedWeatherForecast {
             let temperature = WeatherDockTemperatureFormatter.text(forecast.temperature, unit: configuration.weatherUnit)
             let symbol = WeatherCode.symbol(forecast.weatherCode, isDay: forecast.isDay)
-            let stale = WeatherFaceFreshness.isStale(fetchedAt: forecast.fetchedAt, now: now)
+            let stale = WeatherFreshness.isStale(fetchedAt: forecast.fetchedAt, failed: failed, now: now)
             let valueColor: Color = stale ? .secondary : .primary
             Group {
                 if WidgetModuleMetrics.isNarrow(width) {
@@ -1195,14 +1189,14 @@ private struct MarketFace: View {
         let ticker = snapshot?.symbol ?? (c.stockSymbol.isEmpty ? "Stock" : c.stockSymbol)
         let narrow = WidgetModuleMetrics.isNarrow(width)
         let trend = layout == .trend && !narrow
-        let change = snapshot?.changePercent
-        let changeColor = MarketFaceText.changeColor(snapshot?.change)
+        // The tested face rule: the Mac's number format, and colour only for a fall (rising stays neutral).
+        let changeColor = StockFaceFormatting.changeColor(snapshot?.change)
         HStack(spacing: 8) {
             if let snapshot, let latest = snapshot.latest {
                 ModuleStack(kind: kind, label: narrow ? FinancialFacePresentation.shortTicker(ticker) : ticker,
                             value: latest.close.formatted(.number.precision(.fractionLength(2))), unit: trend ? "" : snapshot.currency,
                             size: narrow ? .small : trend ? .large : .medium,
-                            trailing: trend ? change.map { MarketFaceText.change($0) } : nil, trailingColor: changeColor,
+                            trailing: trend ? StockFaceFormatting.faceChangeText(snapshot.changePercent) : nil, trailingColor: changeColor,
                             keepsLeading: trend)
                     .help(ticker)
                 if trend {
@@ -1221,7 +1215,7 @@ private struct MarketFace: View {
             return kind == "Watchlist" && c.watchlistStocks.isEmpty ? "No tickers" : "No ticker set"
         }
         let price = latest.close.formatted(.number.precision(.fractionLength(2))) + " " + snapshot.currency
-        return ([ticker, price] + (snapshot.changePercent.map { [MarketFaceText.change($0)] } ?? [])).joined(separator: ", ")
+        return ([ticker, price] + [StockFaceFormatting.faceChangeText(snapshot.changePercent)].compactMap { $0 }).joined(separator: ", ")
     }
 }
 
@@ -1238,18 +1232,6 @@ enum DockNumberText {
     static func milliliters(_ amount: Int, locale: Locale = .current) -> String {
         Measurement(value: Double(amount), unit: UnitVolume.milliliters)
             .formatted(Measurement<UnitVolume>.FormatStyle(width: .abbreviated, locale: locale, usage: .asProvided))
-    }
-}
-
-/// Locale-aware market face numbers, like the byte counts beside them ("+1,2 %" in a comma locale).
-enum MarketFaceText {
-    static func change(_ percent: Double, locale: Locale = .current) -> String {
-        (percent / 100).formatted(.percent.precision(.fractionLength(1)).sign(strategy: .always()).locale(locale))
-    }
-    /// Colour marks a real move only: an unchanged or unknown price (under half a cent) stays secondary.
-    static func changeColor(_ change: Double?) -> Color {
-        guard let change, change.isFinite, abs(change) >= 0.005 else { return .secondary }
-        return change < 0 ? WidgetPalette.critical : WidgetPalette.positive
     }
 }
 

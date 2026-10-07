@@ -62,16 +62,18 @@ enum SystemDetailFormatting {
     static func freshness(updatedAt: Date?, failed: Bool, now: Date, maximumAge: TimeInterval) -> String {
         let state = WidgetFreshnessPresentation.state(isRefreshing: false, updatedAt: updatedAt, failed: failed,
                                                       now: now, maximumAge: maximumAge)
-        let relative = updatedAt.map { date -> String in
-            guard abs(now.timeIntervalSince(date)) >= 60 else { return "just now" }
+        func relative(_ date: Date, stale: Bool) -> String {
+            let age = now.timeIntervalSince(date)
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .full
             formatter.dateTimeStyle = .numeric
-            return formatter.localizedString(for: date, relativeTo: now)
+            guard abs(age) < 60 else { return formatter.localizedString(for: date, relativeTo: now) }
+            // A stale reading never says "just now": under a minute it counts the seconds.
+            return stale ? formatter.localizedString(fromTimeInterval: -max(1, age.rounded())) : "just now"
         }
         switch state {
-        case .fresh: return "Updated " + (relative ?? "just now")
-        case .stale: return relative.map { "Last reading " + $0 } ?? "Reading unavailable"
+        case .fresh: return "Updated " + (updatedAt.map { relative($0, stale: false) } ?? "just now")
+        case .stale: return updatedAt.map { "Last reading " + relative($0, stale: true) } ?? "Reading unavailable"
         case .updating, .empty: return "Waiting for a reading"
         }
     }
@@ -85,11 +87,18 @@ struct SystemDetailNetworkSection: View {
     @State private var subscriptionID = UUID()
     @DockAccessibilityStyle() private var accessibility
     #if DEBUG
-    @Environment(\.facesBNetworkReadings) private var fixture
+    @Environment(\.networkActivityFixture) private var fixture
     #endif
 
     init() {}
 
+    /// Every field comes from one reading: the live monitor, or (DEBUG render QA) a fixture.
+    private var readings: NetworkActivityReadings {
+        #if DEBUG
+        if let fixture { return fixture }
+        #endif
+        return NetworkActivityReadings(monitor)
+    }
     private var isFixture: Bool {
         #if DEBUG
         return fixture != nil
@@ -97,48 +106,18 @@ struct SystemDetailNetworkSection: View {
         return false
         #endif
     }
-    private var download: Double? {
-        #if DEBUG
-        if let fixture { return fixture.aggregateDownloadRate }
-        #endif
-        return monitor.aggregateDownloadRate
-    }
-    private var upload: Double? {
-        #if DEBUG
-        if let fixture { return fixture.aggregateUploadRate }
-        #endif
-        return monitor.aggregateUploadRate
-    }
-    private var downloadHistory: [Double] {
-        #if DEBUG
-        if let fixture { return fixture.downloadHistory }
-        #endif
-        return monitor.downloadHistory
-    }
-    private var uploadHistory: [Double] {
-        #if DEBUG
-        if let fixture { return fixture.uploadHistory }
-        #endif
-        return monitor.uploadHistory
-    }
-    private var hasCompletedRateSample: Bool {
-        #if DEBUG
-        if let fixture { return fixture.hasCompletedRateSample }
-        #endif
-        return monitor.hasCompletedRateSample
-    }
-    private var updatedAt: Date? {
-        #if DEBUG
-        if let fixture { return fixture.updatedAt }
-        #endif
-        return monitor.updatedAt
-    }
 
     var body: some View {
-        GroupedSection("Network", footer: SystemDetailFormatting.freshness(updatedAt: updatedAt, failed: false, now: Date(),
-                                                                           maximumAge: SystemDetailSections.networkMaximumAge)) {
-            rateRow("Download", symbol: "arrow.down", rate: download, history: downloadHistory)
-            rateRow("Upload", symbol: "arrow.up", rate: upload, history: uploadHistory)
+        // The footer's age stays current when samples stop arriving, so a frozen reading turns stale.
+        let reading = readings
+        TimelineView(.periodic(from: .now, by: 4)) { context in
+            GroupedSection("Network", footer: SystemDetailFormatting.freshness(updatedAt: reading.updatedAt, failed: reading.lastReadFailed,
+                                                                               now: context.date, maximumAge: SystemDetailSections.networkMaximumAge)) {
+                rateRow("Download", symbol: "arrow.down", rate: reading.aggregateDownloadRate, history: reading.downloadHistory,
+                        hasCompletedSample: reading.hasCompletedRateSample)
+                rateRow("Upload", symbol: "arrow.up", rate: reading.aggregateUploadRate, history: reading.uploadHistory,
+                        hasCompletedSample: reading.hasCompletedRateSample)
+            }
         }
         .onAppear {
             guard !isFixture else { return }
@@ -147,8 +126,8 @@ struct SystemDetailNetworkSection: View {
         .onDisappear { monitor.unsubscribe(subscriptionID) }
     }
 
-    private func rateRow(_ title: String, symbol: String, rate: Double?, history: [Double]) -> some View {
-        let value = SystemDetailFormatting.rateValue(rate, hasCompletedSample: hasCompletedRateSample)
+    private func rateRow(_ title: String, symbol: String, rate: Double?, history: [Double], hasCompletedSample: Bool) -> some View {
+        let value = SystemDetailFormatting.rateValue(rate, hasCompletedSample: hasCompletedSample)
         let lineColor: Color = accessibility.contrast == .increased ? .primary : .secondary
         return GroupedRow(title, symbol: symbol, accessory: {
             HStack(spacing: 10) {
@@ -172,7 +151,7 @@ struct SystemDetailStorageSection: View {
     @State private var sampledAt: Date?
     @State private var refreshFailed = false
     #if DEBUG
-    @Environment(\.facesBSystemReadings) private var fixture
+    @Environment(\.systemActivityFixture) private var fixture
     #endif
 
     init() {}
@@ -196,7 +175,7 @@ struct SystemDetailStorageSection: View {
     }
     private var shownSampledAt: Date? {
         #if DEBUG
-        if let fixture { return fixture.lastUpdated }
+        if let fixture { return fixture.storageSampledAt }
         #endif
         return sampledAt
     }

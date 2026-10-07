@@ -58,7 +58,7 @@ struct WidgetCardPreview: View {
         case "Now Playing": MediaDockFace(title: "Dreams", artist: "Fleetwood Mac", artwork: nil, isPlaying: true)
         case "World Clock": WorldClockDockFace(configuration: WidgetConfiguration())
         case "Reminders": RemindersModuleFace(count: 3, context: "Weekend errands")
-        case "Stripe", "Paddle", "Shopify": FacesBBusinessDockFace(kind: kind, title: kind, metric: kind == "Shopify" ? "Order value" : "Revenue", amount: 2_400, currency: "USD", fullValue: "$2,400.00", context: "Today")
+        case "Stripe", "Paddle", "Shopify": BusinessDockFace(kind: kind, title: kind, metric: kind == "Shopify" ? "Order value" : "Revenue", amount: 2_400, currency: "USD", fullValue: "$2,400.00", context: "Today")
         case "Alarm":
             // The live Alarm face with a sample next alarm.
             AlarmDockFace(time: Self.sampleAlarmTime, title: "Morning")

@@ -257,7 +257,7 @@ private struct WidgetSurfaceQALongReadings: View {
             module("Sticky Note", .standard) { LocalWidgetDockFace(item: note) }
             ForEach(["Today", "7 days", "Last 30 days", "Month to date"], id: \.self) { period in
                 module("Paddle", .standard) {
-                    FacesBBusinessDockFace(kind: "Paddle", title: "Paddle", metric: "Revenue", amount: 12_400, currency: "USD",
+                    BusinessDockFace(kind: "Paddle", title: "Paddle", metric: "Revenue", amount: 12_400, currency: "USD",
                                            fullValue: "$12,400.00", context: period)
                 }
             }

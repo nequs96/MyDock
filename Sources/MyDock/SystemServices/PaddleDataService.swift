@@ -16,6 +16,8 @@ enum PaddleMetric: String, Codable, CaseIterable, Identifiable {
         case .activeSubscribers: "Active subscribers"
         }
     }
+    /// A run rate or count read now, not a total over the chosen period.
+    var isPointInTime: Bool { self != .netRevenue }
 }
 
 enum PaddlePeriod: String, Codable, CaseIterable, Identifiable {

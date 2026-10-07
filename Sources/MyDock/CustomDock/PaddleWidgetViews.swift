@@ -16,11 +16,11 @@ struct PaddleCompactView: View {
     private var snapshot: PaddleSnapshot? { configuration.paddleSnapshot }
 
     var body: some View {
-        FacesBBusinessDockFace(kind: "Paddle", title: configuration.paddleDisplayName, metric: configuration.paddleMetric.title,
+        BusinessDockFace(kind: "Paddle", title: configuration.paddleDisplayName, metric: configuration.paddleMetric.title,
             amount: snapshot.map { PaddleMetricFormatter.amount(for: configuration.paddleMetric, snapshot: $0) },
             currency: configuration.paddleMetric == .activeSubscribers ? nil : snapshot?.currency,
             fullValue: snapshot.map { PaddleMetricFormatter.text(for: configuration.paddleMetric, snapshot: $0) },
-            context: configuration.paddlePeriod.faceToken, emptyValue: configuration.paddleAccountID.isEmpty ? "Connect" : "No data")
+            context: configuration.paddleMetric.isPointInTime ? "Now" : configuration.paddlePeriod.faceToken, emptyValue: configuration.paddleAccountID.isEmpty ? "Connect" : "No data")
     }
 }
 
@@ -38,8 +38,6 @@ private struct PaddlePopoutView: View {
     @State private var isConnecting = false
     @Environment(\.widgetPopoutShowsHero) private var showsHero
     @State private var showsSettings = false
-    @State private var isRefreshing = false
-    @State private var refreshRequestID = UUID()
     @State private var isDisconnectConfirmationPresented = false
     @State private var errorMessage: String?
 
@@ -51,9 +49,11 @@ private struct PaddlePopoutView: View {
         VStack(alignment: .leading, spacing: 16) {
             if showsHero {
                 if let snapshot {
+                    // MRR, ARR and subscribers are read now; only net revenue covers the chosen period.
                     WidgetPopoutHero(
                         value: PaddleMetricFormatter.text(for: configuration.paddleMetric, snapshot: snapshot),
-                        caption: "\(configuration.paddleMetric.title) · \(configuration.paddleMetric.popoutUnit(currency: snapshot.currency)) · \(snapshot.period.title)")
+                        caption: "\(configuration.paddleMetric.title) · \(configuration.paddleMetric.popoutUnit(currency: snapshot.currency)) · \(configuration.paddleMetric.isPointInTime ? "Now" : snapshot.period.title)",
+                        valueColor: FacesBFinancialFormatting.stateColor(PaddleMetricFormatter.amount(for: configuration.paddleMetric, snapshot: snapshot)))
                     if configuration.paddleShowsChart { metricChart(snapshot) }
                 } else {
                     WidgetPopoutHero(
@@ -65,14 +65,15 @@ private struct PaddlePopoutView: View {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            if !PaddleSetupPresentation.showsSettings(accountID: configuration.paddleAccountID, hasSavedReading: snapshot != nil) {
+            if !BusinessSetupPresentation.showsSettings(accountID: configuration.paddleAccountID, hasSavedReading: snapshot != nil) {
                 connectionControls
             } else {
                 WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) { controls }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .task(id: "\(configuration.paddleAccountID)|\(configuration.paddlePeriod.rawValue)|\(configuration.paddleDisplayName)") {
+        // The account and period identify the reading; renaming the account is cosmetic and never refetches.
+        .task(id: "\(configuration.paddleAccountID)|\(configuration.paddlePeriod.rawValue)") {
             guard !snapshotRendering, !configuration.paddleAccountID.isEmpty else { return }
             await refresh()
         }
@@ -85,7 +86,7 @@ private struct PaddlePopoutView: View {
             Button("Disconnect and Remove Key", role: .destructive) { disconnect() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the Paddle API key from this Mac's Keychain and disconnects every MyDock widget using it. It does not revoke the key in Paddle.")
+            Text("This removes the Paddle API key from this Mac's Keychain, disconnects every MyDock widget using it and removes their saved figures. It does not revoke the key in Paddle.")
         }
     }
 
@@ -130,7 +131,18 @@ private struct PaddlePopoutView: View {
                 if !configuration.paddleAccountID.isEmpty {
                     GroupedRow("Disconnect", role: .destructive) { isDisconnectConfirmationPresented = true }
                 } else {
-                    if !PaddleSetupPresentation.showsSettings(accountID: configuration.paddleAccountID, hasSavedReading: snapshot != nil) {
+                    // An account connected for another widget is offered first, so its key is never entered twice.
+                    if BusinessSetupPresentation.offersExistingConnections(accountID: configuration.paddleAccountID,
+                                                                           hasSavedReading: snapshot != nil, connectionCount: connections.count) {
+                        GroupedRow("Account") {
+                            Picker("Account", selection: accountBinding) {
+                                Text("None").tag("")
+                                ForEach(connections) { account in Text(account.name).tag(account.id) }
+                            }
+                            .labelsHidden()
+                        }
+                    }
+                    if !BusinessSetupPresentation.showsSettings(accountID: configuration.paddleAccountID, hasSavedReading: snapshot != nil) {
                         GroupedRow("Account name") {
                             TextField("Account name", text: connectionAccountNameBinding).textFieldStyle(.plain)
                                 .disabled(isConnecting)
@@ -168,13 +180,11 @@ private struct PaddlePopoutView: View {
     @ViewBuilder
     private func metricChart(_ snapshot: PaddleSnapshot) -> some View {
         let series = PaddleChartAccessibility.series(snapshot, metric: configuration.paddleMetric)
-        ZStack {
-            MicroSparkline(values: series.map(\.value), color: .secondary)
-        }
+        MicroSparkline(values: series.map(\.value), color: .secondary)
         .frame(height: 82)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(configuration.paddleMetric.title) by UTC day")
-        .accessibilityValue(FacesBChartAccessibility.valueList(series, timeZone: TimeZone(secondsFromGMT: 0)!,
+        .accessibilityValue(FacesBChartAccessibility.valueList(series, timeZone: .gmt,
             currency: configuration.paddleMetric == .activeSubscribers ? nil : snapshot.currency))
     }
 
@@ -209,15 +219,9 @@ private struct PaddlePopoutView: View {
         Binding(get: { configuration.paddleDisplayName }, set: { value in update { $0.paddleDisplayName = String(value.prefix(80)) } })
     }
 
+    /// Opening the popout honours the coordinator's cache; the header's refresh control is the forced refresh.
     private func refresh() async {
-        let requestID = UUID()
-        refreshRequestID = requestID
-        isRefreshing = true
-        defer { if refreshRequestID == requestID { isRefreshing = false } }
-        var currentItem = item
-        currentItem.widgetConfiguration = configuration
-        await store.widgetData.refresh(item: currentItem, profileID: profileID)
-        guard refreshRequestID == requestID, !Task.isCancelled else { return }
+        await store.widgetData.refresh(item: item, profileID: profileID, force: false)
     }
 
     private func connect() async {
@@ -244,6 +248,8 @@ private struct PaddlePopoutView: View {
                 $0.paddleColor = account.color
                 $0.paddleSnapshot = nil
             }
+            // Like the Connections Center: cached figures and errors from an earlier connection are dropped.
+            store.widgetData.connectionsDidChange()
         } catch {
             guard !Task.isCancelled else { return }
             DiagnosticsService.shared.record(.paddleConnectionFailed)
@@ -254,12 +260,11 @@ private struct PaddlePopoutView: View {
     private func disconnect() {
         let selectedID = configuration.paddleAccountID
         guard !selectedID.isEmpty else { return }
-        refreshRequestID = UUID()
-        isRefreshing = false
         do {
             try PaddleConnectionDirectory.remove(accountID: selectedID)
             reloadConnections()
             store.clearConnectionReferences(.paddle(selectedID))
+            store.widgetData.connectionsDidChange()
             errorMessage = nil
         } catch {
             DiagnosticsService.shared.record(.paddleDisconnectionFailed)
@@ -342,8 +347,3 @@ extension PaddleMetric {
     func popoutUnit(currency: String) -> String { self == .activeSubscribers ? "customers" : currency }
 }
 
-enum PaddleSetupPresentation {
-    static func showsSettings(accountID: String, hasSavedReading: Bool) -> Bool {
-        !accountID.isEmpty || hasSavedReading
-    }
-}

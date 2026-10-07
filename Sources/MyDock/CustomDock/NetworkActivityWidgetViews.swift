@@ -20,6 +20,8 @@ final class NetworkActivityMonitor: ObservableObject {
     @Published private(set) var downloadHistory: [Double] = []
     @Published private(set) var uploadHistory: [Double] = []
     @Published private(set) var hasCompletedRateSample = false
+    /// The last interface read failed, so the shown rates are no longer current.
+    @Published private(set) var lastReadFailed = false
 
     private var subscribers = Set<UUID>()
     private var visiblePopouts = Set<UUID>()
@@ -61,6 +63,7 @@ final class NetworkActivityMonitor: ObservableObject {
             downloadHistory = []
             uploadHistory = []
             hasCompletedRateSample = false
+            lastReadFailed = false
             return
         }
         samplingTask = Task { [weak self] in
@@ -74,7 +77,10 @@ final class NetworkActivityMonitor: ObservableObject {
 
     private func sample() async {
         let reading = await Task.detached(priority: .utility) { NetworkInterfaceReader.read() }.value
-        guard let reading else { return }
+        // Sampling may have stopped (and reset) during the read: a late sample must not restore its state.
+        guard samplingTask != nil, !Task.isCancelled else { return }
+        guard let reading else { lastReadFailed = true; return }
+        lastReadFailed = false
         if let previousReading {
             interfaces = NetworkRateCalculator.rates(previous: previousReading, current: reading)
             hasCompletedRateSample = true
@@ -107,38 +113,34 @@ private struct NetworkActivityCompactWidgetView: View {
     @State private var subscriptionID = UUID()
 
     #if DEBUG
-    @Environment(\.facesBNetworkReadings) private var fixture
+    @Environment(\.networkActivityFixture) private var fixture
     #endif
-    private var aggregateDownloadRate: Double? {
+    /// Every field comes from one reading: the live monitor, or (DEBUG render QA) a fixture.
+    private var readings: NetworkActivityReadings {
         #if DEBUG
-        if let fixture { return fixture.aggregateDownloadRate }
+        if let fixture { return fixture }
         #endif
-        return monitor.aggregateDownloadRate
+        return NetworkActivityReadings(monitor)
     }
-    private var aggregateUploadRate: Double? {
+    private var isFixture: Bool {
         #if DEBUG
-        if let fixture { return fixture.aggregateUploadRate }
+        return fixture != nil
+        #else
+        return false
         #endif
-        return monitor.aggregateUploadRate
     }
-    private var downloadHistory: [Double] {
-        #if DEBUG
-        if let fixture { return fixture.downloadHistory }
-        #endif
-        return monitor.downloadHistory
-    }
+
     var body: some View {
-        NetworkDockFace(download: aggregateDownloadRate, upload: aggregateUploadRate, history: downloadHistory)
+        let reading = readings
+        NetworkDockFace(download: reading.aggregateDownloadRate, upload: reading.aggregateUploadRate, history: reading.downloadHistory)
             .frame(width: contentWidth, height: 54)
             .onAppear {
-                #if DEBUG
-                if fixture != nil { return }
-                #endif
+                guard !isFixture else { return }
                 monitor.subscribe(subscriptionID)
             }
             .onDisappear { monitor.unsubscribe(subscriptionID) }
             .accessibilityElement(children: .ignore).accessibilityLabel("Network Activity")
-            .accessibilityValue("Download \(rateText(aggregateDownloadRate)), upload \(rateText(aggregateUploadRate))")
+            .accessibilityValue("Download \(NetworkRateText.full(reading.aggregateDownloadRate)), upload \(NetworkRateText.full(reading.aggregateUploadRate))")
     }
 }
 
@@ -146,52 +148,42 @@ private struct NetworkActivityPopoutWidgetView: View {
     var store: ProfileStore
     var profileID: UUID
     @Environment(\.widgetPopoutShowsHero) private var showsHero
-    @State private var showsSettings = false
     @State private var showsOtherInterfaces = false
     @StateObject private var monitor = NetworkActivityMonitor.shared
     @State private var subscriptionID = UUID()
 
     #if DEBUG
-    @Environment(\.facesBNetworkReadings) private var fixture
+    @Environment(\.networkActivityFixture) private var fixture
     #endif
-    private var interfaces: [NetworkInterfaceRate] {
+    /// Every field comes from one reading: the live monitor, or (DEBUG render QA) a fixture.
+    private var readings: NetworkActivityReadings {
         #if DEBUG
-        if let fixture { return fixture.interfaces }
+        if let fixture { return fixture }
         #endif
-        return monitor.interfaces
+        return NetworkActivityReadings(monitor)
     }
-    private var downloadHistory: [Double] {
+    private var isFixture: Bool {
         #if DEBUG
-        if let fixture { return fixture.downloadHistory }
+        return fixture != nil
+        #else
+        return false
         #endif
-        return monitor.downloadHistory
     }
-    private var uploadHistory: [Double] {
-        #if DEBUG
-        if let fixture { return fixture.uploadHistory }
-        #endif
-        return monitor.uploadHistory
-    }
-    private var hasCompletedRateSample: Bool {
-        #if DEBUG
-        if let fixture { return fixture.hasCompletedRateSample }
-        #endif
-        return monitor.hasCompletedRateSample
-    }
+
     var body: some View {
+        let reading = readings
         VStack(alignment: .leading, spacing: 12) {
+            // Sampled live, so there is no manual refresh control and no settings: the reading is the popout.
             if showsHero {
-                // Sampled live every 4 seconds, so there is no manual refresh control (one pattern: content over chrome).
-                Text("Live samples every 4 seconds").font(DockDesign.Grouped.subtitleFont).foregroundStyle(.secondary)
                 HStack(spacing: 10) {
-                    rateCard(title: "Download", value: aggregate(\.receivedBytesPerSecond), history: downloadHistory, color: .secondary, symbol: "arrow.down")
-                    rateCard(title: "Upload", value: aggregate(\.sentBytesPerSecond), history: uploadHistory, color: .secondary, symbol: "arrow.up")
+                    rateCard(title: "Download", value: aggregate(\.receivedBytesPerSecond, reading), history: reading.downloadHistory, color: .secondary, symbol: "arrow.down")
+                    rateCard(title: "Upload", value: aggregate(\.sentBytesPerSecond, reading), history: reading.uploadHistory, color: .secondary, symbol: "arrow.up")
                 }
-                GroupedSection("Interfaces") {
-                    let active = NetworkInterfacePresentation.active(interfaces)
+                GroupedSection("Interfaces", footer: "Samples every 4 seconds while the Dock or popout is visible.") {
+                    let active = NetworkInterfacePresentation.active(reading.interfaces)
                     if active.isEmpty { GroupedRow("No active network interfaces", symbol: "network.slash") }
                     ForEach(active) { interface in interfaceRow(interface) }
-                    let other = NetworkInterfacePresentation.other(interfaces)
+                    let other = NetworkInterfacePresentation.other(reading.interfaces)
                     if !other.isEmpty {
                         DisclosureGroup("Other interfaces (\(other.count))", isExpanded: $showsOtherInterfaces) {
                             ForEach(other) { interface in interfaceRow(interface) }
@@ -201,19 +193,10 @@ private struct NetworkActivityPopoutWidgetView: View {
                 // PX-7: one row to the System detail surface, only when this Dock has System Activity.
                 SystemActivityLinkRow(store: store, profileID: profileID)
             }
-            WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) {
-                GroupedSection(footer: "Local traffic samples while the Dock or popout is visible.") {
-                    GroupedRow("Sampling interval", value: "4 seconds")
-                    GroupedRow("Interface scope", value: "Active interfaces")
-                }
-            }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .onAppear {
-            guard showsHero else { return }
-            #if DEBUG
-            if fixture != nil { return }
-            #endif
+            guard showsHero, !isFixture else { return }
             monitor.subscribe(subscriptionID, popout: true)
         }
         .onDisappear { monitor.unsubscribe(subscriptionID) }
@@ -229,18 +212,20 @@ private struct NetworkActivityPopoutWidgetView: View {
     }
 
     private func interfaceRow(_ interface: NetworkInterfaceRate) -> some View {
-        GroupedRow(interface.name, subtitle: NetworkInterfacePresentation.addresses(interface.addresses).isEmpty ? nil : NetworkInterfacePresentation.addresses(interface.addresses).joined(separator: " · "),
+        let download = NetworkRateText.full(interface.receivedBytesPerSecond), upload = NetworkRateText.full(interface.sentBytesPerSecond)
+        return GroupedRow(interface.name, subtitle: NetworkInterfacePresentation.addresses(interface.addresses).isEmpty ? nil : NetworkInterfacePresentation.addresses(interface.addresses).joined(separator: " · "),
             symbol: "cable.connector") {
-            Text("↓ \(rateText(interface.receivedBytesPerSecond))   ↑ \(rateText(interface.sentBytesPerSecond))")
+            Text("↓ \(download)   ↑ \(upload)")
                 .font(DockDesign.Grouped.subtitleFont.monospacedDigit()).foregroundStyle(.secondary)
+                .accessibilityLabel("Download \(download), upload \(upload)")
         }
     }
 
-    private func aggregate(_ keyPath: KeyPath<NetworkInterfaceRate, Double?>) -> String {
-        guard !interfaces.isEmpty else { return "No interfaces" }
-        let values = interfaces.compactMap { $0[keyPath: keyPath] }
-        guard values.count == interfaces.count else { return hasCompletedRateSample ? "Unavailable" : "Warming up" }
-        return rateText(values.reduce(0, +))
+    private func aggregate(_ keyPath: KeyPath<NetworkInterfaceRate, Double?>, _ reading: NetworkActivityReadings) -> String {
+        guard !reading.interfaces.isEmpty else { return "No interfaces" }
+        let values = reading.interfaces.compactMap { $0[keyPath: keyPath] }
+        guard values.count == reading.interfaces.count else { return reading.hasCompletedRateSample ? "Unavailable" : "Warming up" }
+        return NetworkRateText.full(values.reduce(0, +))
     }
 }
 
@@ -267,14 +252,8 @@ struct NetworkRateSparkline: View {
     }
 }
 
-private func rateText(_ bytesPerSecond: Double?) -> String {
-    guard let bytesPerSecond, bytesPerSecond.isFinite, bytesPerSecond >= 0 else { return "—" }
-    let bytes = Int64(min(bytesPerSecond, Double(Int64.max)))
-    return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) + "/s"
-}
-
-#if DEBUG
-struct FacesBNetworkReadings {
+/// One Network Activity sample as the views read it.
+struct NetworkActivityReadings {
     var interfaces: [NetworkInterfaceRate] = []
     var updatedAt: Date? = nil
     var downloadHistory: [Double] = []
@@ -282,12 +261,25 @@ struct FacesBNetworkReadings {
     var hasCompletedRateSample = false
     var aggregateDownloadRate: Double? = nil
     var aggregateUploadRate: Double? = nil
+    var lastReadFailed = false
 }
-private struct FacesBNetworkReadingsKey: EnvironmentKey { static let defaultValue: FacesBNetworkReadings? = nil }
+
+extension NetworkActivityReadings {
+    @MainActor init(_ monitor: NetworkActivityMonitor) {
+        self.init(interfaces: monitor.interfaces, updatedAt: monitor.updatedAt, downloadHistory: monitor.downloadHistory,
+                  uploadHistory: monitor.uploadHistory, hasCompletedRateSample: monitor.hasCompletedRateSample,
+                  aggregateDownloadRate: monitor.aggregateDownloadRate, aggregateUploadRate: monitor.aggregateUploadRate,
+                  lastReadFailed: monitor.lastReadFailed)
+    }
+}
+
+#if DEBUG
+private struct NetworkActivityFixtureKey: EnvironmentKey { static let defaultValue: NetworkActivityReadings? = nil }
 extension EnvironmentValues {
-    var facesBNetworkReadings: FacesBNetworkReadings? {
-        get { self[FacesBNetworkReadingsKey.self] }
-        set { self[FacesBNetworkReadingsKey.self] = newValue }
+    /// Render QA's fixed Network Activity reading; the views read it in place of the live monitor.
+    var networkActivityFixture: NetworkActivityReadings? {
+        get { self[NetworkActivityFixtureKey.self] }
+        set { self[NetworkActivityFixtureKey.self] = newValue }
     }
 }
 #endif

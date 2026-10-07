@@ -111,9 +111,10 @@ import UniformTypeIdentifiers
     // MARK: Weather staleness
 
     @Test func weatherFaceMarksOldOrFutureForecastsAndLoadsBeforeFailing() {
-        #expect(!WeatherFaceFreshness.isStale(fetchedAt: now.addingTimeInterval(-3_600), now: now))
-        #expect(WeatherFaceFreshness.isStale(fetchedAt: now.addingTimeInterval(-4 * 3_600), now: now))
-        #expect(WeatherFaceFreshness.isStale(fetchedAt: now.addingTimeInterval(2 * 3_600), now: now))
+        // One rule for the face and the popout: older than 30 minutes, a failed refresh, or dated in the future.
+        #expect(!WeatherFreshness.isStale(fetchedAt: now.addingTimeInterval(-20 * 60), failed: false, now: now))
+        #expect(WeatherFreshness.isStale(fetchedAt: now.addingTimeInterval(-4 * 3_600), failed: false, now: now))
+        #expect(WeatherFreshness.isStale(fetchedAt: now.addingTimeInterval(2 * 3_600), failed: false, now: now))
         #expect(WeatherFaceFreshness.placeholder(hasLocation: false, failed: false) == "Set city")
         #expect(WeatherFaceFreshness.placeholder(hasLocation: true, failed: false) == "Loading")
         #expect(WeatherFaceFreshness.placeholder(hasLocation: true, failed: true) == "Unavailable")
@@ -151,10 +152,10 @@ import UniformTypeIdentifiers
         #expect(NetworkRateText.short(2_400_000, locale: german) == "2,4M")
         #expect(NetworkRateText.short(2_400_000, locale: american) == "2.4M")
         #expect(NetworkRateText.short(148_000, locale: german) == "148K")
-        #expect(MarketFaceText.change(1.234, locale: american) == "+1.2%")
-        let germanChange = MarketFaceText.change(1.234, locale: german)
+        #expect(StockFaceFormatting.faceChangeText(1.234, locale: american) == "+1.2%")
+        let germanChange = StockFaceFormatting.faceChangeText(1.234, locale: german) ?? ""
         #expect(germanChange.hasPrefix("+") && germanChange.contains("1,2"), "\(germanChange)")
-        #expect(MarketFaceText.change(-0.8, locale: american).contains("0.8"))
+        #expect(StockFaceFormatting.faceChangeText(-0.8, locale: american)?.contains("0.8") == true)
     }
 
     // MARK: Collection undo
@@ -245,13 +246,14 @@ import UniformTypeIdentifiers
     // MARK: Part 2: market colour, battery state, Disk, World Clock, numbers, Trash, AirDrop
 
     @Test func anUnchangedMarketPriceIsNotColouredAsAGain() {
-        #expect(MarketFaceText.changeColor(nil) == Color.secondary)
-        #expect(MarketFaceText.changeColor(0) == Color.secondary)
-        #expect(MarketFaceText.changeColor(0.004) == Color.secondary)
-        #expect(MarketFaceText.changeColor(-0.004) == Color.secondary)
-        #expect(MarketFaceText.changeColor(Double.nan) == Color.secondary)
-        #expect(MarketFaceText.changeColor(1.25) == WidgetPalette.positive)
-        #expect(MarketFaceText.changeColor(-0.5) == WidgetPalette.critical)
+        #expect(StockFaceFormatting.changeColor(nil) == Color.secondary)
+        #expect(StockFaceFormatting.changeColor(0) == Color.secondary)
+        #expect(StockFaceFormatting.changeColor(0.004) == Color.secondary)
+        #expect(StockFaceFormatting.changeColor(-0.004) == Color.secondary)
+        #expect(StockFaceFormatting.changeColor(Double.nan) == Color.secondary)
+        // A rise stays neutral under the T2 accent rule (S11-010); only a real fall is coloured.
+        #expect(StockFaceFormatting.changeColor(1.25) == Color.secondary)
+        #expect(StockFaceFormatting.changeColor(-0.5) == WidgetPalette.critical)
     }
 
     @Test func batteryStatusUsesTheWordsMacOSUses() throws {

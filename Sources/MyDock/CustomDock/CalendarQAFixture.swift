@@ -30,7 +30,10 @@ enum CalendarQAFixture: String, CaseIterable {
 
     var calendars: [CalendarListSnapshot] { [CalendarListSnapshot(id: "qa-calendar", title: "Work"), CalendarListSnapshot(id: "qa-home", title: "Home")] }
 
-    func events(now: Date = Date()) -> [CalendarEventSnapshot] {
+    /// All-day events span whole days from midnight, as EventKit reports them, so a render never depends on the hour.
+    func events(now: Date = Date(), calendar: Calendar = .current) -> [CalendarEventSnapshot] {
+        let startOfDay = calendar.startOfDay(for: now)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay.addingTimeInterval(86_400)
         func event(_ id: String, _ title: String, start: TimeInterval, end: TimeInterval, home: Bool = false,
                    allDay: Bool = false, meetingURL: URL? = nil, location: String? = nil) -> CalendarEventSnapshot {
             CalendarEventSnapshot(id: id, title: title, startDate: now.addingTimeInterval(start), endDate: now.addingTimeInterval(end),
@@ -43,7 +46,8 @@ enum CalendarQAFixture: String, CaseIterable {
                                event("qa-later", "Dinner with Sam", start: 3 * 3600, end: 4 * 3600, home: true)]
         case .upcoming: return [event("qa-next", "Team standup", start: 45 * 60, end: 75 * 60),
                                 event("qa-after", "Lunch with Sam", start: 4 * 3600, end: 5 * 3600, home: true)]
-        case .meetings: return [event("qa-holiday", "Public holiday", start: -3 * 3600, end: 21 * 3600, home: true, allDay: true),
+        case .meetings: return [event("qa-holiday", "Public holiday", start: startOfDay.timeIntervalSince(now),
+                                      end: endOfDay.timeIntervalSince(now), home: true, allDay: true),
                                 event("qa-call", "Product sync", start: 12 * 60, end: 42 * 60,
                                       meetingURL: URL(string: "https://example.zoom.us/j/123456789")),
                                 event("qa-office", "Design critique", start: 2 * 3600, end: 3 * 3600, location: "Studio 2")]

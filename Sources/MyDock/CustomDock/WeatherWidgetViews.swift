@@ -10,6 +10,23 @@ struct WeatherWidgetProvider: DockWidgetProvider {
     }
 }
 
+/// When a forecast reads as stale: the popout's 30-minute rule, applied to the Dock face too.
+enum WeatherFreshness {
+    static let maximumAge: TimeInterval = 30 * 60
+
+    /// Stale after a failed refresh, past the popout's age limit, or dated in the future (a clock that moved back).
+    static func isStale(fetchedAt: Date?, failed: Bool, now: Date = .now) -> Bool {
+        guard let fetchedAt else { return false }
+        return WidgetFreshnessPresentation.state(isRefreshing: false, updatedAt: fetchedAt, failed: failed, now: now,
+                                                 maximumAge: maximumAge) == .stale
+    }
+
+    /// "Updated 5 minutes ago", "Updated yesterday": never a bare time without its day.
+    static func updatedText(_ fetchedAt: Date) -> String {
+        "Updated " + fetchedAt.formatted(.relative(presentation: .named))
+    }
+}
+
 private struct WeatherCompactWidgetView: View {
     @Environment(\.dockWidgetContentWidth) private var contentWidth
     @Environment(\.widgetLayout) private var widgetLayout
@@ -18,7 +35,6 @@ private struct WeatherCompactWidgetView: View {
     var profileID: UUID
     @State private var errorMessage: String?
     @State private var refreshRequestID = UUID()
-    @ObservedObject private var accessibility = AccessibilityDisplayState.shared
 
     private var configuration: WidgetConfiguration {
         store.presentationConfiguration(for: item, in: profileID)
@@ -51,7 +67,8 @@ private struct WeatherCompactWidgetView: View {
         guard let forecast = configuration.cachedWeatherForecast else {
             return errorMessage ?? "Configure a city in Weather"
         }
-        return "\(configuration.weatherLocation?.displayName ?? "Weather") · \(WeatherCode.description(forecast.weatherCode)) · Updated \(forecast.fetchedAt.formatted(date: Calendar.current.isDateInToday(forecast.fetchedAt) ? .omitted : .abbreviated, time: .shortened))"
+        return "\(configuration.weatherLocation?.displayName ?? "Weather") · \(WeatherCode.description(forecast.weatherCode)) · "
+            + WeatherFreshness.updatedText(forecast.fetchedAt)
     }
 
     private func refreshIfConfigured() async {
@@ -65,11 +82,12 @@ private struct WeatherCompactWidgetView: View {
                   let current = currentConfiguration,
                   current.weatherLocation?.id == location.id,
                   current.weatherUnit == requestedUnit else { return }
-            store.updateWidgetConfiguration(itemID: item.id, in: profileID) { value in
+            // A forecast is a provider reading, not an authored edit: it publishes even while saving is disabled.
+            let result = store.publishRuntimeReadings(itemID: item.id, in: profileID) { value in
                 guard value.weatherLocation?.id == location.id, value.weatherUnit == requestedUnit else { return }
                 value.cachedWeatherForecast = forecast
             }
-            errorMessage = nil
+            if result == .accepted || result == .unchanged { errorMessage = nil }
         } catch {
             guard refreshRequestID == requestID, !Task.isCancelled,
                   let current = currentConfiguration,
@@ -94,10 +112,6 @@ private struct WeatherPopoutWidgetView: View {
     @State private var locationRequestID = UUID()
     @State private var locationTask: Task<Void, Never>?
     @State private var errorMessage: String?
-    @State private var unitSelection = WeatherTemperatureUnit.celsius.rawValue
-    @State private var layoutSelection = WeatherWidgetLayout.current.rawValue
-    @State private var forecastHours = 3
-    @State private var backgroundSelection = WeatherBackground.themed.rawValue
     /// Location and options sit behind a final, collapsed disclosure once a city is set.
     @State private var settingsExpanded = false
     @ObservedObject private var accessibility = AccessibilityDisplayState.shared
@@ -124,7 +138,7 @@ private struct WeatherPopoutWidgetView: View {
                 }
             }
             if let errorMessage {
-                WidgetPopoutCaption(forecast == nil ? errorMessage : "Showing saved forecast. \(errorMessage)", color: .orange)
+                WidgetPopoutCaption(forecast == nil ? errorMessage : "Showing saved forecast. \(errorMessage)", color: WidgetPalette.warning)
             }
 
             // Without a city, choosing one is the primary action; afterwards it is setup like the options.
@@ -143,30 +157,7 @@ private struct WeatherPopoutWidgetView: View {
         // The forecast's age and the one refresh control live in the shell's header.
         .widgetPopoutRefresh(location == nil ? nil
             : WidgetPopoutRefresh(updatedAt: forecast?.fetchedAt, isRefreshing: isLoading, failed: errorMessage != nil,
-                                  maximumAge: 30 * 60, action: { refresh(force: true) }))
-        .onAppear {
-            unitSelection = configuration.weatherUnit.rawValue
-            layoutSelection = configuration.weatherLayout.rawValue
-            forecastHours = configuration.weatherForecastHours
-            backgroundSelection = configuration.weatherBackground.rawValue
-        }
-        .onChange(of: unitSelection) { rawValue in
-            guard let value = WeatherTemperatureUnit(rawValue: rawValue) else { return }
-            updateConfiguration { $0.selectWeatherUnit(value) }
-        }
-        .onChange(of: layoutSelection) { rawValue in
-            guard let value = WeatherWidgetLayout(rawValue: rawValue) else { return }
-            updateConfiguration { $0.weatherLayout = value }
-        }
-        .onChange(of: forecastHours) { value in updateConfiguration { $0.weatherForecastHours = min(max(value, 1), 6) } }
-        .onChange(of: backgroundSelection) { rawValue in
-            guard let value = WeatherBackground(rawValue: rawValue) else { return }
-            updateConfiguration { $0.weatherBackground = value }
-        }
-        .onChange(of: configuration.weatherUnit) { unitSelection = $0.rawValue }
-        .onChange(of: configuration.weatherLayout) { layoutSelection = $0.rawValue }
-        .onChange(of: configuration.weatherForecastHours) { forecastHours = $0 }
-        .onChange(of: configuration.weatherBackground) { backgroundSelection = $0.rawValue }
+                                  maximumAge: WeatherFreshness.maximumAge, action: { refresh(force: true) }))
         .task(id: requestKey) {
             await refreshIfConfigured()
             for await _ in RefreshScheduler.shared.ticks(every: 10 * 60) {
@@ -266,31 +257,46 @@ private struct WeatherPopoutWidgetView: View {
     }
 
     private var settingsSection: some View {
-        GroupedSection("Options", footer: configuration.weatherLayout == .conditions ? "Wind is in km/h and precipitation in mm." : nil,
-                       separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
+        GroupedSection("Options", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {
             GroupedRow("Show") {
-                Picker("Popover content", selection: $layoutSelection) {
-                    ForEach(WeatherWidgetLayout.allCases) { option in Text(option.title).tag(option.rawValue) }
+                Picker("Popover content", selection: layoutBinding) {
+                    ForEach(WeatherWidgetLayout.allCases) { option in Text(option.title).tag(option) }
                 }
                 .labelsHidden().fixedSize().accessibilityLabel("Popover content")
             }
             GroupedRow("Units") {
-                Picker("Units", selection: $unitSelection) {
-                    ForEach(WeatherTemperatureUnit.allCases) { option in Text(option.title).tag(option.rawValue) }
+                Picker("Units", selection: unitBinding) {
+                    ForEach(WeatherTemperatureUnit.allCases) { option in Text(option.title).tag(option) }
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize().accessibilityLabel("Units")
             }
             GroupedRow("Background") {
-                Picker("Background", selection: $backgroundSelection) {
-                    ForEach(WeatherBackground.allCases) { option in Text(option.title).tag(option.rawValue) }
+                Picker("Background", selection: backgroundBinding) {
+                    ForEach(WeatherBackground.allCases) { option in Text(option.title).tag(option) }
                 }
                 .labelsHidden().fixedSize().accessibilityLabel("Background")
             }
             // Only the hourly forecast has a length; other layouts show no disabled control for it.
             if WeatherCopy.showsForecastLength(configuration.weatherLayout) {
-                WidgetStepperRow(title: "Forecast", value: "\(forecastHours) hours", amount: $forecastHours, range: 1...6, step: 1)
+                let hours = configuration.weatherForecastHours
+                WidgetStepperRow(title: "Forecast", value: hours == 1 ? "1 hour" : "\(hours) hours", amount: forecastHoursBinding, range: 1...6, step: 1)
             }
         }
+    }
+
+    // The options bind straight to the saved configuration, like the other families.
+    private var layoutBinding: Binding<WeatherWidgetLayout> {
+        Binding(get: { configuration.weatherLayout }, set: { value in updateConfiguration { $0.weatherLayout = value } })
+    }
+    private var unitBinding: Binding<WeatherTemperatureUnit> {
+        Binding(get: { configuration.weatherUnit }, set: { value in updateConfiguration { $0.selectWeatherUnit(value) } })
+    }
+    private var backgroundBinding: Binding<WeatherBackground> {
+        Binding(get: { configuration.weatherBackground }, set: { value in updateConfiguration { $0.weatherBackground = value } })
+    }
+    private var forecastHoursBinding: Binding<Int> {
+        Binding(get: { configuration.weatherForecastHours },
+                set: { value in updateConfiguration { $0.weatherForecastHours = min(max(value, 1), 6) } })
     }
 
     @ViewBuilder private func forecastContent(_ forecast: WeatherForecast) -> some View {
@@ -327,17 +333,27 @@ private struct WeatherPopoutWidgetView: View {
     private func conditionDetails(_ forecast: WeatherForecast) -> some View {
         GroupedSection("Conditions", separatorInset: DockDesign.Grouped.separatorInset) {
             GroupedRow("Humidity", symbol: "humidity", color: .gray, value: "\(forecast.relativeHumidity)%")
-            GroupedRow("Wind", symbol: "wind", color: .gray, value: "\(Int(forecast.windSpeed.rounded())) km/h")
+            GroupedRow("Wind", symbol: "wind", color: .gray,
+                       value: WeatherConditionsFormatting.wind(kilometersPerHour: forecast.windSpeed, unit: configuration.weatherUnit))
             GroupedRow("Precipitation", symbol: "drop.fill", color: .gray,
-                       value: "\(forecast.precipitation.formatted(.number.precision(.fractionLength(0...1)))) mm")
+                       value: WeatherConditionsFormatting.precipitation(millimeters: forecast.precipitation, unit: configuration.weatherUnit))
         }
     }
 
     /// Upcoming hours in one grouped surface: no boxes per hour. The columns share the width when they
     /// fit, and scroll only when they do not. Each hour's glyph is day or night for that hour.
-    private func hourlyList(_ forecast: WeatherForecast) -> some View {
+    @ViewBuilder private func hourlyList(_ forecast: WeatherForecast) -> some View {
         let hours = Array(forecast.hourly.filter { $0.timestamp > .now }.prefix(configuration.weatherForecastHours))
-        return GroupedSection("Next Hours") {
+        if hours.isEmpty {
+            // A forecast older than its saved hours has none left to show until the next refresh.
+            WidgetPopoutCaption("Hourly forecast returns with the next refresh.")
+        } else {
+            hourlyColumns(hours, forecast: forecast)
+        }
+    }
+
+    private func hourlyColumns(_ hours: [WeatherHour], forecast: WeatherForecast) -> some View {
+        GroupedSection("Next Hours") {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 0) {
                     ForEach(hours) { hour in hourColumn(hour, forecast: forecast).frame(maxWidth: .infinity) }
@@ -494,8 +510,12 @@ private struct WeatherPopoutWidgetView: View {
                   let current = currentConfiguration,
                   current.weatherLocation?.id == location.id,
                   current.weatherUnit == requestedUnit else { return }
-            updateConfiguration { $0.cachedWeatherForecast = result }
-            errorMessage = nil
+            // A forecast is a provider reading, not an authored edit: it publishes even while saving is disabled.
+            let published = store.publishRuntimeReadings(itemID: item.id, in: profileID) { value in
+                guard value.weatherLocation?.id == location.id, value.weatherUnit == requestedUnit else { return }
+                value.cachedWeatherForecast = result
+            }
+            if published == .accepted || published == .unchanged { errorMessage = nil }
         } catch {
             guard refreshRequestID == requestID, !Task.isCancelled,
                   let current = currentConfiguration,
@@ -553,6 +573,33 @@ enum WeatherCode {
     }
 }
 
+/// Open-Meteo reports wind in km/h and precipitation in mm; a °F forecast shows them in mph and inches,
+/// so the reading never mixes unit systems.
+enum WeatherConditionsFormatting {
+    static func wind(kilometersPerHour: Double, unit: WeatherTemperatureUnit, locale: Locale = .current) -> String {
+        let speed = Measurement(value: kilometersPerHour, unit: UnitSpeed.kilometersPerHour)
+        return text(unit == .fahrenheit ? speed.converted(to: .milesPerHour) : speed, fractionDigits: 0, locale: locale)
+    }
+
+    static func precipitation(millimeters: Double, unit: WeatherTemperatureUnit, locale: Locale = .current) -> String {
+        let amount = Measurement(value: millimeters, unit: UnitLength.millimeters)
+        return unit == .fahrenheit ? text(amount.converted(to: .inches), fractionDigits: 2, locale: locale)
+            : text(amount, fractionDigits: 1, locale: locale)
+    }
+
+    /// "10 mph", "0.12 in": the unit as given, abbreviated, in the locale's number format.
+    private static func text<UnitType: Dimension>(_ measurement: Measurement<UnitType>, fractionDigits: Int, locale: Locale) -> String {
+        let formatter = MeasurementFormatter()
+        formatter.locale = locale
+        formatter.unitOptions = .providedUnit
+        formatter.unitStyle = .medium
+        formatter.numberFormatter.locale = locale
+        formatter.numberFormatter.minimumFractionDigits = 0
+        formatter.numberFormatter.maximumFractionDigits = fractionDigits
+        return formatter.string(from: measurement)
+    }
+}
+
 /// Weather copy: short footers; attribution stays visible.
 enum WeatherCopy {
     static let attribution = "Weather and places: Open-Meteo · Geocoding data: GeoNames"
@@ -572,11 +619,24 @@ enum WeatherCopy {
 /// "03:00" with a 24-hour clock. Never a bare "03".
 enum WeatherHourLabel {
     static func text(for date: Date, timeZoneIdentifier: String, locale: Locale = .current) -> String {
+        formatter(timeZoneIdentifier: timeZoneIdentifier, locale: locale).string(from: date)
+    }
+
+    /// One formatter per locale, hour cycle and place, built on first use: every face and popout render formats
+    /// up to six hours. The hour cycle is in the key so a changed 12/24-hour setting is never served stale.
+    nonisolated(unsafe) private static let cache: NSCache<NSString, DateFormatter> = {
+        let cache = NSCache<NSString, DateFormatter>(); cache.countLimit = 8; return cache
+    }()
+
+    private static func formatter(timeZoneIdentifier: String, locale: Locale) -> DateFormatter {
+        let key = NSString(string: "\(locale.identifier)|\(locale.hourCycle)|\(timeZoneIdentifier)")
+        if let cached = cache.object(forKey: key) { return cached }
         let formatter = DateFormatter()
         formatter.locale = locale
         formatter.timeZone = TimeZone(identifier: timeZoneIdentifier) ?? .current
         formatter.dateFormat = DateFormatter.dateFormat(fromTemplate: usesTwelveHourClock(locale) ? "j" : "jmm", options: 0, locale: locale)
-        return formatter.string(from: date)
+        cache.setObject(formatter, forKey: key)
+        return formatter
     }
 
     /// Whether the locale's preferred hour pattern carries a day period (AM/PM).

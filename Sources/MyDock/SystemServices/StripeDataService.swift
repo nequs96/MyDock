@@ -24,6 +24,8 @@ enum StripeMetric: String, Codable, CaseIterable, Identifiable {
         case .pendingBalance: "Pending balance"
         }
     }
+    /// A run rate, count or balance read now, not a total over the chosen period.
+    var isPointInTime: Bool { ![.revenue, .netAfterFees].contains(self) }
 }
 
 enum StripePeriod: String, Codable, CaseIterable, Identifiable {

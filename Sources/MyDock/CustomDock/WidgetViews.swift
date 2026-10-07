@@ -124,7 +124,7 @@ struct WidgetPopout: View {
         store.presentationItem(store.state.profiles.first { $0.id == profileID }?.items.first { $0.id == item.id } ?? item)
     }
     private var kind: String { item.widgetKind ?? item.title }
-    private var showsFreshness: Bool { showsData && item.widgetKind != "AI Activity" }
+    private var showsFreshness: Bool { showsData }
 
     var body: some View {
         Group {
@@ -317,7 +317,7 @@ enum WidgetSheetHeroPolicy {
     /// Heroes that are a tool's output rather than the reading the Dock face shows.
     static let toolOutputHeroes: Set<String> = ["Unit Converter"]
     /// Families whose popout content is only their hero: the sheet shows no Content for them.
-    static let heroOnlyContent: Set<String> = ["Clock", "Audio Output"]
+    static let heroOnlyContent: Set<String> = ["Clock", "Audio Output", "Network Activity"]
 
     static func showsHero(kind: String, inSheet: Bool) -> Bool {
         !inSheet || toolOutputHeroes.contains(kind)

@@ -19,11 +19,11 @@ struct StripeCompactView: View {
     }
 
     var body: some View {
-        FacesBBusinessDockFace(kind: "Stripe", title: configuration.stripeDisplayName, metric: configuration.stripeMetric.title,
+        BusinessDockFace(kind: "Stripe", title: configuration.stripeDisplayName, metric: configuration.stripeMetric.title,
             amount: values.map { StripeMetricFormatter.amount(for: configuration.stripeMetric, values: $0) },
             currency: configuration.stripeMetric == .payingSubscribers ? nil : configuration.stripeDisplayCurrency,
             fullValue: values.map { StripeMetricFormatter.text(for: configuration.stripeMetric, values: $0) },
-            context: configuration.stripePeriod.faceToken,
+            context: configuration.stripeMetric.isPointInTime ? "Now" : configuration.stripePeriod.faceToken,
             emptyValue: metricUnavailable ? "Unavailable"
                 : configuration.stripeSnapshot != nil || !configuration.stripeAccountID.isEmpty ? "No data" : "Connect")
     }
@@ -41,8 +41,6 @@ private struct StripePopoutView: View {
     @ObservedObject private var setupDrafts = WidgetSetupDraftStore.shared
     @Environment(\.widgetPopoutShowsHero) private var showsHero
     @State private var showsSettings = false
-    @State private var isRefreshing = false
-    @State private var refreshRequestID = UUID()
     @State private var isConnecting = false
     @State private var connections: [StripeConnectedAccount] = []
     @State private var showingDisconnectConfirmation = false
@@ -63,10 +61,13 @@ private struct StripePopoutView: View {
         VStack(alignment: .leading, spacing: 16) {
             if showsHero {
                 if let currencyMetrics {
+                    // A run rate or balance is read now; only revenue and net cover the chosen period.
+                    let period = configuration.stripeMetric.isPointInTime ? "Now" : snapshot?.period.title ?? configuration.stripePeriod.title
                     WidgetPopoutHero(
                         value: StripeMetricFormatter.text(for: configuration.stripeMetric, values: currencyMetrics),
                         caption:
-                            "\(configuration.stripeMetric.title) · \(configuration.stripeMetric.popoutUnit(currency: configuration.stripeDisplayCurrency)) · \(snapshot?.period.title ?? configuration.stripePeriod.title)"
+                            "\(configuration.stripeMetric.title) · \(configuration.stripeMetric.popoutUnit(currency: configuration.stripeDisplayCurrency)) · \(period)",
+                        valueColor: FacesBFinancialFormatting.stateColor(StripeMetricFormatter.amount(for: configuration.stripeMetric, values: currencyMetrics))
                     )
                 } else if metricUnavailable {
                     WidgetPopoutHero(
@@ -87,14 +88,15 @@ private struct StripePopoutView: View {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(DockDesign.Grouped.subtitleFont).foregroundStyle(WidgetPalette.warning)
             }
-            if !StripeSetupPresentation.showsSettings(accountID: configuration.stripeAccountID, hasSavedReading: snapshot != nil) {
+            if !BusinessSetupPresentation.showsSettings(accountID: configuration.stripeAccountID, hasSavedReading: snapshot != nil) {
                 connectionControls
             } else {
                 WidgetPopoutSettingsDisclosure(isExpanded: $showsSettings) { controls }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .task(id: "\(configuration.stripeAccountID)|\(configuration.stripePeriod.rawValue)|\(configuration.stripeDisplayName)") {
+        // The account and period identify the reading; renaming the account is cosmetic and never refetches.
+        .task(id: "\(configuration.stripeAccountID)|\(configuration.stripePeriod.rawValue)") {
             guard !snapshotRendering, !configuration.stripeAccountID.isEmpty else { return }
             await refresh()
         }
@@ -107,7 +109,7 @@ private struct StripePopoutView: View {
             Button("Disconnect and Remove Key", role: .destructive) { disconnect() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the restricted key from this Mac's Keychain and disconnects every MyDock widget using it. It does not revoke the key in Stripe.")
+            Text("This removes the restricted key from this Mac's Keychain, disconnects every MyDock widget using it and removes their saved figures. It does not revoke the key in Stripe.")
         }
     }
 
@@ -144,7 +146,7 @@ private struct StripePopoutView: View {
                     ForEach(StripePeriod.allCases) { Text($0.title).tag($0) }
                 }
                 .labelsHidden()
-                .disabled([.revenue, .netAfterFees].contains(configuration.stripeMetric) == false)
+                .disabled(configuration.stripeMetric.isPointInTime)
             }
         }
         .help(metricExplanation)
@@ -160,7 +162,18 @@ private struct StripePopoutView: View {
                 if !configuration.stripeAccountID.isEmpty {
                     GroupedRow("Disconnect", role: .destructive) { showingDisconnectConfirmation = true }
                 } else {
-                    if !StripeSetupPresentation.showsSettings(accountID: configuration.stripeAccountID, hasSavedReading: snapshot != nil) {
+                    // An account connected for another widget is offered first, so its key is never entered twice.
+                    if BusinessSetupPresentation.offersExistingConnections(accountID: configuration.stripeAccountID,
+                                                                           hasSavedReading: snapshot != nil, connectionCount: connections.count) {
+                        GroupedRow("Account") {
+                            Picker("Account", selection: accountBinding) {
+                                Text("None").tag("")
+                                ForEach(connections) { account in Text(account.name).tag(account.id) }
+                            }
+                            .labelsHidden()
+                        }
+                    }
+                    if !BusinessSetupPresentation.showsSettings(accountID: configuration.stripeAccountID, hasSavedReading: snapshot != nil) {
                         GroupedRow("Account name") {
                             TextField("Account name", text: connectionNameBinding)
                                 .textFieldStyle(.plain)
@@ -243,15 +256,9 @@ private struct StripePopoutView: View {
         Binding(get: { configuration.stripePeriod }, set: { value in update { $0.stripePeriod = value } })
     }
 
-    private func refresh(accountID requestedAccountID: String? = nil) async {
-        let requestID = UUID()
-        refreshRequestID = requestID
-        isRefreshing = true
-        defer { if refreshRequestID == requestID { isRefreshing = false } }
-        var currentItem = item
-        currentItem.widgetConfiguration = configuration
-        await store.widgetData.refresh(item: currentItem, profileID: profileID)
-        guard refreshRequestID == requestID, !Task.isCancelled else { return }
+    /// Opening the popout honours the coordinator's cache; the header's refresh control is the forced refresh.
+    private func refresh() async {
+        await store.widgetData.refresh(item: item, profileID: profileID, force: false)
     }
 
     private func connect() async {
@@ -279,6 +286,8 @@ private struct StripePopoutView: View {
                 $0.stripeCurrency = "USD"
                 $0.stripeSnapshot = nil
             }
+            // Like the Connections Center: cached figures and errors from an earlier connection are dropped.
+            store.widgetData.connectionsDidChange()
         } catch {
             guard !Task.isCancelled else { return }
             DiagnosticsService.shared.record(.stripeConnectionFailed)
@@ -289,12 +298,11 @@ private struct StripePopoutView: View {
     private func disconnect() {
         let id = configuration.stripeAccountID
         guard !id.isEmpty else { return }
-        refreshRequestID = UUID()
-        isRefreshing = false
         do {
             try StripeConnectionDirectory.remove(accountID: id)
             reloadConnections()
             store.clearConnectionReferences(.stripe(id))
+            store.widgetData.connectionsDidChange()
             errorMessage = nil
         } catch {
             DiagnosticsService.shared.record(.stripeDisconnectionFailed)
@@ -350,20 +358,42 @@ enum FacesBFinancialFormatting {
     static func compact(_ amount: Decimal, currency: String?, narrow: Bool, locale: Locale = .current) -> String {
         let number = NSDecimalNumber(decimal: amount).doubleValue
         guard number.isFinite else { return "—" }
-        let scales: [(Double, String)] = [(1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")]
-        let scale = scales.first { abs(number) >= $0.0 } ?? (1, "")
-        let text = (number / scale.0).formatted(.number.locale(locale).precision(.fractionLength(0...(scale.0 == 1 ? 2 : 1)))) + scale.1
-        guard let currency, !narrow else { return text }
+        let magnitude = abs(number)
+        let scales: [(divisor: Double, suffix: String)] = [(1, ""), (1e3, "K"), (1e6, "M"), (1e9, "B"), (1e12, "T")]
+        var index = scales.lastIndex { magnitude >= $0.divisor } ?? 0
+        func digits(_ index: Int) -> Int { index == 0 ? 2 : 1 }
+        // Rounded first, then promoted, so a value just under a boundary never reads "1,000K".
+        let factor = pow(10, Double(digits(index)))
+        if index < scales.count - 1, (magnitude / scales[index].divisor * factor).rounded() / factor >= 1_000 { index += 1 }
+        let scaled = magnitude / scales[index].divisor
+        let style = FloatingPointFormatStyle<Double>(locale: locale).precision(.fractionLength(0...digits(index)))
+        guard let currency, !narrow else { return (number < 0 ? -scaled : scaled).formatted(style) + scales[index].suffix }
+        // The locale places the sign and the symbol: "-$2.4K" in en_US, "2,4K €" in de_DE.
+        let formatter = currencyFormatter(currency: currency, locale: locale)
+        let prefix: String = (number < 0 ? formatter.negativePrefix : formatter.positivePrefix) ?? ""
+        let suffix: String = (number < 0 ? formatter.negativeSuffix : formatter.positiveSuffix) ?? ""
+        return prefix + scaled.formatted(style) + scales[index].suffix + suffix
+    }
+
+    /// One currency formatter per locale and currency: every business face formats on each render.
+    nonisolated(unsafe) private static let formatters: NSCache<NSString, NumberFormatter> = {
+        let cache = NSCache<NSString, NumberFormatter>(); cache.countLimit = 16; return cache
+    }()
+
+    private static func currencyFormatter(currency: String, locale: Locale) -> NumberFormatter {
+        let key = NSString(string: locale.identifier + "|" + currency)
+        if let cached = formatters.object(forKey: key) { return cached }
         let formatter = NumberFormatter()
         formatter.locale = locale
         formatter.numberStyle = .currency
         formatter.currencyCode = currency
-        return (formatter.currencySymbol ?? currency) + text
+        formatters.setObject(formatter, forKey: key)
+        return formatter
     }
     static func stateColor(_ amount: Decimal?) -> Color { amount.map { $0 < 0 ? WidgetPalette.critical : Color.primary } ?? .primary }
 }
 
-struct FacesBBusinessDockFace: View {
+struct BusinessDockFace: View {
     var kind: String
     var title: String
     var metric: String
@@ -404,8 +434,14 @@ extension StripeMetric {
     func popoutUnit(currency: String) -> String { self == .payingSubscribers ? "subscribers" : currency }
 }
 
-enum StripeSetupPresentation {
+/// The setup rules shared by the Stripe, Paddle and Shopify popouts.
+enum BusinessSetupPresentation {
+    /// An unconnected widget with no saved reading shows only its connection form, never empty settings.
     static func showsSettings(accountID: String, hasSavedReading: Bool) -> Bool {
         !accountID.isEmpty || hasSavedReading
+    }
+    /// The connection form offers the connections already saved on this Mac, so a second widget reuses one.
+    static func offersExistingConnections(accountID: String, hasSavedReading: Bool, connectionCount: Int) -> Bool {
+        !showsSettings(accountID: accountID, hasSavedReading: hasSavedReading) && connectionCount > 0
     }
 }

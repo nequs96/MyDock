@@ -110,7 +110,7 @@ enum NextMeeting {
                                         calendar: calendar, timeZone: calendar.timeZone))
     }
 
-    private static func weekdayStyle(_ calendar: Calendar) -> Date.FormatStyle {
+    static func weekdayStyle(_ calendar: Calendar) -> Date.FormatStyle {
         Date.FormatStyle(date: .omitted, time: .omitted, locale: calendar.locale ?? .current,
                          calendar: calendar, timeZone: calendar.timeZone).weekday(.abbreviated)
     }

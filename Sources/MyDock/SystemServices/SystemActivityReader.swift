@@ -264,6 +264,7 @@ enum StorageScanner {
                      maximumFiles: Int = 100_000,
                      maximumDepth: Int = 24,
                      largestFileLimit: Int = 12,
+                     excluding: Set<URL> = [],
                      onProgress: (@Sendable (StorageScanProgress) -> Void)? = nil) throws -> StorageScanResult {
         let didAccess = root.startAccessingSecurityScopedResource()
         defer { if didAccess { root.stopAccessingSecurityScopedResource() } }
@@ -281,8 +282,15 @@ enum StorageScanner {
         var wasCapped = false
         var total: UInt64 = 0
         var largest: [StorageScanEntry] = []
+        // Subtrees scanned as their own location (Library inside Home) are skipped, so the totals never overlap
+        // and one location cannot spend another's entry budget.
+        let excludedPaths = Set(excluding.map { $0.standardizedFileURL.path })
         for case let url as URL in enumerator {
             if cancellation.isCancelled { throw ScanError.cancelled }
+            if !excludedPaths.isEmpty, excludedPaths.contains(url.standardizedFileURL.path) {
+                enumerator.skipDescendants()
+                continue
+            }
             visited += 1
             if enumerator.level > maximumDepth {
                 wasCapped = true

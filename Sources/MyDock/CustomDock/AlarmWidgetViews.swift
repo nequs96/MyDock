@@ -10,6 +10,13 @@ struct AlarmWidgetProvider: DockWidgetProvider {
     }
 }
 
+struct AlarmWeekdayChip: Identifiable, Equatable {
+    var weekday: Int
+    var letter: String
+    var name: String
+    var id: Int { weekday }
+}
+
 enum AlarmFacePresentation {
     /// The next armed alarm and when it fires. A one-time alarm rings at the time recorded when it was armed.
     static func next(_ alarms: [DockAlarm], now: Date) -> (alarm: DockAlarm, date: Date)? {
@@ -31,10 +38,32 @@ enum AlarmFacePresentation {
         return date.formatted(.dateTime.weekday(.wide))
     }
 
-    static func repeatSummary(_ weekdays: [Int], symbols: [String] = Calendar.current.shortWeekdaySymbols) -> String {
+    static func repeatSummary(_ weekdays: [Int], symbols: [String] = Calendar.current.shortWeekdaySymbols,
+                              firstWeekday: Int = Calendar.current.firstWeekday) -> String {
         guard !weekdays.isEmpty else { return "Once" }
         if Set(weekdays) == Set(1...7) { return "Every day" }
-        return weekdays.sorted().compactMap { symbols.indices.contains($0 - 1) ? symbols[$0 - 1] : nil }.joined(separator: " ")
+        let order = orderedWeekdays(firstWeekday: firstWeekday)
+        return weekdays.sorted { (order.firstIndex(of: $0) ?? $0) < (order.firstIndex(of: $1) ?? $1) }
+            .compactMap { symbols.indices.contains($0 - 1) ? symbols[$0 - 1] : nil }.joined(separator: " ")
+    }
+
+    /// The stored weekdays (1 Sunday … 7 Saturday, as `Calendar` numbers them) in the order this Mac's week starts.
+    static func orderedWeekdays(firstWeekday: Int = Calendar.current.firstWeekday) -> [Int] {
+        let first = (1...7).contains(firstWeekday) ? firstWeekday : 1
+        return (0..<7).map { (first - 1 + $0) % 7 + 1 }
+    }
+
+    /// The repeat chips: the calendar's very short symbol, as Clock shows it ("S M T W T F S"; one character per day
+    /// in Chinese or Japanese, where a cut short name would repeat), the full name for VoiceOver, in the locale's
+    /// week order. The stored value stays the Gregorian weekday number.
+    static func weekdayChips(calendar: Calendar = .current) -> [AlarmWeekdayChip] {
+        let letters = calendar.veryShortStandaloneWeekdaySymbols
+        let names = calendar.standaloneWeekdaySymbols
+        return orderedWeekdays(firstWeekday: calendar.firstWeekday).map { weekday in
+            AlarmWeekdayChip(weekday: weekday,
+                             letter: letters.indices.contains(weekday - 1) ? letters[weekday - 1] : "\(weekday)",
+                             name: names.indices.contains(weekday - 1) ? names[weekday - 1] : "\(weekday)")
+        }
     }
 
     /// The one alarm time format: this Mac's short time ("7:30 AM", "07:30"). The face, the popout
@@ -117,6 +146,8 @@ private struct AlarmCompactWidgetView: View {
 enum AlarmCopy {
     static let editorFooter = "Alarms follow this Mac’s time zone."
     static let editorFooterHelp = "A one-time alarm rings at the next occurrence. Delivery depends on macOS notification settings."
+    /// The most alarms one widget keeps, as ProfileSemanticValidator allows.
+    static let capacity = 64
 }
 
 #if DEBUG
@@ -134,6 +165,9 @@ private struct AlarmPopoutWidgetView: View {
     @State private var alarmTitle = ""
     @State private var repeatWeekdays: Set<Int> = []
     @State private var operationMessage: String?
+    /// The detail behind the one short result line, shown as its tooltip.
+    @State private var operationDetail: String?
+    @State private var removedAlarms: RemovedEntries<DockAlarm>?
     @State private var isScheduling = false
     @State private var busyAlarmIDs = Set<UUID>()
     @State private var editingAlarmID: UUID?
@@ -173,7 +207,9 @@ private struct AlarmPopoutWidgetView: View {
             WidgetPopoutSettingsDisclosure(editingAlarmID == nil ? "New Alarm" : "Edit Alarm", isExpanded: $editorExpanded) {
                 editor
             }
-            if let operationMessage { WidgetPopoutCaption(operationMessage) }
+            UndoNotice(pending: $removedAlarms, undo: restoreAlarms)
+                .padding(.horizontal, DockDesign.Grouped.rowHorizontalPadding)
+            if let operationMessage { WidgetPopoutCaption(operationMessage).help(operationDetail ?? operationMessage) }
         }
         .onAppear {
             if alarms.isEmpty { editorExpanded = true }
@@ -202,10 +238,10 @@ private struct AlarmPopoutWidgetView: View {
                     HStack(spacing: 5) {
                         Text("Repeat").font(DockDesign.Grouped.titleFont)
                         Spacer(minLength: 8)
-                        ForEach(Array(Calendar.current.shortWeekdaySymbols.enumerated()), id: \.offset) { index, symbol in
-                            let weekday = index + 1
+                        ForEach(AlarmFacePresentation.weekdayChips()) { chip in
+                            let weekday = chip.weekday
                             let selected = repeatWeekdays.contains(weekday)
-                            Button(String(symbol.prefix(1))) {
+                            Button(chip.letter) {
                                 if selected { repeatWeekdays.remove(weekday) } else { repeatWeekdays.insert(weekday) }
                             }
                             .buttonStyle(.plain).disabled(isScheduling)
@@ -214,7 +250,7 @@ private struct AlarmPopoutWidgetView: View {
                             .frame(width: 24, height: 24)
                             .background(selected ? DockDesign.accent : Color.primary.opacity(0.08), in: Circle())
                             .contentShape(Circle())
-                            .accessibilityLabel("Repeat on \(symbol)")
+                            .accessibilityLabel("Repeat on \(chip.name)")
                             .accessibilityAddTraits(selected ? .isSelected : [])
                         }
                         Button("Once") { repeatWeekdays.removeAll() }
@@ -227,7 +263,7 @@ private struct AlarmPopoutWidgetView: View {
             .help(AlarmCopy.editorFooterHelp)
             HStack(spacing: 10) {
                 if editingAlarmID != nil {
-                    Button("Cancel Editing") { clearEditor() }.buttonStyle(GalleryGlassButtonStyle()).disabled(isScheduling)
+                    Button("Cancel Editing") { clearEditor() }.buttonStyle(WidgetRowTextButtonStyle()).disabled(isScheduling)
                 }
                 Spacer()
                 PillButton(editingAlarmID == nil ? "Add Alarm" : "Save Changes", action: saveAlarm)
@@ -281,7 +317,7 @@ private struct AlarmPopoutWidgetView: View {
         editingAlarmID = alarm.id; alarmTitle = alarm.title; repeatWeekdays = Set(alarm.repeatWeekdays)
         editorExpanded = true
         alarmTime = Calendar.current.date(bySettingHour: alarm.hour, minute: alarm.minute, second: 0, of: .now) ?? .now
-        operationMessage = nil
+        report(nil)
     }
 
     private func clearEditor() {
@@ -293,7 +329,7 @@ private struct AlarmPopoutWidgetView: View {
         guard let hour = components.hour, let minute = components.minute else { return }
         guard let alarm = AlarmEditorCandidate.make(editingID: editingAlarmID, alarms: alarms, title: alarmTitle,
                                                    hour: hour, minute: minute, repeatWeekdays: repeatWeekdays)?.armed() else {
-            operationMessage = "This alarm was removed or its time is invalid. Your input is still here."; return
+            report("This alarm was removed or its time is invalid. Your input is kept."); return
         }
         do {
             try store.updateWidgetConfigurationAndPersist(itemID: item.id, in: profileID) { configuration in
@@ -301,12 +337,12 @@ private struct AlarmPopoutWidgetView: View {
                 else { configuration.alarms.append(alarm) }
             }
         } catch {
-            operationMessage = "Could not save the alarm. Your input is still here. " + error.localizedDescription
+            report("Couldn't save the alarm. Your input is kept.", detail: error.localizedDescription)
             return
         }
         if !alarm.isEnabled {
             AlarmNotificationService.cancel(widgetID: item.id, alarm: alarm)
-            clearEditor(); operationMessage = "Changes saved. The alarm remains off."; return
+            clearEditor(); report("Saved. The alarm is off."); return
         }
         editingAlarmID = alarm.id
         isScheduling = true
@@ -321,15 +357,15 @@ private struct AlarmPopoutWidgetView: View {
             try store.updateWidgetConfigurationAndPersist(itemID: item.id, in: profileID) { configuration in
                 if let index = configuration.alarms.firstIndex(where: { $0.id == candidate.id }) { configuration.alarms[index] = candidate }
             }
-        } catch { operationMessage = "Could not save the alarm change. " + error.localizedDescription; return }
+        } catch { report("Couldn't save the change.", detail: error.localizedDescription); return }
         if enabled { scheduleSavedAlarm(candidate, clearFormOnSuccess: false) }
-        else { AlarmNotificationService.cancel(widgetID: item.id, alarm: candidate); operationMessage = "Alarm turned off. Its alerts were cancelled." }
+        else { AlarmNotificationService.cancel(widgetID: item.id, alarm: candidate); report("Alarm turned off.", detail: "Its alerts were cancelled.") }
     }
 
     private func scheduleSavedAlarm(_ alarm: DockAlarm, clearFormOnSuccess: Bool) {
         let operationID = UUID()
         AlarmNotificationService.begin(widgetID: item.id, alarmID: alarm.id, operationID: operationID)
-        busyAlarmIDs.insert(alarm.id); operationMessage = nil
+        busyAlarmIDs.insert(alarm.id); report(nil)
         Task { @MainActor in
             defer { busyAlarmIDs.remove(alarm.id); if clearFormOnSuccess { isScheduling = false } }
             do {
@@ -339,7 +375,7 @@ private struct AlarmPopoutWidgetView: View {
                     AlarmNotificationService.cancelOperation(widgetID: item.id, alarmID: alarm.id, operationID: operationID); return
                 }
                 if clearFormOnSuccess { clearEditor() }
-                operationMessage = "Alarm saved. An alert was scheduled with macOS; delivery depends on notification settings."
+                report("Alarm set.", detail: "An alert was scheduled with macOS; delivery depends on notification settings.")
             } catch {
                 guard AlarmNotificationService.isCurrent(widgetID: item.id, alarmID: alarm.id, operationID: operationID),
                       AlarmEditorCandidate.stillMatches(alarm, alarms: alarms) else {
@@ -349,9 +385,9 @@ private struct AlarmPopoutWidgetView: View {
                     try store.updateWidgetConfigurationAndPersist(itemID: item.id, in: profileID) { configuration in
                         if let index = configuration.alarms.firstIndex(where: { $0.id == alarm.id }) { configuration.alarms[index].isEnabled = false }
                     }
-                    operationMessage = error.localizedDescription + " The alarm was saved turned off. Enable it to try scheduling again."
+                    report("Couldn't schedule. Alarm turned off.", detail: error.localizedDescription + " Turn it on to try again.")
                 } catch {
-                    operationMessage = "No alert was scheduled, and the off state could not be saved. Your input is retained. Retry Save. " + error.localizedDescription
+                    report("Couldn't schedule or save. Your input is kept.", detail: "Save again to retry. " + error.localizedDescription)
                 }
                 AlarmNotificationService.cancelOperation(widgetID: item.id, alarmID: alarm.id, operationID: operationID)
             }
@@ -359,11 +395,31 @@ private struct AlarmPopoutWidgetView: View {
     }
 
     private func removeAlarm(_ alarm: DockAlarm) {
+        let pending = RemovedEntries.capture([alarm.id], from: alarms, message: "Removed \(alarm.title).")
         do {
             try store.updateWidgetConfigurationAndPersist(itemID: item.id, in: profileID) { $0.alarms.removeAll { $0.id == alarm.id } }
             AlarmNotificationService.cancel(widgetID: item.id, alarm: alarm)
             if editingAlarmID == alarm.id { clearEditor() }
-            operationMessage = "Alarm removed. Its alerts were cancelled."
-        } catch { operationMessage = "Could not remove the alarm. It is still saved. " + error.localizedDescription }
+            report(nil)
+            removedAlarms = pending
+        } catch { report("Couldn't remove the alarm. It is still saved.", detail: error.localizedDescription) }
+    }
+
+    /// Undo puts the alarm back where it was and schedules it again if it is still armed.
+    private func restoreAlarms(_ removed: RemovedEntries<DockAlarm>) {
+        do {
+            try store.updateWidgetConfigurationAndPersist(itemID: item.id, in: profileID) {
+                removed.restore(into: &$0.alarms, capacity: AlarmCopy.capacity)
+            }
+        } catch { report("Couldn't restore the alarm.", detail: error.localizedDescription); return }
+        for slot in removed.slots where AlarmFacePresentation.isArmed(slot.entry, now: .now) {
+            guard let restored = alarms.first(where: { $0.id == slot.entry.id }) else { continue }
+            scheduleSavedAlarm(restored, clearFormOnSuccess: false)
+        }
+    }
+
+    private func report(_ message: String?, detail: String? = nil) {
+        operationMessage = message
+        operationDetail = detail
     }
 }
