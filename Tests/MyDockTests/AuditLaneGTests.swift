@@ -156,19 +156,24 @@ import UserNotifications
         let third = settings.addRule(.timeWindow, defaultProfileID: nil)
         let removed = settings.rules[1]
         settings.removeRule(removed.id)
-        #expect(settings.restoreRule(removed, at: 1))
+        // Mutating calls run outside #expect, whose expansion can only call them on an immutable copy.
+        let restored = settings.restoreRule(removed, at: 1)
+        #expect(restored)
         #expect(settings.rules.map(\.id) == [first, second, third].compactMap { $0 })
-        #expect(!settings.restoreRule(removed, at: 0))
+        let restoredAgain = settings.restoreRule(removed, at: 0)
+        #expect(!restoredAgain)
         #expect(settings.rules.count == 3)
         settings.removeRule(removed.id)
-        #expect(settings.restoreRule(removed, at: 99))
+        let restoredPastTheEnd = settings.restoreRule(removed, at: 99)
+        #expect(restoredPastTheEnd)
         #expect(settings.rules.last?.id == removed.id)
     }
 
     @Test func restoringARuleRespectsTheCap() {
         var settings = AutomaticSwitchingSettings()
         for _ in 0..<AutomaticSwitchingSettings.maximumRules { settings.addRule(.timeWindow, defaultProfileID: nil) }
-        #expect(!settings.restoreRule(AutomaticSwitchRule(kind: .timeWindow), at: 0))
+        let restoredOverTheCap = settings.restoreRule(AutomaticSwitchRule(kind: .timeWindow), at: 0)
+        #expect(!restoredOverTheCap)
         #expect(settings.rules.count == AutomaticSwitchingSettings.maximumRules)
     }
 

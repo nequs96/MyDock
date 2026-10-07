@@ -128,13 +128,16 @@ import Testing
         var configuration = WidgetConfiguration()
         configuration.hydrationEntries = [HydrationEntry(timestamp: now.addingTimeInterval(-500 * 86_400), amountML: 250),
                                           HydrationEntry(timestamp: now.addingTimeInterval(-10 * 86_400), amountML: 250)]
-        #expect(configuration.logHydrationDrink(at: now))
+        // Mutating calls run outside #expect, whose expansion can only call them on an immutable copy.
+        let logged = configuration.logHydrationDrink(at: now)
+        #expect(logged)
         #expect(configuration.hydrationEntries.map(\.timestamp) == [now.addingTimeInterval(-10 * 86_400), now])
 
         let maximum = WidgetConfiguration.hydrationMaximumEntries
         configuration.hydrationEntries = (1...maximum).map { HydrationEntry(timestamp: now.addingTimeInterval(-Double($0) * 60), amountML: nil) }
         let oldest = configuration.hydrationEntries.map(\.timestamp).min()
-        #expect(configuration.logHydrationDrink(at: now))
+        let loggedAtCapacity = configuration.logHydrationDrink(at: now)
+        #expect(loggedAtCapacity)
         #expect(configuration.hydrationEntries.count == maximum)
         #expect(configuration.hydrationEntries.last?.timestamp == now)
         #expect(!configuration.hydrationEntries.contains { $0.timestamp == oldest })
