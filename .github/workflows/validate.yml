@@ -39,9 +39,15 @@ jobs:
         run: |
           # Compiler errors and the context of a compiler crash, printed last and annotated, so a long log cannot hide them.
           ERRORS=$(grep -E '\.swift:[0-9]+:[0-9]+: error: ' .build/test.log 2>/dev/null | sort -u || true)
+          # Errors inside macro expansions (#expect, #require) name their source on the next line.
+          MACRO=$(awk '/^macro expansion .*: error: /{e=$0; if ((getline n) > 0) {sub(/^[` -]+/, "", n); sub(/: note: expanded code originates here/, "", n); print n ": " e}}' .build/test.log 2>/dev/null | sort -u || true)
           CRASH=$(grep -E -A1 'While running pass|While evaluating request|Stack dump|Please submit a bug report' .build/test.log 2>/dev/null || true)
-          printf '%s\n' "$ERRORS" "$CRASH"
-          printf '%s\n' "$ERRORS" "$CRASH" | grep . | head -10 | sed 's/%/%25/g; s/^/::error::/' || true
+          # Errors without a source location (a killed or crashed compiler job, a link failure) and signal reports.
+          OTHER=$(grep -E '^(error|fatal error|ld|clang): |signal [0-9]+|Killed|Fatal error|Assertion failed|Program arguments' .build/test.log 2>/dev/null | grep -v -E ': warning: ' | sort -u | head -20 || true)
+          printf '%s\n' "$ERRORS" "$MACRO" "$CRASH" "$OTHER"
+          # What was compiling just before the first unlocated error.
+          grep -n -E -B12 -m1 '^(error|fatal error): ' .build/test.log 2>/dev/null || true
+          printf '%s\n' "$ERRORS" "$MACRO" "$CRASH" "$OTHER" | grep . | head -10 | sed 's/%/%25/g; s/^/::error::/' || true
       - name: Report test totals and compiler warnings
         if: always()
         shell: bash
