@@ -31,11 +31,11 @@
 	<key>NSCalendarsUsageDescription</key>
 	<string>MyDock reads selected calendar events for the Calendar widget.</string>
 	<key>NSDesktopFolderUsageDescription</key>
-	<string>MyDock measures file sizes here only when you scan storage. Nothing is uploaded or deleted.</string>
+	<string>MyDock reads folders here only when you open one from the Dock or scan storage. Nothing is uploaded or deleted.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>MyDock measures file sizes here only when you scan storage. Nothing is uploaded or deleted.</string>
+	<string>MyDock reads folders here only when you open one from the Dock or scan storage. Nothing is uploaded or deleted.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
-	<string>MyDock measures file sizes here only when you scan storage. Nothing is uploaded or deleted.</string>
+	<string>MyDock reads folders here only when you open one from the Dock or scan storage. Nothing is uploaded or deleted.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
