@@ -17,8 +17,19 @@ protocol DockRelaunching {
 @MainActor
 protocol DockTransactionJournal {
     func begin(snapshot: [[String: Any]], profileID: UUID) throws
+    /// Also records the layout being applied, so launch recovery can tell whether the Dock still shows it.
+    func begin(snapshot: [[String: Any]], target: [[String: Any]], profileID: UUID) throws
     func pendingSnapshot() throws -> [[String: Any]]?
+    /// Signatures of the layout the interrupted change was applying; nil when the journal does not know it.
+    func pendingTargetSignatures() throws -> [String]?
     func clear() throws
+}
+
+extension DockTransactionJournal {
+    func begin(snapshot: [[String: Any]], target: [[String: Any]], profileID: UUID) throws {
+        try begin(snapshot: snapshot, profileID: profileID)
+    }
+    func pendingTargetSignatures() throws -> [String]? { nil }
 }
 
 enum NativeDockError: LocalizedError {
@@ -28,6 +39,7 @@ enum NativeDockError: LocalizedError {
     case verificationFailed
     case rollbackFailed(original: String, rollback: String)
     case interruptedTransaction
+    case changedSinceInterruption
 
     var errorDescription: String? {
         switch self {
@@ -37,6 +49,7 @@ enum NativeDockError: LocalizedError {
         case .verificationFailed: "The macOS Dock did not settle on the requested profile. The previous layout was restored."
         case .rollbackFailed(let original, let rollback): "Dock apply failed (\(original)); restoring the previous Dock also failed (\(rollback))."
         case .interruptedTransaction: "An interrupted Dock change could not be recovered. The saved recovery data remains available for the next launch."
+        case .changedSinceInterruption: "An earlier Dock change was interrupted, and the Dock has changed since, so it was not restored automatically. Restore Previous Dock returns to the layout from before that change."
         }
     }
 }
@@ -73,6 +86,8 @@ final class FileDockTransactionJournal: DockTransactionJournal {
         var createdAt = Date.now
         var profileID: UUID
         var snapshot: Data
+        /// Absent in journals written before targets were recorded.
+        var targetSignatures: [String]?
     }
 
     private let fileURL: URL
@@ -84,9 +99,17 @@ final class FileDockTransactionJournal: DockTransactionJournal {
     }
 
     func begin(snapshot: [[String: Any]], profileID: UUID) throws {
+        try write(snapshot: snapshot, targetSignatures: nil, profileID: profileID)
+    }
+
+    func begin(snapshot: [[String: Any]], target: [[String: Any]], profileID: UUID) throws {
+        try write(snapshot: snapshot, targetSignatures: NativeDockSerializer.signatures(from: target), profileID: profileID)
+    }
+
+    private func write(snapshot: [[String: Any]], targetSignatures: [String]?, profileID: UUID) throws {
         guard !FileManager.default.fileExists(atPath: fileURL.path) else { throw NativeDockError.interruptedTransaction }
         let propertyList = try PropertyListSerialization.data(fromPropertyList: snapshot, format: .binary, options: 0)
-        let record = Record(profileID: profileID, snapshot: propertyList)
+        let record = Record(profileID: profileID, snapshot: propertyList, targetSignatures: targetSignatures)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(record)
@@ -97,16 +120,29 @@ final class FileDockTransactionJournal: DockTransactionJournal {
     }
 
     func pendingSnapshot() throws -> [[String: Any]]? {
+        guard let record = try pendingRecord() else { return nil }
+        do {
+            guard let tiles = try PropertyListSerialization.propertyList(from: record.snapshot, options: [], format: nil) as? [[String: Any]] else {
+                throw NativeDockError.interruptedTransaction
+            }
+            return tiles
+        } catch {
+            throw NativeDockError.interruptedTransaction
+        }
+    }
+
+    func pendingTargetSignatures() throws -> [String]? {
+        try pendingRecord()?.targetSignatures
+    }
+
+    private func pendingRecord() throws -> Record? {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
         do {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let record = try decoder.decode(Record.self, from: BackupManager.boundedArchiveData(from: fileURL))
-            guard record.version == 1,
-                  let tiles = try PropertyListSerialization.propertyList(from: record.snapshot, options: [], format: nil) as? [[String: Any]] else {
-                throw NativeDockError.interruptedTransaction
-            }
-            return tiles
+            guard record.version == 1 else { throw NativeDockError.interruptedTransaction }
+            return record
         } catch {
             throw NativeDockError.interruptedTransaction
         }
@@ -197,14 +233,36 @@ final class NativeDockController: ObservableObject {
         }
     }
 
-    func recoverInterruptedTransaction() async throws {
+    /// Puts back the layout from before an interrupted change. At launch (`automatic`) it does so only while the Dock
+    /// still shows that change; when the Dock already shows the earlier layout the journal is simply cleared, and when
+    /// the Dock has changed since, restoring would overwrite those changes, so Restore Previous Dock decides.
+    func recoverInterruptedTransaction(automatic: Bool = false) async throws {
         await gate.acquire()
         health = .recovering
         do {
             if let snapshot = try journal.pendingSnapshot() {
-                try backend.writeTiles(snapshot)
-                try await relauncher.restartDock()
-                try await verify(snapshot: snapshot)
+                let needsRestore: Bool
+                if automatic {
+                    let current = NativeDockSerializer.signatures(from: try backend.readCurrentTiles())
+                    if current == NativeDockSerializer.signatures(from: snapshot) {
+                        needsRestore = false
+                    } else if try journal.pendingTargetSignatures() == current {
+                        needsRestore = true
+                    } else {
+                        health = .recoveryRequired
+                        recoveryError = NativeDockError.changedSinceInterruption.localizedDescription
+                        logger.notice("Left an interrupted native Dock transaction for the user: the Dock changed since")
+                        await gate.release()
+                        return
+                    }
+                } else {
+                    needsRestore = true
+                }
+                if needsRestore {
+                    try backend.writeTiles(snapshot)
+                    try await relauncher.restartDock()
+                    try await verify(snapshot: snapshot)
+                }
                 try journal.clear()
                 lastAppliedSignatures = NativeDockSerializer.signatures(from: snapshot)
                 appliedGeneration &+= 1
@@ -229,7 +287,7 @@ final class NativeDockController: ObservableObject {
     }
 
     private func transact(_ nextTiles: [[String: Any]], snapshot: [[String: Any]], profileID: UUID) async throws {
-        try journal.begin(snapshot: snapshot, profileID: profileID)
+        try journal.begin(snapshot: snapshot, target: nextTiles, profileID: profileID)
         let freezeSession = await freezeProvider.beginIfEnabled()
         if Task.isCancelled {
             // Nothing has been written yet, so a cancelled apply leaves the Dock untouched.

@@ -185,7 +185,7 @@ final class MyDockAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             showWhatsNew()
         }
         Task { @MainActor in
-            do { try await NativeDockController.shared.recoverInterruptedTransaction() }
+            do { try await NativeDockController.shared.recoverInterruptedTransaction(automatic: true) }
             catch { NSLog("MyDock could not recover an interrupted Dock operation: %@", error.localizedDescription) }
             await AlarmNotificationService.reconcileSchedules(in: store)
             await HydrationReminderService.reconcileSchedules(in: store)

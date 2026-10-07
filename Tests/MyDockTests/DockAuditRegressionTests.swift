@@ -492,6 +492,44 @@ struct DockAuditRegressionTests {
         #expect(controller.health == .ready)
     }
 
+    /// S07-005: launch recovery restores only while the Dock still shows the interrupted change. A Dock changed
+    /// since is left for Restore Previous Dock, and one already back on the earlier layout just loses the journal.
+    @Test func launchRecoveryNeverOverwritesADockChangedSinceTheInterruption() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let before: [[String: Any]] = [["tile-type": "spacer-tile"]]
+        let interrupted: [[String: Any]] = [["tile-type": "small-spacer-tile"]]
+        let backend = AuditDockBackend()
+        let relauncher = AuditRelauncher()
+
+        let changed = FileDockTransactionJournal(fileURL: folder.appendingPathComponent("changed.json"))
+        try changed.begin(snapshot: before, target: interrupted, profileID: UUID())
+        backend.tiles = [["tile-type": "spacer-tile"], ["tile-type": "small-spacer-tile"]]
+        let first = NativeDockController(backend: backend, relauncher: relauncher, journal: changed, gate: DockSystemOperationGate())
+        try await first.recoverInterruptedTransaction(automatic: true)
+        #expect(first.health == .recoveryRequired && first.recoveryError != nil)
+        #expect(backend.writes == 0 && relauncher.calls == 0)
+        #expect(try changed.pendingSnapshot() != nil)
+        try await first.recoverInterruptedTransaction()
+        #expect(NativeDockSerializer.plistArraysEqual(backend.tiles, before) && first.health == .ready)
+
+        let showing = FileDockTransactionJournal(fileURL: folder.appendingPathComponent("showing.json"))
+        try showing.begin(snapshot: before, target: interrupted, profileID: UUID())
+        backend.tiles = interrupted
+        let second = NativeDockController(backend: backend, relauncher: relauncher, journal: showing, gate: DockSystemOperationGate())
+        try await second.recoverInterruptedTransaction(automatic: true)
+        #expect(NativeDockSerializer.plistArraysEqual(backend.tiles, before) && second.health == .ready)
+        #expect(try showing.pendingSnapshot() == nil)
+
+        let undone = FileDockTransactionJournal(fileURL: folder.appendingPathComponent("undone.json"))
+        try undone.begin(snapshot: before, target: interrupted, profileID: UUID())
+        let restarts = relauncher.calls, writes = backend.writes
+        let third = NativeDockController(backend: backend, relauncher: relauncher, journal: undone, gate: DockSystemOperationGate())
+        try await third.recoverInterruptedTransaction(automatic: true)
+        #expect(relauncher.calls == restarts && backend.writes == writes && third.health == .ready)
+        #expect(try undone.pendingSnapshot() == nil)
+    }
+
     @Test func nativeAutoSaveRetainsErrorsAndRetriesFailedDiskWrites() async throws {
         let (store, directory) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
