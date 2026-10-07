@@ -10,13 +10,12 @@ final class SingleInstanceLock {
     private let descriptor: Int32
 
     init(fileURL: URL? = nil) throws {
-        let supportRoot = AppRuntimeEnvironment.applicationSupportDirectory.deletingLastPathComponent()
-        let directory = supportRoot.appendingPathComponent(Product.name, isDirectory: true)
-        let url = fileURL ?? directory.appendingPathComponent("instance.lock")
+        // The lock lives beside state.json, in the isolated validation layout as well.
+        let url = fileURL ?? AppRuntimeEnvironment.applicationSupportDirectory.appendingPathComponent("instance.lock")
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         } catch {
-            throw SingleInstanceLockError.unavailable(Int32(EACCES))
+            throw SingleInstanceLockError.unavailable(Self.posixCode(of: error))
         }
 
         let descriptor = Darwin.open(url.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW,
@@ -29,6 +28,16 @@ final class SingleInstanceLock {
             throw SingleInstanceLockError.unavailable(code)
         }
         self.descriptor = descriptor
+    }
+
+    /// The POSIX code behind a Foundation file error (disk full, read-only volume, permission), or EIO.
+    static func posixCode(of error: Error) -> Int32 {
+        let error = error as NSError
+        if error.domain == NSPOSIXErrorDomain { return Int32(error.code) }
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError, underlying.domain == NSPOSIXErrorDomain {
+            return Int32(underlying.code)
+        }
+        return EIO
     }
 
     deinit {

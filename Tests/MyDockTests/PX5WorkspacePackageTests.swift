@@ -309,7 +309,7 @@ struct PX5WorkspacePackageTests {
         let data = try BackupManager.makeArchive(from: [DockProfile(name: "Plain", kind: .custom, items: [link("a.com")])])
         #expect(!String(decoding: data, as: UTF8.self).contains("dockPackage"))
         let preview = try PortableDockPackage.preview(data, existingNames: [], targetExists: { _ in true })
-        #expect(preview.includesPersonalData == nil)
+        #expect(preview.includesPersonalData == false)
         #expect(preview.profile.name == "Plain")
     }
 }

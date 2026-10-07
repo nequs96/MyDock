@@ -14,9 +14,6 @@ enum PerformanceSignposts {
         signposter.endInterval(name, state)
     }
     static func event(_ name: StaticString) { signposter.emitEvent(name) }
-    static func event(_ name: StaticString, count: Int) {
-        signposter.emitEvent(name, "count=\(count, privacy: .public)")
-    }
 
     /// Runs `body` inside a named interval.
     static func measure<T>(_ name: StaticString, _ body: () throws -> T) rethrows -> T {

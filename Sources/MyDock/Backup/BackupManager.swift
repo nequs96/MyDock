@@ -78,7 +78,9 @@ enum BackupManager {
 
     static func makeArchive(from profiles: [DockProfile], dockPackage: DockPackageManifest? = nil) throws -> Data {
         try validate(profiles)
-        let archive = DockBackup(profiles: normalizedProfiles(profiles), dockPackage: dockPackage)
+        // Provider readings are runtime cache data and never travel in a backup.
+        let normalized = try withNormalizedSiteIcons(profiles.map(\.strippedOfRuntimeReadings))
+        let archive = DockBackup(profiles: normalized, dockPackage: dockPackage)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -87,7 +89,9 @@ enum BackupManager {
         return data
     }
 
-    static func readArchive(_ data: Data) throws -> BackupImportReport {
+    /// `computeMissing` stats every file target for the report's missing list; the Dock package preview, which finds
+    /// unresolved targets itself, passes false.
+    static func readArchive(_ data: Data, computeMissing: Bool = true) throws -> BackupImportReport {
         guard data.count <= maximumArchiveBytes else { throw BackupError.tooLarge }
         let envelope = try JSONDecoder().decode(BackupSchemaEnvelope.self, from: data)
         if let version = envelope.formatVersion, version != DockBackup.currentVersion {
@@ -100,31 +104,15 @@ enum BackupManager {
             throw BackupError.unsupportedVersion(archive.formatVersion)
         }
         try validate(archive.profiles)
-        let copies = archive.profiles.map { profile in
+        // Each site icon is decoded and re-encoded once, here, and the result is what is restored.
+        let copies = try withNormalizedSiteIcons(archive.profiles).map { profile in
             var copy = profile
             copy.id = UUID()
-            copy.items = profile.items.map { item in
-                var itemCopy = item
-                itemCopy.id = UUID()
-                if itemCopy.widgetKind == "Hydration" {
-                    itemCopy.widgetConfiguration?.hydrationRemindersEnabled = false
-                }
-                if itemCopy.widgetKind == "Alarm", var configuration = itemCopy.widgetConfiguration {
-                    configuration.alarms = configuration.alarms.map { alarm in
-                        var alarm = alarm
-                        alarm.isEnabled = false
-                        return alarm
-                    }
-                    itemCopy.widgetConfiguration = configuration
-                }
-                if let iconData = itemCopy.linkFaviconData {
-                    itemCopy.linkFaviconData = SiteFaviconFetcher.normalizedPNG(from: iconData)
-                }
-                return itemCopy
-            }
+            copy.items = profile.items.map { $0.preparedForNewIdentity() }
             copy.workspace = profile.workspace?.remapped(from: profile.items, to: copy.items)
             return copy
         }
+        guard computeMissing else { return BackupImportReport(importedProfiles: copies, missingItems: []) }
         let missing = copies.flatMap { profile in
             profile.items.flatMap { item -> [String] in
                 var missingItems: [String] = []
@@ -165,13 +153,10 @@ enum BackupManager {
                 case .application, .folder, .file:
                     if let url = item.url, !url.isFileURL { throw BackupError.invalidFileReference(item.title) }
                 case .link:
+                    // Site icons are checked by `withNormalizedSiteIcons`, which decodes each one once.
                     guard let url = item.url,
                           DockLinkPolicy.validatedURL(url.absoluteString) != nil else {
                         throw BackupError.invalidLink(item.title)
-                    }
-                    if let iconData = item.linkFaviconData,
-                       SiteFaviconFetcher.normalizedPNG(from: iconData) == nil {
-                        throw BackupError.invalidLinkIcon(item.title)
                     }
                 case .spacer:
                     guard item.spacerKind != nil else { throw BackupError.invalidFileReference(item.title) }
@@ -182,16 +167,18 @@ enum BackupManager {
         }
     }
 
-    private static func normalizedProfiles(_ profiles: [DockProfile]) -> [DockProfile] {
-        profiles.map { profile in
-            // Provider readings are runtime cache data and never travel in a backup.
-            var copy = profile.strippedOfRuntimeReadings
-            copy.items = copy.items.map { item in
-                var itemCopy = item
-                if let iconData = itemCopy.linkFaviconData {
-                    itemCopy.linkFaviconData = SiteFaviconFetcher.normalizedPNG(from: iconData)
+    /// Re-encodes every site icon as a small PNG, decoding each one once. A link whose icon is not a supported image
+    /// is rejected; any other item simply loses an unreadable icon.
+    private static func withNormalizedSiteIcons(_ profiles: [DockProfile]) throws -> [DockProfile] {
+        try profiles.map { profile in
+            var copy = profile
+            for index in copy.items.indices {
+                guard let iconData = copy.items[index].linkFaviconData else { continue }
+                let normalized = SiteFaviconFetcher.normalizedPNG(from: iconData)
+                if normalized == nil, copy.items[index].type == .link {
+                    throw BackupError.invalidLinkIcon(copy.items[index].title)
                 }
-                return itemCopy
+                copy.items[index].linkFaviconData = normalized
             }
             return copy
         }

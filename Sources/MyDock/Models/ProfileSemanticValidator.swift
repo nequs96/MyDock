@@ -12,6 +12,13 @@ enum ProfileSemanticValidator {
     static let maximumElapsed: TimeInterval = 100 * 366 * 86_400
     static let maximumProfiles = 500
     static let maximumItems = 20_000
+    /// Profile names, item titles and folder names, in characters.
+    static let maximumNameLength = 500
+    /// Alarm titles and App Folder names, in characters.
+    static let maximumShortTextLength = 200
+    /// Stored site icons are 128-pixel PNGs, far below this.
+    static let maximumFaviconBytes = 256 * 1_024
+    static let maximumCalendarSelections = 200
 
     static func validate(_ profiles: [DockProfile]) throws {
         guard profiles.count <= maximumProfiles, Set(profiles.map(\.id)).count == profiles.count else {
@@ -21,11 +28,15 @@ enum ProfileSemanticValidator {
         var count = 0
         for profile in profiles {
             try profile.appearance?.validate()
-            guard profile.name.count <= 500 else { throw ProfileValidationError.invalid("profile name is too long") }
+            guard profile.name.count <= maximumNameLength else { throw ProfileValidationError.invalid("profile name is too long") }
             for item in profile.items {
                 count += 1
                 guard count <= maximumItems, itemIDs.insert(item.id).inserted else {
                     throw ProfileValidationError.invalid("too many items or duplicate item identities")
+                }
+                guard item.title.count <= maximumNameLength, (item.folderCustomName?.count ?? 0) <= maximumNameLength,
+                      (item.linkFaviconData?.count ?? 0) <= maximumFaviconBytes else {
+                    throw ProfileValidationError.invalid("an item name or site icon exceeds supported limits")
                 }
                 if let configuration = item.widgetConfiguration { try validate(configuration) }
             }
@@ -68,6 +79,9 @@ enum ProfileSemanticValidator {
         guard config.alarms.count <= 64, Set(config.alarms.map(\.id)).count == config.alarms.count,
               config.alarms.allSatisfy({ (0...23).contains($0.hour) && (0...59).contains($0.minute)
                 && $0.repeatWeekdays.allSatisfy({ (1...7).contains($0) }) }),
+              config.alarms.allSatisfy({ $0.title.count <= maximumShortTextLength }),
+              config.appFolderName.count <= maximumShortTextLength,
+              config.selectedCalendarIDs.count <= maximumCalendarSelections,
               config.appFolderApplications.count <= 2_000,
               Set(config.appFolderApplications.map(\.id)).count == config.appFolderApplications.count,
               config.watchlistStocks.count <= 100,
@@ -92,13 +106,5 @@ enum ProfileSemanticValidator {
             && abs($0.timeIntervalSinceReferenceDate) <= 315_576_000_000 }) else {
             throw ProfileValidationError.invalid("date is outside the supported range")
         }
-    }
-}
-
-enum TimerValueFormatter {
-    static func text(_ interval: TimeInterval) -> String {
-        let finite = interval.isFinite ? interval : 0
-        let seconds = Int(min(max(0, finite), ProfileSemanticValidator.maximumElapsed).rounded(.up))
-        return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
     }
 }

@@ -191,12 +191,12 @@ struct ProfileStoreTests {
         #expect(!store.canRetryPersistence)
     }
 
-    @Test func onboardingCreatesSelectedProfilesAndStarterWidgets() {
+    @Test func onboardingCreatesSelectedProfilesAndStarterWidgets() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
         let imported = [DockItem.application(at: URL(fileURLWithPath: "/Applications/Preview.app")), .spacer(.small)]
 
-        store.finishOnboarding(setupMode: .both,
+        try store.finishOnboarding(setupMode: .both,
                                customDockPosition: .left,
                                customDockDisplayID: 42,
                                importedNativeItems: imported,
@@ -224,7 +224,7 @@ struct ProfileStoreTests {
         store.add(small, to: profileID)
         store.add(regular, to: profileID)
 
-        store.moveItem(regular.id, before: one.id, in: profileID)
+        store.moveItems([regular.id], before: one.id, in: profileID)
 
         let items = store.state.profiles.first { $0.id == profileID }?.items
         #expect(items?.map(\.id) == [regular.id, one.id, small.id])

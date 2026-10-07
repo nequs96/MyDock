@@ -52,9 +52,17 @@ final class WidgetLifecycleCoordinator {
                 active.insert(item.id)
                 guard signatures[item.id] != signature else { continue }
                 jobs[item.id]?.cancel(); signatures[item.id] = signature
-                let remaining = signature.deadline.timeIntervalSince(now())
+                let initialRemaining = signature.deadline.timeIntervalSince(now())
                 jobs[item.id] = Task { [weak self] in
-                    do { try await Task.sleep(for: .seconds(max(0, remaining))) } catch { return }
+                    // The sleep measures elapsed time while the deadline is wall-clock: if the wall clock still
+                    // lags at wake-up (for example an NTP slew, which posts no clock-change notification), sleep again.
+                    // Each sleep runs a few milliseconds past the deadline so the checks below agree despite rounding.
+                    var remaining = initialRemaining
+                    while remaining > 0 {
+                        do { try await Task.sleep(for: .seconds(remaining + 0.01)) } catch { return }
+                        guard let self else { return }
+                        remaining = signature.deadline.timeIntervalSince(self.now())
+                    }
                     guard let self, !Task.isCancelled, signatures[item.id] == signature else { return }
                     self.store?.updateWidgetConfiguration(itemID: item.id, in: profile.id) { c in
                         if item.widgetKind == "Focus Timer", c.focusStartedAt == start, c.focusRemaining(at: self.now()) <= 0 {

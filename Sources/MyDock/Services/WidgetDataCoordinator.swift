@@ -36,11 +36,15 @@ struct WidgetDataQuery: Hashable, Sendable {
 
 enum WidgetDataValue {
     case stripe(StripeSnapshot), paddle(PaddleSnapshot), shopify(ShopifySnapshot)
-    case stock(StockMarketSnapshot), watchlist([String: StockMarketSnapshot], failedSymbols: [String])
+    /// `limitReached`: the provider's request limit stopped the refresh before every symbol was read.
+    case stock(StockMarketSnapshot), watchlist([String: StockMarketSnapshot], failedSymbols: [String], limitReached: Bool)
     case limits(AILimitsSnapshot), activity(AIActivitySnapshot)
 
     var partialError: String? {
-        if case .watchlist(_, let failed) = self, !failed.isEmpty { return "Some symbols did not refresh: " + failed.prefix(10).joined(separator: ", ") + ". Saved quotes were kept." }
+        if case .watchlist(_, let failed, let limitReached) = self, !failed.isEmpty {
+            if limitReached { return (MarketDataError.providerLimit.errorDescription ?? "") + " Saved quotes were kept." }
+            return "Some symbols did not refresh: " + failed.prefix(10).joined(separator: ", ") + ". Saved quotes were kept."
+        }
         if case .activity(let snapshot) = self, !snapshot.available, snapshot.partial { return "Local activity couldn’t be read. Try refreshing." }
         if case .limits(let snapshot) = self, snapshot.readings.contains(where: { $0.availability == .error || $0.lastRefreshError != nil }) {
             return "Some provider limits could not refresh. Saved readings are shown only for a matching verified account."
@@ -56,7 +60,7 @@ enum WidgetDataValue {
         case .paddle(let snapshot): c.paddleSnapshot = snapshot
         case .shopify(let snapshot): c.shopifySnapshot = snapshot
         case .stock(let snapshot): c.stockSnapshot = snapshot
-        case .watchlist(let snapshots, _):
+        case .watchlist(let snapshots, _, _):
             for index in c.watchlistStocks.indices {
                 if let snapshot = snapshots[c.watchlistStocks[index].symbol] { c.watchlistStocks[index].snapshot = snapshot }
             }
@@ -179,12 +183,18 @@ final class WidgetDataCoordinator: ObservableObject {
                         self?.reconcile(); return
                     }
                     await self?.refresh(query, configuration: configuration, force: false)
-                    let interval = Self.interval(query, configuration: configuration)
-                    let delay = self?.failures[query].map { min(3_600, 60 * pow(2, Double(min($0, 6)))) } ?? interval
+                    let delay = Self.nextRefreshDelay(interval: Self.interval(query, configuration: configuration), failures: self?.failures[query])
                     do { try await Task.sleep(for: .seconds(delay)) } catch { return }
                 }
             }
         }
+    }
+
+    /// After a failure the next attempt never comes sooner than the normal cadence; repeated failures back off
+    /// exponentially up to an hour, so a rate-limited provider is polled less, not more.
+    nonisolated static func nextRefreshDelay(interval: TimeInterval, failures: Int?) -> TimeInterval {
+        guard let failures else { return interval }
+        return max(interval, min(3_600, 60 * pow(2, Double(min(failures, 6)))))
     }
 
     static func interval(_ query: WidgetDataQuery, configuration: WidgetConfiguration) -> TimeInterval {
@@ -246,7 +256,8 @@ final class WidgetDataCoordinator: ObservableObject {
             cache[query] = (.now, value)
             if cache.count > 128, let oldest = cache.min(by: { $0.value.date < $1.value.date })?.key { cache[oldest] = nil }
             errors[query] = value.partialError
-            failures[query] = nil
+            // A watchlist stopped by the provider's request limit keeps the quotes it read but backs off like a failure.
+            if case .watchlist(_, _, true) = value { failures[query, default: 0] += 1 } else { failures[query] = nil }
             publish(value, query: query)
         case .failure(let error):
             errors[query] = error.localizedDescription
@@ -275,30 +286,40 @@ final class WidgetDataCoordinator: ObservableObject {
         try AppRuntimeEnvironment.requireNetwork()
         switch query.kind {
         case "Stripe":
-            guard let key = try StripeAPIKeyStore.read(accountID: c.stripeAccountID) else { throw StripeDataError.missingKey }
+            let accountID = c.stripeAccountID
+            guard let key = try await readCredential({ try StripeAPIKeyStore.read(accountID: accountID) }) else { throw StripeDataError.missingKey }
             return .stripe(try await StripeAPIProvider().snapshot(apiKey: key, accountID: c.stripeAccountID,
                                                                   accountName: StripeConnectionDirectory.accounts().first { $0.id == c.stripeAccountID }?.name ?? c.stripeDisplayName, period: c.stripePeriod))
         case "Paddle":
-            guard let key = try PaddleAPIKeyStore.read(accountID: c.paddleAccountID) else { throw PaddleDataError.missingKey }
+            let accountID = c.paddleAccountID
+            guard let key = try await readCredential({ try PaddleAPIKeyStore.read(accountID: accountID) }) else { throw PaddleDataError.missingKey }
             return .paddle(try await PaddleAPIProvider().snapshot(apiKey: key, accountID: c.paddleAccountID,
                                                                   accountName: PaddleConnectionDirectory.accounts().first { $0.id == c.paddleAccountID }?.name ?? c.paddleDisplayName, period: c.paddlePeriod))
         case "Shopify":
-            guard let account = ShopifyConnectionDirectory.stores().first(where: { $0.id == c.shopifyStoreID }),
-                  let credential = try ShopifyCredentialStore.read(storeID: c.shopifyStoreID) else { throw ShopifyDataError.invalidCredentials }
+            let storeID = c.shopifyStoreID
+            guard let account = ShopifyConnectionDirectory.stores().first(where: { $0.id == storeID }),
+                  let credential = try await readCredential({ try ShopifyCredentialStore.read(storeID: storeID) }) else { throw ShopifyDataError.invalidCredentials }
             let result = try await ShopifyAPIProvider().snapshot(store: account, credential: credential, period: c.shopifyPeriod)
             try ShopifyCredentialStore.writeRefreshed(result.credential, replacing: credential, storeID: c.shopifyStoreID)
             return .shopify(result.snapshot)
         case "Stock", "Watchlist":
-            guard let key = try MarketAPIKeyStore.read() else { throw MarketDataError.missingAPIKey }
+            guard let key = try await readCredential({ try MarketAPIKeyStore.read() }) else { throw MarketDataError.missingAPIKey }
             if query.kind == "Stock" { return .stock(try await SharedMarketSnapshots.shared.snapshot(symbol: c.stockSymbol, currency: c.stockCurrency, apiKey: key)) }
             var snapshots: [String: StockMarketSnapshot] = [:]
             var failed: [String] = []
+            var limitReached = false
             for stock in c.watchlistStocks {
                 try Task.checkCancellation()
+                // Once the provider's request limit is reached, the remaining symbols cannot succeed either.
+                guard !limitReached else { failed.append(stock.symbol); continue }
                 do { snapshots[stock.symbol] = try await SharedMarketSnapshots.shared.snapshot(symbol: stock.symbol, currency: stock.currency, apiKey: key) }
-                catch { try Task.checkCancellation(); failed.append(stock.symbol) }
+                catch MarketDataError.providerLimit {
+                    // Nothing refreshed: report a failure so the next attempt backs off.
+                    guard !snapshots.isEmpty else { throw MarketDataError.providerLimit }
+                    limitReached = true; failed.append(stock.symbol)
+                } catch { try Task.checkCancellation(); failed.append(stock.symbol) }
             }
-            return .watchlist(snapshots, failedSymbols: failed)
+            return .watchlist(snapshots, failedSymbols: failed, limitReached: limitReached)
         case "AI Limits":
             let providers = c.aiLimitsVisibleProviders
             let allowance = c.aiCopilotMonthlyCreditAllowance
@@ -313,6 +334,11 @@ final class WidgetDataCoordinator: ObservableObject {
             return .activity(await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() })
         default: throw MarketDataError.invalidResponse
         }
+    }
+
+    /// Keychain reads can block on a locked or slow keychain, so they run off the main actor. Only Sendable values cross.
+    private static func readCredential<T: Sendable>(_ read: @escaping @Sendable () throws -> T) async throws -> T {
+        try await Task.detached(priority: .utility) { try read() }.value
     }
 }
 

@@ -17,6 +17,8 @@ struct CommandLibrary: View {
     @State private var apps: [DockItem] = []
     @State private var selected = 0
     @State private var recentlyAdded = Set<String>()
+    /// Saved-content matches, recomputed only when the query changes (bookmark resolution and file checks).
+    @State private var savedResults: [SavedCollectionResult] = []
     @Environment(\.workspaceStartHandler) private var workspaceStartHandler
 
     init(store: ProfileStore, profile: DockProfile, commandMode: Bool = false, allowsAdding: Bool = true,
@@ -47,9 +49,9 @@ struct CommandLibrary: View {
     }
     private var entries: [Entry] { commandEntries + savedEntries }
     /// Explicitly saved snippets, links and shelf files from every Dock. Absent unless the query matches something.
-    private var savedEntries: [Entry] {
-        guard commandMode else { return [] }
-        return SavedCollectionSearch.results(in: store.state.profiles, query: query).map(savedEntry)
+    private var savedEntries: [Entry] { savedResults.map(savedEntry) }
+    private func refreshSavedResults() {
+        savedResults = commandMode ? SavedCollectionSearch.results(in: store.state.profiles, query: query) : []
     }
     private func savedEntry(_ saved: SavedCollectionResult) -> Entry {
         let native = AppRuntimeEnvironment.allowsNativeEffects
@@ -213,7 +215,8 @@ struct CommandLibrary: View {
             }.foregroundStyle(.tertiary).padding(.horizontal, 24).padding(.vertical, 12)
         }.frame(width: 580, height: 540).background(DockDesign.page)
             .task { apps = await InstalledAppCatalog.load() }
-            .onChange(of: query) { _ in selected = 0 }
+            .onAppear(perform: refreshSavedResults)
+            .onChange(of: query) { _ in selected = 0; refreshSavedResults() }
             .onChange(of: category) { _ in selected = 0 }
             .onChange(of: entries.count) { count in selected = min(selected, max(0, count - 1)) }
             .onMoveCommand { direction in

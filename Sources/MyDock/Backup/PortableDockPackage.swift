@@ -105,7 +105,8 @@ struct PortableDockImportPreview: Identifiable {
     var id: UUID { profile.id }
     var profile: DockProfile
     var summary: DockContentSummary
-    var includesPersonalData: Bool?
+    /// Derived from the imported content; the package's own manifest is never trusted.
+    var includesPersonalData: Bool
     var unresolved: [PortableDockUnresolvedTarget]
     var reconnections: [PortableDockReconnection]
 }
@@ -160,16 +161,15 @@ enum PortableDockPackage {
             throw PortableDockError.newerVersion(version)
         }
         let report: BackupImportReport
-        do { report = try BackupManager.readArchive(data) }
+        do { report = try BackupManager.readArchive(data, computeMissing: false) }
         catch is DecodingError { throw PortableDockError.malformed }
         guard let imported = report.importedProfiles.first else { throw PortableDockError.noDock }
         guard report.importedProfiles.count == 1 else { throw PortableDockError.multipleDocks(report.importedProfiles.count) }
 
-        let manifest = try? decodedManifest(data)
         var profile = importable(imported)
         profile.name = uniqueName(profile.name, existing: existingNames)
         return PortableDockImportPreview(profile: profile, summary: DockContentSummary(profile: profile),
-                                         includesPersonalData: manifest?.includesPersonalData,
+                                         includesPersonalData: ProfileSanitizer.sanitize(profile) != profile,
                                          unresolved: unresolvedTargets(in: profile, targetExists: targetExists),
                                          reconnections: reconnections(in: profile))
     }
@@ -215,19 +215,16 @@ enum PortableDockPackage {
         return result
     }
 
-    /// Business and AI widgets: their accounts and provider sign-ins stay on the original Mac.
+    /// Business, market and AI widgets: their accounts, API keys and provider sign-ins stay on the original Mac.
     static func reconnections(in profile: DockProfile) -> [PortableDockReconnection] {
         profile.items.compactMap { item in
             guard item.type == .widget, let kind = item.widgetKind,
                   let definition = WidgetRegistry.definition(named: kind),
                   definition.capabilities.needsConnection || definition.category == .ai else { return nil }
-            return PortableDockReconnection(id: item.id, title: kind, fallback: "Shows no figures until connected on this Mac.")
+            let fallback = definition.capabilities.usesProviderKey
+                ? "Shows no quotes until an Alpha Vantage API key is added on this Mac."
+                : "Shows no figures until connected on this Mac."
+            return PortableDockReconnection(id: item.id, title: kind, fallback: fallback)
         }
-    }
-
-    private struct ManifestEnvelope: Decodable { var dockPackage: DockPackageManifest? }
-
-    private static func decodedManifest(_ data: Data) throws -> DockPackageManifest? {
-        try JSONDecoder().decode(ManifestEnvelope.self, from: data).dockPackage
     }
 }

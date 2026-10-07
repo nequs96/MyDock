@@ -76,7 +76,8 @@ final class ProfileEditSessionCoordinator: ObservableObject {
         guard let latest = store.state.profiles.first(where: { $0.id == id }) else { throw ProfileDraftMergeError.profileRemoved }
         var merged = try draft.merged(with: latest)
         merged.name = merged.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !merged.name.isEmpty else { throw ProfileDraftMergeError.conflict("an empty profile name") }
+        // A missing name is a plain save failure, never a merge conflict to review.
+        guard !merged.name.isEmpty else { throw EditSessionSaveError.failed(EditSessionSaveError.missingName) }
         try ProfileSemanticValidator.validate([merged])
         store.replaceProfile(merged)
         if store.hasUnpersistedChanges { store.flush() }
@@ -87,19 +88,36 @@ final class ProfileEditSessionCoordinator: ObservableObject {
         return merged
     }
 
+    /// Saves every draft that merges cleanly. A draft that conflicts, lost its profile or has no name stays unsaved
+    /// for review, and the error names only those Docks; one such draft never holds back the others.
     func saveAll() throws {
         guard let store else { return }
         var mergedProfiles: [DockProfile] = []
+        var blocked: [(name: String, error: Error)] = []
         for draft in drafts.values where draft.isDirty {
-            guard let latest = store.state.profiles.first(where: { $0.id == draft.profile.id }) else { throw ProfileDraftMergeError.profileRemoved }
-            var merged = try draft.merged(with: latest)
-            merged.name = merged.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !merged.name.isEmpty else { throw EditSessionSaveError.failed("A profile needs a name before it can be saved.") }
-            mergedProfiles.append(merged)
+            let latest = store.state.profiles.first(where: { $0.id == draft.profile.id })
+            do {
+                guard let latest else { throw ProfileDraftMergeError.profileRemoved }
+                var merged = try draft.merged(with: latest)
+                merged.name = merged.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !merged.name.isEmpty else { throw EditSessionSaveError.failed(EditSessionSaveError.missingName) }
+                mergedProfiles.append(merged)
+            } catch {
+                let name = [latest?.name, draft.original.name].compactMap { $0 }.first { !$0.isEmpty } ?? "A Dock"
+                blocked.append((name, error))
+            }
         }
-        guard !mergedProfiles.isEmpty else { return }
-        try store.replaceProfiles(mergedProfiles)
-        for profile in mergedProfiles { drafts[profile.id] = DockProfileDraft(profile: profile); cancelAutosave(profile.id) }
+        if !mergedProfiles.isEmpty {
+            try store.replaceProfiles(mergedProfiles)
+            for profile in mergedProfiles { drafts[profile.id] = DockProfileDraft(profile: profile); cancelAutosave(profile.id) }
+        }
+        guard let first = blocked.first else { return }
+        // A single draft with nothing else to save keeps its specific error, such as a merge conflict.
+        if blocked.count == 1, mergedProfiles.isEmpty { throw first.error }
+        let names = ListFormatter.localizedString(byJoining: blocked.map { "\u{201C}\($0.name)\u{201D}" })
+        throw EditSessionSaveError.failed(blocked.count == 1
+            ? "Your other changes were saved. \(names) was not saved: \(first.error.localizedDescription)"
+            : "Your other changes were saved. \(names) were not saved and keep their changes for review.")
     }
 
     func discard(_ id: UUID) {
@@ -136,5 +154,6 @@ final class ProfileEditSessionCoordinator: ObservableObject {
 
 enum EditSessionSaveError: LocalizedError {
     case failed(String)
+    static let missingName = "A Dock needs a name."
     var errorDescription: String? { if case .failed(let message) = self { message } else { nil } }
 }

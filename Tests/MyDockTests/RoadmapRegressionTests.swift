@@ -51,8 +51,10 @@ struct RoadmapRegressionTests {
         }
         #expect(store.state.profiles == original.profiles)
         #expect(store.state.settings == original.settings)
-        store.finishOnboarding(setupMode: .customMain, customDockPosition: .bottom,
-                               customDockDisplayID: nil, importedNativeItems: [], starterWidgets: ["Clock"])
+        #expect(throws: (any Error).self) {
+            try store.finishOnboarding(setupMode: .customMain, customDockPosition: .bottom,
+                                       customDockDisplayID: nil, importedNativeItems: [], starterWidgets: ["Clock"])
+        }
         #expect(!store.state.settings.onboardingComplete)
         #expect(store.state.profiles.isEmpty)
         #expect(store.persistenceError != nil)

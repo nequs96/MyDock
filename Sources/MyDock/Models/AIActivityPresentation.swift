@@ -2,15 +2,20 @@ import Foundation
 
 /// Shared by the tile, chart axes and summary. Raw counters remain available to AX/help.
 enum AIActivityFormatting {
+    /// Rounds before choosing the unit, so 999,950 reads "1M", not "1,000K".
     static func tokens(_ value: Int64, fractionDigits: Int = 1) -> String {
         let magnitude = max(0, value)
-        for (threshold, suffix) in [(1_000_000_000.0, "B"), (1_000_000.0, "M"), (1_000.0, "K")] {
-            if Double(magnitude) >= threshold {
-                let number = Double(magnitude) / threshold
-                return number.formatted(.number.precision(.fractionLength(0...max(0, min(1, fractionDigits))))) + suffix
-            }
+        let units: [(threshold: Double, suffix: String)] = [(1_000, "K"), (1_000_000, "M"), (1_000_000_000, "B")]
+        guard var index = units.lastIndex(where: { Double(magnitude) >= $0.threshold }) else { return magnitude.formatted() }
+        let digits = max(0, fractionDigits)
+        let scale = pow(10, Double(digits))
+        func amount(in threshold: Double) -> Double { (Double(magnitude) * scale / threshold).rounded() / scale }
+        var number = amount(in: units[index].threshold)
+        if number >= 1_000, index + 1 < units.count {
+            index += 1
+            number = amount(in: units[index].threshold)
         }
-        return magnitude.formatted()
+        return number.formatted(.number.precision(.fractionLength(0...digits))) + units[index].suffix
     }
 }
 

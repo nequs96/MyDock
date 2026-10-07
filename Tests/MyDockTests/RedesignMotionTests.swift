@@ -68,7 +68,7 @@ struct RedesignMotionTests {
                              duringSetup: () -> Void = {}) -> OnboardingCompletion.Result {
         OnboardingCompletion.finish(store: store, appliesClearStyle: appliesClearStyle) {
             duringSetup()
-            store.finishOnboarding(setupMode: .both, customDockPosition: .bottom, customDockDisplayID: nil,
+            try store.finishOnboarding(setupMode: .both, customDockPosition: .bottom, customDockDisplayID: nil,
                                    importedNativeItems: [], starterWidgets: ["Clock", "Battery"])
         }
     }

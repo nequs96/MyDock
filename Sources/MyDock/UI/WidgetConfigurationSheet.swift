@@ -187,7 +187,7 @@ struct WidgetSheetDataSummary: Equatable {
         case .none: return nil
         case .timeTick: return "This Mac's clock"
         case .localSampling: return "This Mac"
-        case .remoteFetch: return capabilities.needsConnection ? "Connected account" : "Online"
+        case .remoteFetch: return capabilities.needsConnection && !capabilities.usesProviderKey ? "Connected account" : "Online"
         case .externalSource:
             if capabilities.permissions.contains(.calendars) { return "Calendar" }
             if capabilities.permissions.contains(.reminders) { return "Reminders" }

@@ -8,7 +8,7 @@ enum PrivacyHelpCopy {
         "Docks, notes, widget settings and cached readings are stored only on this Mac, in MyDock's Application Support folder.",
         "API keys, tokens and client secrets live in this Mac's Keychain, never in profiles, history or diagnostics.",
         "Recovery history keeps layouts for 14 days. It omits credentials, connected accounts, cached readings and private text unless you include it for the current session.",
-        "Backups never include credentials or permissions. \"Include personal widget data\" adds notes and cached readings, so keep that file private.",
+        "Backups never include credentials, permissions or cached readings. \"Include personal widget data\" adds notes, lists and saved items, so keep that file private.",
         "Diagnostics export versions, counts, settings and event codes only."
     ]
 

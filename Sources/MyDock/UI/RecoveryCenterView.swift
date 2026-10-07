@@ -42,7 +42,8 @@ struct RecoveryCenterView: View {
     }
     private func restore(_ entry: ProfileLibraryEntry) {
         do {
-            let id = try store.createProfile(ProfileSanitizer.newIdentity(entry.profile))
+            // Like backup Restore, a restored layout is added beside the current Dock, not switched to.
+            let id = try store.createProfile(ProfileSanitizer.newIdentity(entry.profile), activate: false)
             message = "Restored \(store.state.profiles.first(where: { $0.id == id })?.name ?? "profile")."
         } catch { message = error.localizedDescription }
     }

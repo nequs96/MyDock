@@ -133,20 +133,6 @@ enum WidgetCardWidth: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
     var label: String { rawValue.capitalized }
-    var title: String {
-        switch self {
-        case .compact: "Compact · no name"
-        case .standard: "Standard"
-        case .wide: "Wide"
-        }
-    }
-    var points: Double {
-        switch self {
-        case .compact: 66
-        case .standard: 112
-        case .wide: 144
-        }
-    }
 }
 
 enum DockProfileKind: String, Codable, CaseIterable, Identifiable {
@@ -300,7 +286,33 @@ struct DockItem: Codable, Identifiable, Hashable {
         var configuration = WidgetConfiguration()
         configuration.iconAppearance = .mono
         if kind == "System Activity" { SystemDetailSections.applyCreationDefaults(to: &configuration) }
+        if kind == "World Clock" { configuration.worldClockTimeZoneID = WorldClockCityCatalog.initialZoneID() }
         return DockItem(type: .widget, title: kind, widgetKind: kind, widgetConfiguration: configuration)
+    }
+}
+
+extension DockItem {
+    /// Decodes like the synthesized form, then bounds text and site icons that older or hand-edited files may hold,
+    /// so they load instead of failing `ProfileSemanticValidator`, which rejects them on write.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        type = try values.decode(DockItemType.self, forKey: .type)
+        title = String(try values.decode(String.self, forKey: .title).prefix(ProfileSemanticValidator.maximumNameLength))
+        url = try values.decodeIfPresent(URL.self, forKey: .url)
+        bundleIdentifier = try values.decodeIfPresent(String.self, forKey: .bundleIdentifier)
+        spacerKind = try values.decodeIfPresent(SpacerKind.self, forKey: .spacerKind)
+        widgetKind = try values.decodeIfPresent(String.self, forKey: .widgetKind)
+        widgetConfiguration = try values.decodeIfPresent(WidgetConfiguration.self, forKey: .widgetConfiguration)
+        folderCustomName = try values.decodeIfPresent(String.self, forKey: .folderCustomName)
+            .map { String($0.prefix(ProfileSemanticValidator.maximumNameLength)) }
+        showFolderLabel = try values.decodeIfPresent(Bool.self, forKey: .showFolderLabel)
+        folderIconColor = try values.decodeIfPresent(DockProfileColor.self, forKey: .folderIconColor)
+        folderIconLetter = try values.decodeIfPresent(String.self, forKey: .folderIconLetter)
+        folderIconNumber = try values.decodeIfPresent(String.self, forKey: .folderIconNumber)
+        linkIcon = try values.decodeIfPresent(DockLinkIcon.self, forKey: .linkIcon)
+        linkFaviconData = try values.decodeIfPresent(Data.self, forKey: .linkFaviconData)
+            .flatMap { $0.count <= ProfileSemanticValidator.maximumFaviconBytes ? $0 : nil }
     }
 }
 
@@ -387,10 +399,11 @@ enum StockChartRange: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .week: "5D"
-        case .month: "22D"
-        case .threeMonths: "66D"
-        case .year: "100D"
+        case .week: "1W"
+        case .month: "1M"
+        case .threeMonths: "3M"
+        // The provider's compact series holds 100 trading days, about five months.
+        case .year: "5M"
         }
     }
 
@@ -745,7 +758,9 @@ struct WidgetConfiguration: Codable, Hashable {
         shopifySnapshot = values.lenient(ShopifySnapshot.self, forKey: .shopifySnapshot)
         aiLimitsLayout = values.lenient(AILimitLayout.self, forKey: .aiLimitsLayout) ?? .numbers
         aiLimitsRepresentation = values.lenient(AIUsageRepresentation.self, forKey: .aiLimitsRepresentation) ?? .remaining
-        aiLimitsVisibleProviders = values.lenientChoices(AIProvider.self, forKey: .aiLimitsVisibleProviders) ?? [.codex, .claude, .grok]
+        var seenProviders = Set<AIProvider>()
+        aiLimitsVisibleProviders = (values.lenientChoices(AIProvider.self, forKey: .aiLimitsVisibleProviders) ?? [.codex, .claude, .grok])
+            .filter { seenProviders.insert($0).inserted }
         aiLimitsProviderOrder = values.lenientChoices(AIProvider.self, forKey: .aiLimitsProviderOrder) ?? AIProvider.allCases
         aiLimitsCompactProvider = values.lenient(AIProvider.self, forKey: .aiLimitsCompactProvider) ?? .codex
         aiLimitsSnapshot = values.lenient(AILimitsSnapshot.self, forKey: .aiLimitsSnapshot)
@@ -771,17 +786,23 @@ struct WidgetConfiguration: Codable, Hashable {
         hydrationReminderIntervalMinutes = try values.decodeIfPresent(Int.self, forKey: .hydrationReminderIntervalMinutes) ?? 60
         hydrationEntries = try values.decodeIfPresent([HydrationEntry].self, forKey: .hydrationEntries) ?? []
         hydrationLastRemovedEntry = try values.decodeIfPresent(HydrationEntry.self, forKey: .hydrationLastRemovedEntry)
-        appFolderName = try values.decodeIfPresent(String.self, forKey: .appFolderName) ?? "App Folder"
+        appFolderName = String((try values.decodeIfPresent(String.self, forKey: .appFolderName) ?? "App Folder")
+            .prefix(ProfileSemanticValidator.maximumShortTextLength))
         appFolderColor = try values.decodeIfPresent(String.self, forKey: .appFolderColor) ?? "blue"
         appFolderLetter = String((try values.decodeIfPresent(String.self, forKey: .appFolderLetter) ?? "").prefix(2)).uppercased()
         appFolderApplications = try values.decodeIfPresent([AppFolderApplication].self, forKey: .appFolderApplications) ?? []
         selectedShortcutName = try values.decodeIfPresent(String.self, forKey: .selectedShortcutName) ?? ""
-        selectedCalendarIDs = try values.decodeIfPresent([String].self, forKey: .selectedCalendarIDs) ?? []
+        selectedCalendarIDs = Array((try values.decodeIfPresent([String].self, forKey: .selectedCalendarIDs) ?? [])
+            .prefix(ProfileSemanticValidator.maximumCalendarSelections))
         calendarLayout = values.lenient(CalendarWidgetLayout.self, forKey: .calendarLayout) ?? .dateAndNextEvent
         calendarShowsAllDayEvents = try values.decodeIfPresent(Bool.self, forKey: .calendarShowsAllDayEvents) ?? false
         selectedReminderCalendarID = try values.decodeIfPresent(String.self, forKey: .selectedReminderCalendarID) ?? ""
         remindersLayout = values.lenient(RemindersWidgetLayout.self, forKey: .remindersLayout) ?? .list
-        alarms = try values.decodeIfPresent([DockAlarm].self, forKey: .alarms) ?? []
+        alarms = (try values.decodeIfPresent([DockAlarm].self, forKey: .alarms) ?? []).map { alarm in
+            var alarm = alarm
+            alarm.title = String(alarm.title.prefix(ProfileSemanticValidator.maximumShortTextLength))
+            return alarm
+        }
         nowPlayingSource = values.lenient(NowPlayingSource.self, forKey: .nowPlayingSource) ?? .appleMusic
         let enabledSources = values.lenientChoices(NowPlayingSource.self, forKey: .nowPlayingEnabledSources) ?? [.appleMusic]
         nowPlayingEnabledSources = NowPlayingSource.allCases.filter(enabledSources.contains)
@@ -904,12 +925,21 @@ struct WidgetConfiguration: Codable, Hashable {
         countdownStartedAt = nil
     }
 
+    /// Hydration history keeps about a year and at most this many drinks, well inside the validator's backstop.
+    static let hydrationRetentionDays = 400
+    static let hydrationMaximumEntries = 10_000
+
     @discardableResult
     mutating func logHydrationDrink(at date: Date = .now, amountML: Int? = nil) -> Bool {
         guard hydrationSaveHistory else { return false }
         let amount = hydrationTrackAmounts ? (amountML ?? hydrationDefaultAmountML) : nil
+        let cutoff = date.addingTimeInterval(-Double(Self.hydrationRetentionDays) * 86_400)
+        hydrationEntries.removeAll { $0.timestamp < cutoff }
         hydrationEntries.append(HydrationEntry(timestamp: date, amountML: amount))
         hydrationEntries.sort { $0.timestamp < $1.timestamp }
+        if hydrationEntries.count > Self.hydrationMaximumEntries {
+            hydrationEntries.removeFirst(hydrationEntries.count - Self.hydrationMaximumEntries)
+        }
         return true
     }
 
@@ -1367,9 +1397,9 @@ enum WidgetRegistry {
     static let airDropSymbol = "dot.radiowaves.left.and.right"
     static let all: [WidgetDefinition] = [
         .init(name: "Stock", symbol: "chart.line.uptrend.xyaxis", category: .business, description: "Follow a market ticker.",
-              capabilities: .init(layouts: WidgetLayoutPresets.market, defaultLayout: .compact, hasSetupState: true, refreshDemand: .remoteFetch)),
+              capabilities: .init(layouts: WidgetLayoutPresets.market, defaultLayout: .compact, needsConnection: true, hasSetupState: true, refreshDemand: .remoteFetch, usesProviderKey: true)),
         .init(name: "Watchlist", symbol: "chart.xyaxis.line", category: .business, description: "Compare saved tickers.",
-              capabilities: .init(layouts: WidgetLayoutPresets.market, defaultLayout: .compact, hasSetupState: true, refreshDemand: .remoteFetch)),
+              capabilities: .init(layouts: WidgetLayoutPresets.market, defaultLayout: .compact, needsConnection: true, hasSetupState: true, refreshDemand: .remoteFetch, usesProviderKey: true)),
         .init(name: "Calendar", symbol: "calendar", category: .productivity, description: "See the date and upcoming events.",
               capabilities: .init(layouts: WidgetLayoutPresets.schedule, defaultLayout: .compact, permissions: [.calendars], hasSetupState: true, holdsPrivateContent: true, refreshDemand: .externalSource)),
         .init(name: "Reminders", symbol: "checklist", category: .productivity, description: "View and complete reminders.",
@@ -1379,7 +1409,7 @@ enum WidgetRegistry {
         .init(name: "Weather", symbol: "cloud.sun", category: .personal, description: "See current conditions and forecast.",
               capabilities: .init(layouts: WidgetLayoutPresets.weather, defaultLayout: .standard, permissions: [.location], hasSetupState: true, refreshDemand: .remoteFetch)),
         .init(name: "Focus Timer", symbol: "timer", category: .productivity, description: "Keep a focus session close.",
-              capabilities: .init(layouts: WidgetLayoutPresets.timer, defaultLayout: .compact, permissions: [.notifications], refreshDemand: .timeTick)),
+              capabilities: .init(layouts: WidgetLayoutPresets.timer, defaultLayout: .compact, refreshDemand: .timeTick)),
         .init(name: "Sticky Note", symbol: "note.text", category: .productivity, description: "Keep a note in your Dock.",
               capabilities: .init(layouts: WidgetLayoutPresets.stickyNote, defaultLayout: .standard, holdsPrivateContent: true)),
         .init(name: "Battery", symbol: "battery.100", category: .system, description: "See Mac and accessory battery state.",

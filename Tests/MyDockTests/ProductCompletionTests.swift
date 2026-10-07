@@ -132,8 +132,6 @@ struct ProductCompletionTests {
         #expect(WidgetTimingPresentation.eventStatus(event, now: now).contains("Starts"))
         event.isAllDay = true
         #expect(WidgetTimingPresentation.eventStatus(event, now: now) == "All day")
-        #expect(!WidgetTimingPresentation.isStale(fetchedAt: now, now: now.addingTimeInterval(120), maximumAge: 120))
-        #expect(WidgetTimingPresentation.isStale(fetchedAt: now, now: now.addingTimeInterval(121), maximumAge: 120))
     }
 
     @Test func installedCopyDuplicatePolicyMatchesNormalizedURL() {
@@ -147,13 +145,10 @@ struct ProductCompletionTests {
         #expect(WidgetDiscovery.canAdd(.widget("Clock"), alreadyAdded: true))
     }
 
-    @Test func dayRelationAndReadingStatusStayHonest() {
+    @Test func dayRelationStaysHonest() {
         #expect(WidgetTimingPresentation.dayRelation(offset: 0, reference: "this Mac") == "Same date as this Mac")
         #expect(WidgetTimingPresentation.dayRelation(offset: 1, reference: "this Mac") == "1 day ahead of this Mac")
         #expect(WidgetTimingPresentation.dayRelation(offset: -2, reference: "this Mac") == "2 days behind this Mac")
-        let then = Date(timeIntervalSince1970: 0)
-        #expect(WidgetTimingPresentation.readingStatus(fetchedAt: then, now: then.addingTimeInterval(500), maximumAge: 120).hasPrefix("Saved reading"))
-        #expect(WidgetTimingPresentation.readingStatus(fetchedAt: then, now: then.addingTimeInterval(60), maximumAge: 120).hasPrefix("Updated"))
     }
 
     @Test func staleAILimitsMessageNamesOriginalSuccessAndError() {

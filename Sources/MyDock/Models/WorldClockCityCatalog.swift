@@ -22,6 +22,15 @@ enum WorldClockCityCatalog {
             return nameOrder == .orderedSame ? $0.id < $1.id : nameOrder == .orderedAscending
         }
 
+    /// A new World Clock starts on a major city whose current offset differs from this Mac's,
+    /// so it shows another place instead of a fixed developer default.
+    static func initialZoneID(current: TimeZone = .current, at date: Date = .now) -> String {
+        let candidates = ["America/New_York", "Europe/London", "Asia/Tokyo"]
+        let offset = current.secondsFromGMT(for: date)
+        return candidates.first { TimeZone(identifier: $0).map { $0.secondsFromGMT(for: date) != offset } ?? false }
+            ?? candidates[0]
+    }
+
     static func matches(_ query: String, limit: Int = 10) -> [WorldClockCityOption] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty, limit > 0 else { return [] }
