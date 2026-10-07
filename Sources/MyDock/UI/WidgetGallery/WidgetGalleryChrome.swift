@@ -16,6 +16,24 @@ enum WidgetGalleryMetrics {
     static let tileTitle = Font.system(size: 13, weight: .medium)
     static let tileDetail = Font.system(size: 12)
     static let searchMaximumWidth: CGFloat = 420
+
+    /// The search highlight of a tile or row: one accent wash for every gallery surface.
+    static func highlightFill(_ scheme: ColorScheme) -> Color {
+        DockDesign.accent.opacity(scheme == .dark ? 0.20 : 0.12)
+    }
+}
+
+/// Spoken feedback for changes VoiceOver cannot see, such as the highlight moving while focus
+/// stays in a search field, or an add that changes nothing on screen.
+@MainActor
+enum GalleryAnnouncement {
+    static func post(_ message: String) {
+        guard !message.isEmpty, let app = NSApp else { return }
+        let element: Any
+        if let window = app.keyWindow ?? app.mainWindow { element = window } else { element = app }
+        NSAccessibility.post(element: element, notification: .announcementRequested,
+                             userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    }
 }
 
 /// The centred search pill. The AppKit field keeps arrow, Return and Escape routing.
@@ -143,7 +161,7 @@ struct GalleryGlassButtonStyle: ButtonStyle {
                 .frame(minWidth: WidgetGalleryMetrics.controlHeight, minHeight: WidgetGalleryMetrics.controlHeight)
                 .contentShape(Capsule())
                 .dockGlass(.regular, in: Capsule(), interactive: true)
-                .overlay(Capsule().fill(Color.primary.opacity(configuration.isPressed ? 0.10 : hovered ? 0.04 : 0)).allowsHitTesting(false))
+                .overlay(Capsule().fill(configuration.isPressed ? DockDesign.selection : hovered ? DockDesign.hover : Color.clear).allowsHitTesting(false))
                 .opacity(isEnabled ? 1 : 0.45)
                 .onHover { hovered = $0 }
         }
@@ -217,8 +235,8 @@ struct GalleryTileBackdrop: ViewModifier {
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: radius, style: .continuous) }
     private var fill: Color {
-        if selected { return DockDesign.accent.opacity(scheme == .dark ? 0.20 : 0.12) }
-        if hovered { return Color.primary.opacity(scheme == .dark ? 0.07 : 0.05) }
+        if selected { return WidgetGalleryMetrics.highlightFill(scheme) }
+        if hovered { return DockDesign.hover }
         return .clear
     }
 
@@ -248,27 +266,18 @@ struct GalleryTileBackdrop: ViewModifier {
     }
 }
 
-/// The added state of an app row: a plain green check with no circle, deliberately unlike
-/// the filled accent plus. Light mode uses a deeper green so the glyph keeps 3:1 on white.
+/// The added state of an app row: a plain check with no circle, deliberately unlike the filled
+/// accent plus. It uses the accent, the same colour as the widgets' added badge, so "Added" reads
+/// the same in every segment.
 struct GalleryAddedCheck: View {
     var generation: Int = 0
     @DockAccessibilityStyle() private var accessibility
-    @Environment(\.colorScheme) private var scheme
     @State private var scale: CGFloat = 1
-
-    private var green: Color {
-        switch (scheme, accessibility.contrast) {
-        case (.dark, .increased): Color(red: 0.45, green: 0.90, blue: 0.55)
-        case (.dark, _): Color(red: 0.30, green: 0.82, blue: 0.42)
-        case (_, .increased): Color(red: 0.08, green: 0.42, blue: 0.18)
-        default: Color(red: 0.13, green: 0.53, blue: 0.24)
-        }
-    }
 
     var body: some View {
         Image(systemName: WidgetGalleryRowAccessory.added.symbol)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(green)
+            .font(.system(size: 14, weight: accessibility.contrast == .increased ? .bold : .semibold))
+            .foregroundStyle(DockDesign.accent)
             .frame(width: 22, height: 22)
             .scaleEffect(scale)
             .accessibilityHidden(true)
@@ -285,6 +294,8 @@ struct GalleryAddedCheck: View {
 struct GalleryAddedBadge: View {
     var generation: Int = 0
     var size: CGFloat = 22
+    /// Spoken when the badge stands alone; `nil` when the owner's label already says "Added".
+    var spokenLabel: String? = nil
     @DockAccessibilityStyle() private var accessibility
     @State private var scale: CGFloat = 1
 
@@ -301,7 +312,8 @@ struct GalleryAddedBadge: View {
             }
             .shadow(color: .black.opacity(accessibility.reduceTransparency ? 0 : 0.18), radius: 2, y: 1)
             .scaleEffect(scale)
-            .accessibilityHidden(true)
+            .accessibilityLabel(spokenLabel ?? "")
+            .accessibilityHidden(spokenLabel == nil)
             .onChange(of: generation) { _ in
                 guard !accessibility.reduceMotion else { return }
                 scale = 1.28

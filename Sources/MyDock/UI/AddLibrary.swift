@@ -12,12 +12,15 @@ struct AddLibrary: View {
     let switchProfile: (UUID) -> Void
     let newDock: () -> Void
     let settings: () -> Void
-    let browse: (String) -> Void
+    let browse: (DockBrowseAction) -> Void
     let close: () -> Void
     @State private var query: String
     @State private var tab: AddLibraryTab
     @State private var scan: InstalledAppScan?
     @State private var loading = true
+    /// A rescan is running; the previous list stays visible meanwhile.
+    @State private var scanning = false
+    @State private var lastScan: Date?
     @State private var refreshID = UUID()
     @State private var selected = 0
     @State private var keyboardNavigation = false
@@ -46,7 +49,7 @@ struct AddLibrary: View {
          initialQuery: String = "", initialCategory: String = "All",
          add: @escaping (DockItem) -> Void, switchProfile: @escaping (UUID) -> Void,
          newDock: @escaping () -> Void, settings: @escaping () -> Void,
-         browse: @escaping (String) -> Void, close: @escaping () -> Void) {
+         browse: @escaping (DockBrowseAction) -> Void, close: @escaping () -> Void) {
         self.store = store; self.profile = profile; self.commandMode = commandMode; self.allowsAdding = allowsAdding
         self.add = add; self.switchProfile = switchProfile; self.newDock = newDock
         self.settings = settings; self.browse = browse; self.close = close
@@ -65,6 +68,13 @@ struct AddLibrary: View {
     private struct Entry: Identifiable {
         var id: String
         var kind: EntryKind
+        var title: String {
+            switch kind {
+            case .widget(let widget): widget.name
+            case .application(let entry): entry.title
+            case .more(let entry): entry.title
+            }
+        }
         var item: DockItem? {
             switch kind {
             case .widget(let widget): .widget(widget.name)
@@ -93,9 +103,9 @@ struct AddLibrary: View {
         return searchText.isEmpty && capabilityFilter == .all && !suggestions.isEmpty
     }
     private var columns: Int { WidgetGalleryModel.columnCount(for: contentWidth, spacing: WidgetGalleryMetrics.gridSpacing) }
-    /// Three heroes in a row, four when there is room; narrow windows show four as a 2 × 2 block
-    /// so heroes never shrink below the grid tiles.
-    private var heroCount: Int { min(suggestions.count, columns == 2 || contentWidth >= 960 ? 4 : 3) }
+    /// Three heroes in a row, four when the grid has four columns; narrow windows show four as a
+    /// 2 × 2 block. The hero row never has more columns than the grid, so heroes never shrink below the grid tiles.
+    private var heroCount: Int { min(suggestions.count, columns == 2 || columns >= 4 ? 4 : 3) }
     private var heroColumns: Int { columns == 2 ? 2 : max(1, heroCount) }
     private var applications: [WidgetGalleryApplicationEntry] {
         WidgetGalleryModel.applicationEntries(scan?.applications ?? [], query: searchText)
@@ -112,17 +122,24 @@ struct AddLibrary: View {
         }
     }
     private var navigationEntries: [Entry] { entries(for: tab) }
+    /// One-off checks (the detail, an add). Lists build `addedKeys` once per pass instead.
     private func added(_ item: DockItem?) -> Bool {
         guard let item else { return false }
         return WidgetGalleryModel.isAdded(item, in: profile, recentlyAdded: recentlyAdded)
+    }
+    private func added(_ item: DockItem, in addedKeys: Set<String>) -> Bool {
+        WidgetGalleryModel.isAdded(item, addedIdentities: addedKeys, recentlyAdded: recentlyAdded)
     }
     private func generation(_ item: DockItem) -> Int { addGenerations[WidgetGalleryModel.identity(item)] ?? 0 }
     private var highlightedIndex: Int? {
         WidgetGalleryModel.highlightedIndex(keyboardNavigation: keyboardNavigation, hasQuery: !query.isEmpty,
                                             selected: selected, count: navigationEntries.count)
     }
-    private func isSelected(_ id: String) -> Bool {
-        highlightedIndex.map { navigationEntries[$0].id == id } ?? false
+    /// The highlighted entry's id, computed once per pass and handed to every tile and row.
+    private var highlightedID: String? {
+        let results = navigationEntries
+        return WidgetGalleryModel.highlightedIndex(keyboardNavigation: keyboardNavigation, hasQuery: !query.isEmpty,
+                                                   selected: selected, count: results.count).map { results[$0].id }
     }
     private func isFocused(_ id: String) -> Bool {
         #if DEBUG
@@ -180,23 +197,37 @@ struct AddLibrary: View {
                     .accessibilityAddTraits(.isStaticText)
             }
         }
+        // The capsule is a short notice: it is spoken once and leaves on its own.
+        .task(id: actionError) {
+            guard let message = actionError else { return }
+            GalleryAnnouncement.post(message)
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            actionError = nil
+        }
         .frame(minWidth: 680, idealWidth: 860, maxWidth: 1040, minHeight: 520, idealHeight: 640, maxHeight: 820)
         .background(DockDesign.page)
         .task(id: refreshID) {
             #if DEBUG
             if let previewScan = preview?.scan { scan = previewScan; loading = false; return }
             #endif
-            loading = true; scan = nil
+            // A rescan keeps the current list, highlight and scroll position; only the first scan shows progress.
+            if scan == nil { loading = true }
+            scanning = true
             let result = await InstalledAppCatalog.scan()
             guard !Task.isCancelled else { return }
-            scan = result; loading = false
+            scan = result; loading = false; scanning = false; lastScan = Date()
         }
         .onAppear(perform: applyPreviewState)
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in refreshID = UUID() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didUnmountNotification)) { _ in refreshID = UUID() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refreshID = UUID() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Switching back to MyDock rescans at most every 30 seconds; Refresh and Retry always rescan.
+            guard let lastScan, Date().timeIntervalSince(lastScan) > 30 else { return }
+            refreshID = UUID()
+        }
         .onChange(of: query) { _ in selected = 0; keyboardNavigation = false; focusedTile = nil }
-        .onChange(of: tab) { _ in selected = 0; keyboardNavigation = false }
+        .onChange(of: tab) { _ in selected = 0; keyboardNavigation = false; actionError = nil }
         .onChange(of: capabilityFilter) { _ in selected = 0; keyboardNavigation = false }
         .onExitCommand(perform: escape)
     }
@@ -316,13 +347,16 @@ struct AddLibrary: View {
     }
 
     @ViewBuilder private var widgetsContent: some View {
+        let addedKeys = WidgetGalleryModel.addedIdentities(in: profile)
+        let highlighted = highlightedID
         if showsSuggested {
             VStack(alignment: .leading, spacing: 12) {
                 GallerySectionTitle(title: "Suggested")
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(tileWidth(columns: heroColumns)), spacing: WidgetGalleryMetrics.gridSpacing, alignment: .top), count: heroColumns),
                           alignment: .leading, spacing: 20) {
                     ForEach(suggestions.prefix(heroCount)) { widget in
-                        widgetTile(widget, id: "suggested:" + widget.name, style: .hero, width: tileWidth(columns: heroColumns))
+                        widgetTile(widget, id: "suggested:" + widget.name, style: .hero, width: tileWidth(columns: heroColumns),
+                                   addedKeys: addedKeys, highlightedID: highlighted)
                     }
                 }
             }
@@ -334,7 +368,8 @@ struct AddLibrary: View {
                           alignment: .leading, spacing: 20) {
                     ForEach(section.widgets) { widget in
                         widgetTile(widget, id: "widget:" + widget.name, style: .grid, width: tileWidth(columns: columns),
-                                   showsDescription: WidgetGalleryModel.showsDescription(in: section.category))
+                                   showsDescription: WidgetGalleryModel.showsDescription(in: section.category),
+                                   addedKeys: addedKeys, highlightedID: highlighted)
                     }
                 }
             }
@@ -360,11 +395,11 @@ struct AddLibrary: View {
     }
 
     private func widgetTile(_ widget: WidgetDefinition, id: String, style: WidgetGalleryTile.Style, width: CGFloat,
-                            showsDescription: Bool? = nil) -> some View {
+                            showsDescription: Bool? = nil, addedKeys: Set<String>, highlightedID: String?) -> some View {
         let item = DockItem.widget(widget.name)
-        let isAdded = added(item)
+        let isAdded = added(item, in: addedKeys)
         return WidgetGalleryTile(widget: widget, layout: WidgetGalleryModel.defaultLayout(for: widget.name), width: width, style: style,
-                                 added: isAdded, selected: isSelected(id), focused: isFocused(id), addGeneration: generation(item),
+                                 added: isAdded, selected: highlightedID == id, focused: isFocused(id), addGeneration: generation(item),
                                  showsDescription: showsDescription, open: { openDetail(widget) },
                                  addDefault: allowsAdding ? { addWidget(widget, layout: nil) } : nil)
             // Keyboard route: Tab or the arrows reach the tile, Return/Space show sizes,
@@ -385,6 +420,10 @@ struct AddLibrary: View {
     }
 
     @ViewBuilder private var appsContent: some View {
+        // Filtered once per pass; every row reads these instead of rebuilding the list.
+        let applications = self.applications
+        let addedKeys = WidgetGalleryModel.addedIdentities(in: profile)
+        let highlighted = highlightedID
         VStack(alignment: .leading, spacing: 14) {
             if loading {
                 HStack(spacing: 8) {
@@ -404,12 +443,12 @@ struct AddLibrary: View {
             }
             if !applications.isEmpty {
                 WidgetGalleryAppList {
-                    ForEach(Array(applications.enumerated()), id: \.element.id) { index, entry in
+                    ForEach(applications) { entry in
                         let item = entry.application.dockItem
-                        WidgetGalleryAppRow(entry: entry, added: added(item), selected: isSelected(entry.id), enabled: allowsAdding,
+                        WidgetGalleryAppRow(entry: entry, added: added(item, in: addedKeys), selected: highlighted == entry.id, enabled: allowsAdding,
                                             addGeneration: generation(item)) { perform(Entry(id: entry.id, kind: .application(entry))) }
                             .id(entry.id)
-                        if index < applications.count - 1 { WidgetGalleryRowSeparator() }
+                        if entry.id != applications.last?.id { WidgetGalleryRowSeparator() }
                     }
                 }
             } else if !loading && (scan?.unreadableLocations ?? 0) == 0 {
@@ -421,24 +460,30 @@ struct AddLibrary: View {
             if !applications.isEmpty { alsoFound(excluding: .apps) }
             HStack(spacing: 10) {
                 if searchText.isEmpty {
-                    Button("Choose Application…") { guard allowsAdding else { return }; close(); browse("Choose Application…") }
+                    Button(DockBrowseAction.application.title) { guard allowsAdding else { return }; close(); browse(.application) }
                         .buttonStyle(GalleryGlassButtonStyle())
                         .disabled(!allowsAdding)
                 }
                 Spacer()
-                Button { refreshID = UUID() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                Button { refreshID = UUID() } label: {
+                    // A rescan shows its progress here and keeps the list in place.
+                    if scanning && !loading {
+                        Label { Text("Refresh") } icon: { ProgressView().controlSize(.small) }
+                    } else {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                }
                     .buttonStyle(GalleryGlassButtonStyle())
-                    .disabled(loading)
+                    .disabled(scanning)
                     .help("Scan application folders again")
             }
-            Text(profile.kind == .custom ? "Add widgets again to create separate instances." : "Click an app to add it.")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: 640)
         .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder private var moreContent: some View {
+        let highlighted = highlightedID
         if moreEntries.isEmpty {
             GalleryEmptyState(title: "No Results", detail: "Try another search.") { crossTabSuggestions(excluding: .more) }
         } else {
@@ -447,7 +492,8 @@ struct AddLibrary: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(tileWidth(columns: columns)), spacing: WidgetGalleryMetrics.gridSpacing, alignment: .top), count: columns),
                           alignment: .leading, spacing: 20) {
                     ForEach(moreEntries) { entry in
-                        WidgetGalleryMoreTile(entry: entry, width: tileWidth(columns: columns), selected: isSelected(entry.id), enabled: allowsAdding) {
+                        WidgetGalleryMoreTile(entry: entry, width: tileWidth(columns: columns), selected: highlighted == entry.id, enabled: allowsAdding,
+                                              addGeneration: addGenerations[entry.id] ?? 0) {
                             perform(Entry(id: entry.id, kind: .more(entry)))
                         }
                         .id(entry.id)
@@ -527,7 +573,6 @@ struct AddLibrary: View {
         return true
     }
     private func moveFocus(from id: String, direction: MoveCommandDirection) {
-        guard let index = navigationEntries.firstIndex(where: { $0.id == id }) else { return }
         let move: WidgetGalleryMoveDirection
         switch direction {
         case .left: move = .left
@@ -536,8 +581,12 @@ struct AddLibrary: View {
         case .down: move = .down
         @unknown default: return
         }
-        let target = WidgetGalleryModel.movedIndex(from: index, direction: move, columns: columns, count: navigationEntries.count)
-        focusedTile = navigationEntries[target].id
+        // Rows as drawn: the Suggested row and every section start a row of their own.
+        let heroIDs = showsSuggested ? suggestions.prefix(heroCount).map { "suggested:" + $0.name } : []
+        let rows = WidgetGalleryModel.gridRows(heroIDs: heroIDs, heroColumns: heroColumns,
+                                               sections: sections.map { $0.widgets.map { "widget:" + $0.name } }, columns: columns)
+        guard let target = WidgetGalleryModel.movedID(from: id, direction: move, rows: rows) else { return }
+        focusedTile = target
     }
     private func stepDetailLayout(_ offset: Int) {
         guard let detail else { return }
@@ -571,22 +620,33 @@ struct AddLibrary: View {
             let item = application.application.dockItem
             guard WidgetDiscovery.canAdd(item, alreadyAdded: added(item)) else { return }
             if let url = item.url, InstalledAppCatalog.validatedApplication(at: url) == nil {
-                actionError = "This application is no longer available. Refreshing applications…"; refreshID = UUID(); return
+                actionError = "This app is no longer available."; refreshID = UUID(); return
             }
             commit(item)
         case .more(let more):
             if var item = more.item {
                 item.id = UUID()
-                add(item); actionError = nil
-            } else if let name = more.browseAction { close(); browse(name) }
+                add(item)
+                // Spacers can be added again and again, so the tile itself confirms each add.
+                DockDesign.Motion.perform(DockDesign.Motion.appear, reduceMotion: accessibility.reduceMotion) {
+                    actionError = nil
+                    addGenerations[entry.id, default: 0] += 1
+                }
+                GalleryAnnouncement.post(more.title + " added")
+            } else if let action = more.browseAction { close(); browse(action) }
         }
     }
 
     /// With nothing highlighted, the first arrow press highlights the first result instead of skipping it.
     private func moveSelection(_ offset: Int) {
+        let results = navigationEntries
         let current = highlightedIndex
         keyboardNavigation = true
-        selected = current.map { min(max(0, navigationEntries.count - 1), max(0, $0 + offset)) } ?? 0
+        selected = current.map { min(max(0, results.count - 1), max(0, $0 + offset)) } ?? 0
+        // Focus stays in the search field, so VoiceOver hears which result Return will add.
+        guard results.indices.contains(selected) else { return }
+        let entry = results[selected]
+        GalleryAnnouncement.post(entry.title + (added(entry.item) ? ", Added" : ""))
     }
     /// Return in the search field: adds the highlighted result's default size (the detail's
     /// selected size while it is open), as it always has.

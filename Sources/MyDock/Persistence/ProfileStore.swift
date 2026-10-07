@@ -247,13 +247,15 @@ final class ProfileStore: ObservableObject {
         return profile.id
     }
 
+    /// `activate: false` keeps the live Dock and setup mode as they are; the editor's Activate button
+    /// is then the explicit step that turns the new Dock on.
     @discardableResult
-    func createProfile(_ resolved: DockProfile) throws -> UUID {
+    func createProfile(_ resolved: DockProfile, activate: Bool = true) throws -> UUID {
         var profile = resolved
         profile.id = UUID()
         profile.createdAt = .now
         profile.name = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !profile.name.isEmpty else { throw EditSessionSaveError.failed("A profile needs a name.") }
+        guard !profile.name.isEmpty else { throw EditSessionSaveError.failed(EditSessionSaveError.missingName) }
         let base = profile.name
         var suffix = 2
         while state.profiles.contains(where: { $0.name.localizedCaseInsensitiveCompare(profile.name) == .orderedSame }) {
@@ -262,7 +264,7 @@ final class ProfileStore: ObservableObject {
         try ProfileSemanticValidator.validate(state.profiles + [profile])
         var candidate = state
         candidate.profiles.append(profile)
-        if profile.kind == .custom {
+        if activate, profile.kind == .custom {
             candidate.settings.activeCustomProfileID = profile.id
             if candidate.settings.setupMode == .nativeOnly { candidate.settings.setupMode = .both }
         }

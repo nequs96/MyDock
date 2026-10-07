@@ -80,6 +80,7 @@ struct WidgetGalleryTile: View {
         .accessibilityLabel("\(name), widget, sample preview" + (added ? ", Added" : ""))
         .accessibilityHint(open == nil ? "" : WidgetGalleryKeymap.tileHint(canAdd: addDefault != nil))
         .accessibilityAddTraits(open == nil ? [] : .isButton)
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .help(open == nil ? "" : WidgetGalleryKeymap.tileHelp(canAdd: addDefault != nil))
     }
 }
@@ -132,8 +133,12 @@ struct WidgetGalleryMoreTile: View {
     var width: CGFloat
     var selected = false
     var enabled = true
+    /// Bumped by each add; a spacer add briefly shows the added badge, since nothing else on the page changes.
+    var addGeneration = 0
     var action: () -> Void
     @State private var hovered = false
+    @State private var showsAdded = false
+    @DockAccessibilityStyle() private var accessibility
 
     var body: some View {
         Button(action: action) {
@@ -141,6 +146,12 @@ struct WidgetGalleryMoreTile: View {
                 // Bare like a widget preview: no card, the same hover, selection and Increase Contrast states.
                 illustration
                     .padding(.horizontal, WidgetGalleryMetrics.tileInset)
+                    .overlay(alignment: .topTrailing) {
+                        if showsAdded {
+                            GalleryAddedBadge(generation: addGeneration, size: 22)
+                                .transition(.scale(scale: 0.4).combined(with: .opacity))
+                        }
+                    }
                     .dockHover(hovered && enabled)
                     .frame(minWidth: 104, maxWidth: width, minHeight: 104, maxHeight: 104)
                     .galleryTileBackdrop(radius: WidgetGalleryMetrics.tileRadius, hovered: hovered && enabled, selected: selected, focused: false)
@@ -159,8 +170,17 @@ struct WidgetGalleryMoreTile: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.title)
         .accessibilityHint(entry.detail)
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .help(entry.detail)
+        .onChange(of: addGeneration) { _ in
+            DockDesign.Motion.perform(DockDesign.Motion.appear, reduceMotion: accessibility.reduceMotion) { showsAdded = true }
+        }
+        .task(id: showsAdded) {
+            guard showsAdded else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            DockDesign.Motion.perform(DockDesign.Motion.appear, reduceMotion: accessibility.reduceMotion) { showsAdded = false }
+        }
     }
 
     @ViewBuilder private var illustration: some View {

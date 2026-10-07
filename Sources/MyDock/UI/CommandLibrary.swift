@@ -10,10 +10,10 @@ struct CommandLibrary: View {
     let switchProfile: (UUID) -> Void
     let newDock: () -> Void
     let settings: () -> Void
-    let browse: (String) -> Void
+    let browse: (DockBrowseAction) -> Void
     let close: () -> Void
     @State private var query = ""
-    @State private var category = "All"
+    @State private var category: LibraryCategory = .all
     @State private var apps: [DockItem] = []
     @State private var selected = 0
     @State private var recentlyAdded = Set<String>()
@@ -23,12 +23,18 @@ struct CommandLibrary: View {
          initialQuery: String = "", initialCategory: String = "All",
          add: @escaping (DockItem) -> Void, switchProfile: @escaping (UUID) -> Void,
          newDock: @escaping () -> Void, settings: @escaping () -> Void,
-         browse: @escaping (String) -> Void, close: @escaping () -> Void) {
+         browse: @escaping (DockBrowseAction) -> Void, close: @escaping () -> Void) {
         self.store = store; self.profile = profile; self.commandMode = commandMode; self.allowsAdding = allowsAdding
         self.add = add; self.switchProfile = switchProfile; self.newDock = newDock
         self.settings = settings; self.browse = browse; self.close = close
         _query = State(initialValue: initialQuery)
-        _category = State(initialValue: initialCategory)
+        _category = State(initialValue: LibraryCategory(rawValue: initialCategory) ?? .all)
+    }
+
+    private enum LibraryCategory: String, CaseIterable, Hashable {
+        case all = "All", apps = "Apps", widgets = "Widgets", system = "System"
+        static func available(for kind: DockProfileKind) -> [LibraryCategory] { kind == .custom ? allCases : [.all, .apps, .system] }
+        func includes(_ other: LibraryCategory) -> Bool { self == .all || self == other }
     }
 
     private struct Entry: Identifiable {
@@ -94,26 +100,34 @@ struct CommandLibrary: View {
             result += [Entry(id: "new", title: "Create New Dock", detail: "⌘N", symbol: "plus", action: { close(); newDock() }),
                        Entry(id: "settings", title: "Open Settings", detail: "⌘,", symbol: "gearshape", action: { close(); settings() })]
         }
-        if allowsAdding && (category == "All" || category == "Apps") {
-            result += apps.map { item in
-                Entry(id: WidgetDiscovery.applicationKey(item) ?? item.id.uuidString, title: item.displayName,
-                      detail: applicationAlreadyAdded(item) ? "Application · Already added" : "Application · " + (item.url?.deletingLastPathComponent().path ?? ""),
-                      symbol: "app", item: item, enabled: !applicationAlreadyAdded(item),
-                      action: { guard !applicationAlreadyAdded(item) else { return }; if let key = WidgetDiscovery.applicationKey(item) { recentlyAdded.insert(key) }; add(item); close() })
+        if allowsAdding && category.includes(.apps) {
+            // One key set per pass, and only apps whose text can match are resolved: each app is a
+            // set lookup instead of a symlink resolution for every Dock item.
+            let dockKeys = Set(profile.items.compactMap(WidgetDiscovery.applicationKey))
+            result += apps.compactMap { item -> Entry? in
+                let folder = item.url?.deletingLastPathComponent().path ?? ""
+                guard query.isEmpty || (item.displayName + " Application · " + folder).localizedStandardContains(query)
+                        || (item.displayName + " Application · Already added").localizedStandardContains(query) else { return nil }
+                let key = WidgetDiscovery.applicationKey(item)
+                let added = key.map { dockKeys.contains($0) || recentlyAdded.contains($0) } ?? false
+                return Entry(id: key ?? item.id.uuidString, title: item.displayName,
+                             detail: added ? "Application · Already added" : "Application · " + folder,
+                             symbol: "app", item: item, enabled: !added,
+                             action: { guard !added else { return }; if let key { recentlyAdded.insert(key) }; add(item); close() })
             }
         }
-        if allowsAdding && profile.kind == .custom && (category == "All" || category == "Widgets") {
+        if allowsAdding && profile.kind == .custom && category.includes(.widgets) {
             result += WidgetRegistry.all.map { widget in
                 let item = DockItem.widget(widget.name)
                 return Entry(id: widget.name, title: (profile.items.contains { $0.widgetKind == widget.name } ? "Add another " : "Add ") + widget.name, detail: widget.description, symbol: widget.symbol, item: item, action: { add(item); close() })
             }
         }
-        if allowsAdding && (category == "All" || category == "System") {
+        if allowsAdding && category.includes(.system) {
             result += SpacerKind.allCases.map { kind in
                 Entry(id: kind.rawValue, title: kind.title + " spacer", detail: "Separate groups of items", symbol: "rectangle.split.2x1", action: { add(.spacer(kind)); close() })
             }
-            for name in profile.kind == .custom ? ["Choose Application…", "Folder…", "File…", "Link…"] : ["Choose Application…"] {
-                result.append(Entry(id: name, title: name, detail: "Browse", symbol: "plus", action: { close(); browse(name) }))
+            for action in DockBrowseAction.available(for: profile.kind) {
+                result.append(Entry(id: "browse:" + action.rawValue, title: action.title, detail: "Browse", symbol: "plus", action: { close(); browse(action) }))
             }
         }
         return result.filter { entry in
@@ -125,13 +139,16 @@ struct CommandLibrary: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        // Built once per pass: the field, the list, the arrow keys and Return all read these rows
+        // (app keys, bookmark resolution and file checks are not repeated per use).
+        let rows = entries
+        return VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
                 LibrarySearchField(placeholder: commandMode ? "Search MyDock…" : (profile.kind == .custom ? "Search apps, widgets, and actions…" : "Search apps and spacers…"),
-                                   text: $query, move: { offset in selected = min(max(0, entries.count - 1), max(0, selected + offset)) },
-                                   choose: performSelected, cancel: close,
-                                   secondary: { if entries.indices.contains(selected), let run = entries[selected].secondary?.run { run() } }).frame(height: 24)
+                                   text: $query, move: { offset in moveSelection(by: offset, in: rows) },
+                                   choose: { performSelected(in: rows) }, cancel: close,
+                                   secondary: { if rows.indices.contains(selected), let run = rows[selected].secondary?.run { run() } }).frame(height: 24)
                 Button(action: close) { Image(systemName: "xmark").frame(width: DockDesign.controlHeight, height: DockDesign.controlHeight).contentShape(Rectangle()) }.buttonStyle(.plain).help("Close").accessibilityLabel("Close library")
             }.padding(24)
             if !commandMode {
@@ -139,7 +156,7 @@ struct CommandLibrary: View {
                     Text("Add to Dock").font(DockDesign.sectionTitle)
                     Spacer()
                     Picker("Category", selection: $category) {
-                        ForEach(profile.kind == .custom ? ["All", "Apps", "Widgets", "System"] : ["All", "Apps", "System"], id: \.self) { Text($0).tag($0) }
+                        ForEach(LibraryCategory.available(for: profile.kind), id: \.self) { Text($0.rawValue).tag($0) }
                     }.pickerStyle(.segmented).labelsHidden().frame(width: 280)
                 }.padding(.horizontal, 24).padding(.bottom, 16)
             }
@@ -147,8 +164,6 @@ struct CommandLibrary: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 2) {
-                        // Built once per pass: each row's section check must not rebuild the list (bookmark resolution, file checks).
-                        let rows = entries
                         if rows.isEmpty {
                             GalleryEmptyState(title: "No Matches", detail: profile.kind == .custom ? "Try an app or widget name." : "Try an app name or spacer.", compact: true)
                         }
@@ -173,6 +188,7 @@ struct CommandLibrary: View {
                                     }
                                     if index == selected, let secondary = entry.secondary {
                                         Text("⌥↩ " + secondary.label).font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+                                            .accessibilityHidden(true)
                                     }
                                     if let item = entry.item, item.type == .widget {
                                         VStack(alignment: .trailing, spacing: 2) {
@@ -182,18 +198,24 @@ struct CommandLibrary: View {
                                                 .accessibilityLabel("Example preview for \(entry.title)")
                                         }
                                     }
-                                    if index == selected { Image(systemName: "return").font(.system(size: 11)).foregroundStyle(.tertiary) }
+                                    if index == selected { Image(systemName: "return").font(.system(size: 11)).foregroundStyle(.tertiary).accessibilityHidden(true) }
                                 }.padding(.horizontal, 12).padding(.vertical, 8)
                                     .background(index == selected ? DockDesign.hover : .clear, in: RoundedRectangle(cornerRadius: 8))
                                     .contentShape(Rectangle())
                             }.buttonStyle(.plain).disabled(!entry.enabled).id(entry.id)
+                                .accessibilityAddTraits(index == selected ? .isSelected : [])
+                                .accessibilityActions {
+                                    if let secondary = entry.secondary { Button(secondary.label, action: secondary.run) }
+                                }
                                 .contextMenu {
                                     if let secondary = entry.secondary { Button(secondary.label, action: secondary.run) }
                                     if let item = entry.item, item.type == .widget {
                                         ForEach(WidgetPresentationCatalog.options(for: item.widgetKind ?? item.title)) { option in
                                             Button((profile.items.contains { $0.widgetKind == item.widgetKind } ? "Add another · " : "Add · ") + option.title) {
                                                 var configured = item
-                                                configured.widgetConfiguration?.widgetLayout = option.layout
+                                                var configuration = configured.widgetConfiguration ?? WidgetConfiguration()
+                                                configuration.widgetLayout = option.layout
+                                                configured.widgetConfiguration = configuration
                                                 add(configured); close()
                                             }
                                         }
@@ -202,7 +224,7 @@ struct CommandLibrary: View {
                         }
                     }.padding(12)
                 }.onChange(of: selected) { value in
-                    if entries.indices.contains(value) { proxy.scrollTo(entries[value].id) }
+                    if rows.indices.contains(value) { proxy.scrollTo(rows[value].id) }
                 }
             }
             Divider()
@@ -215,18 +237,21 @@ struct CommandLibrary: View {
             .task { apps = await InstalledAppCatalog.load() }
             .onChange(of: query) { _ in selected = 0 }
             .onChange(of: category) { _ in selected = 0 }
-            .onChange(of: entries.count) { count in selected = min(selected, max(0, count - 1)) }
+            .onChange(of: rows.count) { count in selected = min(selected, max(0, count - 1)) }
             .onMoveCommand { direction in
-                if direction == .down { selected = min(max(0, entries.count - 1), selected + 1) }
-                if direction == .up { selected = max(0, selected - 1) }
+                if direction == .down { moveSelection(by: 1, in: rows) }
+                if direction == .up { moveSelection(by: -1, in: rows) }
             }
             .onExitCommand(perform: close)
     }
-    private func applicationAlreadyAdded(_ item: DockItem) -> Bool {
-        WidgetDiscovery.containsApplication(item, in: profile.items)
-            || WidgetDiscovery.applicationKey(item).map { recentlyAdded.contains($0) } == true
+    /// Focus stays in the search field, so VoiceOver hears the newly highlighted command.
+    private func moveSelection(by offset: Int, in rows: [Entry]) {
+        let next = min(max(0, rows.count - 1), max(0, selected + offset))
+        selected = next
+        guard rows.indices.contains(next) else { return }
+        GalleryAnnouncement.post(rows[next].title + (rows[next].enabled ? "" : ", dimmed"))
     }
-    private func performSelected() { if entries.indices.contains(selected), entries[selected].enabled { entries[selected].action() } }
+    private func performSelected(in rows: [Entry]) { if rows.indices.contains(selected), rows[selected].enabled { rows[selected].action() } }
 }
 
 

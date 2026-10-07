@@ -940,8 +940,8 @@ struct CustomDockView: View {
         alert.addButton(withTitle: "Save Name")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        store.updateItem(item.id, in: profile.id) { $0.folderCustomName = name.isEmpty ? nil : name }
+        let name = FolderCustomizationPolicy.name(field.stringValue)
+        store.updateItem(item.id, in: profile.id) { $0.folderCustomName = name }
     }
 
     private func editFolderLetter(_ item: DockItem) {
@@ -954,8 +954,8 @@ struct CustomDockView: View {
         alert.addButton(withTitle: "Save Letter")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let letter = String(field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()
-        store.updateItem(item.id, in: profile.id) { $0.folderIconLetter = letter.isEmpty ? nil : letter }
+        let letter = FolderCustomizationPolicy.letter(field.stringValue)
+        store.updateItem(item.id, in: profile.id) { $0.folderIconLetter = letter }
     }
 
     private var renderModel: DockRenderModel {

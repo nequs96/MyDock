@@ -67,13 +67,19 @@ struct DockManagerView: View {
     @State private var showingDockInspector = false
     @State private var showingCreation = false
     @State private var creationName = "New Dock"
-    @State private var creationSource = "Empty"
+    @State private var creationSource: DockCreationSource = .empty
     @State private var creationKind: DockProfileKind = .custom
     @State private var confirmingClear = false
     @State private var workspaceStart: WorkspaceStartRequest?
     @State private var dockExport: PortableDockExportRequest?
     @State private var dockImport: PortableDockImportPreview?
-    private var saveStatus: String? { selectedProfileID.flatMap { edits.saveFeedback[$0] } }
+    /// A sheet or picker chosen in the Add Item or ⌘K window; it opens once that sheet is gone.
+    @State private var pendingAfterLibrary: (() -> Void)?
+    /// The save failure the person already dismissed; the same message does not alert again.
+    @State private var acknowledgedPersistenceError: String?
+    /// Why the draft could not be saved, shown in the Unsaved Dock Changes dialog.
+    @State private var pendingSaveFailure: String?
+    private var saveState: ProfileSaveFeedback? { selectedProfileID.flatMap { edits.saveStates[$0] } }
     @Environment(\.undoManager) private var undoManager
 
     private var selectedProfile: DockProfile? {
@@ -117,7 +123,8 @@ struct DockManagerView: View {
         })
         .tint(DockDesign.accent)
         .overlay(alignment: .top) {
-            if store.hasUnpersistedChanges {
+            // Settings shows its own Retry Save banner; one surface is enough.
+            if store.hasUnpersistedChanges && !showsSettings {
                 HStack(alignment: .top, spacing: 10) {
                     Label(store.persistenceError ?? "Changes are waiting to be saved.",
                           systemImage: "exclamationmark.triangle.fill")
@@ -159,9 +166,11 @@ struct DockManagerView: View {
             Button("Delete Profile", role: .destructive) {
                 guard let id = profileToDelete ?? selectedProfileID else { return }
                 store.deleteProfile(id)
-                edits.set(nil, for: id)
                 profileToDelete = nil
-                switchToProfile(store.state.profiles.first?.id)
+                // Deleting another Dock from the sidebar keeps the one being edited.
+                if id == selectedProfileID {
+                    switchToProfile(DockProfileStatus.preferredWorkspaceProfileID(profiles: store.state.profiles, settings: store.state.settings))
+                }
             }
             Button("Cancel", role: .cancel) { }
         } message: { Text("The profile will be removed from your library. Other profiles are kept.") }
@@ -179,23 +188,25 @@ struct DockManagerView: View {
                 }, replace: { replaceItem(live) }, close: { configurationTarget = nil })
             }
         }
-        .sheet(item: $libraryMode) { mode in
+        .sheet(item: $libraryMode, onDismiss: runAfterLibrary) { mode in
             Group {
                 let profile = selectedProfile ?? DockProfile(name: "New Dock", kind: .custom)
                 AddLibrary(store: store, profile: profile, commandMode: mode == .command, allowsAdding: selectedProfile != nil,
                            add: { appendDraftItem($0, to: profile.id) },
-                           switchProfile: { requestProfileSelection($0); openDocks() },
-                           newDock: { prepareCreation() }, settings: openSettings,
-                           browse: { name in
-                               switch name {
-                               case "Folder…": pickFiles(profile, foldersOnly: true)
-                               case "File…": pickFiles(profile, foldersOnly: false)
-                               case "Link…": prepareLinkEditor()
-                               default: pickApplications(profile)
+                           switchProfile: { id in afterLibrary { requestProfileSelection(id); openDocks() } },
+                           newDock: { afterLibrary { prepareCreation() } }, settings: openSettings,
+                           browse: { action in
+                               afterLibrary {
+                                   switch action {
+                                   case .folder: pickFiles(profile, foldersOnly: true)
+                                   case .file: pickFiles(profile, foldersOnly: false)
+                                   case .link: prepareLinkEditor()
+                                   case .application: pickApplications(profile)
+                                   }
                                }
                            }, close: { libraryMode = nil })
             }
-            .environment(\.workspaceStartHandler, WorkspaceStartHandler { beginWorkspaceStart($0) })
+            .environment(\.workspaceStartHandler, WorkspaceStartHandler { id in afterLibrary { beginWorkspaceStart(id) } })
         }
         .sheet(isPresented: $showingCreation) { creationSheet }
         .sheet(item: $workspaceStart) { request in
@@ -220,10 +231,6 @@ struct DockManagerView: View {
                 Button("Search MyDock") { libraryMode = .command }.keyboardShortcut("k")
                 Button("New Dock") { prepareCreation() }.keyboardShortcut("n")
                 Button("Settings", action: openSettings).keyboardShortcut(",")
-                Button("Duplicate") {
-                    if let item = selectedProfile?.items.first(where: { selectedItemIDs.contains($0.id) }) { duplicateItem(item) }
-                    else if let profile = selectedProfile { duplicateProfile(profile) }
-                }.keyboardShortcut("d")
             }.hidden()
         }
         .sheet(isPresented: $showingPresets) { presetPicker }
@@ -236,18 +243,30 @@ struct DockManagerView: View {
                 shortcutProfile = nil
             }
         }
-        .alert("MyDock data", isPresented: Binding(get: { store.persistenceError != nil || store.persistenceWarning != nil }, set: { if !$0 { store.dismissPersistenceNotice() } })) {
+        .alert(store.persistenceError != nil ? "MyDock couldn’t save" : "MyDock data", isPresented: Binding(get: {
+            // A failure alerts once; the banner keeps showing it while later edits fail the same way.
+            store.persistenceWarning != nil || (store.persistenceError.map { $0 != acknowledgedPersistenceError } ?? false)
+        }, set: { presented in
+            guard !presented else { return }
+            if let error = store.persistenceError { acknowledgedPersistenceError = error }
+            store.dismissPersistenceNotice()
+        })) {
             Button("OK", role: .cancel) { }
         } message: { Text(store.persistenceError ?? store.persistenceWarning ?? "") }
+        .onChange(of: store.hasUnpersistedChanges) { unsaved in
+            if !unsaved { acknowledgedPersistenceError = nil }
+        }
         .alert("MyDock", isPresented: Binding(get: { dockOperationMessage != nil }, set: { if !$0 { dockOperationMessage = nil } })) {
             Button("OK", role: .cancel) { dockOperationMessage = nil }
         } message: { Text(dockOperationMessage ?? "") }
         .confirmationDialog("Unsaved Dock Changes", isPresented: $showingUnsavedProfileChanges, titleVisibility: .visible) {
             Button("Save Changes") { completePendingProfileSwitch(saveChanges: true) }
             Button("Discard Changes", role: .destructive) { completePendingProfileSwitch(saveChanges: false) }
-            Button("Cancel", role: .cancel) { pendingProfileSelectionID = nil }
+            Button("Cancel", role: .cancel) { pendingProfileSelectionID = nil; pendingSaveFailure = nil }
         } message: {
-            Text("Save or discard your edits to \(draftSession?.profile.name ?? "this Dock") before switching profiles.")
+            let name = draftSession?.profile.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let prompt = "Save or discard your edits to \(name.isEmpty ? "this Dock" : name) before switching Docks."
+            Text(pendingSaveFailure.map { $0 + " " + prompt } ?? prompt)
         }
     }
 
@@ -260,14 +279,21 @@ struct DockManagerView: View {
             SidebarSectionTitle(title: "Docks")
             DockScrollView {
                 VStack(spacing: 2) {
-                    ForEach(store.state.profiles.filter { profileSearch.isEmpty || $0.name.localizedCaseInsensitiveContains(profileSearch) }) { sidebarProfile($0) }
+                    // The query filters only while its field is shown, so a hidden search never hides Docks.
+                    let query = store.state.profiles.count > 8 ? profileSearch.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+                    let profiles = store.state.profiles.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
+                    ForEach(profiles) { sidebarProfile($0) }
+                    if profiles.isEmpty && !query.isEmpty {
+                        Text("No Docks match").font(DockDesign.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 8)
+                    }
                 }.padding(.horizontal, 12)
             }
             VStack(spacing: 4) {
                 SidebarRow { Label("New Dock", systemImage: "plus") } action: { prepareCreation() }
                     .contextMenu {
                         Button("New macOS Dock") { prepareCreation(kind: .native) }
-                        Button("Import Current macOS Dock") { prepareCreation(kind: .native, source: "Current macOS Dock") }
+                        Button("Import Current macOS Dock") { prepareCreation(kind: .native, source: .currentMacDock) }
                     }
                 SidebarRow { Label("Presets", systemImage: "square.grid.2x2") } action: { showingPresets = true }
                 SidebarRow(selected: showsSettings) { Label("Settings", systemImage: "gearshape") } action: { openSettings() }
@@ -316,9 +342,9 @@ struct DockManagerView: View {
             HStack(spacing: 12) {
                 if profile.kind == .native { Text("macOS Dock").font(DockDesign.caption).foregroundStyle(.secondary) }
                 Spacer()
-                if let saveStatus {
-                    if saveStatus.hasPrefix("Couldn’t") { Button(saveStatus) { scheduleAutosave() }.buttonStyle(.plain).foregroundStyle(.orange) }
-                    else { Text(saveStatus).font(DockDesign.caption).foregroundStyle(.secondary) }
+                if let saveState {
+                    if saveState == .failed { Button(saveState.title) { scheduleAutosave() }.buttonStyle(.plain).foregroundStyle(.orange) }
+                    else { Text(saveState.title).font(DockDesign.caption).foregroundStyle(.secondary) }
                 }
                 if isActive(profile) {
                     Button { showingActiveStatus.toggle() } label: {
@@ -346,18 +372,22 @@ struct DockManagerView: View {
                     Spacer(minLength: 16)
                     VStack(spacing: 8) {
                         if renamingProfile {
+                            // The typed name stays local until Return or focus loss commits it as one edit;
+                            // Escape cancels and keeps the saved name.
                             TextField("Dock name", text: $renameText)
                                 .font(DockDesign.title).textFieldStyle(.plain).multilineTextAlignment(.center)
                                 .focused($profileNameFocused).frame(maxWidth: 440)
                                 .accessibilityIdentifier("manager.profile.name")
                                 .id(profile.id)
-                                .onChange(of: renameText) { value in
-                                    if renamingProfile { updateProfileName(value) }
+                                .task { profileNameFocused = true }
+                                .onChange(of: profileNameFocused) { focused in
+                                    if !focused { commitRename() }
                                 }
                                 .onSubmit {
-                                    updateProfileName(renameText)
-                                    if saveDraft() { renamingProfile = false }
+                                    commitRename()
+                                    saveDraft()
                                 }
+                                .onExitCommand { renamingProfile = false }
                         } else {
                             Text(profile.name).font(DockDesign.title).lineLimit(2).truncationMode(.tail).multilineTextAlignment(.center)
                                 .padding(.horizontal, 24)
@@ -421,39 +451,45 @@ struct DockManagerView: View {
         }
         .onDeleteCommand { if !renamingProfile { removeSelectedItems(from: profile) } }
         .background {
-            Group {
-                Button("Configure selected item") { if selectedItemIDs.count == 1, let item = profile.items.first(where: { selectedItemIDs.contains($0.id) }) { configureItem(item) } }.keyboardShortcut(.return, modifiers: [])
-                Button("Extend selection left") { navigateSelection(in: profile, forward: false, extending: true) }.keyboardShortcut(.leftArrow, modifiers: .shift)
-                Button("Extend selection right") { navigateSelection(in: profile, forward: true, extending: true) }.keyboardShortcut(.rightArrow, modifiers: .shift)
-                Button("Move left") { moveSelection(.left, in: profile) }.keyboardShortcut(.leftArrow, modifiers: .command)
-                Button("Move right") { moveSelection(.right, in: profile) }.keyboardShortcut(.rightArrow, modifiers: .command)
-            }.hidden()
+            // Only while the editor shows and the name field is not editing, so the field keeps
+            // Return, ⇧← / ⇧→ and ⌘← / ⌘→ for its text.
+            if !renamingProfile {
+                Group {
+                    Button("Configure selected item") { if selectedItemIDs.count == 1, let item = profile.items.first(where: { selectedItemIDs.contains($0.id) }) { configureItem(item) } }.keyboardShortcut(.return, modifiers: [])
+                    Button("Extend selection left") { navigateSelection(in: profile, forward: false, extending: true) }.keyboardShortcut(.leftArrow, modifiers: .shift)
+                    Button("Extend selection right") { navigateSelection(in: profile, forward: true, extending: true) }.keyboardShortcut(.rightArrow, modifiers: .shift)
+                    Button("Move left") { moveSelection(.left, in: profile) }.keyboardShortcut(.leftArrow, modifiers: .command)
+                    Button("Move right") { moveSelection(.right, in: profile) }.keyboardShortcut(.rightArrow, modifiers: .command)
+                    Button("Duplicate") {
+                        if selectedItemIDs.isEmpty { duplicateProfile(profile) } else { duplicateSelectedItems() }
+                    }.keyboardShortcut("d")
+                }.hidden()
+            }
         }
     }
 
     @ViewBuilder private func workspaceInspector(_ profile: DockProfile) -> some View {
         if let item = profile.items.first(where: { selectedItemIDs.contains($0.id) }) {
+            let missing = AppLauncher.isMissingTarget(item)
             VStack(spacing: 12) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(selectedItemIDs.count > 1 ? "\(selectedItemIDs.count) items selected" : item.displayName).font(DockDesign.sectionTitle)
                         .lineLimit(1).truncationMode(.middle).help(selectedItemIDs.count > 1 ? "" : item.displayName)
-                    Text(AppLauncher.isMissingTarget(item) ? "Saved location missing. Choose Replace to reconnect." : "⌘← / ⌘→ to move · ⌘D to duplicate · Delete to remove")
-                        .font(.system(size: 11)).foregroundStyle(AppLauncher.isMissingTarget(item) ? Color.orange : Color.secondary)
+                    Text(missing ? "Saved location missing. Choose Replace to reconnect." : "⌘← / ⌘→ to move · ⌘D to duplicate · Delete to remove")
+                        .font(.system(size: 11)).foregroundStyle(missing ? Color.orange : Color.secondary)
                 }
                 Spacer()
                 if selectedItemIDs.count == 1 { Button("Configure") { configureItem(item) } }
-                if selectedItemIDs.count == 1, AppLauncher.isMissingTarget(item), [.application, .file, .folder].contains(item.type) {
+                if selectedItemIDs.count == 1, missing, [.application, .file, .folder].contains(item.type) {
                     Button("Replace…") { replaceItem(item) }
                 }
                 Button { moveSelection(.left, in: profile) } label: { Image(systemName: "arrow.left") }
                     .disabled(!canMoveSelection(.left, in: profile)).help("Move earlier (⌘←)").accessibilityLabel("Move earlier")
                 Button { moveSelection(.right, in: profile) } label: { Image(systemName: "arrow.right") }
                     .disabled(!canMoveSelection(.right, in: profile)).help("Move later (⌘→)").accessibilityLabel("Move later")
-                if selectedItemIDs.count == 1 {
-                    Button { duplicateItem(item) } label: { Image(systemName: "plus.square.on.square") }
-                        .help("Duplicate (⌘D)").accessibilityLabel("Duplicate item")
-                }
+                Button { duplicateSelectedItems() } label: { Image(systemName: "plus.square.on.square") }
+                    .help("Duplicate (⌘D)").accessibilityLabel(selectedItemIDs.count > 1 ? "Duplicate selected items" : "Duplicate item")
                 Button { removeSelectedItems(from: profile) } label: { Image(systemName: "trash") }
                     .help("Remove from Dock (Delete)").accessibilityLabel(selectedItemIDs.count > 1 ? "Remove selected items" : "Remove item")
                 Button { clearItemSelection() } label: { Image(systemName: "xmark").frame(width: DockDesign.controlHeight, height: DockDesign.controlHeight).contentShape(Rectangle()) }.buttonStyle(.plain).help("Close inspector").accessibilityLabel("Close inspector")
@@ -462,7 +498,11 @@ struct DockManagerView: View {
                 SettingsControlRow(title: "Layout") {
                     Picker("Layout", selection: Binding(get: { WidgetPresentationCatalog.resolvedLayout(for: item.widgetKind ?? item.title, configuration: item.widgetConfiguration ?? WidgetConfiguration(), compactDefault: store.effectiveSettings(for: profile).customDockWidgetStyle == .compact) }, set: { value in
                         updateDraft { draft in
-                            if let index = draft.items.firstIndex(where: { $0.id == item.id }) { draft.items[index].widgetConfiguration?.widgetLayout = value }
+                            guard let index = draft.items.firstIndex(where: { $0.id == item.id }) else { return }
+                            // A widget saved without a configuration uses the defaults; write through them.
+                            var configuration = draft.items[index].widgetConfiguration ?? WidgetConfiguration()
+                            configuration.widgetLayout = value
+                            draft.items[index].widgetConfiguration = configuration
                         }
                     })) {
                         ForEach(WidgetPresentationCatalog.options(for: item.widgetKind ?? item.title)) { Text($0.title).tag($0.layout) }
@@ -520,6 +560,17 @@ struct DockManagerView: View {
         }
     }
 
+    /// ⌘D and the inspector's Duplicate: every selected item gets its copy right after it, as one edit.
+    private func duplicateSelectedItems() {
+        let itemIDs = selectedItemIDs
+        guard !itemIDs.isEmpty else { return }
+        updateDraft { draft in
+            draft.items = draft.items.flatMap { item in
+                itemIDs.contains(item.id) ? [item, store.copyItemForDuplication(item)] : [item]
+            }
+        }
+    }
+
     private var creationSheet: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Create Dock").font(.system(size: 22, weight: .semibold))
@@ -528,33 +579,35 @@ struct DockManagerView: View {
                 Text("Custom Dock").tag(DockProfileKind.custom)
                 Text("macOS Dock layout").tag(DockProfileKind.native)
             }.onChange(of: creationKind) { kind in
-                if creationSource == "Preset" && kind == .native || creationSource == "This Dock" && selectedProfile?.kind != kind { creationSource = "Empty" }
+                if creationSource == .preset && kind == .native || creationSource == .thisDock && selectedProfile?.kind != kind { creationSource = .empty }
             }
             Picker("Start with", selection: $creationSource) {
-                Text("Empty").tag("Empty")
-                if selectedProfile?.kind == creationKind { Text("This Dock").tag("This Dock") }
-                Text("Current macOS Dock").tag("Current macOS Dock")
-                if creationKind == .custom { Text("Preset").tag("Preset") }
+                Text(DockCreationSource.empty.title).tag(DockCreationSource.empty)
+                if selectedProfile?.kind == creationKind { Text(DockCreationSource.thisDock.title).tag(DockCreationSource.thisDock) }
+                Text(DockCreationSource.currentMacDock.title).tag(DockCreationSource.currentMacDock)
+                if creationKind == .custom { Text(DockCreationSource.preset.title).tag(DockCreationSource.preset) }
             }
             HStack {
-                Button("Cancel") { showingCreation = false }
+                Button("Cancel") { showingCreation = false }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Create") {
                     guard saveDraft() else { return }
-                    if creationSource == "Preset" { showingCreation = false; showingPresets = true; return }
+                    if creationSource == .preset { showingCreation = false; showingPresets = true; return }
                     do {
-                        let items = creationSource == "This Dock" ? (selectedProfile?.items ?? []) : creationSource == "Current macOS Dock" ? try NativeDockController.shared.readCurrentItems() : []
+                        let items = creationSource == .thisDock ? (selectedProfile?.items ?? []) : creationSource == .currentMacDock ? try NativeDockController.shared.readCurrentItems() : []
                         var profile = DockProfile(name: creationName.trimmingCharacters(in: .whitespacesAndNewlines), kind: creationKind, items: items)
-                        if creationSource == "This Dock", let source = selectedProfile {
+                        if creationSource == .thisDock, let source = selectedProfile {
                             profile.color = source.color
                             profile.appearance = source.appearance
                             profile.items = source.items.map { store.copyItemForDuplication($0) }
                             profile.workspace = source.workspace?.remapped(from: source.items, to: profile.items)
                         }
-                        let id = try store.createProfile(profile)
+                        // A new Dock is not turned on; the editor's Activate button does that.
+                        let id = try store.createProfile(profile, activate: false)
                         requestProfileSelection(id); openDocks(); showingCreation = false
                     } catch { dockOperationMessage = error.localizedDescription }
-                }.buttonStyle(DockButtonStyle(primary: true)).disabled(creationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }.buttonStyle(DockButtonStyle(primary: true)).keyboardShortcut(.defaultAction)
+                    .disabled(creationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }.padding(24).frame(width: 400).background(DockDesign.page)
     }
@@ -607,11 +660,20 @@ struct DockManagerView: View {
 
     private func beginRename(_ profile: DockProfile) {
         renameText = selectedProfile?.id == profile.id ? selectedProfile?.name ?? profile.name : profile.name
+        // The editor's item shortcuts step aside while the name field edits.
+        clearItemSelection()
+        // The field takes focus when it appears; a request made before it exists would be lost.
         renamingProfile = true
-        profileNameFocused = true
     }
 
-    private func updateProfileName(_ name: String) { updateDraft { $0.name = name } }
+    /// Applies the typed name as one edit and ends renaming. An empty name keeps the current one.
+    private func commitRename() {
+        guard renamingProfile else { return }
+        renamingProfile = false
+        let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != selectedProfile?.name else { return }
+        updateDraft { $0.name = name }
+    }
     private func isActive(_ profile: DockProfile) -> Bool {
         DockProfileStatus(profile: profile, settings: store.state.settings).isCurrent
     }
@@ -650,19 +712,32 @@ struct DockManagerView: View {
 
     private func requestProfileSelection(_ id: UUID?) {
         guard id != selectedProfileID else { return }
-        if hasUnsavedProfileChanges && !saveDraft() {
+        commitRename()
+        guard hasUnsavedProfileChanges else { switchToProfile(id); return }
+        switch saveDraftOutcome() {
+        case .saved: switchToProfile(id)
+        case .resolved:
+            // The review alert discarded the draft or saved it as a new Dock; nothing is left to ask about.
+            if !hasUnsavedProfileChanges { switchToProfile(id) }
+        case .kept: break
+        case .failed(let message):
+            pendingSaveFailure = message
             pendingProfileSelectionID = id
             showingUnsavedProfileChanges = true
-        } else {
-            switchToProfile(id)
         }
     }
 
     private func completePendingProfileSwitch(saveChanges: Bool) {
         let targetID = pendingProfileSelectionID
         pendingProfileSelectionID = nil
+        pendingSaveFailure = nil
         if saveChanges {
-            guard saveDraft() else { return }
+            switch saveDraftOutcome() {
+            case .saved: break
+            case .resolved: guard !hasUnsavedProfileChanges else { return }
+            case .kept: return
+            case .failed(let message): dockOperationMessage = message; return
+            }
         } else {
             discardDraft()
         }
@@ -693,7 +768,8 @@ struct DockManagerView: View {
         draftSession = session
         if session.profile != before {
             registerUndo(before, replacing: session.profile)
-            scheduleAutosave()
+            // A Dock without a name cannot be saved; autosave waits for one instead of failing each time.
+            if !session.profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { scheduleAutosave() }
         }
     }
 
@@ -715,29 +791,42 @@ struct DockManagerView: View {
 
     @discardableResult
     private func saveDraft() -> Bool {
-        guard let id = selectedProfileID else { return true }
-        do { try edits.save(id); return true }
+        switch saveDraftOutcome() {
+        case .saved: return true
+        case .resolved, .kept: return false
+        case .failed(let message): dockOperationMessage = message; return false
+        }
+    }
+
+    /// Saves the selected draft. A merge conflict is settled in a review alert (`.resolved` or `.kept`);
+    /// other failures are returned for the caller to show once, in its own way.
+    private func saveDraftOutcome() -> DraftSaveOutcome {
+        commitRename()
+        guard let id = selectedProfileID else { return .saved }
+        do { try edits.save(id); return .saved }
         catch let error as ProfileDraftMergeError {
             let alert = NSAlert()
             alert.messageText = "Your draft needs review"
-            alert.informativeText = error.localizedDescription + " You can keep this draft as a separate profile, reload the latest saved profile, or continue editing."
+            alert.informativeText = error.localizedDescription + " You can keep this draft as a separate Dock, reload the latest saved Dock, or continue editing."
             alert.addButton(withTitle: "Continue Editing")
-            alert.addButton(withTitle: "Save Draft as New Profile")
+            alert.addButton(withTitle: "Save Draft as New Dock")
             alert.addButton(withTitle: "Reload Latest")
             switch alert.runModal() {
             case .alertSecondButtonReturn:
-                guard let draft = edits.drafts[id] else { return false }
+                guard let draft = edits.drafts[id] else { return .kept }
                 do {
-                    let newID = try store.createProfile(ProfileSanitizer.newIdentity(draft.profile))
+                    let newID = try store.createProfile(ProfileSanitizer.newIdentity(draft.profile), activate: false)
                     edits.discard(id)
                     switchToProfile(newID)
-                } catch { dockOperationMessage = error.localizedDescription }
-            case .alertThirdButtonReturn: edits.discard(id)
-            default: break
+                    return .resolved
+                } catch { return .failed(error.localizedDescription) }
+            case .alertThirdButtonReturn:
+                edits.discard(id)
+                return .resolved
+            default: return .kept
             }
-            return false
         }
-        catch { dockOperationMessage = error.localizedDescription; return false }
+        catch { return .failed(error.localizedDescription) }
     }
 
     private func discardDraft() {
@@ -767,6 +856,7 @@ struct DockManagerView: View {
     }
 
     private func moveSelection(_ direction: DockItemMoveDirection, in profile: DockProfile) {
+        guard !renamingProfile else { return }
         let itemIDs = selectedItemIDs
         updateDraft { $0.items = DockItemOrderingPolicy.moving($0.items, ids: itemIDs, direction: direction) }
     }
@@ -823,9 +913,9 @@ struct DockManagerView: View {
             }
             HStack {
                 Spacer()
-                Button("Cancel") { showingLinkEditor = false }
+                Button("Cancel") { showingLinkEditor = false }.keyboardShortcut(.cancelAction)
                 Button(editingLinkItemID == nil ? "Add" : "Save") { saveLink() }
-                    .buttonStyle(DockButtonStyle(primary: true))
+                    .buttonStyle(DockButtonStyle(primary: true)).keyboardShortcut(.defaultAction)
                     .disabled(DockLinkPolicy.validatedURL(linkAddress) == nil)
             }
         }
@@ -837,7 +927,7 @@ struct DockManagerView: View {
             HStack {
                 Text(resolvedPreset == nil ? "Dock Presets" : "Preview your new Dock").font(.system(size: 20, weight: .semibold))
                 Spacer()
-                Button("Cancel") { resolvedPreset = nil; showingPresets = false }
+                Button("Cancel") { resolvedPreset = nil; showingPresets = false }.keyboardShortcut(.cancelAction)
             }
             if let profile = resolvedPreset {
                 DockScrollView {
@@ -871,12 +961,12 @@ struct DockManagerView: View {
                     Button("Create Dock") {
                         guard saveDraft() else { return }
                         do {
-                            let id = try store.createProfile(profile)
+                            let id = try store.createProfile(profile, activate: false)
                             requestProfileSelection(id)
                             resolvedPreset = nil
                             showingPresets = false
                         } catch { dockOperationMessage = error.localizedDescription }
-                    }.buttonStyle(DockButtonStyle(primary: true)).disabled(profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }.buttonStyle(DockButtonStyle(primary: true)).keyboardShortcut(.defaultAction).disabled(profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             } else {
                 Text("Preview a complete profile before adding it. Every item and appearance stays editable.")
@@ -925,9 +1015,9 @@ struct DockManagerView: View {
         resolvedPreset?.items.append(contentsOf: apps)
     }
 
-    private func prepareCreation(kind: DockProfileKind? = nil, source: String = "Empty") {
+    private func prepareCreation(kind: DockProfileKind? = nil, source: DockCreationSource = .empty) {
         creationKind = kind ?? (store.state.settings.setupMode == .nativeOnly ? .native : .custom)
-        creationName = source == "Current macOS Dock" ? "Current Dock" : "New Dock"
+        creationName = source == .currentMacDock ? "Current Dock" : "New Dock"
         creationSource = source
         showingCreation = true
     }
@@ -1095,6 +1185,14 @@ struct DockManagerView: View {
         showingLinkEditor = false
     }
 
+    private func afterLibrary(_ action: @escaping () -> Void) { pendingAfterLibrary = action }
+
+    private func runAfterLibrary() {
+        let action = pendingAfterLibrary
+        pendingAfterLibrary = nil
+        action?()
+    }
+
     private func replaceFromCurrentDock(_ profile: DockProfile) {
         do {
             let importedItems = try NativeDockController.shared.readCurrentItems()
@@ -1124,6 +1222,29 @@ private struct EmptyStateView: View {
 enum DockLibraryMode: String, Identifiable {
     case add, command
     var id: String { rawValue }
+}
+
+/// Where a new Dock's items come from.
+private enum DockCreationSource: Hashable {
+    case empty, thisDock, currentMacDock, preset
+    var title: String {
+        switch self {
+        case .empty: "Empty"
+        case .thisDock: "This Dock"
+        case .currentMacDock: "Current macOS Dock"
+        case .preset: "Preset"
+        }
+    }
+}
+
+private enum DraftSaveOutcome {
+    /// Saved, or nothing to save.
+    case saved
+    /// A conflict the person settled: the draft was reloaded or kept as a new Dock.
+    case resolved
+    /// The person chose to keep editing.
+    case kept
+    case failed(String)
 }
 
 private struct DockConfigurationTarget: Identifiable {

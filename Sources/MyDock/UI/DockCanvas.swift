@@ -31,7 +31,10 @@ struct DockCanvas: View {
     @State private var settledOrder: [UUID] = []
     @State private var atEnd = false
     @State private var liftedItems: Set<UUID> = []
-    private var settings: AppSettings { store.effectiveSettings(for: profile) }
+    /// Missing-target checks touch the disk, so they run once per item change, not per tile and render.
+    @State private var missingIDs: Set<UUID> = []
+    /// Appearance edits go straight to the store, so the saved profile's appearance is the current one.
+    private var settings: AppSettings { store.effectiveSettings(profileID: profile.id) }
     private var scale: CGFloat { CGFloat(settings.customDockSize) }
 
     private var contentLength: CGFloat {
@@ -109,7 +112,13 @@ struct DockCanvas: View {
                    value: profile.items)
         .animation(DockMotionPolicy.reorderAnimation(reduceMotion: reduceMotion, animationsEnabled: settings.dockAnimationsEnabled),
                    value: insertion)
-        .onAppear { settledOrder = profile.items.map(\.id) }
+        .onAppear {
+            settledOrder = profile.items.map(\.id)
+            missingIDs = DockMissingTargets.ids(in: profile.items, isMissing: AppLauncher.isMissingTarget)
+        }
+        .onChange(of: profile.items) { items in
+            missingIDs = DockMissingTargets.ids(in: items, isMissing: AppLauncher.isMissingTarget)
+        }
         .onChange(of: profile.items.map(\.id)) { order in
             let moved = DockReorderSettlePolicy.movedItems(from: settledOrder, to: order, selection: selection)
             settledOrder = order
@@ -143,11 +152,12 @@ struct DockCanvas: View {
     }
 
     private func tile(_ item: DockItem) -> some View {
-        Button {
+        let missing = missingIDs.contains(item.id)
+        return Button {
             let flags = NSEvent.modifierFlags
             select(item.id, flags.contains(.command), flags.contains(.shift))
         } label: {
-            DockCanvasItem(store: store, profileID: profile.id, item: item, settings: settings)
+            DockCanvasItem(store: store, profileID: profile.id, item: item, settings: settings, missing: missing)
                 .scaleEffect(scale)
                 .frame(width: max(16, DockSurfaceMetrics.itemLength(item, settings: settings, scale: scale)), height: 58 * scale)
                 .padding(.vertical, 4)
@@ -158,9 +168,9 @@ struct DockCanvas: View {
                 }
                 .contentShape(Rectangle())
         }.buttonStyle(.plain).focusable().focused($focusedItem, equals: ItemFocus(itemID: item.id, requestID: focusRequestID))
-            .help(item.displayName + (AppLauncher.isMissingTarget(item) ? " · Saved location missing" : "") + " · Drag to reorder")
-            .accessibilityLabel(DockItemAccessibility.label(for: item, missing: AppLauncher.isMissingTarget(item)))
-            .accessibilityHint(AppLauncher.isMissingTarget(item) ? "Saved location missing. Use Replace to reconnect this item." : "Select to edit. Drag to reorder.")
+            .help(item.displayName + (missing ? " · Saved location missing" : "") + " · Drag to reorder")
+            .accessibilityLabel(DockItemAccessibility.label(for: item, missing: missing))
+            .accessibilityHint(missing ? "Saved location missing. Use Replace to reconnect this item." : "Select to edit. Drag to reorder.")
             .accessibilityAddTraits(selection.contains(item.id) ? .isSelected : [])
             .accessibilityAction(named: "Configure") { configure(item) }
             .accessibilityAction(named: "Move earlier") {
@@ -188,6 +198,8 @@ struct DockCanvasItem: View {
     let profileID: UUID
     let item: DockItem
     let settings: AppSettings
+    /// Supplied by the canvas, which checks missing targets once per item change.
+    var missing = false
     var body: some View {
         Group {
             switch item.type {
@@ -204,7 +216,7 @@ struct DockCanvasItem: View {
             case .link: Image(nsImage: AppLauncher.icon(for: item, size: 48)).resizable().scaledToFit().frame(width: 48, height: 48)
             }
         }.overlay(alignment: .bottomTrailing) {
-            if AppLauncher.isMissingTarget(item) {
+            if missing {
                 Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.orange)
             }
         }.allowsHitTesting(false).accessibilityHidden(true)

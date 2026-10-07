@@ -12,6 +12,8 @@ struct WidgetGalleryDetail: View {
 
     @DockAccessibilityStyle() private var accessibility
     @State private var panelWidth: CGFloat = 520
+    /// The detail replaces the gallery, so VoiceOver moves to its title instead of a tile that is gone.
+    @AccessibilityFocusState private var titleFocused: Bool
 
     private var options: [WidgetLayoutOption] { WidgetGalleryModel.layoutOptions(for: widget.name) }
     private var option: WidgetLayoutOption { options.first { $0.layout == layout } ?? options[0] }
@@ -36,6 +38,9 @@ struct WidgetGalleryDetail: View {
         VStack(spacing: 0) {
             VStack(spacing: 5) {
                 Text(widget.name).font(.system(size: 22, weight: .semibold))
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityFocused($titleFocused)
+                    .task(id: widget.name) { titleFocused = true }
                 Text(widget.description)
                     .font(.system(size: 13)).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.tail)
@@ -83,9 +88,8 @@ struct WidgetGalleryDetail: View {
                     .disabled(!canAdd)
                     .help(added ? "Adds another \(widget.name) widget with its own settings." : "Adds this size to the Dock (Return).")
                 if added {
-                    GalleryAddedBadge(generation: addGeneration, size: 22)
+                    GalleryAddedBadge(generation: addGeneration, size: 22, spokenLabel: "Added")
                         .transition(.scale(scale: 0.4).combined(with: .opacity))
-                        .accessibilityLabel("Added")
                 }
             }
             .padding(.top, 22)

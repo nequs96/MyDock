@@ -60,7 +60,43 @@ struct WidgetGalleryMoreEntry: Identifiable, Equatable {
     var detail: String
     var symbol: String
     var item: DockItem?
-    var browseAction: String?
+    var browseAction: DockBrowseAction?
+}
+
+/// The pickers the Add Item window and ⌘K open. Behaviour keys on the case, never on the title.
+enum DockBrowseAction: String, CaseIterable, Identifiable, Equatable {
+    case application, folder, file, link
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .application: "Choose Application…"
+        case .folder: "Folder…"
+        case .file: "File…"
+        case .link: "Link…"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .application: "plus.app"
+        case .folder: "folder"
+        case .file: "doc"
+        case .link: "globe"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .application: "Add an app from another location."
+        case .folder: "Keep a folder within reach."
+        case .file: "Open a document from your Dock."
+        case .link: "Add a website or URL."
+        }
+    }
+
+    /// macOS Dock layouts hold apps and spacers only.
+    static func available(for kind: DockProfileKind) -> [DockBrowseAction] {
+        kind == .custom ? allCases : [.application]
+    }
 }
 
 /// Pure decisions behind the gallery, kept out of the views so they can be tested.
@@ -134,9 +170,19 @@ enum WidgetGalleryModel {
 
     /// Widgets and apps already on the Dock, or added while the window is open, show as added.
     static func isAdded(_ item: DockItem, in profile: DockProfile, recentlyAdded: Set<String>) -> Bool {
+        isAdded(item, addedIdentities: addedIdentities(in: profile), recentlyAdded: recentlyAdded)
+    }
+
+    /// The identities of the widgets and apps on a Dock, built once per pass so each tile and row
+    /// is a set lookup instead of a path resolution per Dock item.
+    static func addedIdentities(in profile: DockProfile) -> Set<String> {
+        Set(profile.items.lazy.filter { $0.type == .widget || $0.type == .application }.map(identity))
+    }
+
+    static func isAdded(_ item: DockItem, addedIdentities: Set<String>, recentlyAdded: Set<String>) -> Bool {
         guard item.type == .widget || item.type == .application else { return false }
         let key = identity(item)
-        return recentlyAdded.contains(key) || profile.items.contains { identity($0) == key }
+        return recentlyAdded.contains(key) || addedIdentities.contains(key)
     }
 
     static func applicationEntries(_ applications: [InstalledApplication], query: String) -> [WidgetGalleryApplicationEntry] {
@@ -160,13 +206,9 @@ enum WidgetGalleryModel {
             WidgetGalleryMoreEntry(id: "spacer:" + spacer.rawValue, title: spacer.title,
                                    detail: spacerDetail(spacer), symbol: "rectangle.split.2x1", item: .spacer(spacer))
         }
-        let pickers = [("Choose Application…", "plus.app", "Add an app from another location."),
-                       ("Folder…", "folder", "Keep a folder within reach."),
-                       ("File…", "doc", "Open a document from your Dock."),
-                       ("Link…", "globe", "Add a website or URL.")]
-        for (name, symbol, detail) in pickers {
-            if kind == .native && name != "Choose Application…" { continue }
-            result.append(WidgetGalleryMoreEntry(id: name, title: name, detail: detail, symbol: symbol, browseAction: name))
+        for action in DockBrowseAction.available(for: kind) {
+            result.append(WidgetGalleryMoreEntry(id: "browse:" + action.rawValue, title: action.title, detail: action.detail,
+                                                 symbol: action.symbol, browseAction: action))
         }
         return result.filter { trimmed.isEmpty || ($0.title + " " + $0.detail).localizedStandardContains(trimmed) }
     }
@@ -222,6 +264,34 @@ enum WidgetGalleryModel {
         case .down: step = max(1, columns)
         }
         return min(count - 1, max(0, index + step))
+    }
+
+    /// The Widgets segment as drawn: the Suggested row chunked by `heroColumns`, then every section
+    /// chunked by `columns`. Each section starts a new row, so rows can be shorter than `columns`.
+    static func gridRows(heroIDs: [String], heroColumns: Int, sections: [[String]], columns: Int) -> [[String]] {
+        func rows(_ ids: [String], width: Int) -> [[String]] {
+            let width = max(1, width)
+            return stride(from: 0, to: ids.count, by: width).map { Array(ids[$0..<min($0 + width, ids.count)]) }
+        }
+        return rows(heroIDs, width: heroColumns) + sections.flatMap { rows($0, width: columns) }
+    }
+
+    /// The tile the arrow keys reach from `id`: left and right step through the reading order;
+    /// up and down keep the column in the adjacent row, clamped to that row's length.
+    /// `nil` when `id` is not in `rows`.
+    static func movedID(from id: String, direction: WidgetGalleryMoveDirection, rows: [[String]]) -> String? {
+        guard let row = rows.firstIndex(where: { $0.contains(id) }),
+              let column = rows[row].firstIndex(of: id) else { return nil }
+        switch direction {
+        case .left, .right:
+            let order = rows.flatMap { $0 }
+            guard let index = order.firstIndex(of: id) else { return nil }
+            return order[min(order.count - 1, max(0, index + (direction == .left ? -1 : 1)))]
+        case .up, .down:
+            let target = row + (direction == .up ? -1 : 1)
+            guard rows.indices.contains(target), !rows[target].isEmpty else { return id }
+            return rows[target][min(column, rows[target].count - 1)]
+        }
     }
 }
 

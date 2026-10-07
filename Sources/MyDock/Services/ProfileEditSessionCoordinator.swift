@@ -5,7 +5,9 @@ import Combine
 final class ProfileEditSessionCoordinator: ObservableObject {
     @Published private(set) var drafts: [UUID: DockProfileDraft] = [:]
     private weak var store: ProfileStore?
-    @Published private(set) var saveFeedback: [UUID: String] = [:]
+    @Published private(set) var saveStates: [UUID: ProfileSaveFeedback] = [:]
+    /// The status line each Dock shows while it autosaves.
+    var saveFeedback: [UUID: String] { saveStates.mapValues(\.title) }
     private var autosaves: [UUID: Task<Void, Never>] = [:]
     private var generations: [UUID: UUID] = [:]
 
@@ -15,21 +17,21 @@ final class ProfileEditSessionCoordinator: ObservableObject {
         autosaves[id]?.cancel()
         let generation = UUID()
         generations[id] = generation
-        saveFeedback[id] = "Saving…"
+        saveStates[id] = .saving
         autosaves[id] = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
             guard let self, self.generations[id] == generation else { return }
             do {
                 try self.save(id)
-                self.saveFeedback[id] = "Saved"
+                self.saveStates[id] = .saved
                 try await Task.sleep(for: .seconds(1.2))
                 guard self.generations[id] == generation else { return }
-                self.saveFeedback[id] = nil
+                self.saveStates[id] = nil
                 self.autosaves[id] = nil
             } catch is CancellationError { }
             catch {
                 guard self.generations[id] == generation else { return }
-                self.saveFeedback[id] = "Couldn’t save · Retry"
+                self.saveStates[id] = .failed
                 self.autosaves[id] = nil
             }
         }
@@ -39,7 +41,7 @@ final class ProfileEditSessionCoordinator: ObservableObject {
         autosaves[id]?.cancel()
         autosaves[id] = nil
         generations[id] = nil
-        saveFeedback[id] = nil
+        saveStates[id] = nil
     }
 
     /// Undo only the edit's changed fields, retaining unrelated live widget data.
@@ -76,7 +78,8 @@ final class ProfileEditSessionCoordinator: ObservableObject {
         guard let latest = store.state.profiles.first(where: { $0.id == id }) else { throw ProfileDraftMergeError.profileRemoved }
         var merged = try draft.merged(with: latest)
         merged.name = merged.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !merged.name.isEmpty else { throw ProfileDraftMergeError.conflict("an empty profile name") }
+        // A missing name is a plain save failure, never a merge conflict to review.
+        guard !merged.name.isEmpty else { throw EditSessionSaveError.failed(EditSessionSaveError.missingName) }
         try ProfileSemanticValidator.validate([merged])
         store.replaceProfile(merged)
         if store.hasUnpersistedChanges { store.flush() }
@@ -94,7 +97,7 @@ final class ProfileEditSessionCoordinator: ObservableObject {
             guard let latest = store.state.profiles.first(where: { $0.id == draft.profile.id }) else { throw ProfileDraftMergeError.profileRemoved }
             var merged = try draft.merged(with: latest)
             merged.name = merged.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !merged.name.isEmpty else { throw EditSessionSaveError.failed("A profile needs a name before it can be saved.") }
+            guard !merged.name.isEmpty else { throw EditSessionSaveError.failed(EditSessionSaveError.missingName) }
             mergedProfiles.append(merged)
         }
         guard !mergedProfiles.isEmpty else { return }
@@ -134,7 +137,20 @@ final class ProfileEditSessionCoordinator: ObservableObject {
     }
 }
 
+/// The autosave state a Dock shows; the view keys behaviour on the case, never on the copy.
+enum ProfileSaveFeedback: Equatable {
+    case saving, saved, failed
+    var title: String {
+        switch self {
+        case .saving: "Saving…"
+        case .saved: "Saved"
+        case .failed: "Couldn’t save · Retry"
+        }
+    }
+}
+
 enum EditSessionSaveError: LocalizedError {
     case failed(String)
+    static let missingName = "A Dock needs a name."
     var errorDescription: String? { if case .failed(let message) = self { message } else { nil } }
 }
