@@ -541,7 +541,7 @@ struct DockWorkspaceView: View {
             .toolbar {
                 ToolbarItem(placement: .navigation) {
                     Button { sidebarVisible.toggle() } label: { Image(systemName: "sidebar.left") }
-                        .help("Toggle sidebar").accessibilityLabel("Toggle sidebar")
+                        .help(sidebarVisible ? "Hide Sidebar" : "Show Sidebar").accessibilityLabel(sidebarVisible ? "Hide Sidebar" : "Show Sidebar")
                 }
             }
     }

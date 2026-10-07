@@ -47,16 +47,21 @@ extension DockItem {
     }
 }
 
+/// The Dock sections that start with a boundary entry. The raw value is part of the entry ID.
+enum DockBoundaryKind: String {
+    case running, recent, windows
+}
+
 enum DockRenderEntry: Identifiable {
     case item(DockItem, pinned: Bool)
-    case boundary(String)
+    case boundary(DockBoundaryKind)
     case insertion
     case window(DockWindowDescriptor)
 
     var id: String {
         switch self {
         case .item(let item, _): item.id.uuidString
-        case .boundary(let kind): "boundary-\(kind)"
+        case .boundary(let kind): "boundary-\(kind.rawValue)"
         case .insertion: "pinned-end"
         case .window(let window): window.id
         }
@@ -97,14 +102,14 @@ struct DockRenderModel {
         }.map { .item($0, pinned: true) }
         entries.append(.insertion)
         if settings.showRunningApps {
-            entries.append(.boundary("running"))
+            entries.append(.boundary(.running))
             let pinned = pinnedApplicationURLs ?? RuntimeDockIdentity.pinnedApplicationURLs(in: profile)
             entries += RuntimeDockIdentity.unpinned(runningApplications, pinnedURLs: pinned).map { .item($0, pinned: false) }
         }
         insertRecentApplications(recentApplications, settings: settings)
         let minimized = windows.filter(\.isMinimized)
         if settings.showMinimizedWindows, !minimized.isEmpty {
-            entries.append(.boundary("windows"))
+            entries.append(.boundary(.windows))
             entries += minimized.map(DockRenderEntry.window)
         }
         if settings.showTrash, !profile.items.contains(where: { $0.widgetKind == "Trash" }) {

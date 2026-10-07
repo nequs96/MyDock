@@ -69,8 +69,8 @@ struct AutomaticSwitchingSettingsSection: View {
                 }
                 GroupedRow("Rules", subtitle: store.customProfiles.isEmpty ? "Create a Custom Dock to add a rule." : nil, accessory: {
                     Menu {
-                        Button("When an app is frontmost") { addRule(.appFrontmost) }
-                        Button("During a time window") { addRule(.timeWindow) }
+                        Button("When an App Is Frontmost") { addRule(.appFrontmost) }
+                        Button("During a Time Window") { addRule(.timeWindow) }
                     } label: {
                         Label("Add Rule", systemImage: "plus")
                     }

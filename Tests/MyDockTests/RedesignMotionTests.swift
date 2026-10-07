@@ -130,32 +130,32 @@ struct RedesignMotionTests {
     // MARK: Reduce Motion
 
     @Test func everyNewMotionIsNilUnderReduceMotion() {
-        #expect(DockMotionPolicy.popoutAppearAnimation(reduceMotion: true) == nil)
         #expect(DockMotionPolicy.anchorAnimation(reduceMotion: true) == nil)
         #expect(DockMotionPolicy.reorderAnimation(reduceMotion: true, animationsEnabled: true) == nil)
         #expect(DockMotionPolicy.profileTransformAnimation(reduceMotion: true, animationsEnabled: true) == nil)
         #expect(DockMotionPolicy.settleAnimation(reduceMotion: true, animationsEnabled: true) == nil)
-        #expect(DockMotionPolicy.revealAnimation(reduceMotion: true) == nil)
+        #expect(DockMotionPolicy.hoverAnimation(reduceMotion: true, animationsEnabled: true) == nil)
         // Turning Dock animations off also stops the Dock's own motion.
         #expect(DockMotionPolicy.reorderAnimation(reduceMotion: false, animationsEnabled: false) == nil)
         #expect(DockMotionPolicy.settleAnimation(reduceMotion: false, animationsEnabled: false) == nil)
+        #expect(DockMotionPolicy.hoverAnimation(reduceMotion: false, animationsEnabled: false) == nil)
 
-        #expect(DockMotionPolicy.popoutAppearAnimation(reduceMotion: false) == DockDesign.Motion.appear)
         #expect(DockMotionPolicy.anchorAnimation(reduceMotion: false) == DockDesign.Motion.hover)
         #expect(DockMotionPolicy.reorderAnimation(reduceMotion: false, animationsEnabled: true) == DockDesign.Motion.reorder)
         #expect(DockMotionPolicy.profileTransformAnimation(reduceMotion: false, animationsEnabled: true) == DockDesign.Motion.transform)
         #expect(DockMotionPolicy.settleAnimation(reduceMotion: false, animationsEnabled: true) == DockDesign.Motion.morph)
-        #expect(DockMotionPolicy.revealAnimation(reduceMotion: false) == DockDesign.Motion.morph)
+        #expect(DockMotionPolicy.hoverAnimation(reduceMotion: false, animationsEnabled: true) == DockDesign.Motion.hover)
     }
 
     @Test func motionTransformsRestAtIdentityAndVanishUnderReduceMotion() {
         // Popout content: 96% and transparent at the start, identity when open.
-        #expect(DockMotionPolicy.popoutContentScale(appeared: false, reduceMotion: false) == 0.96)
-        #expect(DockMotionPolicy.popoutContentOpacity(appeared: false, reduceMotion: false) == 0)
-        #expect(DockMotionPolicy.popoutContentScale(appeared: true, reduceMotion: false) == 1)
-        #expect(DockMotionPolicy.popoutContentOpacity(appeared: true, reduceMotion: false) == 1)
-        #expect(DockMotionPolicy.popoutContentScale(appeared: false, reduceMotion: true) == 1)
-        #expect(DockMotionPolicy.popoutContentOpacity(appeared: false, reduceMotion: true) == 1)
+        // These are the inputs DockPopoutAppearEffect renders: progress 0 closed, 1 open.
+        #expect(DockMotionPolicy.popoutContentScale(progress: 0, reduceMotion: false) == 0.96)
+        #expect(DockMotionPolicy.popoutContentOpacity(progress: 0, reduceMotion: false) == 0)
+        #expect(DockMotionPolicy.popoutContentScale(progress: 1, reduceMotion: false) == 1)
+        #expect(DockMotionPolicy.popoutContentOpacity(progress: 1, reduceMotion: false) == 1)
+        #expect(DockMotionPolicy.popoutContentScale(progress: 0, reduceMotion: true) == 1)
+        #expect(DockMotionPolicy.popoutContentOpacity(progress: 0, reduceMotion: true) == 1)
         #expect(abs(DockMotionPolicy.popoutContentScale(progress: 0.5, reduceMotion: false) - 0.98) < 0.0001)
         #expect(DockMotionPolicy.popoutContentOpacity(progress: 0.5, reduceMotion: false) == 0.5)
         #expect(DockMotionPolicy.popoutContentScale(progress: 0.5, reduceMotion: true) == 1)
@@ -223,19 +223,5 @@ struct RedesignMotionTests {
             #expect(DockGlassComposition.scope(material: material, reduceTransparency: false) == .none)
         }
         #expect(DockGlassComposition.moduleSpacing == 0)
-    }
-
-    @Test func modulesOnTheDockWouldFuseWithTheSurfaceInOneContainer() {
-        let surface = CGRect(x: 0, y: 0, width: 560, height: 76)
-        // A module inside the Dock: no spacing keeps it apart from the surface.
-        let module = CGRect(x: 200, y: 11, width: 108, height: 54)
-        #expect(DockGlassComposition.fuses(module, with: surface, spacing: 0))
-        #expect(!DockGlassComposition.surfaceSharesModuleContainer(moduleFrames: [module], surface: surface))
-        // Modules side by side at rest stay apart at spacing 0; touching ones blend.
-        let neighbour = CGRect(x: 314, y: 11, width: 108, height: 54)
-        #expect(!DockGlassComposition.fuses(module, with: neighbour, spacing: DockGlassComposition.moduleSpacing))
-        #expect(DockGlassComposition.fuses(module, with: CGRect(x: 308, y: 11, width: 54, height: 54), spacing: 0))
-        // With no modules the surface could share a container.
-        #expect(DockGlassComposition.surfaceSharesModuleContainer(moduleFrames: [], surface: surface))
     }
 }

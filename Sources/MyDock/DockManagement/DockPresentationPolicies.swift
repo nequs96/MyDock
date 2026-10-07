@@ -2,6 +2,15 @@ import AppKit
 import SwiftUI
 
 enum DockSurfaceMetrics {
+    /// The Dock size (tile scale) range used by layout, panel sizing, resizing and VoiceOver adjustment.
+    static let scaleRange: ClosedRange<CGFloat> = 0.65...1.5
+
+    /// `customDockSize` bounded to `scaleRange`; a non-finite value is the default size.
+    static func clampedScale(_ size: Double) -> CGFloat {
+        guard size.isFinite else { return 1 }
+        return min(max(CGFloat(size), scaleRange.lowerBound), scaleRange.upperBound)
+    }
+
     static func padding(settings: AppSettings, scale: CGFloat) -> CGFloat {
         (settings.magnificationEnabled ? 16 : 11) * scale
     }
@@ -26,14 +35,6 @@ enum DockSurfaceMetrics {
 
     static func length(_ itemLengths: [CGFloat], spacing: CGFloat, scale: CGFloat) -> CGFloat {
         itemLengths.reduce(0, +) + CGFloat(max(itemLengths.count - 1, 0)) * spacing * scale + 2
-    }
-
-    static func contentLength(items: [DockItem], settings: AppSettings, scale: CGFloat) -> CGFloat {
-        var lengths = items.map { itemLength($0, settings: settings, scale: scale) }
-        if settings.showTrash && !items.contains(where: { $0.widgetKind == "Trash" }) {
-            lengths.append(itemLength(.widget("Trash"), settings: settings, scale: scale))
-        }
-        return length(lengths, spacing: CGFloat(settings.customDockItemSpacing), scale: scale) + 22 * scale
     }
 
     /// Concentric module radius for `dockModuleRadius`, in the widget's own (unscaled)
@@ -101,19 +102,25 @@ enum DockPanelGeometry {
     }
 }
 
-/// Running-app dots. Unpinned runtime entries are running by construction; pinned apps
-/// match by their installed-copy URL (saved, or resolved after relocation).
-enum DockRunningIndicatorPolicy {
-    /// `resolvedURL` touches the file system, so it is consulted only when an app with the item's
-    /// bundle identifier is running (`runningBundleIdentifiers` nil skips that gate).
-    static func isRunning(_ item: DockItem, pinned: Bool, runningURLs: Set<URL>,
-                          runningBundleIdentifiers: Set<String>? = nil, resolvedURL: () -> URL?) -> Bool {
+/// The running dot of one live Dock tile. Pinned apps use the matched running copies; recent apps
+/// can be running too when the running section is hidden, so they match by bundle identifier;
+/// the other unpinned apps are the running section and run by construction.
+enum DockTileRunningState {
+    static func isRunning(_ item: DockItem, pinned: Bool, isRecent: Bool, runningPinnedIDs: Set<UUID>,
+                          runningBundleIdentifiers: Set<String>) -> Bool {
         guard item.type == .application else { return false }
-        guard pinned else { return true }
-        if let url = item.url, runningURLs.contains(InstalledApplicationIdentity.normalizedURL(url)) { return true }
-        if let identifiers = runningBundleIdentifiers, !identifiers.contains(item.bundleIdentifier ?? "") { return false }
-        if let url = resolvedURL(), runningURLs.contains(InstalledApplicationIdentity.normalizedURL(url)) { return true }
-        return false
+        if pinned { return runningPinnedIDs.contains(item.id) }
+        if isRecent { return item.bundleIdentifier.map { runningBundleIdentifiers.contains($0) } ?? false }
+        return true
+    }
+}
+
+/// What VoiceOver reads after a tile's name: the states the Dock otherwise shows only visually.
+enum DockTileAccessibility {
+    static func value(isRunning: Bool, isMissing: Bool, badge: String?) -> String {
+        [isRunning ? "Running" : nil,
+         isMissing ? "Saved location unavailable" : nil,
+         badge.map { "Badge \($0)" }].compactMap { $0 }.joined(separator: ", ")
     }
 }
 
@@ -194,7 +201,7 @@ extension DockRenderModel {
         self.init(profile: profile, settings: settings, runningApplications: [], windows: windows,
                   runningMediaSources: runningMediaSources, pinnedApplicationURLs: [])
         if settings.showRunningApps, !unpinnedRunningApplications.isEmpty,
-           let boundary = entries.firstIndex(where: { $0.id == DockRenderEntry.boundary("running").id }) {
+           let boundary = entries.firstIndex(where: { $0.id == DockRenderEntry.boundary(.running).id }) {
             entries.insert(contentsOf: unpinnedRunningApplications.map { DockRenderEntry.item($0, pinned: false) }, at: boundary + 1)
         }
         insertRecentApplications(recentApplications, settings: settings)
@@ -216,7 +223,7 @@ enum DockSeparatorPolicy {
     static func drawsLineWhenBetweenContent(_ entry: DockRenderEntry) -> Bool {
         switch entry {
         case .insertion: true
-        case .boundary(let kind): kind != "running"
+        case .boundary(let kind): kind != .running
         case .item, .window: false
         }
     }
@@ -372,7 +379,9 @@ struct DockPresentationSignature: Equatable {
 
 enum DockResizeGripGeometry {
     static let minimumThinDimension: CGFloat = 14
-    private static func clamped(_ scale: CGFloat) -> CGFloat { min(max(scale, 0.65), 1.5) }
+    private static func clamped(_ scale: CGFloat) -> CGFloat {
+        min(max(scale, DockSurfaceMetrics.scaleRange.lowerBound), DockSurfaceMetrics.scaleRange.upperBound)
+    }
     /// `horizontal` means a horizontal dock: thin width, long height.
     static func layoutSize(horizontal: Bool, scale: CGFloat) -> CGSize {
         let thin = 14 * clamped(scale), long = 42 * clamped(scale)
@@ -390,6 +399,9 @@ enum DockResizeGripGeometry {
 }
 
 enum DockResizePolicy {
+    /// Pointer travel, in points, that changes the Dock size by 1 (100%).
+    static let pointsPerUnit: CGFloat = 180
+
     static func size(start: CGFloat, translation: CGSize, position: DockPosition) -> CGFloat {
         let delta: CGFloat
         switch position {
@@ -397,7 +409,8 @@ enum DockResizePolicy {
         case .left: delta = translation.width
         case .right: delta = -translation.width
         }
-        return min(max(start + delta / 180, 0.65), 1.5)
+        let size = start + delta / pointsPerUnit
+        return min(max(size, DockSurfaceMetrics.scaleRange.lowerBound), DockSurfaceMetrics.scaleRange.upperBound)
     }
 }
 
@@ -452,11 +465,6 @@ enum CustomDockVisibilityPolicy {
 
     static func isAtRevealEdge(mouseLocation: NSPoint, revealFrame: NSRect) -> Bool {
         revealFrame.insetBy(dx: -6, dy: -6).contains(mouseLocation)
-    }
-
-    static func shouldHideForSystemDock(customDockFrame: NSRect, systemDockFrames: [NSRect]) -> Bool {
-        SystemDockOverlapPolicy.shouldHideCustomDock(customDockFrame: customDockFrame,
-                                                     systemDockFrames: systemDockFrames)
     }
 }
 
@@ -531,15 +539,12 @@ struct DockPopoutSelection: Equatable {
     }
 }
 
-enum DockMagnification {
-    static func scale(for itemIndex: Int, focusedIndex: Int, isWidget: Bool = false,
-                      enabled: Bool, reduceMotion: Bool) -> CGFloat {
-        guard enabled, !reduceMotion else { return 1 }
-        let distance = abs(itemIndex - focusedIndex)
-        guard distance <= 2 else { return 1 }
-        let applicationIntensity: CGFloat = distance == 0 ? 0.38 : distance == 1 ? 0.2 : 0.08
-        let intensity = isWidget ? applicationIntensity * 0.55 : applicationIntensity
-        return 1 + intensity
+/// macOS 13 clips a ScrollView's content to its bounds (`scrollClipDisabled` is macOS 14+), so a
+/// magnified tile would be cut off at the Dock's edge. Magnification runs on macOS 14 and later only.
+enum DockMagnificationSupport {
+    static var isAvailable: Bool {
+        if #available(macOS 14.0, *) { return true }
+        return false
     }
 }
 
@@ -565,22 +570,9 @@ enum DockGlassComposition {
     static func scope(material: CustomDockMaterial, reduceTransparency: Bool) -> Scope {
         [.liquidGlass, .liquidGlassClear].contains(material) && !reduceTransparency ? .itemStack : .none
     }
-
-    /// True when `module` would merge with `surface` in one container at `spacing`: their
-    /// boundaries are within `spacing` of each other, or one lies inside the other.
-    static func fuses(_ module: CGRect, with surface: CGRect, spacing: CGFloat) -> Bool {
-        let dx = max(surface.minX - module.maxX, module.minX - surface.maxX, 0)
-        let dy = max(surface.minY - module.maxY, module.minY - surface.maxY, 0)
-        return (dx * dx + dy * dy).squareRoot() <= max(0, spacing)
-    }
-
-    /// The Dock surface never shares the modules' container while modules sit on it.
-    static func surfaceSharesModuleContainer(moduleFrames: [CGRect], surface: CGRect) -> Bool {
-        !moduleFrames.contains { fuses($0, with: surface, spacing: moduleSpacing) }
-    }
 }
 
-/// RD-11 motion for the live Dock and onboarding. Every animation is nil under Reduce Motion
+/// RD-11 motion for the live Dock. Every animation is nil under Reduce Motion
 /// (and when the user turned Dock animations off), and every transform rests at identity.
 enum DockMotionPolicy {
     // MARK: Popout open
@@ -588,15 +580,6 @@ enum DockMotionPolicy {
     /// Popout content opens from 96% with a fade on `Motion.appear`.
     static let popoutStartScale: CGFloat = 0.96
 
-    static func popoutAppearAnimation(reduceMotion: Bool) -> Animation? {
-        DockDesign.Motion.animation(DockDesign.Motion.appear, reduceMotion: reduceMotion)
-    }
-    static func popoutContentScale(appeared: Bool, reduceMotion: Bool) -> CGFloat {
-        popoutContentScale(progress: appeared ? 1 : 0, reduceMotion: reduceMotion)
-    }
-    static func popoutContentOpacity(appeared: Bool, reduceMotion: Bool) -> Double {
-        popoutContentOpacity(progress: appeared ? 1 : 0, reduceMotion: reduceMotion)
-    }
     /// A frame of the appear spring, 0 (closed) … 1 (open); render exports pin intermediate frames.
     static func popoutContentScale(progress: Double, reduceMotion: Bool) -> CGFloat {
         guard !reduceMotion else { return 1 }
@@ -644,11 +627,11 @@ enum DockMotionPolicy {
         isSettling && !reduceMotion ? settleStartScale : 1
     }
 
-    // MARK: Onboarding
+    // MARK: Hover and scrolling
 
-    /// The onboarding hero morphs from today's look into Clear.
-    static func revealAnimation(reduceMotion: Bool) -> Animation? {
-        DockDesign.Motion.animation(DockDesign.Motion.morph, reduceMotion: reduceMotion)
+    /// Tiles settle back when the pointer leaves the Dock on `Motion.hover`.
+    static func hoverAnimation(reduceMotion: Bool, animationsEnabled: Bool) -> Animation? {
+        DockDesign.Motion.animation(DockDesign.Motion.hover, reduceMotion: reduceMotion || !animationsEnabled)
     }
 }
 
@@ -657,5 +640,24 @@ enum DockMotionPolicy {
 enum DockMissingTargets {
     static func ids(in items: [DockItem], isMissing: (DockItem) -> Bool) -> Set<UUID> {
         Set(items.filter { [.application, .file, .folder].contains($0.type) && isMissing($0) }.map(\.id))
+    }
+}
+
+extension DockDesign {
+    /// Chrome the live Dock draws itself: section separators, the resize grip and the reveal handle.
+    /// Increase Contrast strengthens each one; Reduce Transparency makes the reveal handle opaque.
+    enum DockChrome {
+        static func separator(_ contrast: ColorSchemeContrast) -> Color {
+            contrast == .increased ? Outline.color(.increased) : Color.primary.opacity(0.2)
+        }
+        /// The resize grip under the pointer.
+        static func separatorHighlight(_ contrast: ColorSchemeContrast) -> Color {
+            Color.primary.opacity(contrast == .increased ? 0.8 : 0.45)
+        }
+        static func revealHandle(_ contrast: ColorSchemeContrast, reduceTransparency: Bool) -> Color {
+            let increased = contrast == .increased
+            if reduceTransparency { return increased ? .primary : Color(nsColor: .systemGray) }
+            return Color.primary.opacity(increased ? 0.8 : 0.26)
+        }
     }
 }

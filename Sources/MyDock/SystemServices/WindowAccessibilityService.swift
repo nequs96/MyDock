@@ -116,7 +116,7 @@ enum WindowAccessibilityService {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
-        alert.runModal()
+        DockModal.run(alert)
     }
 
     @MainActor
@@ -165,18 +165,27 @@ enum WindowAccessibilityService {
         }
     }
 
+    /// The Accessibility messaging timeout for the next call: at most 0.1 s and never past `deadline`,
+    /// so a slow app cannot hold a scan (or the context menu that waits for it) beyond its bound.
+    static func messagingTimeout(until deadline: Date, now: Date = .now) -> Float {
+        Float(max(0.01, min(0.1, deadline.timeIntervalSince(now))))
+    }
+
     private static func observedWindows(for app: NSRunningApplication, identity: NativeApplicationIdentity, deadline: Date) -> WindowDiscoveryResult {
         let applicationElement = AXUIElementCreateApplication(identity.processID)
-        AXUIElementSetMessagingTimeout(applicationElement, 0.1)
+        AXUIElementSetMessagingTimeout(applicationElement, messagingTimeout(until: deadline))
         var windowsValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(applicationElement, kAXWindowsAttribute as CFString, &windowsValue) == .success,
               let windows = windowsValue as? [AXUIElement], windows.count <= 100 else { return .unavailable }
         var result: [DockWindowDescriptor] = []
         for (index, window) in windows.enumerated() {
             guard !Task.isCancelled, Date.now < deadline else { return .unavailable }
-            AXUIElementSetMessagingTimeout(window, 0.1)
-            guard let rawTitle = windowTitle(on: window) else { return .unavailable }
+            AXUIElementSetMessagingTimeout(window, messagingTimeout(until: deadline))
+            guard let rawTitle = windowTitle(on: window), Date.now < deadline else { return .unavailable }
+            AXUIElementSetMessagingTimeout(window, messagingTimeout(until: deadline))
             let identifier = stringAttribute(kAXIdentifierAttribute, on: window).flatMap { $0.isEmpty ? nil : $0 }
+            guard Date.now < deadline else { return .unavailable }
+            AXUIElementSetMessagingTimeout(window, messagingTimeout(until: deadline))
             var minimizedValue: CFTypeRef?
             _ = AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedValue)
             let displayTitle = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -222,7 +231,7 @@ enum WindowAccessibilityService {
                 let alert = NSAlert()
                 alert.messageText = "Window unavailable"
                 alert.informativeText = "MyDock could not identify this window uniquely or the app did not respond. Open the app and choose its window directly, then try again."
-                alert.runModal()
+                DockModal.run(alert)
             }
         }
     }
@@ -247,7 +256,7 @@ enum WindowAccessibilityService {
                 let alert = NSAlert()
                 alert.messageText = "Could not close window"
                 alert.informativeText = "Check MyDock’s Accessibility access, or open the app and close the window directly. The window may no longer be available."
-                alert.runModal()
+                DockModal.run(alert)
             }
         }
     }

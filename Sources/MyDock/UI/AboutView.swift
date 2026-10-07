@@ -20,7 +20,7 @@ struct AboutView: View {
                 .font(.subheadline).foregroundStyle(.secondary)
             Text("Version \(Product.marketingVersion) · macOS 13 or later")
                 .font(.caption).foregroundStyle(.tertiary)
-            Button("Replay setup…", action: onReplaySetup).buttonStyle(DockButtonStyle())
+            Button("Replay Setup…", action: onReplaySetup).buttonStyle(DockButtonStyle())
         }
         .padding(36).frame(minWidth: 400, minHeight: 340)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

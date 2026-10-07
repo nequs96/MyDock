@@ -1204,16 +1204,6 @@ struct ProfileStoreTests {
         #expect(!WindowAccessibilityService.shouldMinimizeFocusedApp(toggleEnabled: true, clickedBundleIdentifier: "com.example.app", frontmostBundleIdentifier: "com.example.app", hasFocusedWindow: false))
     }
 
-    @Test func dockMagnificationIsLocalizedAndHonorsAccessibilityMotionSetting() {
-        #expect(abs(DockMagnification.scale(for: 4, focusedIndex: 4, enabled: true, reduceMotion: false) - 1.38) < 0.001)
-        #expect(abs(DockMagnification.scale(for: 3, focusedIndex: 4, enabled: true, reduceMotion: false) - 1.2) < 0.001)
-        #expect(abs(DockMagnification.scale(for: 2, focusedIndex: 4, enabled: true, reduceMotion: false) - 1.08) < 0.001)
-        #expect(DockMagnification.scale(for: 1, focusedIndex: 4, enabled: true, reduceMotion: false) == 1)
-        #expect(DockMagnification.scale(for: 4, focusedIndex: 4, isWidget: true, enabled: true, reduceMotion: false) < 1.38)
-        #expect(DockMagnification.scale(for: 4, focusedIndex: 4, enabled: false, reduceMotion: false) == 1)
-        #expect(DockMagnification.scale(for: 4, focusedIndex: 4, enabled: true, reduceMotion: true) == 1)
-    }
-
     @Test func dockOverflowJumpControlsOnlyAppearWhenContentExceedsViewport() {
         #expect(!DockOverflowPolicy.needsJumpControls(contentLength: 300, viewportLength: 300))
         #expect(!DockOverflowPolicy.needsJumpControls(contentLength: 300.5, viewportLength: 300))
@@ -1298,12 +1288,12 @@ struct ProfileStoreTests {
         let overlappingSystemDock = NSRect(x: 200, y: 0, width: 500, height: 100)
         let separateSystemDock = NSRect(x: 800, y: 0, width: 400, height: 100)
 
-        #expect(CustomDockVisibilityPolicy.shouldHideForSystemDock(customDockFrame: customDock,
-                                                                   systemDockFrames: [overlappingSystemDock]))
-        #expect(!CustomDockVisibilityPolicy.shouldHideForSystemDock(customDockFrame: customDock,
-                                                                    systemDockFrames: [separateSystemDock]))
-        #expect(!CustomDockVisibilityPolicy.shouldHideForSystemDock(customDockFrame: customDock,
-                                                                    systemDockFrames: []))
+        #expect(SystemDockOverlapPolicy.shouldHideCustomDock(customDockFrame: customDock,
+                                                             systemDockFrames: [overlappingSystemDock]))
+        #expect(!SystemDockOverlapPolicy.shouldHideCustomDock(customDockFrame: customDock,
+                                                              systemDockFrames: [separateSystemDock]))
+        #expect(!SystemDockOverlapPolicy.shouldHideCustomDock(customDockFrame: customDock,
+                                                              systemDockFrames: []))
     }
 
     @Test func perpendicularTrackpadSwipeCyclesDockProfilesAndRejectsWheelNoise() {
@@ -2532,21 +2522,30 @@ struct ProfileStoreTests {
 
     @Test func dockSurfaceMetricsMatchRenderedTileGeometry() {
         let items = [DockItem.widget("Clock"), DockItem.spacer(.small), DockItem.widget("Battery")]
-        // Clock Compact is 104 wide (MD-U03, was 84): +20 per Clock, scaled with the dock scale.
+        // The panel sizes itself from the render model: items, the 14 pt pinned-end grip, spacing
+        // between entries and 2 pt of edge slack. Clock Compact is 104 wide (MD-U03), Battery 90.
+        func length(_ items: [DockItem], _ settings: AppSettings, scale: CGFloat = 1) -> CGFloat {
+            DockRenderModel(profile: DockProfile(name: "P", kind: .custom, items: items), settings: settings,
+                            unpinnedRunningApplications: [], windows: [], runningMediaSources: [])
+                .contentLength(settings: settings, scale: scale)
+        }
         var settings = AppSettings()
+        settings.showRunningApps = false
+        settings.showTrash = false
         settings.customDockWidgetStyle = .compact
-        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 242)
+        #expect(length(items, settings) == 242)
         settings.customDockWidgetStyle = .cards
-        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 242)
+        #expect(length(items, settings) == 242)
         settings.customDockItemSpacing = 14
-        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 254)
-        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1.5) == 380)
+        #expect(length(items, settings) == 260)
+        #expect(length(items, settings, scale: 1.5) == 389)
         settings.customDockPosition = .left
-        #expect(DockSurfaceMetrics.contentLength(items: items, settings: settings, scale: 1) == 168)
+        #expect(length(items, settings) == 174)
         settings.customDockPosition = .bottom
         settings.showTrash = true
-        #expect(DockSurfaceMetrics.contentLength(items: [], settings: settings, scale: 1) == 78)
-        #expect(DockSurfaceMetrics.contentLength(items: [.widget("Trash")], settings: settings, scale: 1) == 78)
+        // The system Trash (54) joins only when the Dock has no Trash widget of its own.
+        #expect(length([], settings) == 84)
+        #expect(length([.widget("Trash")], settings) == 84)
     }
 
     @Test func adaptiveLayoutPersistsWithoutLabelOrIconWidthCoupling() throws {

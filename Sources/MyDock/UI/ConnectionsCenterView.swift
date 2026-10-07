@@ -68,7 +68,7 @@ struct ConnectionsCenterView: View {
                             provider = row.kind; name = row.name; replacingID = row.identifier; secret = ""; connectionFormExpanded = true
                             domain = ShopifyConnectionDirectory.stores().first(where: { $0.id == row.identifier })?.domain ?? ""
                         }
-                        Menu("Assign to widget") {
+                        Menu("Assign to Widget") {
                             ForEach(store.customProfiles) { profile in
                                 ForEach(profile.items.filter { $0.widgetKind == row.kind }) { item in
                                     Button("\(profile.name) → \(item.displayName)") { assign(row, item: item, profileID: profile.id) }
