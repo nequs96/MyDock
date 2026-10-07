@@ -33,6 +33,15 @@ jobs:
         run: |
           mkdir -p .build
           ./TestMyDock.sh 2>&1 | tee .build/test.log
+      - name: Report compiler errors and crashes
+        if: failure()
+        shell: bash
+        run: |
+          # Compiler errors and the context of a compiler crash, printed last and annotated, so a long log cannot hide them.
+          ERRORS=$(grep -E '\.swift:[0-9]+:[0-9]+: error: ' .build/test.log 2>/dev/null | sort -u || true)
+          CRASH=$(grep -E -A1 'While running pass|While evaluating request|Stack dump|Please submit a bug report' .build/test.log 2>/dev/null || true)
+          printf '%s\n' "$ERRORS" "$CRASH"
+          printf '%s\n' "$ERRORS" "$CRASH" | grep . | head -10 | sed 's/%/%25/g; s/^/::error::/' || true
       - name: Report compiler warnings
         if: always()
         shell: bash
