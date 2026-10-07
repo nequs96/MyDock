@@ -85,8 +85,9 @@ enum ValidationBoundaryError: LocalizedError {
 /// No preference domain is written, including a disposable domain in the user's
 /// Library. Foundation's typed getters use these primitive overrides. Like the real
 /// store, writes notify KVO observers (`@AppStorage`) and registered defaults stay a
-/// fallback that `removeObject` returns to.
-private final class ValidationDefaults: UserDefaults {
+/// fallback that `removeObject` returns to. Tests use it in place of
+/// `UserDefaults(suiteName:)`, which would create a real domain.
+final class ValidationDefaults: UserDefaults {
     private let lock = NSRecursiveLock()
     private var values: [String: Any] = [:]
     private var registered: [String: Any] = [:]

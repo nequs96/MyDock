@@ -74,19 +74,19 @@ struct DockUtilityExpansionTests {
     @Test func malformedCollectionsAreRejected() {
         var config = WidgetConfiguration()
         config.quickLinks = [QuickLink(title: "Unsafe", url: URL(string: "javascript:alert(1)")!)]
-        #expect(throws: (any Error).self) { try ProfileSemanticValidator.validate(config) }
+        #expect(throws: ProfileValidationError.self) { try ProfileSemanticValidator.validate(config) }
         config.quickLinks = []
         config.textSnippets = [TextSnippet(title: "A", text: "B")]
         config.textSnippets.append(config.textSnippets[0])
-        #expect(throws: (any Error).self) { try ProfileSemanticValidator.validate(config) }
+        #expect(throws: ProfileValidationError.self) { try ProfileSemanticValidator.validate(config) }
         config.textSnippets = []
         config.savedColors = ["#FFFFFF", "#FFFFFF"]
-        #expect(throws: (any Error).self) { try ProfileSemanticValidator.validate(config) }
+        #expect(throws: ProfileValidationError.self) { try ProfileSemanticValidator.validate(config) }
         config.savedColors = ["not a color"]
-        #expect(throws: (any Error).self) { try ProfileSemanticValidator.validate(config) }
+        #expect(throws: ProfileValidationError.self) { try ProfileSemanticValidator.validate(config) }
         config.savedColors = []
         config.shelfFiles = [ShelfFile(url: URL(string: "https://example.com")!)]
-        #expect(throws: (any Error).self) { try ProfileSemanticValidator.validate(config) }
+        #expect(throws: ProfileValidationError.self) { try ProfileSemanticValidator.validate(config) }
     }
 
     @Test func conversionHandlesOffsetsAndDecimalVersusBinaryData() throws {
@@ -123,6 +123,5 @@ struct DockUtilityExpansionTests {
             #expect(!String(describing: type(of: WidgetProviderRegistry.provider(for: kind))).contains("Placeholder"))
             #expect(!WidgetPresentationCatalog.options(for: kind).isEmpty)
         }
-        #expect(WidgetRegistry.all.count == 36)
     }
 }

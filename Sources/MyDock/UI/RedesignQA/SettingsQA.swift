@@ -28,9 +28,11 @@ extension PremiumVisualQA {
                                      scheme: scheme, directory: directory, contrast: contrast, reduceTransparency: transparency)
                 }
             }
-            for section in SettingsQASection.allCases {
-                try await render(SettingsQASectionView(store: store, section: section),
-                                 name: "settings-appearance-section-\(section.rawValue)-\(name)",
+            for section in SettingsAppearanceSection.allCases {
+                // The installed page renders one section, so its state and bindings are live.
+                var page = SettingsView(store: store, initialPage: .appearance, embeddedInWorkspace: true, sidebarVisible: false)
+                page.renderedAppearanceSection = section
+                try await render(page, name: "settings-appearance-section-\(section.rawValue)-\(name)",
                                  size: NSSize(width: 780, height: 600), scheme: scheme, directory: directory)
             }
             let library = ProfileLibrary(fileURL: directory.appendingPathComponent("settings-qa-presets.json"))
@@ -59,25 +61,4 @@ extension PremiumVisualQA {
     }
 }
 
-private enum SettingsQASection: String, CaseIterable { case hero, style, glass, layout, widgets, scope }
-
-private struct SettingsQASectionView: View {
-    let store: ProfileStore
-    let section: SettingsQASection
-    var body: some View {
-        let view = SettingsView(store: store, initialPage: .appearance)
-        VStack(alignment: .leading, spacing: 20) {
-            SettingsPageHeader(page: .appearance)
-            switch section {
-            case .hero: view.appearanceHero
-            case .style: view.appearanceStyleSection
-            case .glass: view.appearanceGlassSection
-            case .layout: view.appearanceLayoutSection
-            case .widgets: view.appearanceWidgetsSection
-            case .scope: view.appearanceScopeSection
-            }
-            Spacer(minLength: 0)
-        }.padding(24).background(DockDesign.page)
-    }
-}
 #endif

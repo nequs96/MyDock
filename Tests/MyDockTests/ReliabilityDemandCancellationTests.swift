@@ -111,12 +111,15 @@ struct ShortcutExecutionTests {
         return url
     }
 
-    private func waitUntil(_ condition: () -> Bool) async {
+    /// Polls for up to 6 s and records a timeout at the caller, rather than failing later on a misleading assertion.
+    private func waitUntil(_ condition: () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async {
         for _ in 0..<300 where !condition() { try? await Task.sleep(for: .milliseconds(20)) }
+        if !condition() { Issue.record("Timed out waiting for the condition", sourceLocation: sourceLocation) }
     }
 
     @Test func successfulRunReportsCompleted() async throws {
-        let service = ShortcutExecutionService(commandURL: try makeCommand("exit 0"), requiresNativeEffects: false)
+        let command = try makeCommand("exit 0"); defer { try? FileManager.default.removeItem(at: command.deletingLastPathComponent()) }
+        let service = ShortcutExecutionService(commandURL: command, requiresNativeEffects: false)
         try service.run("Fixture")
         #expect(service.isRunning("Fixture"))
         await waitUntil { !service.isRunning("Fixture") }
@@ -125,8 +128,9 @@ struct ShortcutExecutionTests {
 
     @Test func failureIncludesBoundedStandardError() async throws {
         let long = String(repeating: "x", count: 5_000)
-        let service = ShortcutExecutionService(commandURL: try makeCommand("echo 'Could not find shortcut' >&2; echo \(long) >&2; exit 3"),
-                                               requiresNativeEffects: false)
+        let command = try makeCommand("echo 'Could not find shortcut' >&2; echo \(long) >&2; exit 3")
+        defer { try? FileManager.default.removeItem(at: command.deletingLastPathComponent()) }
+        let service = ShortcutExecutionService(commandURL: command, requiresNativeEffects: false)
         try service.run("Fixture")
         await waitUntil { !service.isRunning("Fixture") }
         let status = service.statusByShortcut["Fixture"] ?? ""
@@ -136,7 +140,8 @@ struct ShortcutExecutionTests {
     }
 
     @Test func longRunningInteractiveShortcutIsNotKilledByADeadlineAndCancelStopsIt() async throws {
-        let service = ShortcutExecutionService(commandURL: try makeCommand("sleep 30"), requiresNativeEffects: false)
+        let command = try makeCommand("sleep 30"); defer { try? FileManager.default.removeItem(at: command.deletingLastPathComponent()) }
+        let service = ShortcutExecutionService(commandURL: command, requiresNativeEffects: false)
         try service.run("Hung")
         try await Task.sleep(for: .milliseconds(400))
         #expect(service.isRunning("Hung"))
@@ -150,7 +155,8 @@ struct ShortcutExecutionTests {
     }
 
     @Test func cancelAllStopsEveryRunAndRunsCanStartAgain() async throws {
-        let service = ShortcutExecutionService(commandURL: try makeCommand("sleep 30"), requiresNativeEffects: false)
+        let command = try makeCommand("sleep 30"); defer { try? FileManager.default.removeItem(at: command.deletingLastPathComponent()) }
+        let service = ShortcutExecutionService(commandURL: command, requiresNativeEffects: false)
         try service.run("A")
         try service.run("B")
         try await Task.sleep(for: .milliseconds(300))
@@ -163,7 +169,8 @@ struct ShortcutExecutionTests {
     }
 
     @Test func emptyNameAndMissingCommandAreRejected() throws {
-        let service = ShortcutExecutionService(commandURL: try makeCommand("exit 0"), requiresNativeEffects: false)
+        let command = try makeCommand("exit 0"); defer { try? FileManager.default.removeItem(at: command.deletingLastPathComponent()) }
+        let service = ShortcutExecutionService(commandURL: command, requiresNativeEffects: false)
         #expect(throws: ShortcutsServiceError.self) { try service.run("   ") }
         let missing = ShortcutExecutionService(commandURL: URL(fileURLWithPath: "/nonexistent/mydock-fixture"), requiresNativeEffects: false)
         #expect(throws: ShortcutsServiceError.self) { try missing.run("A") }
@@ -191,12 +198,14 @@ struct FolderContentsReaderTests {
     }
 
     @Test func emptyFolderHasNoEntriesAndIsEmpty() throws {
-        let listing = try FolderContentsReader.listing(at: try makeFolder(files: 0))
+        let folder = try makeFolder(files: 0); defer { try? FileManager.default.removeItem(at: folder) }
+        let listing = try FolderContentsReader.listing(at: folder)
         #expect(listing.isEmpty && listing.omittedSummary == nil)
     }
 
     @Test func foldersSortFirstHiddenAreSkippedAndDisplayIsBounded() throws {
-        let listing = try FolderContentsReader.listing(at: try makeFolder(files: 12, folders: 3), displayLimit: 5)
+        let folder = try makeFolder(files: 12, folders: 3); defer { try? FileManager.default.removeItem(at: folder) }
+        let listing = try FolderContentsReader.listing(at: folder, displayLimit: 5)
         #expect(listing.entries.count == 5)
         #expect(listing.entries.prefix(3).allSatisfy { $0.isDirectory })
         #expect(listing.omittedCount == 10)
@@ -205,7 +214,8 @@ struct FolderContentsReaderTests {
     }
 
     @Test func enumerationCapIsReportedHonestly() throws {
-        let listing = try FolderContentsReader.listing(at: try makeFolder(files: 20), displayLimit: 5, enumerationCap: 8)
+        let folder = try makeFolder(files: 20); defer { try? FileManager.default.removeItem(at: folder) }
+        let listing = try FolderContentsReader.listing(at: folder, displayLimit: 5, enumerationCap: 8)
         #expect(listing.enumerationCapped)
         #expect(listing.entries.count == 5 && listing.omittedCount == 3)
         #expect(listing.omittedSummary == "and more than 3 more")
@@ -213,11 +223,11 @@ struct FolderContentsReaderTests {
 
     @Test func missingFolderThrowsInsteadOfLookingEmpty() {
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent("mydock-missing-\(UUID().uuidString)")
-        #expect(throws: (any Error).self) { try FolderContentsReader.listing(at: missing) }
+        #expect(throws: CocoaError.self) { try FolderContentsReader.listing(at: missing) }
     }
 
     @Test func cancelledEnumerationStopsAndThrowsCancellation() async throws {
-        let folder = try makeFolder(files: 50)
+        let folder = try makeFolder(files: 50); defer { try? FileManager.default.removeItem(at: folder) }
         let task = Task { () throws -> FolderContentsListing in
             withUnsafeCurrentTask { $0?.cancel() }
             return try FolderContentsReader.listing(at: folder)
@@ -226,14 +236,17 @@ struct FolderContentsReaderTests {
     }
 
     @Test func cancellingTheAsyncLoadReachesTheEnumeration() async throws {
-        let folder = try makeFolder(files: 10)
-        let task = Task { try await FolderContentsReader.load(at: folder) }
-        task.cancel()
-        let outcome = await task.result
-        switch outcome {
-        case .success: break // enumeration may have finished before cancellation was observed
-        case .failure(let error): #expect(error is CancellationError)
+        // The injected enumeration runs until it observes cancellation, so success means cancellation never arrived.
+        let task = Task {
+            try await FolderContentsReader.load {
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                while !Task.isCancelled, ContinuousClock.now < deadline { Thread.sleep(forTimeInterval: 0.001) }
+                try Task.checkCancellation()
+                return FolderContentsReader.bounded([], displayLimit: 1)
+            }
         }
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
     }
 
     @Test func onlyTheLatestRequestMayPublishAcrossAToBToA() {
@@ -300,10 +313,17 @@ struct BoundedNativeFetchTests {
 
     @Test func taskCancellationEndsTheWaitAndCancelsNativeToken() async {
         let cancels = Counter()
+        var startedContinuation: AsyncStream<Void>.Continuation?
+        let started = AsyncStream<Void> { startedContinuation = $0 }
+        let startedSignal = startedContinuation
         let task = Task { () -> BoundedFetchOutcome<Int> in
-            await BoundedNativeFetch.run(timeout: 30) { _ in { cancels.increment() } }
+            await BoundedNativeFetch.run(timeout: 30) { _ in
+                startedSignal?.yield()
+                return { cancels.increment() }
+            }
         }
-        try? await Task.sleep(for: .milliseconds(100))
+        // Cancel only once the native request has started, so the cancel token always exists.
+        for await _ in started { break }
         task.cancel()
         let outcome = await task.value
         #expect(outcome == .cancelled)

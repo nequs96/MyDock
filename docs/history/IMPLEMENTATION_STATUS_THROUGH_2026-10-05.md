@@ -1,0 +1,166 @@
+# MyDock implementation status through 5 October 2026 (dated)
+
+Moved verbatim from `docs/IMPLEMENTATION_STATUS.md` on 7 October 2026, with a date added to each heading and links adjusted for this folder. Everything below is dated evidence: words such as "current" and "canonical" describe the build of their own date. Later facts supersede it, in particular that CI now runs the tests and the full Xcode Release build on macOS 26 arm64 and Intel. Current evidence is in [RELEASE_AUDIT.md](../RELEASE_AUDIT.md) and open acceptance in [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md).
+
+## Remaining-work wave — 4 October 2026 (dated)
+
+After the completion handoff, the remaining authorized engineering work is done:
+- PR-13 phase 2: cache-only provider publish path, with authored state and runtime readings kept apart.
+- PR-17 capability consumers: a capability-derived QA matrix and the access note in widget settings.
+- DEBUG Calendar production fixtures.
+
+`./TestMyDock.sh` passes **516 tests in 66 suites, 0 failed, 5 opt-in skips**, and Python tooling passes 11. The canonical `build/MyDock.app` was rebuilt and passed a 60-second isolated launch, resource sample and normal quit; see [RELEASE_AUDIT.md](../RELEASE_AUDIT.md).
+
+The [execution ledger](EXECUTION_LEDGER_2026-10-03.md) "Final reconciliation — remaining-work wave" section is the current per-item record. Open items:
+- Native H1–H9 acceptance.
+- Live accounts.
+- Xcode, signing and release.
+- Instruments-grade performance.
+
+OP-01–OP-07 and the Batch 3 extensions stay deferred pending a product decision.
+
+## Completion handoff — 4 October 2026 (dated)
+
+The [completion handoff](CLAUDE_COMPLETION_HANDOFF_2026-10-04.md) is executed. Its verification and fix wave (independent Codex audit and renders, then fixes) is integrated at git `d0ad2d4`. `./TestMyDock.sh` passes **506 tests in 64 suites, 0 failed, 5 opt-in skips**, and Python tooling passes 11. The canonical `build/MyDock.app` was rebuilt and passed a bounded isolated launch/quit; see [RELEASE_AUDIT.md](../RELEASE_AUDIT.md).
+
+The [execution ledger](EXECUTION_LEDGER_2026-10-03.md) "Final reconciliation after the completion handoff" section is the current per-item record. Native H1–H9 acceptance, live accounts and the Xcode/signing release remain open or blocked. OP-01–OP-07 and other Batch 3 items stay deferred.
+
+Sections below are dated evidence for earlier builds.
+
+## Coordinator-only follow-up — 4 October 2026 (dated)
+
+The first newly delegated wave passed 445 individual tests plus 5 explicit skips (450 reported/56 suites), and 5 Python manifest fixtures. The canonical universal ad-hoc app was rebuilt, launched with isolated state and cleanly quit. This is fixture/static/build/isolated-launch evidence; native acceptance remains open. Current wave-two source differs from that artifact and is unfinished/unverified: a syntax-only check fails in a new Reliability test, and all three specialists are stopped by usage limits. Settings scope, diagnostics preview and default-production network isolation guards remain unstarted. See the [4 October verified status](VERIFIED_WORK_STATUS_2026-10-04.md) and [execution ledger](EXECUTION_LEDGER_2026-10-03.md). All earlier counts below are dated historical evidence.
+
+**Updated:** 3 October 2026 (Europe/Warsaw). **Scope:** the 30-ticket roadmap in [the repository review](REPOSITORY_REVIEW_2026-09-29.md).
+
+This is the canonical current status. The original audit records the pre-implementation findings. The original implementation pass preserved uncommitted work and did not mutate the user's Apple Dock. Later user-authorized replacement-mode checks verified native visibility preference application and restoration. No commit, push, publication or live account connection was performed. The repository cleanup preserves a complete source snapshot and earlier local artifacts outside the repository; see [the archive index](README.md).
+
+“Implemented” below means the code is present and has passed the listed local checks. It does not claim a live macOS, provider, or distribution scenario has passed when that scenario has not been run.
+
+## Corrective batch and design/architecture improvements — 3 October 2026 (dated)
+
+The required corrective work and the authorized design/architecture packages from the [execution ledger](EXECUTION_LEDGER_2026-10-03.md) are integrated at git `f1c90b5` (including the 4 October follow-up wave). **The ledger is the canonical record of what is still open: every finding (MD-\*), package (PR-\*), workflow (F\*), widget (W\*) and the native acceptance procedures H1–H9.** Implementation and verification are tracked separately there.
+
+`./TestMyDock.sh` reports **428 tests in 52 suites passed**, 0 failed, with five opt-ins skipped. The canonical `build/MyDock.app` was rebuilt and relaunched; see [RELEASE_AUDIT.md](../RELEASE_AUDIT.md).
+
+None of these changes has native, VoiceOver, live-account or Xcode/release acceptance. The OP-01–OP-07 opportunities and the other Batch 3 extensions are deferred pending a product decision.
+
+Sections below this one are dated evidence for earlier builds.
+
+## Everyday Tools expansion — 3 October 2026 (dated)
+
+The current source adds **File Shelf, Text Snippets, Quick Links, Unit Converter and Color Picker**, bringing the library to **35 families** at that point (3 October 2026; Audio Output later made 36). Everyday Tools appears first in Add Item. Saved file references/bookmarks, snippets, websites and palettes use existing validated profile persistence with backward-compatible defaults and bounded collections. File Shelf supports Dock/popout drops, Finder copy/paste, outward row drag, open/reveal and native sharing; snippets provide explicit clipboard capture and editing; links provide search/edit/open; conversion and color tools are fully implemented.
+
+`./TestMyDock.sh` reports **258 tests in 20 suites passed**, with five opt-ins skipped. **32 isolated light/dark renders** cover the library, layouts, editors/popouts, empty states and side faces. Native Finder/AirDrop/color sampling, keyboard and VoiceOver acceptance remains unrun because CUA native startup fails. The user subsequently quit normally; the complete source was built and launched as canonical `build/MyDock.app` (PID 28856). See [the focused tools report](EVERYDAY_TOOLS_2026-10-03.md) for validation build status. Earlier glass/adaptive evidence below remains dated evidence for the preceding canonical build.
+
+## Product-design rebuild — 1–3 October 2026 (dated)
+
+The current source replaces the configuration dashboard with a Dock workspace: one sidebar, direct canvas selection/reorder, contextual inspectors, searchable Add Library, Command-K, native Undo and merge-safe autosave. Settings shares the shell. Shared semantic identities and material connect the editor and actual custom Dock. Existing profiles, widget configurations, permissions, integrations and recovery formats are preserved with backward-compatible widget presentation decoding. Native layouts now use mode-aware Applied status and the creation sheet exposes custom versus macOS layout.
+
+The adaptive widget baseline uses the canonical universal `build/MyDock.app`. The preceding adaptive suite reports **246 tests in 19 suites passed** with five explicit opt-ins skipped. **34 dark/light renders** cover the mixed Dock, all 30 families’ semantic layouts, eight configuration sheets, icon independence, long totals, narrow faces and real empty states. Native isolated checks verified independent layout/icon selection, real CPU sampling, scrolling and mixed Dock rhythm. Full Xcode UI, VoiceOver, provider permissions and the broader platform matrix remain open. The previous 242-test/76-render and installed-app audits are dated historical evidence.
+
+## Adaptive widget presentation — 3 October 2026 (dated)
+
+Layout now owns widget geometry; Accent/Soft/Mono/Outline own only icon treatment. Shared small primitives support distinct AI usage, CPU telemetry, paired network rates, battery shapes, disk capacity, weather forecasts, media artwork, clock/date and timer compositions. Horizontal widths vary from 54 to 186 points with a 54-point base height. Side Docks retain narrow geometry with readable reduced compositions. Widget hover changes the surface subtly and no longer magnifies data widgets.
+
+Configuration provides a live Dock-sized preview, widget-specific layout rows at their actual widths, compact icon swatches and relevant secondary metrics. Generic Card size and the old Live visual-style choice are removed from the product UI. Legacy style/width decoding preserves saved profiles; new outline remains distinct from old Mono. AI totals/history and CPU history use actual available readings. Empty states do not fabricate graphs or quotas.
+
+The preceding adaptive library contained 30 families, including Disk Space, Calculator and Quick Checklist. The Everyday Tools expansion brought it to 35 on 3 October 2026; the current count is in the README's widget table. Checklist persistence and private-note sanitization remain intact. The [adaptive presentation report](ADAPTIVE_WIDGET_PRESENTATION_2026-10-03.md) and [RELEASE_AUDIT.md](../RELEASE_AUDIT.md) distinguish bitmap evidence, native observations and remaining acceptance.
+
+## Liquid Glass and panel corners — 3 October 2026 (dated)
+
+Appearance now exposes Clear glass and Frosted glass as quick styles and offers a Glass clarity segmented control. The two finishes use native `.clear` and `.regular` Liquid Glass on macOS 26 and later; earlier systems retain the frosted fallback. Reduce Transparency and increased contrast remain supported. Material persistence raw values and global/profile appearance scope are unchanged.
+
+The full-Dock SwiftUI shadow is removed. The shared material is clipped to its rounded shape, and the borderless native hosting layer applies the same continuous corner mask with a transparent backing and no shadow. Appearance/profile updates refresh the mask radius. Bottom and side Dock geometry, magnification space and independent widget styles are preserved.
+
+The preceding glass checks include 246 passing tests, 17 isolated renders and transparent 6×6 pixel regions at all four corners of 11 native-host captures across both glass finishes, bottom/left/right positions and non-glass materials. Native desktop inspection remains unavailable because CUA reports `Sky Computer Use native pipe startup failed`. Native glass blur/refraction is not captured by NSHostingView bitmap exports; wallpaper compositing and native reveal/hover acceptance remain open. See [the glass report](GLASS_DOCK_2026-10-03.md).
+
+## Dock interaction follow-up — 3 October 2026 (dated)
+
+The source adds normal Quit App and identity-safe Close Window menu actions, transient resize previews with one final save, independent 0–100% glass opacity, visible wrapping Settings navigation and selectable Fade/Slide/Gentle grow appearance effects with Off/Preview/Reduce Motion support. The current working-tree suite passes 258 tests in 20 suites and 17 new isolated renders cover navigation and opacity; six native-host corner captures retain zero alpha in their corner regions.
+
+The user resolved the clean-quit dependency. The source/test hashes match the 258-test validation, and the canonical universal app was rebuilt and launched (PID 28856). CUA binding still fails. Native close/save behavior, live resize frame pacing, reveal interruption and glass compositor appearance remain unverified. See [the interaction report](DOCK_INTERACTION_2026-10-03.md) for exact evidence and limits.
+
+## Add Item and AI Activity follow-up — 1 October 2026 (dated)
+
+Installed-app discovery now validates actual current bundles, executable availability/architecture, metadata and canonical identities off the main actor. Remnant Adobe directories are excluded by validation, not name filters. Add Item uses category navigation, grouped real widget/system previews, compact app rows, visible Added state and deliberate duplicate behavior. Reopening/refresh/activation/volume notifications rebuild inventory; app insertion revalidates the selected path.
+
+AI Activity now has a compact metric-led popover, readable daily chart, subdued provenance/partial states, one setup recovery action and saved-data retention during refresh. Its shared Dock-scale renderer provides provider identity, readable compact totals and short setup/error states. Existing integrations and profile formats were preserved.
+
+That follow-up’s detailed evidence/limits are in the [preceding release audit](RELEASE_EVIDENCE_PRE_WIDGET_REDESIGN_2026-10-01.md) and the [focused report](FOCUSED_ITEM_BROWSER_AND_AI_ACTIVITY_2026-10-01.md). Full Xcode UI/VoiceOver, actual install/move/volume events, click-outside dismissal and final live refresh AX role remain unverified. At that follow-up’s close, CUA prevented an isolated-preview quit and the canonical app had launched. That runtime status is superseded by the current widget report. The preserved concurrent drag/focus changes still need controlled native acceptance per [the handoff](FOCUS_HANDOFF_2026-10-01.md).
+
+The [workspace feature inventory](DOCK_WORKSPACE_REBUILD_2026-10-01.md) and [product-design acceptance ledger](PRODUCT_DESIGN_ACCEPTANCE_2026-10-01.md) remain earlier rebuild evidence.
+
+## Roadmap ledger — 30 September to 3 October 2026 (dated)
+
+| Ticket | Code status | Implementation / evidence | Acceptance still required |
+| --- | --- | --- | --- |
+| T01 Draft merge safety | Implemented | Field-level three-way item/configuration merge, conflict preservation, concurrent additions/deletions/order handling; edit-session regression tests | Broader concurrent UI matrix |
+| T02 Unified quit/save policy | Implemented | Drafts survive profile/workspace navigation; shared Save/Discard/Cancel for window close and Quit; failed save keeps draft and supports retry; CUA navigation/exit checks | Xcode UI suite, all exit branches on shipping bundle |
+| T03 Countdown deadline | Implemented | Resumed alerts use start plus remaining duration; generation ordering retained; deadline regression test | Delivered notification, sleep/wake and DST on a disposable system |
+| T04 Recovery health gate | Implemented | Published native transaction health, journal cannot be overwritten, failed recovery blocks new apply; restore UI and fake-backend regression | Real interruption/relaunch and recovery |
+| T05 Applied native association | Implemented | Association records only successful apply; create/delete do not invent a selected native layout; activation paths updated | Real apply and external auto-save association |
+| T06 Semantic validation | Implemented | Bounded timer/date/history/configuration/appearance values, duplicate identity checks, bounded load/import, non-trapping timer formatting | Migration samples from older app versions |
+| T07 Shared widget freshness | Implemented | Visible compact refresh; shared query/symbol cache, four concurrent provider jobs, cancellation, backoff, partial watchlist failures, refresh/error/saved-data UI; coalescing regression | Live expired/revoked credentials, rate limits and offline provider matrix |
+| T08 Bounded external calls | Implemented | Background/coalesced AX with messaging deadlines; async bounded Music/Spotify/Finder processes; bounded AI history scanning; process tests | Hung third-party apps and permission recovery in the real desktop |
+| T09 Unified render geometry | Implemented | One ordered render model for pinned/running/media/windows/Trash/insertion targets; renderer/controller/preview use shared metrics; geometry tests | Mixed display scale and production panel placement |
+| T10 Visibility state machine | Implemented | Hidden dwell separated from visible retention; stationary-pointer policy sampling; overview suppression and handle policy | Mission Control heuristic, Spaces, fullscreen and Apple Dock overlap |
+| T11 Typed complete drag model | Implemented | Declared custom transfer type; spacer/group/end/empty targets, running-app pin/unpin, combined internal/URL destination; keyboard start/end/left/right; one-step draft Undo | Editor end/group/spacer/cancel pointer checks pass after native tracking fix; live Dock group and cross-app/empty/overflow drops remain open |
+| T12 Runtime identity/order | Implemented | Deterministic running-app/Trash IDs; final automatic Trash; unique identifier/title window restore with safe failure; unit tests | Real minimized windows and changing window titles |
+| T13 Motion and magnification | Implemented | Continuous cosine proximity, reserved hover bounds, anchored scaling, interruptible fade/slide and Reduce Motion handling; math tests | Production frame pacing, interrupted reveal and high-refresh displays |
+| T14 Narrow updates/writer | Implemented | One panel update owner; presentation signature skips data-only resizing; serial revision writer, coalesced runtime writes and lifecycle flush; stale-write test | Energy and main-thread profiling under realistic load |
+| T15 Real manager preview | Implemented | Shared inert renderer with sample data, natural width, live geometry and appearance; scrolling-axis clipping fix; launch/edit/resize/native actions disabled | Left-side clipping and jump-to-start/end passed during the design follow-up; broader bottom/side overflow and size/theme variants remain |
+| T16 Profile appearance scope | Implemented | Global inheritance or profile snapshot; separate finish/theme/density/card controls, correct selected-profile color, Undo; scope tests | Broader inheritance/Undo variants; selected profile override and Undo passed in CUA |
+| T17 Atomic preset flow | Implemented | Nine preset families, one-time installed-app resolution with fallback notes, preview/name/remove/substitute/add apps, single persistent creation; failure test | Substitute/remove/add-app and persistence-failure UI variants; Cancel/Create passed in CUA |
+| T18 Onboarding completion | Implemented | Mode-specific summary, optional installed starter apps, persistence before completion publication; failed-write test | First-run flow on clean installed app |
+| T19 Connections center | Implemented | Stripe/Paddle/Shopify test/connect/replace/disconnect/remap, minimal scopes and shared cleanup; delayed Shopify refresh cannot restore deleted/replaced credentials; Keychain-only | Live provider credentials and account remapping on another Mac |
+| T20 Popout design system | Implemented | Native-matched shared surface/header, independent semantic layouts/icon swatches, live configuration previews, bounded System/Network details, freshness/retry; 34 current adaptive renders | Native arrow/frame screenshot, full keyboard/VoiceOver and short-display matrix; isolated layout/icon clicks and scrolling verified |
+| T21 Reference repair/icons | Implemented | Bundle-ID app relocation, reported launch failures, Locate in manager and live Dock, globe link fallback, bounded icon cache and common profile palette | Missing/moved files, actual failed launch dialogs and large icon catalog |
+| T22 Market history contract | Implemented | Honest 5/22/66/100-session labels, real date axes, actual history count and daily-change explanation | Live sparse-market/history scenarios |
+| T23 Widget lifecycle sweep | Implemented | Store-owned hidden timer completion and rescheduling; hydration midnight/time-zone/wake updates; Trash rewatch; bounded automation and robust media separator; lifecycle/parser tests | Midnight, notification delivery, Trash/Finder, AirDrop and Music/Spotify actions |
+| T24 Accessibility/search | Implemented | Setting/control-level search, named controls/status, keyboard groups, sample-mode safety and reduced-motion feedback; shared contrast outlines/opaque material with 18 additional render variants; obsolete UI tests rewritten for current flows (parser only, not executed) | VoiceOver, contrast/transparency, keyboard-only and small-screen matrix |
+| T25 Performance baseline | Baseline implemented | Repeatable 7/30/60-widget geometry and 50-profile/2,000-item writer scenarios; [recorded JSON](PERFORMANCE_BASELINE_2026-09-30.json) | Production CPU, memory, energy, animation FPS, hidden/visible and network profiling |
+| T26 Live system acceptance | Harness implemented; acceptance pending | Explicitly opted-in apply/restore/journal test and manual acceptance plan; disabled on the user's host | Disposable macOS account/VM and complete Spaces/displays/notification matrix |
+| T27 Distribution pipeline | Tooling implemented; qualification pending | Universal local build; scheduled Intel/arm64 CI; full-Xcode metadata gate; Developer ID/hardened runtime/notary/staple/DMG/checksum script | Full Xcode, publisher identity/notary profile, CI execution, clean install/update and supported OS runtimes |
+| T28 Canonical docs | Implemented | Canonical ledger, current matrices/architecture/acceptance, final bundle hashes and machine-readable evidence; prior audits marked historical | Update evidence when external qualification runs |
+| T29 Recovery/history center | Implemented | Inspect/restore-as-new history with 25 entries/14-day retention/8 MiB cap; default note and sensitive snapshot stripping; library tests | History inspect/restore UI and failed-library recovery |
+| T30 Login/update/user presets | Implemented | SMAppService login status/approval, manual validated GitHub release discovery, bounded response, sanitized personal preset library/import/export; URL/version/library tests | Installed signed login item and real publisher release; updater repository is unset until a publisher supplies it |
+
+## Snapshot — 3 October 2026 (dated)
+
+Code and tooling exist for all 30 tickets. Twenty-seven rows are implemented features/documentation; T25 has a recorded synthetic baseline, T26 has an opt-in live-system harness, and T27 has distribution tooling. These last three rows still require broader qualification. This is an implementation build, not a claim that every definition of done or Dockset comparison has passed.
+
+The current adaptive widget suite and 34-render export have finished; the canonical universal build and launch are recorded in RELEASE_AUDIT.md. Installed-app discovery and broader accessibility audits belong to prior dated baselines. Current evidence includes native isolated widget interactions and explicitly identifies remaining platform checks. Broader editor/Dock focus/drop, production motion, provider and platform qualifications remain as listed below.
+
+## Verification evidence before the design rebuild — 30 September 2026 (dated)
+
+- Before implementation: 161 registered Swift Testing tests in eight suites. The initial roadmap suite reported **190 registered tests in 13 suites**, passed. Default execution explicitly skips the synthetic performance and live native-Dock opt-ins. Performance was also run separately; the live-system opt-in was never enabled on this host.
+- Host: Apple Silicon, macOS 26.5.1 (25F80), Swift 6.3, macOS SDK 26.4. Tests target macOS 14 for the bundled Swift Testing runtime. Shipping slices declare macOS 13.0; this does not prove older-OS runtime acceptance.
+- Final universal Release bundle: `build/MyDockImplementationReview.app`; packaged as `build/MyDockImplementationReview.zip`. Both arm64 and x86_64 slices pass architecture inspection and report macOS 13.0 minimum/SDK 26.4. Signature and plist validation, archive integrity and archived executable identity pass. The signature is **ad-hoc**, with no Developer ID or notarization claim. The production bundle was not launched against the user's live profile store or Apple Dock.
+- XcodeGen includes all 96 app Swift files and 13 unit-test files. Project/plist/entitlement syntax, UI-test parser, shell scripts, CI YAML and whitespace checks pass. Both build paths declare `app.mydock.items`; regeneration now preserves it. The local architecture verification also exposed and fixed `lipo` argument ordering in the release script and CI.
+- [Machine-readable verification](IMPLEMENTATION_VERIFICATION_2026-09-30.json) records commands, host, source fingerprint, hashes, opt-ins, UI observations and limitations. Build/test logs are retained locally in `.build/implementation-verification-20260930/`.
+- The [synthetic baseline](PERFORMANCE_BASELINE_2026-09-30.json) records median geometry times of 0.049/0.180/0.294 ms for 7/30/60 widgets and 97.98 ms for encoding/atomically writing 50 profiles with 2,000 items. This Debug CPU/disk benchmark measures no production frame rate, memory, energy, network or superiority over Dockset. Critical saves still wait for disk completion.
+
+### Manual preview evidence
+
+CUA used a Debug preview with private per-process state/history/preset directories and native changes disabled. Verified interactions include staged rename, dirty sidebar, preservation through Settings navigation, Save/Discard, Cancel Quit/Cancel Close, natural-width light/dark bottom samples, nine preset families, missing-app fallback notes, Cancel without creation, and Create of one complete selected profile. Group one-step movement and Command–Home/End preserve relative order; returning to the original order clears the dirty marker. Magnification search opens its exact Behavior section. Profile inheritance/override controls and appearance Undo restore the prior values.
+
+The side preview exposed tiles painting outside the scrolling viewport. Axis clipping was fixed in the shared renderer and the suite/build passed. The Mac initially locked before that preview could be rechecked. The design follow-up later verified left-side clipping and jump-to-start/end. Broader bottom/side overflow variants remain pending. Pointer group/end drag was also blocked by CUA `windowNotFoundAtPosition` error -10005; this is not a recorded app failure or a passing drag check. The new design observations are recorded in the design report above.
+
+### Historical implementation-build fingerprints
+
+- App-source fingerprint: `0eefdb6d0e411fe509eaf568544df3a8eac19551a52d7a031cddc8c519459abb`.
+- Universal executable SHA-256: `ada6d20c9c3991601ff377baf8640106d973af76f2e2e3fb2ce8545e26c9b9e8`.
+- ZIP SHA-256: `bdb8cd798daf61bf0ae2f1ccd8ea7020853945b1cc92aa464d0b6d065ce5c9b2`.
+
+## Remaining execution order — 30 September to 3 October 2026 (dated)
+
+1. Complete the broader side/bottom overflow and size variants, external/empty/overflow pointer drops and live Dock group moves, history inspection/restoration and personal-preset import/export. Complete the broader keyboard/VoiceOver/appearance/popout UI matrix. Use the isolated preview first.
+2. Record production CPU, memory, energy and frame pacing under hidden/visible, many-widget, interrupted-animation and high-refresh-display workloads (T25).
+3. Run T26 only in a disposable macOS account/VM: native apply/rollback/recovery, replacement-mode restoration, real notification delivery, permissions, Spaces/fullscreen and display changes. Do not enable its opt-in on the user's everyday Dock.
+4. With full Xcode and publisher signing/notary credentials, execute T27: Xcode unit/UI tests, extracted Focus metadata/discovery, supported macOS and Intel runtime matrix, signed/notarized install/update/login acceptance and CI execution.
+5. Exercise live provider expiry/revocation/offline/rate-limit/remapping scenarios with dedicated accounts. Configure manual update discovery only with the actual publisher's release repository, then validate a real release.
+
+There is no configured Git remote, full Xcode installation, publisher signing/notary identity, or connected test account available here. The final two stages cannot be certified from this workspace. A matched Dockset comparison remains required before claiming the product is better.
+
+CI runner labels follow [GitHub's hosted-runner documentation](https://docs.github.com/en/actions/reference/runners/github-hosted-runners). The workflow is present locally; no CI run is claimed.

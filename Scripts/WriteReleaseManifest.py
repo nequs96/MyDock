@@ -13,6 +13,9 @@ import zipfile
 from datetime import datetime, timezone
 
 
+SOURCE_INPUTS = ("Sources/", "Resources/", "Tools/", "Scripts/", "Xcode/", "project.yml", "Package.swift")
+
+
 def sha256(path):
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -23,9 +26,11 @@ def sha256(path):
 
 def command(*args, required=True):
     result = subprocess.run(args, capture_output=True, text=True)
+    output = (result.stdout + result.stderr).strip()
     if required and result.returncode:
-        raise RuntimeError(f"{args[0]} failed ({result.returncode})")
-    return result.returncode, (result.stdout + result.stderr).strip()
+        # The tool's own message (bounded) is what tells the operator why a release step failed.
+        raise RuntimeError(f"{' '.join(args[:2])} failed ({result.returncode}): {output[-2000:]}")
+    return result.returncode, output
 
 
 def inventory(root):
@@ -147,7 +152,14 @@ def main():
                  "GenerateXcodeProject.sh", "ReleaseMyDock.sh", ".github/workflows/validate.yml"):
         source_entries.append({"path": name, "sha256": sha256(root / name)})
     _, revision = command("git", "-C", str(root), "rev-parse", "HEAD")
-    _, status = command("git", "-C", str(root), "status", "--porcelain", "--untracked-files=no")
+    _, status = command("git", "-C", str(root), "status", "--porcelain", "--untracked-files=all")
+    status_lines = [line for line in status.splitlines() if line.strip()]
+    has_tracked_changes = any(not line.startswith("??") for line in status_lines)
+    # XcodeGen compiles every file under these paths, tracked or not.
+    has_untracked_sources = any(line.startswith("?? ") and line[3:].strip('"').startswith(SOURCE_INPUTS)
+                                for line in status_lines)
+    if args.qualification == "release" and (has_tracked_changes or has_untracked_sources):
+        raise RuntimeError("Release manifest requires a clean source tree without untracked build inputs")
     toolchain = {}
     for name, arguments in {
         "xcode": ("xcodebuild", "-version"), "swift": ("xcrun", "swift", "--version"),
@@ -160,7 +172,8 @@ def main():
     manifest = {
         "formatVersion": 1, "recordedAtUTC": datetime.now(timezone.utc).isoformat(),
         "artifactClass": "distribution" if args.qualification == "release" else "xcode-qualification",
-        "source": {"revision": revision, "hasTrackedChanges": bool(status),
+        "source": {"revision": revision, "hasTrackedChanges": has_tracked_changes,
+                   "hasUntrackedSources": has_untracked_sources,
                    "fingerprintSHA256": fingerprint(source_entries), "files": source_entries},
         "toolchain": toolchain,
         "app": {"name": app.name, "bundleIdentifier": info.get("CFBundleIdentifier"),

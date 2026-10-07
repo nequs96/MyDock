@@ -1,10 +1,10 @@
 # Installing a local MyDock build
 
-MyDock currently ships as an ad-hoc signed development bundle. It is not Developer ID signed or notarized. Manual release discovery and Launch at Login are implemented; their installed/signed acceptance is pending.
+MyDock currently ships as an ad-hoc signed development bundle. It is not Developer ID signed or notarized. Manual release discovery and **Launch at login** are implemented; their installed/signed acceptance is pending.
 
 ## Build and launch
 
-On macOS 13 or later with Swift 6 and Apple's Command Line Tools available. The build script compiles arm64 and x86_64 slices and combines them into a universal app bundle:
+MyDock **runs on** macOS 13 or later; the Liquid Glass styles need macOS 26 and fall back to a frosted material on earlier systems. It **builds with** Swift 6 and the macOS 26 SDK, which comes with Xcode 26 or Command Line Tools 26 (these need a Mac that supports them); `./BuildMyDock.sh` stops with a clear message on an older SDK. `./TestMyDock.sh` also needs Swift Testing, which it finds in either the Command Line Tools or the Xcode layout. The build script compiles arm64 and x86_64 slices and combines them into a universal app bundle:
 
 ```sh
 ./BuildMyDock.sh
@@ -13,7 +13,7 @@ open build/MyDock.app
 
 The built app is `build/MyDock.app` in the repository, with a minimum system version of macOS 13. To install it for the current user, copy that bundle to `~/Applications`; to install it for all users, copy it to `/Applications` using Finder. Launch it from Applications or with `open ~/Applications/MyDock.app`.
 
-Use **`build/MyDock.app`** for all ongoing local development. It contains the latest redesign, audit and replacement/gallery fixes. Quit MyDock before rebuilding, then reopen the same path. The script refuses to overwrite a running bundle; launching a second copy exits before it opens the shared profile store or manages Apple's Dock. Do not create separately named candidate apps under `build/`. Isolated validation bundles can use `--output .build/visual-qa/MyDock.app` when needed. Older bundles are recoverably archived outside the repository; see [the archive index](history/README.md). Exact build checks and remaining acceptance gates are recorded in [the implementation ledger](IMPLEMENTATION_STATUS.md) and [canonical build evidence](RELEASE_AUDIT.md).
+Use **`build/MyDock.app`** for all ongoing local development. It contains the latest redesign, audit and replacement/gallery fixes. Quit MyDock before rebuilding, then reopen the same path. The script refuses to overwrite a running bundle; launching a second copy exits before it opens the shared profile store or manages Apple's Dock. Do not create separately named candidate apps under `build/`. Isolated validation bundles can use `--output .build/visual-qa/MyDock.app` when needed. Older bundles are recoverably archived outside the repository; see [the archive index](history/README.md). Exact build checks are recorded in [canonical build evidence](RELEASE_AUDIT.md) and remaining acceptance in [the implementation status](IMPLEMENTATION_STATUS.md).
 
 The local bundle is ad-hoc signed and not notarized. If Gatekeeper blocks this locally built app, use Finder's Open action and approve it in Privacy & Security. Do not remove quarantine from an app build you did not create or inspect.
 
@@ -34,9 +34,9 @@ See [permissions and data handling](PERMISSIONS.md) before enabling features tha
 With full Xcode selected and XcodeGen available, run:
 
 ```sh
-./ReleaseMyDock.sh "Developer ID Application: Publisher (TEAMID)" notary-keychain-profile ../dockX-releases/0.1.0
+./ReleaseMyDock.sh "Developer ID Application: Publisher (TEAMID)" notary-keychain-profile ../MyDock-releases/0.1.0
 ```
 
 Use a fresh distribution output directory outside the repository; keep `build/` for the canonical development app. The script builds with full Xcode, requires extracted App Intents metadata, checks both architectures, signs with the hardened runtime and Apple Events entitlement, verifies the signature, submits/staples the app and DMG, assesses Gatekeeper and writes a SHA-256 checksum. A named notarization credential must already be stored in Keychain. No signing identity, account credentials or notarization success is supplied by this repository.
 
-Settings → General → Application lifecycle can register the installed app with Login Items and open approval settings when needed. Put the app in a stable Applications location before testing this. Update discovery requires the actual publisher's HTTPS GitHub repository URL and runs only on request. This workspace has no configured release repository or remote. See [the current implementation and acceptance ledger](IMPLEMENTATION_STATUS.md).
+Settings → General → Application → **Launch at login** can register the installed app with Login Items and open approval settings when needed. Put the app in a stable Applications location before testing this. Update discovery requires the actual publisher's HTTPS GitHub repository URL and runs only on request. No release repository is configured by default. Open acceptance is in [the implementation status](IMPLEMENTATION_STATUS.md).

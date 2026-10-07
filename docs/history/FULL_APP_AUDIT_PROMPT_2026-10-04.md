@@ -32,7 +32,7 @@ Read:
 
 - docs/RELEASE_AUDIT.md
 - docs/IMPLEMENTATION_STATUS.md
-- docs/BUILD_BASELINE.json
+- docs/history/BUILD_BASELINE_2026-10-04.json (the last recorded source fingerprint, dated)
 - Relevant reports under docs/history/
 
 Treat those documents as leads and historical evidence, not proof that the current application passes acceptance.

@@ -22,7 +22,7 @@ Recorded on **5 October 2026** after the redesign (RD-01–RD-11, fix waves FX-0
   - **Start Workspace** and **portable Dock packages:** import is always new, and no credentials or account IDs are included.
   - **Automatic switching:** explainable rules, off by default, Custom Docks only.
   - **System Activity detail:** optional Network and Storage sections.
-  - **What's New, Help and keyboard shortcuts.
+  - **What's New, Help and keyboard shortcuts.**
 
 ## Current verification
 
@@ -56,3 +56,5 @@ Evidence comes from two sources. **Native Mac evidence** comes from the orchestr
 - **Live provider accounts:** none were used.
 - **Release:** signing and notarization. CI builds with Xcode but does not sign.
 - **Performance:** only `ps` samples so far; no Instruments-grade measurements. RSS is about 18 MB higher than before the redesign.
+- **Xcode UI tests (`MyDock Visual QA`):** manual only. CI neither builds nor runs the target, and it has not been run since its flows were rewritten (last checked 7 October 2026). Run the scheme once on an unlocked Mac, fix any stale labels, and record the dated result here.
+- **Supported-OS runtime:** CI runs only on macOS 26; macOS 13–15 behaviour and the pre-26 material fallbacks are unexecuted until a Mac or runner on those versions runs the app.

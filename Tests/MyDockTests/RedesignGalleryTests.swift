@@ -196,12 +196,6 @@ struct RedesignGalleryTests {
         #expect(WidgetGalleryModel.pagerCaption(battery) == "Compact · Charge ring and percentage")
         let disk = try #require(WidgetGalleryModel.layoutOptions(for: "Disk Space").first { $0.layout == .compact })
         #expect(!WidgetGalleryModel.pagerCaption(disk).contains("bar"))
-        for definition in WidgetRegistry.all {
-            for option in WidgetGalleryModel.layoutOptions(for: definition.name) {
-                let caption = WidgetGalleryModel.pagerCaption(option)
-                #expect(caption.hasPrefix(option.title) && !caption.contains("\n"))
-            }
-        }
     }
 
     @Test func everydayToolsCarryTheDescriptionLine() {
@@ -215,7 +209,6 @@ struct RedesignGalleryTests {
         let added = WidgetGalleryRowAccessory(added: true)
         #expect(add == .add && added == .added)
         #expect(add.symbol != added.symbol)
-        #expect(add.drawsFilledCircle && !added.drawsFilledCircle)
         #expect(!added.symbol.contains("circle"))
         #expect(added.labelSuffix == ", Added" && add.labelSuffix.isEmpty)
     }

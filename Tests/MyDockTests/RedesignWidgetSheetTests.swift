@@ -6,14 +6,14 @@ import Testing
 /// pager layout writes keep catalog widths, and Remove Widget uses the Dock editor's edit session.
 @MainActor
 struct RedesignWidgetSheetTests {
-    private func makeStore() throws -> (ProfileStore, UUID, [DockItem]) {
+    private func makeStore() throws -> (ProfileStore, UUID, [DockItem], URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("RedesignWidgetSheetTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let store = ProfileStore(fileURL: root.appendingPathComponent("state.json"), allowsSystemChanges: false)
         let profileID = try store.createProfileAndPersist(kind: .custom, name: "Sheet")
         let items = [DockItem.widget("Clock"), DockItem.widget("Weather"), DockItem.widget("Battery")]
         for item in items { store.add(item, to: profileID) }
-        return (store, profileID, items)
+        return (store, profileID, items, root)
     }
 
     private func configuration(_ store: ProfileStore, _ profileID: UUID, _ itemID: UUID) -> WidgetConfiguration? {
@@ -21,7 +21,8 @@ struct RedesignWidgetSheetTests {
     }
 
     @Test func everyAccentChoiceIsStoredAsChosen() throws {
-        let (store, profileID, items) = try makeStore()
+        let (store, profileID, items, root) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: root) }
         let choices = WidgetAppearanceOptions.accentChoices
         #expect(choices.count == 2 + DockProfileColor.allCases.count)
         #expect(choices.first == .auto && choices.dropFirst().first == .mono)
@@ -38,7 +39,8 @@ struct RedesignWidgetSheetTests {
     }
 
     @Test func labelChoiceMapsFollowDockToNil() throws {
-        let (store, profileID, items) = try makeStore()
+        let (store, profileID, items, root) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: root) }
         WidgetAppearanceWriter.setLabel(.shown, itemID: items[0].id, profileID: profileID, store: store)
         #expect(configuration(store, profileID, items[0].id)?.showsLabel == true)
         WidgetAppearanceWriter.setLabel(.hidden, itemID: items[0].id, profileID: profileID, store: store)
@@ -54,7 +56,8 @@ struct RedesignWidgetSheetTests {
         #expect(WidgetAppearanceOptions.showsGlassTint(surface: .glass))
         #expect(!WidgetAppearanceOptions.showsGlassTint(surface: .plain))
         #expect(!WidgetAppearanceOptions.showsGlassTint(surface: .tile))
-        let (store, profileID, items) = try makeStore()
+        let (store, profileID, items, root) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: root) }
         WidgetAppearanceWriter.setGlassTint(.accent, itemID: items[0].id, profileID: profileID, store: store)
         #expect(configuration(store, profileID, items[0].id)?.glassTint == .accent)
         WidgetAppearanceWriter.setGlassTint(.none, itemID: items[0].id, profileID: profileID, store: store)
@@ -62,7 +65,8 @@ struct RedesignWidgetSheetTests {
     }
 
     @Test func pagerSelectionStoresLayoutAndKeepsCatalogWidths() throws {
-        let (store, profileID, items) = try makeStore()
+        let (store, profileID, items, root) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: root) }
         let weather = items[1]
         let settings = store.effectiveSettings(profileID: profileID)
         for option in WidgetPresentationCatalog.options(for: "Weather") {
@@ -83,7 +87,8 @@ struct RedesignWidgetSheetTests {
     }
 
     @Test func iconAppearanceWritesEveryTreatment() throws {
-        let (store, profileID, items) = try makeStore()
+        let (store, profileID, items, root) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: root) }
         for appearance in WidgetIconAppearance.allCases {
             WidgetAppearanceWriter.setIconAppearance(appearance, itemID: items[2].id, profileID: profileID, store: store)
             #expect(configuration(store, profileID, items[2].id)?.iconAppearance == appearance)
@@ -119,7 +124,8 @@ struct RedesignWidgetSheetTests {
     }
 
     @Test func removeDeletesExactlyThatItemThroughTheEditSession() throws {
-        let (store, profileID, items) = try makeStore()
+        let (store, profileID, items, root) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: root) }
         let undo = UndoManager()
         let removed = try WidgetSheetRemoval.remove(itemID: items[1].id, profileID: profileID, store: store, undoManager: undo)
         #expect(removed)

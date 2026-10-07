@@ -82,11 +82,12 @@ extension FileShelfPolicy {
     }
 
     /// Regenerates stale bookmarks for entries whose file resolves. Missing entries are kept untouched. Returns nil when nothing changed.
-    static func refreshingStaleBookmarks(_ entries: [ShelfFile], fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) -> [ShelfFile]? {
+    static func refreshingStaleBookmarks(_ entries: [ShelfFile], fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
+                                         resolve: (ShelfFile) -> (url: URL, isStale: Bool) = { $0.resolution }) -> [ShelfFile]? {
         var result = entries
         var changed = false
         for index in result.indices {
-            let resolution = result[index].resolution
+            let resolution = resolve(result[index])
             guard resolution.isStale, fileExists(resolution.url) else { continue }
             result[index].relocate(to: resolution.url)
             changed = true

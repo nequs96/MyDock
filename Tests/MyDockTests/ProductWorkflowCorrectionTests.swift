@@ -33,7 +33,7 @@ struct ProductWorkflowCorrectionTests {
         let store = DockUtilityDraftStore(fileURL: file)
         try store.update(draft, itemID: item.id, in: profile.id, kind: .snippet)
         try store.update(draft, itemID: deletedItemID, in: profile.id, kind: .snippet)
-        #expect(throws: (any Error).self) {
+        #expect(throws: DockUtilityDraftError.tooLarge) {
             try store.update(DockUtilityFormDraft(editingID: nil, title: "Pending", body: String(repeating: "x", count: 10_001)),
                              itemID: item.id, in: profile.id, kind: .snippet)
         }
@@ -55,7 +55,7 @@ struct ProductWorkflowCorrectionTests {
         #expect(initial.utilityDrafts.flush())
         let failed = ProfileStore(fileURL: file, allowsSystemChanges: false,
                                   stateWriter: RevisionedStateWriter { _, _ in throw CocoaError(.fileWriteNoPermission) })
-        #expect(throws: (any Error).self) {
+        #expect(throws: CocoaError.self) {
             try failed.updateWidgetConfigurationAndPersist(itemID: item.id, in: profileID) {
                 $0.textSnippets.append(TextSnippet(title: draft.title, text: draft.body))
             }

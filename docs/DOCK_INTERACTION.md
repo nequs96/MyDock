@@ -12,10 +12,15 @@ An ordinary app click asks macOS to open the saved installed application URL. My
 | One visible window | Request opening/activating that application; the app and macOS decide window focus. |
 | Multiple windows | Activate/open the application. A click does not choose a particular window. Use the **Windows…** context-menu command, which discovers the app's windows and lists them for selection. |
 | Minimized windows | The app decides ordinary-open behavior. Use the specific window action to request restoration through Accessibility. |
+| Files or web addresses dropped on the tile | Open them with that application. Only existing local files and http(s) addresses count; a drop with nothing openable is refused rather than launching the app. |
 
 If **Click focused app to minimize** is enabled, a click first attempts to minimize the focused window of the exact running copy. If that attempt cannot succeed, MyDock makes the ordinary open request. This behavior needs Accessibility; basic opening does not. Multiple processes belonging to one installed copy can be ambiguous, and MyDock refuses identity-dependent actions rather than choosing arbitrarily.
 
-The context menu discovers windows on demand, independently of optional background minimized-window monitoring. Window actions revalidate the process and sampled native accessibility object. A stale window or another installed copy is not substituted. **Close Window…** lists windows and requests normal closing of the chosen one; **Quit <app name>** requests normal application termination. Another app can show an unsaved-document dialog and cancel either request. MyDock does not force quit or treat a request as proof of exit.
+A running app's context menu follows the macOS Dock order: its windows (listed inline when Accessibility is trusted and discovery answers in time, otherwise **Windows…**), **Close Window…**, **Show in Finder**, **Hide** or **Show**, **Quit** and **Force Quit**. The menu discovers windows on demand, independently of optional background minimized-window monitoring. Window actions revalidate the process and sampled native accessibility object. A stale window or another installed copy is not substituted. **Close Window…** lists windows and requests normal closing of the chosen one; **Quit** requests normal application termination, and the app can show an unsaved-document dialog and cancel either request. **Force Quit** always shows a confirmation whose default button is Cancel, revalidates the app after confirmation and then terminates it. MyDock never treats a request as proof of exit.
+
+## Window previews on hover
+
+Off by default (Settings → Behavior → Show window previews). Hovering a running app tile for 0.5 s opens a panel listing its windows; moving to another running app swaps the content, and leaving both the tile and the panel closes it after a short grace. Escape, a click elsewhere, the Dock hiding or the setting turning off also close it. Nothing runs while idle. Without Accessibility the panel says so and offers **Allow…**; hovering never prompts. Thumbnails need Screen Recording on macOS 14 or later: without it the panel shows titles and **Show thumbnails…**, which opens the Permissions page. Thumbnails are captured only while the panel is open and stay in memory.
 
 ## Widgets, files and folders
 

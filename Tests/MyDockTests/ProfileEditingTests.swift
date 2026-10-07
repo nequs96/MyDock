@@ -117,11 +117,13 @@ struct WorkspaceAutosaveTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         return (ProfileStore(fileURL: directory.appendingPathComponent("state.json"), allowsSystemChanges: false), directory)
     }
-    private func eventually(_ condition: () -> Bool) async throws {
+    /// Polls for up to 2 s, then requires the condition so a timeout fails here, not on a later assertion.
+    private func eventually(_ condition: () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async throws {
         for _ in 0..<200 {
             if condition() { return }
             try await Task.sleep(for: .milliseconds(10))
         }
+        try #require(condition(), sourceLocation: sourceLocation)
     }
     @Test func editsCoalesceAndIndependentProfilesSurviveNavigation() async throws {
         let (store, directory) = fixture()

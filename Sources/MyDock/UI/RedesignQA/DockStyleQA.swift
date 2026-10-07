@@ -2,45 +2,17 @@
 import AppKit
 import SwiftUI
 
-/// RD-04 render matrix (`MYDOCK_DOCKSTYLE_QA=1`). The five redesign Dock styles are defined
-/// here exactly as the redesign ledger defines them, until RD-07 wires them into Settings.
+/// RD-04 render matrix (`MYDOCK_DOCKSTYLE_QA=1`). Renders the shipped `DockQuickStyle` definitions,
+/// so the evidence shows the same Docks the Appearance page applies.
 ///
 /// Offscreen `cacheDisplay` captures cannot see the Liquid Glass compositor, so glass styles
 /// draw their fallback here (`dockSnapshotRendering`). Judge geometry, edges, layers and
 /// indicators from these images, not the native glass itself.
 @MainActor
 enum DockStyleQA {
-    struct Style {
-        let name: String
-        let apply: (inout AppSettings) -> Void
-    }
-
-    static let styles: [Style] = [
-        Style(name: "clear") {
-            $0.customDockMaterial = .liquidGlassClear; $0.customDockEdgeStyle = .none
-            $0.customDockWidgetSurface = .plain; $0.customDockTintMode = .custom
-            $0.customDockTintStrength = 0; $0.customDockGlassOpacity = 0
-        },
-        Style(name: "glass") {
-            $0.customDockMaterial = .liquidGlass; $0.customDockEdgeStyle = .hairline; $0.customDockWidgetSurface = .glass
-        },
-        Style(name: "frosted") { $0.customDockMaterial = .frosted; $0.customDockWidgetSurface = .tile },
-        Style(name: "solid") { $0.customDockMaterial = .solid; $0.customDockWidgetSurface = .tile },
-        // Midnight keeps the System theme so the dark material resolves to a dark scheme.
-        Style(name: "midnight") { $0.customDockMaterial = .dark; $0.customDockWidgetSurface = .glass; $0.customDockTheme = .system }
-    ]
-
-    /// Every style starts from today's defaults so one never inherits another's values.
+    /// Every style starts from the Appearance page's defaults so one never inherits another's values.
     static func resetAppearance(_ settings: inout AppSettings) {
-        let defaults = AppSettings()
-        settings.customDockMaterial = defaults.customDockMaterial
-        settings.customDockEdgeStyle = defaults.customDockEdgeStyle
-        settings.customDockWidgetSurface = defaults.customDockWidgetSurface
-        settings.customDockTintMode = defaults.customDockTintMode
-        settings.customDockTintStrength = defaults.customDockTintStrength
-        settings.customDockGlassOpacity = defaults.customDockGlassOpacity
-        settings.customDockFloatingInset = defaults.customDockFloatingInset
-        settings.customDockCornerRadius = defaults.customDockCornerRadius
+        SettingsAppearanceDefaults.restore(to: &settings)
     }
 
     static let runningBundleIdentifiers: Set<String> = ["com.apple.finder", "com.apple.Safari"]
@@ -83,6 +55,7 @@ enum DockStyleQA {
         host.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(350))
         host.layoutSubtreeIfNeeded()
+        PremiumVisualQA.warnIfClipped(host, name: name)
         guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { throw CocoaError(.fileWriteUnknown) }
         host.cacheDisplay(in: host.bounds, to: bitmap)
         guard let png = bitmap.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
@@ -254,18 +227,18 @@ extension PremiumVisualQA {
         store.activate(id)
         func profile() -> DockProfile { store.state.profiles.first { $0.id == id }! }
 
-        for style in DockStyleQA.styles {
+        for style in DockQuickStyle.allCases {
             for position in [DockPosition.bottom, .left, .right] {
                 for scheme in [ColorScheme.light, .dark] {
                     store.updateSettings {
                         DockStyleQA.resetAppearance(&$0)
                         $0.customDockPosition = position
                         $0.customDockTheme = scheme == .dark ? .dark : .light
-                        style.apply(&$0)
+                        style.apply(to: &$0)
                     }
                     let horizontal = position == .bottom
                     try await DockStyleQA.render(DockStyleQA.dockScene(store: store, profile: profile(), horizontal: horizontal),
-                        name: "dockstyle-\(style.name)-\(position.rawValue)-\(DockStyleQA.schemeName(scheme))",
+                        name: "dockstyle-\(style.rawValue)-\(position.rawValue)-\(DockStyleQA.schemeName(scheme))",
                         size: horizontal ? NSSize(width: 820, height: 150) : NSSize(width: 300, height: 640),
                         scheme: scheme, directory: directory)
                 }
@@ -274,10 +247,10 @@ extension PremiumVisualQA {
                     DockStyleQA.resetAppearance(&$0)
                     $0.customDockPosition = position
                     $0.customDockTheme = .light
-                    style.apply(&$0)
+                    style.apply(to: &$0)
                 }
                 try await DockStyleQA.renderTransparentDock(store: store, profile: profile(),
-                    name: "dockstyle-\(style.name)-\(position.rawValue)-corners", directory: directory)
+                    name: "dockstyle-\(style.rawValue)-\(position.rawValue)-corners", directory: directory)
             }
             // Accessibility variants at the bottom position.
             for scheme in [ColorScheme.light, .dark] {
@@ -285,11 +258,11 @@ extension PremiumVisualQA {
                     DockStyleQA.resetAppearance(&$0)
                     $0.customDockPosition = .bottom
                     $0.customDockTheme = scheme == .dark ? .dark : .light
-                    style.apply(&$0)
+                    style.apply(to: &$0)
                 }
                 for (variant, contrast, transparency) in [("reduce-transparency", ColorSchemeContrast.standard, true),
                                                           ("increase-contrast", .increased, false)] {
-                    let name = "dockstyle-\(style.name)-bottom-\(DockStyleQA.schemeName(scheme))-\(variant)"
+                    let name = "dockstyle-\(style.rawValue)-bottom-\(DockStyleQA.schemeName(scheme))-\(variant)"
                     try await DockStyleQA.render(DockStyleQA.dockScene(store: store, profile: profile(), horizontal: true),
                         name: name, size: NSSize(width: 820, height: 150), scheme: scheme, directory: directory,
                         contrast: contrast, reduceTransparency: transparency)
@@ -306,7 +279,7 @@ extension PremiumVisualQA {
         store.updateSettings {
             DockStyleQA.resetAppearance(&$0)
             $0.customDockTheme = .light
-            DockStyleQA.styles[1].apply(&$0)
+            DockQuickStyle.glass.apply(to: &$0)
         }
         try await DockStyleQA.render(DockStyleQA.insetSheet(settings: store.state.settings), name: "dockstyle-floating-inset",
                                      size: NSSize(width: 1280, height: 560), scheme: .light, directory: directory)

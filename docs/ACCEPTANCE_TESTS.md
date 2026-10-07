@@ -1,16 +1,6 @@
 # MyDock macOS acceptance tests
 
-Native/manual acceptance source: the H1–H9 records in [the execution ledger](history/EXECUTION_LEDGER_2026-10-03.md). Nothing below is marked passed by this file; the dated records are historical evidence only.
-
-Current status (1 October 2026): the current-source default run passes 230 reported tests in 16 suites. The isolated Custom Dock panel opt-in also passes (18.380 seconds); native Dock mutation remains disabled on this user's host. The canonical universal app launches with existing profiles preserved, and 74 isolated renders include 18 contrast/transparency variants. Broader pointer, accessibility and runtime checks remain open in [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) and [the product acceptance ledger](history/PRODUCT_DESIGN_ACCEPTANCE_2026-10-01.md). Earlier 190-test roadmap evidence is historical.
-
-The following is a historical preview record from an earlier source build. A DEBUG-only isolated preview was clicked through for all onboarding steps, the Manager, Settings, widget library, bottom/left/right Dock layouts, light/dark appearance, overflow navigation, Clock popouts, and both Countdown modes. In that preview, profile rename was staged, discarded, saved, and switched through the unsaved-change prompt. Two items were selected, moved right as a group, and restored with Discard; the editor tiles were also verified as accessible buttons. The rebuilt release app's Settings/Permissions path and Accessibility System Settings deep link were previously verified. The earlier manager build's group-delete count and clear-selection flow were verified without deleting saved items. Custom Dock gestures, real Dock changes, notifications, and live market data have not been manually exercised. Native Dock automated tests use fakes and do not write the developer machine's preferences. EventKit tests cover configuration and ordering only; they do not read personal calendars or reminders.
-
-The isolated preview also verified the Custom Dock surface's right-click profile submenu and the Settings → General Back Up/Restore panels. A disposable archive restored one four-item profile as an additional copy without changing the active selection. This does not replace recovery testing with real user data.
-
-When full Xcode and an unlocked desktop are available, run the **MyDock Visual QA** scheme and review its retained light/dark, bottom/side Dock, Manager, Settings, and long-Countdown screenshots. Compare them with matched Dockset references at the same scale and record every visible discrepancy before treating visual parity as complete. The scheme has not run yet.
-
-Before running the MyDock Visual QA scheme, quit the canonical app cleanly; the Xcode target shares its bundle identifier. The current Xcode UI suite targets autosave/word-boundary rename through Settings, Add Library insertion/Delete/Undo, Command-K navigation, creation/duplication, and pointer end-drop/Undo. It retains dark/light/side/Countdown captures. Every launch uses the DEBUG disposable preview; teardown sends Command-Q and waits for the normal quit path. Parser checks pass; full-Xcode typechecking, selector validation and execution remain pending. The former Save/Discard dashboard tests were replaced, not counted as passing rebuild coverage.
+Manual checks for a Mac, grouped by area. Nothing here is marked passed: record each result with its date in [RELEASE_AUDIT.md](RELEASE_AUDIT.md), which holds the current build and test evidence. The native acceptance procedures H1–H9 are defined in [the execution ledger](history/EXECUTION_LEDGER_2026-10-03.md), the Visual QA UI scheme in [XCODE_BUILD.md](XCODE_BUILD.md), and earlier dated results in [the acceptance evidence through 1 October 2026](history/ACCEPTANCE_EVIDENCE_THROUGH_2026-10-01.md).
 
 ## Core vertical slice
 
@@ -26,7 +16,7 @@ Before running the MyDock Visual QA scheme, quit the canonical app cleanly; the 
 10. Add a Calendar widget. Confirm Date layout works without prompting; switch to an event layout and grant or deny access. Select calendars, toggle all-day events, refresh, and verify ongoing/soon meetings remain ahead of all-day entries. Edit an event in Calendar while the compact tile is visible; confirm it refreshes without opening the popout. Rapidly change selected calendars, then revoke access in System Settings and return to MyDock; old event titles must clear and the error state must appear. Repeat after sleep/wake. Confirm Zoom, Google Meet, and Teams Join links open.
 11. On macOS 14 or later, enable app badges and grant Accessibility access. Confirm badge labels appear for representative pinned and running apps, disappear when labels clear or access is revoked, and stop refreshing while the Custom Dock is hidden. Confirm MyDock does not read notification contents.
 12. Add a Reminders widget. Grant or deny access on first popout open; choose all lists or one list, add a reminder, complete it, undo the last completion, and verify changes in the Reminders app. Edit a reminder externally while its compact tile is visible; confirm the count refreshes. Rapidly switch lists and revoke access in System Settings; old titles and counts must clear, and a failed fetch must show Unavailable rather than a successful zero. Repeat after sleep/wake.
-13. Add System Activity; compare aggregate/per-core CPU, memory breakdown and swap with Activity Monitor, check thermal state, 1/5/15-minute load averages, uptime, and startup-volume capacity. Check that pressure says Awaiting event until a public pressure-change notification arrives rather than inventing a current gauge. Hide the Custom Dock and verify sampling pauses. Scan Home, Applications, and Library; confirm their totals remain separate because Home includes Library, progress advances, and the scan continues after closing/reopening the popout. Choose a temporary folder and verify largest-file sorting, Finder reveal, Cancel, Scan Again, and partial/capped disclosure.
+13. Add System Activity; compare aggregate/per-core CPU, memory breakdown and swap with Activity Monitor, check thermal state, 1/5/15-minute load averages, uptime, and startup-volume capacity. Check that pressure says Awaiting event until a public pressure-change notification arrives rather than inventing a current gauge. Hide the Custom Dock and verify sampling pauses. Scan Home, Applications, and Library; confirm their totals remain separate because Home includes Library, progress advances, and the scan continues after closing/reopening the popout. Choose a temporary folder and verify largest-file sorting, Finder reveal, Cancel, Scan Again, and partial/capped disclosure. In the popout's settings, turn the Network and Storage sections on and off: each appears below CPU and memory, samples only while the popout is open (close it and confirm the rates stop updating), and Storage replaces the startup-volume summary rather than adding a second one. Add Network Activity and Disk Space to the same Dock, open each popout and use **Show in System Activity** to open the System Activity popout.
 14. Add a Network Activity widget; compare aggregate rates and interface addresses with macOS Network settings/Activity Monitor, then auto-hide the Dock and verify its sampling stops.
 15. Add one one-time alarm and one weekly alarm; grant/deny Notifications access, verify disabled fallback on denial, remove one alarm, and verify OS alert delivery across sleep/wake. Relaunch after the one-time alert and confirm the tile reconciles it as disabled. Start a Countdown, verify its completion notification across app quit/sleep, then pause/reset/remove another countdown and confirm no stale alert arrives.
 16. Add a Weather widget, search for a city without granting Location, choose Current/Conditions/Hourly layout and °C/°F, and verify the 1–6 hour setting. Change the query while results are shown and confirm old cities disappear; repeat the same search rapidly and confirm the latest response wins. Start search or Current Location, then cancel/change location or remove the widget before completion and confirm no stale selection or draft returns. Dismiss the popout while the Location permission prompt is pending, reopen it, and confirm a second Current Location attempt can start. Confirm the translucent/themed backgrounds, manual refresh, ten-minute refresh while open, stale forecast fallback, and backup restoration. Only press “Use Current Location” to exercise the contextual location prompt.
@@ -35,8 +25,8 @@ Before running the MyDock Visual QA scheme, quit the canonical app cleanly; the 
 19. Add Now Playing and enable both Apple Music and Spotify. Verify each open/closed status, active playback arbitration, optional controls, Mini/Full compact layouts, long artist/album accessibility, permission-denied recovery, and saved configuration after relaunch. Confirm hide-when-closed considers every enabled player and polling stops when the Dock hides or the widget is removed.
 20. Enable Show minimized windows and Click focused app to minimize; grant or deny Accessibility access. Verify focused-app clicks minimize only when that app has the frontmost focused window, other-app clicks activate normally, minimized tiles list window titles and restore windows on their existing Space, per-app window menus work, the panel stops polling when hidden, and denial falls back without disabling app launches. On macOS 14 or later, opt in to Minimized window thumbnails and grant Screen Recording. Leave a uniquely titled window visible for a refresh, then minimize it and verify its tile shows a cached thumbnail. Check duplicate-titled and uncapturable windows use the app icon, hiding clears active previews, and a matching unique minimized window can reuse its local preview after relaunch. Confirm cache files have restrictive permissions, expire after 24 hours, stay under the size/count caps, and are deleted when caching is disabled. Revoke Screen Recording and confirm cached images clear while window restore still works with app-icon tiles; macOS 13 must leave preview capture unavailable.
 21. Add Stock and Watchlist, then save an Alpha Vantage key under Settings → Integrations. Search a ticker, change the query while matches are visible, and confirm old results and old errors disappear; repeat rapid searches and selections with delayed responses. Add a ticker to both widgets, edit display names, reorder Watchlist tabs, open Yahoo Finance links, verify name/currency and that switching currency for the same Stock ticker clears an old quote, daily chart ranges, hover/drag and keyboard-accessible crosshair values, volume, selected-symbol refresh cadence, stale-data messaging, request-limit handling, and settings after restart. Confirm the API key is absent from backups and remove it from Keychain afterward. Real-time US quotes require a provider plan that permits them; MyDock currently presents daily series.
-22. Add a Stripe widget, scroll its popout to the final setup controls, enter a restricted `rk_test_…` key with only Core → Balance Read and Billing → Subscriptions Read, and connect a named/colorized account. Verify account selection, each metric and currency, Today/7/30/90-day local-time periods, refunds/reversals/fee handling, active and past-due fixed-price MRR, five-minute refresh, manual refresh, stale-data preservation, and disconnect. Confirm denied permissions show a useful error, the key is absent from profile backups, and remove the connection after use. Stripe test-mode credentials are required; live account behavior has not been verified.
-23. Add a Paddle widget, scroll its popout to the final setup controls, and connect a named/colorized Billing account with a current sandbox key that has only Metrics → Read. Verify rejected legacy/Classic/client-side keys, live/sandbox URL selection, Net Revenue/MRR/ARR/active subscribers, chart toggle and UTC day ranges, reported primary currency, five-minute refresh, stale-data preservation, expiry/permission errors, disconnect, and key exclusion from profile backups.
+22. Add a Stripe widget, open its popout, enter a restricted `rk_test_…` key with only Core → Balance Read and Billing → Subscriptions Read, and connect a named/colorized account. Verify account selection, each metric and currency, Today/7/30/90-day local-time periods, refunds/reversals/fee handling, active and past-due fixed-price MRR, five-minute refresh, manual refresh, stale-data preservation, and disconnect. Confirm denied permissions show a useful error, the key is absent from profile backups, and remove the connection after use. Stripe test-mode credentials are required; live account behavior has not been verified.
+23. Add a Paddle widget, open its popout and connect a named/colorized Billing account with a current sandbox key that has only Metrics → Read. Verify rejected legacy/Classic/client-side keys, live/sandbox URL selection, Net Revenue/MRR/ARR/active subscribers, chart toggle and UTC day ranges, reported primary currency, five-minute refresh, stale-data preservation, expiry/permission errors, disconnect, and key exclusion from profile backups.
 24. With delayed test transports for Stripe, Paddle, and Shopify, start Connect, remove the originating widget before validation completes, then release the response. Confirm no connection or credential is saved. For Shopify, delay a snapshot, disconnect or remove the widget, then release the response and confirm the credential is not rewritten.
 25. Select the same saved Stripe, Paddle, or Shopify account in widgets on two profiles, then disconnect it from one widget. Confirm both widgets become disconnected, their saved snapshots clear, an unrelated connection stays selected, and the result survives relaunch.
 
@@ -47,13 +37,49 @@ Before running the MyDock Visual QA scheme, quit the canonical app cleanly; the 
 3. Simulate Dock restart failure and interrupted transaction; confirm rollback and recovery.
 4. Rapidly request A → B → C; confirm final state is C and no older request overwrites it.
 5. In the isolated backend, enable Automatically save Dock changes and confirm an external pinned-app or spacer edit updates only the selected profile without writing Dock preferences. Confirm an app-driven switch, unsupported tile, and disabled setting do not overwrite that profile. On the unlocked desktop, check the same setting with a reversible manual Dock edit.
-6. Exercise real Dock mutation only after separate user approval, using the snapshot/restore procedure in [REAL_DOCK_TEST_PLAN.md](REAL_DOCK_TEST_PLAN.md).
+6. Exercise real Dock mutation only after separate user approval, using the snapshot and restore procedure in the [real Apple Dock test](#real-apple-dock-test) below.
+
+### Real Apple Dock test
+
+This test changes the current user's Apple Dock layout and restarts Dock. Run it only after explicit approval, with the Mac unlocked and the user present. Automated tests use fake preferences and do not replace this plan.
+
+#### Before applying a profile
+
+1. Close MyDock and confirm no other Dock customization is in progress.
+2. In MyDock, use **Create from Current Dock** to save a native profile named `Before MyDock Dock Test`. Save it and inspect the captured app/spacer order.
+3. Record every `com.apple.dock` value MyDock may change: `persistent-apps`, plus the visibility keys Custom-main mode owns, `autohide`, `autohide-delay` and `no-bouncing`. Note which keys are absent: `defaults read com.apple.dock autohide-delay` prints an error for an absent key. Keep that snapshot until restoration is verified.
+4. Create a temporary native profile with a few already-installed apps, one regular spacer, and one small spacer. Do not add, remove, or move apps outside this temporary profile.
+
+#### Exercise native apply and restore
+
+1. Apply the temporary profile once. Dock will restart and its pinned items/spacers will change temporarily.
+2. Confirm the visible order and both spacer sizes. Launch one app from the Dock, then return to MyDock.
+3. Apply `Before MyDock Dock Test` to restore the original Dock layout.
+4. Compare the resulting `persistent-apps` value and visible Dock order with the pre-test snapshot. Stop if they differ.
+
+#### Exercise Custom-main auto-hide recovery
+
+1. Select a temporary Custom Dock profile and enable Custom-main mode.
+2. Confirm Apple's Dock auto-hides while MyDock is active.
+3. Turn Custom-main mode off. Confirm `autohide`, `autohide-delay` and `no-bouncing` match the snapshot, including keys that were absent.
+4. If approved as part of the same run, repeat with MyDock quitting while Custom-main is active; relaunch MyDock and confirm its recovery record restores all three values.
+
+#### Rollback
+
+- If an apply fails, let MyDock complete its transactional rollback and compare the preference snapshot before continuing.
+- If the Dock layout is still different, reapply `Before MyDock Dock Test`. If that does not restore the exact `persistent-apps` value, restore only the saved Dock preference values and restart Dock while MyDock is closed.
+- If `autohide`, `autohide-delay` or `no-bouncing` still differ, quit MyDock and restore each saved value (for example `defaults write com.apple.dock autohide-delay -float 0.5`). Remove a key that was originally absent (`defaults delete com.apple.dock autohide-delay`) rather than writing a value, then run `killall Dock`. Restoring only `autohide` leaves a 24-hour reveal delay, so an auto-hidden Dock would never reappear.
+- Stop further tests and keep the snapshot if any setting cannot be restored exactly.
+
+#### Approval scope
+
+Approval should cover the temporary profile apply/reapply and, separately, the Custom-main auto-hide/quit recovery steps. No live provider credentials, screen capture, or changes to unrelated Dock preferences are part of this test.
 
 ## Display and window behavior
 
 1. Test one display, then two displays with distinct scale factors.
 2. Disconnect/reconnect the selected display. While disconnected, verify the Dock moves to the main display, Settings keeps the unavailable selection and explains the fallback, and choosing Main display makes that choice permanent. Leave the unavailable display selected in a second run and confirm the Dock returns there on reconnection. The diagnostic export should contain fixed display-fallback and display-restored codes without display names or IDs.
-3. Exercise left, bottom, and right placement, display selection, Compact/Balanced/Comfortable density presets, size and spacing sliders, drag-resize grip, appearance Reset, auto-hide, visible handle, Apple Dock overlap toggle, and desktop mode. With named bottom-Dock information cards enabled, right-click short and long-name widgets and choose Compact, Standard, and Wide; confirm Compact removes the repeated name, widths and overflow navigation update, and each choice survives relaunch/backup restore. Confirm side Docks stay compact. Verify each density preset changes the tile geometry, manual adjustment displays Custom, Reset restores the default geometry, and compact tiles remain readable on all three edges. Confirm overflow jump chevrons appear only when content exceeds the viewport and jump to each end. With the overlap toggle enabled, reveal the Apple Dock over MyDock and confirm MyDock and its handle stay hidden until it retracts. On a trackpad, swipe perpendicular to the Dock to switch profiles; verify ordinary mouse-wheel input only scrolls overflowing items.
+3. Exercise left, bottom, and right placement, display selection, Compact/Balanced/Comfortable density presets, size and spacing sliders, drag-resize grip, appearance Reset, auto-hide, visible handle, Apple Dock overlap toggle, and desktop mode. On a bottom Dock, right-click each widget family and choose every option in **Widget layout**; confirm the tile width and overflow navigation update, and each choice survives relaunch and backup restore. Confirm side Docks stay compact. Verify each density preset changes the tile geometry, manual adjustment displays Custom, Reset restores the default geometry, and compact tiles remain readable on all three edges. Confirm overflow jump chevrons appear only when content exceeds the viewport and jump to each end. With the overlap toggle enabled, reveal the Apple Dock over MyDock and confirm MyDock and its handle stay hidden until it retracts. On a trackpad, swipe perpendicular to the Dock to switch profiles; verify ordinary mouse-wheel input only scrolls overflowing items.
 4. Test fullscreen reveal, Mission Control hiding, Space changes, sleep/wake, and primary-display changes.
 5. Verify the Custom Dock does not jump to another display after profile switch.
 
@@ -79,12 +105,12 @@ Before running the MyDock Visual QA scheme, quit the canonical app cleanly; the 
 ## Accessibility
 
 1. Verify VoiceOver labels and keyboard navigation for menu bar, manager, settings, picker, and popouts.
-2. On an acceptance account, select Frosted, Dark, and Liquid Glass (macOS 26+) materials; verify the pre-26 fallback. Enable Reduce Motion, Reduce Transparency and Increase Contrast separately and together. Verify shared Dock/control/widget boundaries, opaque surfaces and interrupted profile transformations in dark and light modes. The DEBUG-only 18-variant render matrix covers app-owned drawing without changing system settings; it does not replace this real preference/VoiceOver check.
+2. On an acceptance account, select each Appearance style (Clear, Glass, Frosted, Solid, Midnight); on macOS 13–15 verify the frosted fallback for the Liquid Glass styles. Enable Reduce Motion, Reduce Transparency and Increase Contrast separately and together. Verify shared Dock/control/widget boundaries, opaque surfaces and interrupted profile transformations in dark and light modes. The DEBUG-only 18-variant render matrix covers app-owned drawing without changing system settings; it does not replace this real preference/VoiceOver check.
 3. Enable Dock magnification and confirm enlargement stays localized around the pointer, app icons grow more than widgets, and Reduce Motion suppresses the effect.
 ## Shopify
 
 - Create a Shopify Dev Dashboard app, install it on a store in the same organization, and grant only `read_orders`.
-- Scroll the connection popout to its final guidance, then connect with the store's `myshopify.com` domain, client ID, and client secret. Confirm the account name, color, shop timezone, and currency appear.
+- Open the widget's popout, then connect with the store's `myshopify.com` domain, client ID, and client secret. Confirm the account name, color, shop timezone, and currency appear.
 - Verify Today, Last 7 days, Month to date, and Last 30 days around a daylight-saving transition against the store's order list.
 - Compare order value with current totals for paid, unpaid, partially returned, fully returned, test, and canceled orders; test/canceled orders must be excluded, while unpaid/fully returned orders remain counted.
 - Compare AOV, daily chart, product current-unit counts, and available first/last-visit traffic sources. Confirm no customer or referral URLs are retained.
@@ -95,7 +121,7 @@ Before running the MyDock Visual QA scheme, quit the canonical app cleanly; the 
 ## AI Limits and AI Activity
 
 - Add AI Limits, select providers and ordering, choose Numbers/Rings/Bars and Remaining/Used, and select a compact provider. Scroll its popout from the controls to the final provider guidance on a short display. Confirm each provider-reported window, percentage, reset time, and unavailable/unlimited state. Codex reads from the local app-server; no prompts, tasks, or model requests should be started by refresh.
-- For Claude Code Pro/Max, use the popout's Copy statusLine value, merge it into `~/.claude/settings.json` without replacing an existing terminal status line, run a Claude Code session, and verify 5-hour and 7-day windows appear. Confirm a sample older than 30 minutes becomes unavailable. Remove the status-line command and local snapshot after checking. See [the setup steps](CLAUDE_CODE_LIMITS.md).
+- For Claude Code Pro/Max, choose **Find Account**, then **Enable Limits**. Run Claude Code once and verify the 5-hour and 7-day windows appear, an existing terminal status line still shows, and a `settings.before-mydock-*.json` backup exists. Confirm a sample older than 30 minutes becomes unavailable. Afterwards restore `statusLine` from that backup and remove the local snapshot. See [the setup steps](CLAUDE_CODE_LIMITS.md).
 - Add AI Activity and check Codex and Claude Code Today/L7/L30/MTD totals, chart styles, sessions, token/request counts, cached input, and tool calls against local usage records. Confirm the view states that it excludes provider usage outside the local CLI/session logs.
 - Scroll the AI Activity popout to its final explanation after choosing the longest available provider/date-range content.
 - Check Grok activity is labeled estimated and partial, and that an updated old session is grouped by file-update day. Confirm Cursor/Gemini CLI/Antigravity remain explicitly unavailable without fabricated values. If testing Copilot, use a personal account, a fine-grained token with Plan: read, and an allowance matching the GitHub billing page; verify organization-billed usage is excluded and the secret stays out of backups.
@@ -108,7 +134,19 @@ Before running the MyDock Visual QA scheme, quit the canonical app cleanly; the 
 - Record the Apple Dock's original `autohide`, `autohide-delay` and `no-bouncing` values, including absent keys. Select Replace macOS Dock and confirm Apple Dock stays hidden when the pointer reaches its screen edge. Switch to macOS Dock + Custom Dock or quit MyDock and confirm all three original values return. Relaunch in replacement mode and check the suppression applies again.
 - Simulate an interrupted replacement session using the fake preferences tests. On next launch, confirm MyDock preserves the recorded prior state while replacement remains enabled, and restores it when leaving the mode. Check migration from the previous auto-hide-only recovery record, and rollback after a failed Dock restart.
 - Drag the bottom Dock's resize grip up to enlarge and down to reduce. On the left edge, drag right to enlarge; on the right edge, drag left. Check size limits, double-click reset, VoiceOver increment/decrement and original-size restoration after the check.
-- In Add Widget, switch the compact Size menu between Compact, Standard and Wide. Confirm one card appears per widget, the preview and added configuration match the selected size, and hover/press do not change card geometry. Check search clearing, category scroll reset and 760 × 480 minimum layout.
+- In Add Item, open a widget's detail and page through its sizes with the size pager. Confirm the preview and the widget **Add Widget** creates match the selected size, and hover/press do not change tile geometry. Check search clearing, category scroll reset and the window's minimum size.
+
+## Dock essentials and workspace tools
+
+1. With a fresh profile, confirm Show recent apps, Show window previews, automatic switching and the System Activity Network and Storage sections are all off.
+2. Drop Finder files and a web address on an app tile; confirm they open with that app, and that a drop with nothing openable is refused.
+3. Open a running app's menu: windows, Show in Finder, Hide/Show, Quit, Force Quit. Choose Force Quit, press Return and confirm Cancel is the default and nothing quits; repeat and confirm Force Quit ends the app.
+4. Turn on Show window previews. Without Accessibility, confirm the panel offers to allow it and hovering never prompts; with Accessibility, confirm titles after the show delay and that Escape or a click elsewhere closes it. Grant Screen Recording and confirm thumbnails, then close the panel and confirm none are written to disk.
+5. In Audio Output, switch to another output device; when alerts followed the previous output, confirm they follow the new one, and when Sound settings sends alerts elsewhere, confirm that choice is kept. Change volume and mute.
+6. Turn on automatic switching, add an app rule and a time rule, and confirm the Custom Dock switches after the dwell, a manual switch overrides it, and a Dock with an open unsaved draft is not switched away.
+7. Start Workspace from a Dock: confirm targets open in order, running apps come forward instead of relaunching, nothing quits or closes, and the Dock switches only when that option is chosen.
+8. Export one Dock as a package and import it: confirm a new Dock is created every time, the original is unchanged, and no credentials or account IDs are carried.
+9. With Calendar access, confirm Next meeting shows the next relevant event and offers Join only for a recognised https meeting link.
 
 ## Optional smooth native switching
 
@@ -127,12 +165,22 @@ Before running the MyDock Visual QA scheme, quit the canonical app cleanly; the 
 7. Create duplicate account/symbol queries and observe one shared request, maximum four provider jobs, changed-account cancellation, partial watchlist success, error retention and fastest requested interval. Exercise disconnected account remapping and both backup export choices.
 8. Inspect history before an edit/deletion, restore as a new profile, and verify current IDs/data are unchanged. Export/import a personal preset: notes, hydration undo/history, cached metrics and connection assignments must be absent by default; local app/file/link references remain disclosed.
 
-## Opt-in performance and disposable-system harnesses
+## Opt-in suites
+
+`./TestMyDock.sh` skips these suites unless their variable is set. Set one at a time, only where the table says it is safe.
+
+| Variable | What it touches | Where it is safe |
+| --- | --- | --- |
+| `MYDOCK_PERFORMANCE_OUTPUT=<path>` | Synthetic performance fixtures; writes a JSON baseline to the path | Any Mac. Write the file to `docs/history/` with a date |
+| `MYDOCK_CUSTOM_DOCK_RUNTIME_TESTS=1` | Shows an isolated live Custom Dock panel for about 20 seconds; never changes Apple’s Dock | A Mac where a briefly visible test panel is acceptable |
+| `MYDOCK_LOCAL_AI_ACCOUNT_TESTS=1` | Reads the signed-in local Codex account's quota (read-only; starts no task) | A Mac whose Codex sign-in you own |
+| `MYDOCK_INSTALLED_APP_AUDIT=1` | Scans installed applications and prints their count | Any Mac; the log lists no app names |
+| `MYDOCK_DISPOSABLE_SYSTEM_TESTS=1` | Applies and restores a real Apple Dock layout | Only a throwaway macOS account or VM (see below) |
 
 Run the synthetic baseline without changing native Dock preferences:
 
 ```sh
-MYDOCK_PERFORMANCE_OUTPUT="$PWD/docs/PERFORMANCE_BASELINE.json" ./TestMyDock.sh
+MYDOCK_PERFORMANCE_OUTPUT="$PWD/docs/history/PERFORMANCE_BASELINE_$(date +%F).json" ./TestMyDock.sh
 ```
 
 For the live test, first prepare a separate throwaway macOS account or VM, save an independent copy of its Dock preferences, close other MyDock copies, and confirm that this environment can be reset. The test adds a spacer, verifies apply, records/restores the original layout through the journal, and verifies recovery. It must never be enabled on the user's everyday Dock:

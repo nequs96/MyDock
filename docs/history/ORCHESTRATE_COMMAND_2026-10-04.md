@@ -1,9 +1,7 @@
----
-description: Resume and finish the Codex-started MyDock implementation using the reliability, native-platform and product-experience agents
-model: opus
-effort: high
-argument-hint: [optional focus, e.g. "only PR-01..PR-05"]
----
+# Archived `/orchestrate` command — 4 October 2026
+
+> Archived record of the slash command that resumed the Codex-started execution ledger. That campaign is finished; do not run these steps again. Current acceptance is in [implementation status](../IMPLEMENTATION_STATUS.md).
+
 Act as the coordinator. You are resuming work that a Codex session started. The user ALREADY AUTHORIZED implementation of the required corrective work and the design/architectural improvements, so don't ask for that approval again. Do not write application code yourself except for small integration fixes; delegate the rest to the worker agents.
 
 ## 1. Rebuild context

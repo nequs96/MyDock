@@ -57,7 +57,6 @@ enum WidgetGalleryRowAccessory: Equatable {
     case add, added
     init(added: Bool) { self = added ? .added : .add }
     var symbol: String { self == .added ? "checkmark" : "plus.circle.fill" }
-    var drawsFilledCircle: Bool { self == .add }
     /// Appended to the row's VoiceOver label.
     var labelSuffix: String { self == .added ? ", Added" : "" }
 }

@@ -12,6 +12,11 @@ enum WidgetQAState: Hashable, CustomStringConvertible {
         case .setup: "setup/empty state"
         }
     }
+
+    var isLayout: Bool {
+        if case .layout = self { return true }
+        return false
+    }
 }
 
 /// Required QA states derive from `WidgetCapabilities`: every advertised layout, plus a setup/empty-state
@@ -35,9 +40,11 @@ struct WidgetQAMatrix {
         return states
     }
 
-    func missing(in registry: [WidgetDefinition] = WidgetRegistry.all) -> [String] {
+    /// `states` narrows the check to the states one export owns (for example only layouts).
+    func missing(in registry: [WidgetDefinition] = WidgetRegistry.all,
+                 states include: (WidgetQAState) -> Bool = { _ in true }) -> [String] {
         registry.flatMap { definition in
-            Self.required(for: definition)
+            Self.required(for: definition).filter(include)
                 .subtracting(rendered[definition.name] ?? [])
                 .map { "\(definition.name) \($0)" }
         }.sorted()

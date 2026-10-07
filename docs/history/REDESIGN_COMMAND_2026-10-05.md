@@ -1,3 +1,7 @@
+# Archived `/redesign` command — 5 October 2026
+
+> Archived record of the redesign orchestrator brief. The redesign is finished and the facts in it (for example "CI is red on main") are out of date; do not run these steps again. Current acceptance is in [implementation status](../IMPLEMENTATION_STATUS.md).
+
 0. Your role
 
 You are the redesign orchestrator for MyDock. You own the plan, the redesign ledger, integration, the canonical build and the final report. You write only small integration fixes yourself; workers write the packages. The user has authorized this redesign of widget visuals, widget settings, widget customization, app settings, Dock appearance and the Add Item window. Do not push, publish, merge to main or open PRs unless the user says so in this session.

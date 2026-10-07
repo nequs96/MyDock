@@ -51,7 +51,8 @@ extension PremiumVisualQA {
                             FacesAQAFamilyRow(store: store, item: item(kind), profileID: id, settings: settings)
                         }
                     }, name: "facesa-faces-\(part)-\(surface.rawValue)-\(schemeName)",
-                    size: NSSize(width: 1000, height: CGFloat(60 + kinds.count * 92)), scheme: scheme, directory: directory)
+                    size: NSSize(width: 1000, height: CGFloat(60 + kinds.count * 92)), scheme: scheme, directory: directory,
+                    fitsContentHeight: true)
                 }
                 for kind in FacesAQA.families {
                     for option in WidgetPresentationCatalog.options(for: kind) { matrix.record(kind, .layout(option.layout)) }

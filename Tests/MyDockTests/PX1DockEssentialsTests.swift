@@ -181,6 +181,7 @@ struct PX1DockEssentialsTests {
     @Test func recentsTrackingNeverRunsUnderIsolation() {
         // Tests run with native effects disabled: enabling the tracker must not observe the system.
         RecentApplicationsTracker.shared.setEnabled(true)
+        #expect(!RecentApplicationsTracker.shared.isObserving)
         #expect(RecentApplicationsTracker.shared.recents.isEmpty)
         RecentApplicationsTracker.shared.setEnabled(false)
     }

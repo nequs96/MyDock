@@ -28,6 +28,9 @@ actor WidgetRefreshLimiter {
         else { running = max(0, running - 1) }
     }
 
+    /// Queued waiters, for tests that must cancel a waiter only once it is queued.
+    var waiterCount: Int { waiters.count }
+
     private func cancel(_ id: UUID) {
         guard let index = waiters.firstIndex(where: { $0.0 == id }) else { return }
         waiters.remove(at: index).1.resume(returning: false)

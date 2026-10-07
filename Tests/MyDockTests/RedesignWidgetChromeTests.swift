@@ -94,36 +94,11 @@ struct RedesignWidgetChromeTests {
         #expect(plain.showsLabel)
     }
 
-    /// Snapshot of the widths before the redesign. Chrome must never change geometry.
-    @Test func everyFamilyKeepsItsWidths() {
-        let market: [WidgetLayout: Double] = [.compact: 108, .trend: 176]
-        let schedule: [WidgetLayout: Double] = [.compact: 88, .wide: 154]
-        let timer: [WidgetLayout: Double] = [.compact: 88, .standard: 124]
-        let generic: [WidgetLayout: Double] = [.compact: 88, .standard: 124]
-        let quickAction: [WidgetLayout: Double] = [.icon: 54, .compact: 88]
-        let quickTool: [WidgetLayout: Double] = [.icon: 54, .compact: 104]
-        let saved: [WidgetLayout: Double] = [.compact: 96, .wide: 164]
-        let snapshot: [String: [WidgetLayout: Double]] = [
-            "Stock": market, "Watchlist": market, "Calendar": schedule, "Reminders": schedule,
-            "Now Playing": [.compact: 112, .wide: 186], "Weather": [.compact: 92, .standard: 132, .wide: 184],
-            "Focus Timer": timer, "Sticky Note": [.standard: 120, .wide: 176], "Battery": [.compact: 90, .wide: 156],
-            "Shortcuts": quickAction, "Stripe": generic, "Paddle": generic, "Shopify": generic,
-            "Clock": [.compact: 104, .standard: 112], "World Clock": [.compact: 88, .wide: 164],
-            "Stopwatch": timer, "Countdown": timer, "Alarm": generic, "Time Progress": generic, "Hydration": generic,
-            "System Activity": [.compact: 86, .meter: 92, .trend: 158], "Network Activity": [.compact: 100, .trend: 170],
-            "Audio Output": [.compact: 96, .wide: 164],
-            "AI Limits": generic, "AI Activity": [.compact: 88, .standard: 126, .trend: 184],
-            "AirDrop": quickAction, "Trash": quickAction, "Disk Space": [.compact: 104, .wide: 158],
-            "Calculator": quickAction, "Quick Checklist": schedule, "File Shelf": saved, "Text Snippets": saved,
-            "Quick Links": saved, "Unit Converter": quickTool, "Color Picker": quickTool, "App Folder": quickAction
-        ]
-        #expect(Set(snapshot.keys) == Set(WidgetRegistry.all.map(\.name)))
+    /// Widths are pinned once, in RegistryCapabilityTests' golden table; every width lookup must agree with the options.
+    @Test func everyFamilyWidthLookupMatchesItsOptions() {
         for definition in WidgetRegistry.all {
-            let options = WidgetPresentationCatalog.options(for: definition.name)
-            let widths = Dictionary(uniqueKeysWithValues: options.map { ($0.layout, $0.width) })
-            #expect(widths == snapshot[definition.name], "\(definition.name)")
-            for option in options {
-                #expect(WidgetPresentationCatalog.width(for: definition.name, layout: option.layout) == snapshot[definition.name]?[option.layout])
+            for option in WidgetPresentationCatalog.options(for: definition.name) {
+                #expect(WidgetPresentationCatalog.width(for: definition.name, layout: option.layout) == option.width, "\(definition.name)")
             }
         }
     }

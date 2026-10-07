@@ -78,22 +78,35 @@ extension DockProfile {
     }()
 }
 
+/// The sections of the Appearance page, in order.
+enum SettingsAppearanceSection: String, CaseIterable {
+    case hero, style, glass, layout, widgets, scope
+}
+
 extension SettingsView {
     var appearancePage: some View {
         DockScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 SettingsPageHeader(page: .appearance)
-                appearanceHero
-                appearanceScopeSection
-                appearanceStyleSection
-                appearanceGlassSection
-                appearanceLayoutSection
-                appearanceWidgetsSection
-                appearanceResetSection
+                if showsAppearanceSection(.hero) { appearanceHero }
+                if showsAppearanceSection(.scope) { appearanceScopeSection }
+                if showsAppearanceSection(.style) { appearanceStyleSection }
+                if showsAppearanceSection(.glass) { appearanceGlassSection }
+                if showsAppearanceSection(.layout) { appearanceLayoutSection }
+                if showsAppearanceSection(.widgets) { appearanceWidgetsSection }
+                if showsAppearanceSection(.scope) { appearanceResetSection }
             }
             .padding(DockDesign.Space.page).frame(maxWidth: DockDesign.settingsWidth)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private func showsAppearanceSection(_ section: SettingsAppearanceSection) -> Bool {
+        #if DEBUG
+        return renderedAppearanceSection.map { $0 == section } ?? true
+        #else
+        return true
+        #endif
     }
 
     var appearanceHero: some View {

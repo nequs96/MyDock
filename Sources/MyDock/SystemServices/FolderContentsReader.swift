@@ -89,9 +89,12 @@ enum FolderContentsReader {
     static func load(at folderURL: URL,
                      displayLimit: Int = defaultDisplayLimit,
                      enumerationCap: Int = defaultEnumerationCap) async throws -> FolderContentsListing {
-        let task = Task.detached(priority: .userInitiated) {
-            try listing(at: folderURL, displayLimit: displayLimit, enumerationCap: enumerationCap)
-        }
+        try await load { try listing(at: folderURL, displayLimit: displayLimit, enumerationCap: enumerationCap) }
+    }
+
+    /// Runs `work` detached and forwards the caller's cancellation to it. Tests inject the enumeration here.
+    static func load(_ work: @escaping @Sendable () throws -> FolderContentsListing) async throws -> FolderContentsListing {
+        let task = Task.detached(priority: .userInitiated) { try work() }
         return try await withTaskCancellationHandler {
             try await task.value
         } onCancel: {

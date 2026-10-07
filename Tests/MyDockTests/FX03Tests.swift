@@ -48,7 +48,7 @@ struct FX03Tests {
         let undo = UndoManager()
 
         switchable.failing = true
-        #expect(throws: (any Error).self) {
+        #expect(throws: EditSessionSaveError.self) {
             try WidgetSheetRemoval.remove(itemID: items[1].id, profileID: profileID, store: store, undoManager: undo)
         }
         // Not saved, no undo yet, and the removal is remembered for a retry.
@@ -57,7 +57,7 @@ struct FX03Tests {
         #expect(try savedItemIDs(root, profileID) == items.map(\.id))
 
         // Retrying while the disk still fails keeps it pending.
-        #expect(throws: (any Error).self) {
+        #expect(throws: EditSessionSaveError.self) {
             try WidgetSheetRemoval.remove(itemID: items[1].id, profileID: profileID, store: store, undoManager: undo)
         }
         #expect(WidgetSheetRemoval.hasPendingRemoval(itemID: items[1].id))
@@ -97,7 +97,7 @@ struct FX03Tests {
         draft.update { $0.name = "   " }
         edits.set(draft, for: profileID)
         let undo = UndoManager()
-        #expect(throws: (any Error).self) {
+        #expect(throws: ProfileDraftMergeError.self) {
             try WidgetSheetRemoval.remove(itemID: items[2].id, profileID: profileID, store: store, undoManager: undo)
         }
         #expect(!undo.canUndo)

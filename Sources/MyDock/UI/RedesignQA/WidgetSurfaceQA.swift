@@ -20,7 +20,8 @@ extension PremiumVisualQA {
                         ForEach(kinds, id: \.self) { kind in WidgetSurfaceQARow(kind: kind) }
                     }.environment(\.dockWidgetSurface, surface),
                     name: "widgetsurface-matrix-\(name)-\(surface.rawValue)-\(schemeName)",
-                    size: NSSize(width: 640, height: CGFloat(70 + kinds.count * 92)), scheme: scheme, directory: directory)
+                    size: NSSize(width: 640, height: CGFloat(70 + kinds.count * 92)), scheme: scheme, directory: directory,
+                    fitsContentHeight: true)
                     for kind in kinds {
                         for option in WidgetPresentationCatalog.options(for: kind) { matrix.record(kind, .layout(option.layout)) }
                     }
@@ -60,7 +61,7 @@ extension PremiumVisualQA {
             try await renderSampleVersusLive(store: store, scheme: scheme, schemeName: schemeName, directory: directory)
         }
         // Layout coverage only; setup states are covered by MYDOCK_WIDGET_QA.
-        let missingLayouts = matrix.missing().filter { !$0.hasSuffix(WidgetQAState.setup.description) }
+        let missingLayouts = matrix.missing(states: { $0.isLayout })
         if !missingLayouts.isEmpty { throw WidgetQAMatrix.Failure(missing: missingLayouts) }
     }
 

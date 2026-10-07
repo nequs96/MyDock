@@ -301,17 +301,23 @@ struct DockAuditRegressionTests {
         store.add(first, to: id)
         store.add(second, to: id)
         var loads = 0
+        let gate = AuditLaneIGate()
         let coordinator = WidgetDataCoordinator(store: store) { _, _ in
             loads += 1
-            try await Task.sleep(for: .milliseconds(20))
+            await gate.hold()
             throw AuditProviderError.unavailable
         }
         var failuresPublished = 0
         let observation = coordinator.$errors.sink { if !$0.isEmpty { failuresPublished += 1 } }
         defer { observation.cancel() }
-        async let a: Void = coordinator.refresh(item: first, profileID: id)
-        async let b: Void = coordinator.refresh(item: second, profileID: id)
-        _ = await (a, b)
+        // The first refresh owns the request; the second joins it while the loader is held.
+        let a = Task { await coordinator.refresh(item: first, profileID: id) }
+        let started = await gate.waitForStart()
+        #expect(started)
+        let b = Task { await coordinator.refresh(item: second, profileID: id) }
+        await Task.yield()
+        await gate.release()
+        await a.value; await b.value
         #expect(loads == 1)
         #expect(failuresPublished == 1)
         #expect(coordinator.refreshing.isEmpty)
@@ -401,9 +407,7 @@ struct DockAuditRegressionTests {
     }
 
     @Test func failedAutoHideReenablePreservesTheOriginalRestoreRecord() async throws {
-        let suite = "MyDock.Audit.AutoHide.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ValidationDefaults()
         let backend = AuditAutoHideBackend()
         let relauncher = AuditRelauncher()
         let controller = NativeDockAutoHideController(backend: backend, relauncher: relauncher, defaults: defaults)
@@ -425,9 +429,7 @@ struct DockAuditRegressionTests {
     }
 
     @Test func failedReplacementRestartRollsBackEveryOwnedPreference() async throws {
-        let suite = "MyDock.ReplacementRollback.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ValidationDefaults()
         let backend = AuditAutoHideBackend()
         backend.settings = NativeDockVisibilitySettings(autoHide: false, revealDelay: 0.4, noBouncing: false)
         let original = backend.settings

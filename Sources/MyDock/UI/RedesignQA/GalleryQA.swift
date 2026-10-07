@@ -6,12 +6,12 @@ import SwiftUI
 /// 920×740 and 700×600, plus Reduce Transparency and Increase Contrast variants injected
 /// through `dockAccessibilityPreview`. Glass draws its fallback in these captures.
 ///
-/// The Apps segment uses this Mac's real application scan, awaited once, plus one synthetic
+/// The Apps segment uses the fixed `fixtureAppScan` (never this Mac's inventory), plus one synthetic
 /// copy of the first app at `/Volumes/Archive/Applications` so duplicate-name disambiguation is
 /// visible. Nothing is added to a real Dock; every `add` closure is a no-op.
 extension PremiumVisualQA {
     static func exportGalleryUI(to directory: URL, store: ProfileStore) async throws {
-        var scan = await InstalledAppCatalog.scan()
+        var scan = fixtureAppScan
         if let first = scan.applications.first {
             var copy = first
             copy.url = URL(fileURLWithPath: "/Volumes/Archive/Applications/\(first.name).app")

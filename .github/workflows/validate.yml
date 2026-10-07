@@ -19,7 +19,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Verify SDK
         run: |
           SDK_MAJOR=$(xcrun --sdk macosx --show-sdk-version | cut -d. -f1)
@@ -29,7 +29,19 @@ jobs:
           swift --version
           xcrun --sdk macosx --show-sdk-version
       - name: Unit and regression tests
-        run: ./TestMyDock.sh
+        shell: bash
+        run: |
+          mkdir -p .build
+          ./TestMyDock.sh 2>&1 | tee .build/test.log
+      - name: Report compiler warnings
+        if: always()
+        shell: bash
+        run: |
+          # Each distinct Swift compiler warning from the test build becomes an annotation on the run.
+          WARNINGS=$(grep -E '\.swift:[0-9]+:[0-9]+: warning: ' .build/test.log 2>/dev/null | sort -u || true)
+          COUNT=$(printf '%s\n' "$WARNINGS" | grep -c . || true)
+          echo "Distinct Swift compiler warnings: $COUNT" >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "$WARNINGS" | grep . | sed 's/%/%25/g; s/^/::warning::/' || true
       - name: Release manifest failure fixtures
         run: python3 -m unittest discover -s Tests/Tooling -p 'test_*.py'
       - name: Universal release build
@@ -53,7 +65,7 @@ jobs:
           mkdir -p .build/ci-artifact
           ditto -c -k --keepParent "$APP_PATH" .build/ci-artifact/MyDock-Xcode.zip
           python3 Scripts/WriteReleaseManifest.py --app "$APP_PATH" --output .build/ci-artifact/release-manifest.json --qualification ci --archive .build/ci-artifact/MyDock-Xcode.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: MyDock-Xcode-qualification-${{ matrix.os }}
           path: .build/ci-artifact/

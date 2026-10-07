@@ -121,6 +121,8 @@ final class RecentApplicationsTracker: ObservableObject {
 
     @Published private(set) var recents: [RecentApplication] = []
     private var observation: AnyCancellable?
+    /// Whether activation notifications are being observed; never true under isolation.
+    var isObserving: Bool { observation != nil }
 
     func setEnabled(_ enabled: Bool) {
         guard AppRuntimeEnvironment.allowsNativeEffects else { return }

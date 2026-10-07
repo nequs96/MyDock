@@ -32,8 +32,10 @@ struct RoutineCommitCoalescingTests {
         try JSONDecoder().decode(PersistentState.self, from: Data(contentsOf: file)).settings
     }
 
-    private func wait(_ condition: () -> Bool) async {
+    /// Polls for up to 5 s and records a timeout at the caller, rather than failing later on a misleading assertion.
+    private func wait(_ condition: () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async {
         for _ in 0..<200 where !condition() { try? await Task.sleep(for: .milliseconds(25)) }
+        if !condition() { Issue.record("Timed out waiting for the condition", sourceLocation: sourceLocation) }
     }
 
     @Test func rapidRoutineChangesCoalesceIntoOrderedFinalFile() async throws {
@@ -89,7 +91,7 @@ struct RoutineCommitCoalescingTests {
         let (store, file, disk, dir) = makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         disk.setFailure(true)
-        #expect(throws: (any Error).self) { try store.importProfiles([DockProfile(name: "Import", kind: .custom)]) }
+        #expect(throws: Disk.Failure.self) { try store.importProfiles([DockProfile(name: "Import", kind: .custom)]) }
         disk.setFailure(false)
         let id = try store.createProfile(DockProfile(name: "Created", kind: .custom))
         let onDisk = try JSONDecoder().decode(PersistentState.self, from: Data(contentsOf: file))

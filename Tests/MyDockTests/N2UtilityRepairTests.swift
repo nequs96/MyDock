@@ -50,15 +50,13 @@ struct N2UtilityRepairTests {
         try Data("x".utf8).write(to: original)
         let entry = ShelfFile(url: original)
         try FileManager.default.moveItem(at: original, to: moved)
-        let resolution = entry.resolution
-        if resolution.isStale {
-            let refreshed = try #require(FileShelfPolicy.refreshingStaleBookmarks([entry]))
-            #expect(refreshed[0].id == entry.id)
-            #expect(!refreshed[0].resolution.isStale)
-            #expect(FileShelfPolicy.refreshingStaleBookmarks([entry], fileExists: { _ in false }) == nil)
-        } else {
-            #expect(FileShelfPolicy.refreshingStaleBookmarks([entry]) == nil)
-        }
+        // Inject the bookmark resolution so the stale branch always runs, whatever the host reports.
+        let stale: (ShelfFile) -> (url: URL, isStale: Bool) = { _ in (moved, true) }
+        let refreshed = try #require(FileShelfPolicy.refreshingStaleBookmarks([entry], resolve: stale))
+        #expect(refreshed[0].id == entry.id)
+        #expect(refreshed[0].url == moved.standardizedFileURL)
+        #expect(FileShelfPolicy.refreshingStaleBookmarks([entry], fileExists: { _ in false }, resolve: stale) == nil)
+        #expect(FileShelfPolicy.refreshingStaleBookmarks([entry], resolve: { _ in (moved, false) }) == nil)
     }
 
     @Test func trashCopyStatesTrueScope() {

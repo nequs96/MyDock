@@ -121,8 +121,6 @@ enum WidgetSheetQA {
         case "Sticky Note": 400
         case "App Folder": 520
         case "Hydration": 560
-        case "Time Progress": 300
-        case "Battery": 300
         default: 300
         }
     }

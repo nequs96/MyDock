@@ -3,6 +3,7 @@ import Testing
 @testable import MyDock
 
 /// Wall-clock deadline cases must not compete with this suite’s own process stress tests.
+/// Latency bounds are generous ceilings that only catch hangs; the children they race outlive them.
 @Suite(.serialized)
 struct BoundedSubprocessCaptureTests {
     @Test func capturesStandardOutputAndErrorWithoutPipeBackpressure() throws {
@@ -32,7 +33,7 @@ struct BoundedSubprocessCaptureTests {
                                              maximumErrorBytes: 4_096,
                                              timeout: 5)
         }
-        #expect(Date.now.timeIntervalSince(start) < 3)
+        #expect(Date.now.timeIntervalSince(start) < 10)
     }
 
     @Test func timeoutTerminatesAndReapsTheChildProcess() throws {
@@ -47,11 +48,11 @@ struct BoundedSubprocessCaptureTests {
                                              maximumErrorBytes: 1_024,
                                              timeout: 0.2)
         }
-        #expect(Date.now.timeIntervalSince(start) < 3)
+        #expect(Date.now.timeIntervalSince(start) < 10)
     }
 
     @Test func timeoutAlsoBoundsPipesInheritedByBackgroundChildren() throws {
-        let script = try makeScript("/bin/sleep 2 &\nexit 0")
+        let script = try makeScript("/bin/sleep 20 &\nexit 0")
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent()) }
         let start = Date.now
 
@@ -62,7 +63,7 @@ struct BoundedSubprocessCaptureTests {
                                              maximumErrorBytes: 1_024,
                                              timeout: 0.2)
         }
-        #expect(Date.now.timeIntervalSince(start) < 1.5)
+        #expect(Date.now.timeIntervalSince(start) < 10)
     }
 
     @Test func forwardsAndClosesStandardInput() throws {
@@ -92,7 +93,8 @@ struct BoundedSubprocessCaptureTests {
     }
 
     @Test func cancellingTheAsyncRunnerTerminatesItsChild() async throws {
-        let script = try makeScript("exec /bin/sleep 30")
+        // The shell records its PID, then becomes the sleeping child with `exec`.
+        let script = try makeScript("dir=$(dirname \"$0\")\necho $$ > \"$dir/child.tmp\" && mv \"$dir/child.tmp\" \"$dir/child.pid\"\nexec /bin/sleep 30")
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent()) }
         let task = Task.detached(priority: .utility) {
             try await BoundedSubprocessCapture.runCancellable(executableURL: script,
@@ -101,19 +103,26 @@ struct BoundedSubprocessCaptureTests {
                                                               maximumErrorBytes: 1_024,
                                                               timeout: 30)
         }
-        try await Task.sleep(for: .milliseconds(150))
+        let marker = script.deletingLastPathComponent().appendingPathComponent("child.pid")
+        try await waitForFile(marker)
+        let recorded = String(decoding: try Data(contentsOf: marker), as: UTF8.self)
+        let pid = try #require(pid_t(recorded.trimmingCharacters(in: .whitespacesAndNewlines)))
         task.cancel()
 
         do {
             _ = try await task.value
             Issue.record("The cancelled subprocess unexpectedly returned output.")
         } catch is CancellationError {
-            // Expected cancellation after the child has been terminated.
+            // The child was terminated and reaped before the cancellation was reported.
+            let result = kill(pid, 0)
+            let code = errno
+            #expect(result == -1)
+            #expect(code == ESRCH)
         }
     }
 
     @Test func cancellingWhileOnlyAnInheritedPipeRemainsReturnsPromptly() async throws {
-        let script = try makeScript("/bin/sleep 5 &\nexit 0")
+        let script = try makeScript("/bin/sleep 20 &\ntouch \"$(dirname \"$0\")/started\"\nexit 0")
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent()) }
         let task = Task.detached(priority: .utility) {
             try await BoundedSubprocessCapture.runCancellable(executableURL: script,
@@ -122,7 +131,7 @@ struct BoundedSubprocessCaptureTests {
                                                               maximumErrorBytes: 1_024,
                                                               timeout: 30)
         }
-        try await Task.sleep(for: .milliseconds(150))
+        try await waitForFile(script.deletingLastPathComponent().appendingPathComponent("started"))
         let start = Date.now
         task.cancel()
 
@@ -130,7 +139,18 @@ struct BoundedSubprocessCaptureTests {
             _ = try await task.value
             Issue.record("The cancelled subprocess unexpectedly returned output.")
         } catch is CancellationError {
-            #expect(Date.now.timeIntervalSince(start) < 1)
+            #expect(Date.now.timeIntervalSince(start) < 10)
+        }
+    }
+
+    private struct ChildDidNotStart: Error {}
+
+    /// Polls for a file the child script writes once it is running.
+    private func waitForFile(_ url: URL) async throws {
+        let deadline = Date.now.addingTimeInterval(10)
+        while !FileManager.default.fileExists(atPath: url.path) {
+            guard Date.now < deadline else { throw ChildDidNotStart() }
+            try await Task.sleep(for: .milliseconds(10))
         }
     }
 

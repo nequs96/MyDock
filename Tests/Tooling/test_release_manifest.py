@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import io
+import shutil
 import stat
 from pathlib import Path
 import plistlib
@@ -35,6 +36,8 @@ class ReleaseManifestTests(unittest.TestCase):
         self.architectures = "arm64 x86_64"
         self.signature = "Signature=adhoc"
         self.signature_verifies = True
+        self.git_status = ""
+        self.load_commands = "cmd LC_BUILD_VERSION\n minos 13.0\n sdk 26.4"
 
     def package(self):
         with zipfile.ZipFile(self.archive, "w") as zipped:
@@ -44,18 +47,35 @@ class ReleaseManifestTests(unittest.TestCase):
 
     def command(self, *args, required=True):
         if args[0] == "lipo": return 0, self.architectures
-        if args[0] == "otool": return 0, "cmd LC_BUILD_VERSION\n minos 13.0\n sdk 26.4"
+        if args[0] == "otool": return 0, self.load_commands
         if args[0] == "codesign":
             if args[1] == "-d": return 0, self.signature
             return (0 if self.signature_verifies else 1), ""
-        if args[0] == "git": return 0, "fixture-head" if args[-1] == "HEAD" else ""
+        if args[0] == "git": return 0, "fixture-head" if args[-1] == "HEAD" else self.git_status
         return 0, "fixture toolchain"
 
-    def run_manifest(self, qualification="ci"):
+    def run_manifest(self, qualification="ci", command=None):
         arguments = ["manifest", "--app", str(self.app), "--archive", str(self.archive),
                      "--output", str(self.output), "--qualification", qualification]
-        with patch.object(sys, "argv", arguments), patch.object(manifest, "command", self.command):
+        with patch.object(sys, "argv", arguments), patch.object(manifest, "command", command or self.command):
             manifest.main()
+
+    def dmg_fixture(self, mutate=None):
+        """A DMG whose `hdiutil attach` copies the app into the mountpoint; records every hdiutil call."""
+        self.archive = self.root / "MyDock.dmg"
+        self.archive.write_bytes(b"fixture disk image")
+        calls = []
+        def command(*args, required=True):
+            if args[0] != "hdiutil":
+                return self.command(*args, required=required)
+            calls.append(tuple(args[:2]))
+            if args[1] == "attach":
+                mounted = Path(args[args.index("-mountpoint") + 1]) / self.app.name
+                shutil.copytree(self.app, mounted, symlinks=True)
+                if mutate:
+                    mutate(mounted)
+            return 0, ""
+        return command, calls
 
     def test_archive_mismatch_refuses_output(self):
         self.package()
@@ -64,7 +84,7 @@ class ReleaseManifestTests(unittest.TestCase):
             self.run_manifest()
         self.assertFalse(self.output.exists())
 
-    def test_zip_member_size_budget_rejects_oversized_content(self):
+    def test_zip_member_size_mismatch_refuses_output(self):
         self.package()
         path = self.app / "Contents/MacOS/MyDock"
         path.write_bytes(b"x")
@@ -127,6 +147,47 @@ class ReleaseManifestTests(unittest.TestCase):
             self.run_manifest()
         self.assertFalse(self.output.exists())
 
+    def test_zip_missing_app_file_refuses_output(self):
+        self.package()
+        (self.app / "Contents/Resources/Added.txt").write_bytes(b"not in the archive")
+        with self.assertRaisesRegex(RuntimeError, "inventory does not match"):
+            self.run_manifest()
+        self.assertFalse(self.output.exists())
+
+    def test_zip_macosx_bookkeeping_is_accepted(self):
+        self.package()
+        with zipfile.ZipFile(self.archive, "a") as zipped:
+            zipped.writestr("__MACOSX/MyDock.app/Contents/._Info.plist", b"resource fork")
+        self.run_manifest()
+        self.assertTrue(self.output.exists())
+
+    def test_other_archive_types_are_refused(self):
+        self.archive = self.root / "MyDock.tar"
+        self.archive.write_bytes(b"fixture tarball")
+        with self.assertRaisesRegex(RuntimeError, "Only ZIP or DMG"):
+            self.run_manifest()
+        self.assertFalse(self.output.exists())
+
+    def test_dmg_matching_app_is_recorded_and_detached(self):
+        command, calls = self.dmg_fixture()
+        self.run_manifest(command=command)
+        self.assertTrue(self.output.exists())
+        self.assertEqual(calls, [("hdiutil", "attach"), ("hdiutil", "detach")])
+
+    def test_dmg_mismatch_refuses_output_and_still_detaches(self):
+        command, calls = self.dmg_fixture(lambda app: (app / "Contents/MacOS/MyDock").write_bytes(b"changed executable"))
+        with self.assertRaisesRegex(RuntimeError, "DMG app does not match"):
+            self.run_manifest(command=command)
+        self.assertFalse(self.output.exists())
+        self.assertEqual(calls, [("hdiutil", "attach"), ("hdiutil", "detach")])
+
+    def test_missing_deployment_target_refuses_output(self):
+        self.package()
+        self.load_commands = "cmd LC_BUILD_VERSION\n sdk 26.4"
+        with self.assertRaisesRegex(RuntimeError, "Missing deployment target"):
+            self.run_manifest()
+        self.assertFalse(self.output.exists())
+
     def test_missing_metadata_refuses_output(self):
         (self.app / "Contents/Resources/Metadata.appintents/extract.actionsdata").unlink()
         self.package()
@@ -162,7 +223,40 @@ class ReleaseManifestTests(unittest.TestCase):
         for key in ("nativeAcceptance", "supportedOSRuntimeMatrix", "focusDiscovery", "loginItemAcceptance"):
             self.assertEqual(result["qualification"][key], "open")
         self.assertEqual(result["qualification"]["notarization"], "not-run")
-        self.assertIn("MyDock.xcodeproj/project.pbxproj", {item["path"] for item in result["source"]["files"]})
+        paths = {item["path"] for item in result["source"]["files"]}
+        self.assertIn("project.yml", paths)
+        self.assertIn("Xcode/MyDock-Info.plist", paths)
+        self.assertFalse(result["source"]["hasTrackedChanges"])
+        self.assertFalse(result["source"]["hasUntrackedSources"])
+
+    def test_ci_records_untracked_sources(self):
+        self.package()
+        self.git_status = "?? Sources/MyDock/Untracked.swift\n?? notes.txt"
+        self.run_manifest()
+        result = json.loads(self.output.read_text())
+        self.assertFalse(result["source"]["hasTrackedChanges"])
+        self.assertTrue(result["source"]["hasUntrackedSources"])
+
+    def test_release_refuses_untracked_sources_and_tracked_changes(self):
+        self.package()
+        self.signature = "Authority=Developer ID Application: Fixture"
+        for status in ("?? Sources/MyDock/Untracked.swift", " M README.md"):
+            self.git_status = status
+            with self.assertRaisesRegex(RuntimeError, "clean source tree"):
+                self.run_manifest("release")
+            self.assertFalse(self.output.exists())
+
+    def test_failing_required_command_reports_its_output(self):
+        script = "import sys; sys.stdout.write('x' * 5000); sys.stderr.write('stapler: The staple failed'); sys.exit(3)"
+        with self.assertRaises(RuntimeError) as raised:
+            manifest.command(sys.executable, "-c", script)
+        message = str(raised.exception)
+        self.assertIn("failed (3)", message)
+        self.assertIn("The staple failed", message)
+        self.assertLess(len(message), 2200)
+        code, output = manifest.command(sys.executable, "-c", script, required=False)
+        self.assertEqual(code, 3)
+        self.assertIn("The staple failed", output)
 
 
 if __name__ == "__main__":

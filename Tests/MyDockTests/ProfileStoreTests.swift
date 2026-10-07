@@ -808,6 +808,8 @@ struct ProfileStoreTests {
         let itemID = UUID()
         let otherItemID = UUID()
         let drafts = WidgetSetupDraftStore.shared
+        // Register cleanup before writing to the shared store, so a failure cannot leak drafts into other tests.
+        defer { drafts.clearDrafts(for: itemID) }
         drafts.updateStripeDraft(for: itemID) {
             $0.accountName = "Revenue account"
             $0.restrictedKey = "rk_test_memory_only"
@@ -838,10 +840,7 @@ struct ProfileStoreTests {
 
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer {
-            drafts.clearDrafts(for: itemID)
-            try? FileManager.default.removeItem(at: directory)
-        }
+        defer { try? FileManager.default.removeItem(at: directory) }
         let store = ProfileStore(fileURL: directory.appendingPathComponent("state.json"))
         let profileID = try store.createProfileAndPersist(kind: .custom, name: "Setup drafts")
         var stripeWidget = DockItem.widget("Stripe")
@@ -1363,9 +1362,7 @@ struct ProfileStoreTests {
     }
 
     @Test func globalShortcutBindingsPersistOutsideProfileBackupsAndRejectDuplicates() throws {
-        let suiteName = "MyDockTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = ValidationDefaults()
         let profileID = UUID()
         let binding = DockShortcut(keyCode: 12,
                                    modifierMask: DockShortcut.commandMask | DockShortcut.optionMask,
@@ -2241,7 +2238,11 @@ struct ProfileStoreTests {
             await AILimitsCollector.collect(providers: [.codex, .claude],
                                             adapters: [WaitingCodex(probe: probe), TrackingClaude(probe: probe)])
         }
-        while !(await probe.hasStarted(.codex)) { await Task.yield() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !(await probe.hasStarted(.codex)) {
+            guard ContinuousClock.now < deadline else { Issue.record("The Codex reader never started"); break }
+            await Task.yield()
+        }
         worker.cancel()
         _ = await worker.value
         let startedClaude = await probe.hasStarted(.claude)
@@ -2596,9 +2597,7 @@ struct ProfileStoreTests {
     }
 
     @Test func customMainModeRestoresTheOriginalAppleDockAutoHideAfterRestart() async throws {
-        let suiteName = "MyDock.AutoHideTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = ValidationDefaults()
         let backend = FakeDockAutoHideBackend(value: false)
         let relauncher = FakeDockRelauncher()
         let controller = NativeDockAutoHideController(backend: backend, relauncher: relauncher, defaults: defaults)
@@ -2619,9 +2618,7 @@ struct ProfileStoreTests {
     }
 
     @Test func customMainModePreservesAnUnsetDockPreferenceAndKeepsRecoveryAfterRestoreFailure() async throws {
-        let suiteName = "MyDock.AutoHideTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = ValidationDefaults()
         let backend = FakeDockAutoHideBackend(value: nil)
         let controller = NativeDockAutoHideController(backend: backend, relauncher: FakeDockRelauncher(), defaults: defaults)
 
@@ -2644,9 +2641,7 @@ struct ProfileStoreTests {
     }
 
     @Test func replacementRestoresAllOriginalPreferencesAndDoesNotRestartWhenUnchanged() async throws {
-        let suite = "MyDock.ReplacementTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ValidationDefaults()
         let backend = FakeDockAutoHideBackend(value: true, revealDelay: 0.35, noBouncing: false)
         let original = backend.settings
         let relauncher = FakeDockRelauncher()
@@ -2663,9 +2658,7 @@ struct ProfileStoreTests {
     }
 
     @Test func replacementMigratesThePreviousAutoHideRecoveryRecordBeforeSuppressingHover() async throws {
-        let suite = "MyDock.ReplacementTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ValidationDefaults()
         defaults.set(try JSONSerialization.data(withJSONObject: ["version": 1, "originalValue": false]),
                      forKey: "nativeDockAutoHideRecoveryRecord")
         let backend = FakeDockAutoHideBackend(value: true, revealDelay: 0.2, noBouncing: nil)
@@ -2681,9 +2674,7 @@ struct ProfileStoreTests {
     }
 
     @Test func previousAutoHideRecordCanRestoreWithoutChangingUnownedPreferences() async throws {
-        let suite = "MyDock.ReplacementTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ValidationDefaults()
         defaults.set(try JSONSerialization.data(withJSONObject: ["version": 1]), forKey: "nativeDockAutoHideRecoveryRecord")
         let backend = FakeDockAutoHideBackend(value: true, revealDelay: 2, noBouncing: false)
         let controller = NativeDockAutoHideController(backend: backend, relauncher: FakeDockRelauncher(), defaults: defaults)
