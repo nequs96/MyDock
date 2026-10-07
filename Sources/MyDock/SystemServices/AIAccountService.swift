@@ -129,7 +129,7 @@ enum ClaudeLimitsSetupError: LocalizedError, Equatable {
     case symlinkedSettings
 
     var errorDescription: String? {
-        "Claude Code’s settings.json is a link, for example from a dotfiles repository. MyDock does not change linked settings; add the limits bridge to the linked file yourself."
+        "Claude Code’s settings.json is a link (for example, to a dotfiles repository), so MyDock leaves it unchanged."
     }
 }
 
@@ -158,7 +158,7 @@ enum ClaudeLimitsSetup {
         // Without a previous command the status line stays empty, as it was.
         let previous = previousCommand.map { "/bin/sh -c \(AIAccountService.shellQuote($0)) < \"$input\"" } ?? ":"
         // plutil reads property lists, which have no null; when it refuses input that has limits, JavaScriptCore extracts them.
-        let script = #"function run(argv) { var text = ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(argv[0], 4, null)); var limits = JSON.parse(text).rate_limits; return limits !== null && typeof limits === "object" ? JSON.stringify(limits) : "" }"#
+        let script = #"ObjC.import("Foundation"); function run(argv) { var text = ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(argv[0], 4, null)); var limits = JSON.parse(text).rate_limits; return limits !== null && typeof limits === "object" ? JSON.stringify(limits) : "" }"#
         return """
         \(marker)
         \(previousPrefix)\(recorded)
@@ -217,10 +217,16 @@ enum ClaudeLimitsSetup {
 
     /// Idempotent, atomic setup. Other settings and the existing terminal display are preserved; an older
     /// bridge is upgraded in place around the command it already wraps.
-    static func enable(directory: URL) throws {
+    static func enable(directory: URL) throws { try install(directory: directory, upgradeOnly: false) }
+
+    /// Rewrites a bridge from an earlier MyDock around the command it wraps, so limits sync that is already on
+    /// gets this version's bridge. Without a bridge, or with a current one, nothing is written.
+    static func upgradeIfOutdated(directory: URL) throws { try install(directory: directory, upgradeOnly: true) }
+
+    private static func install(directory: URL, upgradeOnly: Bool) throws {
         try requireIsolationSafe(directory)
         let manager = FileManager.default
-        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        if !upgradeOnly { try manager.createDirectory(at: directory, withIntermediateDirectories: true) }
         let url = directory.appendingPathComponent("settings.json")
         var root: [String: Any] = [:]
         let original = try readSettings(at: url)
@@ -234,6 +240,7 @@ enum ClaudeLimitsSetup {
             guard !command.hasPrefix(marker), let wrapped = wrappedStatusLine(in: command) else { return }
             status["command"] = bridgeCommand(directory: directory, previousCommand: wrapped.command)
         } else {
+            guard !upgradeOnly else { return }
             if !status.isEmpty, status["type"] as? String != "command" { throw CocoaError(.fileReadCorruptFile) }
             status["command"] = bridgeCommand(directory: directory, previousCommand: status["command"] as? String)
             status["type"] = "command"

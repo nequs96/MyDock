@@ -698,7 +698,8 @@ enum ShopifyCredentialStore {
         try item(storeID).delete(credential: credentialName)
     }
 
-    private static let credentialName = "Shopify credentials"
+    /// Singular, so the shared Keychain copy ("Save it again to reconnect.") reads correctly.
+    private static let credentialName = "The Shopify credential"
 
     private static func item(_ storeID: String) -> IntegrationKeychainItem {
         IntegrationKeychainItem(account: "shopify.\(storeID)")

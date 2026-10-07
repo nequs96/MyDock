@@ -133,7 +133,11 @@ struct AIAccountConnectionView: View {
         let detected = await AIAccountService.detectInBackground(provider)
         guard !Task.isCancelled else { checking = false; return }
         status = detected
-        if provider == .claude { limitsEnabled = ClaudeLimitsSetup.isEnabled(directory: directory) }
+        if provider == .claude {
+            // Limits sync that is already on moves to this version's bridge; nothing is added while it is off.
+            try? ClaudeLimitsSetup.upgradeIfOutdated(directory: directory)
+            limitsEnabled = ClaudeLimitsSetup.isEnabled(directory: directory)
+        }
         checking = false
         if detected.state == .signedIn { message = nil }
         if refreshData { await refresh() }

@@ -178,7 +178,7 @@ final class ShortcutExecutionService: ObservableObject {
         guard runs.removeValue(forKey: runID) != nil else { return }
         let wasCancelled = cancelledRuns.remove(runID) != nil
         if !runs.values.contains(where: { $0.name == name }) { runningNames.remove(name) }
-        // A shortcut the user cancelled reports "Cancelled" even if the child exited non-zero.
+        // A shortcut the user cancelled reports the cancelled status even if the child exited non-zero.
         statusByShortcut[name] = wasCancelled ? ShortcutRunMessages.cancelled() : result
     }
 }

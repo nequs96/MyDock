@@ -460,6 +460,32 @@ struct AuditLaneBClaudeLimitsTests {
         #expect(upgraded.hasPrefix(ClaudeLimitsSetup.marker))
         #expect(ClaudeLimitsSetup.wrappedStatusLine(in: upgraded) == .command("printf 'a'\nprintf 'b'"))
     }
+
+    // Limits sync that is already on moves to the current bridge without Turn Off and Enable; nothing is added while it is off.
+    @Test func upgradeRewritesOnlyAnOlderBridge() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
+        let url = directory.appendingPathComponent("settings.json")
+        try ClaudeLimitsSetup.upgradeIfOutdated(directory: directory)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        let unrelated = Data(#"{"statusLine":{"type":"command","command":"printf 'mine'"}}"#.utf8)
+        try unrelated.write(to: url)
+        try ClaudeLimitsSetup.upgradeIfOutdated(directory: directory)
+        #expect(try Data(contentsOf: url) == unrelated)
+
+        let v1 = "# MyDock limits bridge v1\nif true; then\n  :\nfi\n/bin/sh -c 'printf mine' < \"$input\""
+        try JSONSerialization.data(withJSONObject: ["statusLine": ["type": "command", "command": v1]]).write(to: url)
+        try ClaudeLimitsSetup.upgradeIfOutdated(directory: directory)
+        let status = try #require(try settings(directory)["statusLine"] as? [String: Any])
+        let upgraded = try #require(status["command"] as? String)
+        #expect(upgraded.hasPrefix(ClaudeLimitsSetup.marker))
+        #expect(ClaudeLimitsSetup.wrappedStatusLine(in: upgraded) == .command("printf mine"))
+        #expect(ClaudeLimitsSetup.isEnabled(directory: directory))
+
+        let current = try Data(contentsOf: url)
+        try ClaudeLimitsSetup.upgradeIfOutdated(directory: directory)
+        #expect(try Data(contentsOf: url) == current)
+    }
 }
 
 // MARK: - CLI discovery (S04-010)
