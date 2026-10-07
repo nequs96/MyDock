@@ -279,7 +279,7 @@ struct WidgetTileSurface<Content: View>: View {
             .background {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(accessibility.reduceTransparency
-                          ? AnyShapeStyle(DockDesign.Glass.opaqueFill(scheme))
+                          ? AnyShapeStyle(scheme == .dark ? Color(white: 0.16) : Color(white: 0.96))
                           : AnyShapeStyle(scheme == .dark ? Color.white.opacity(hovered ? 0.10 : 0.065) : Color.white.opacity(hovered ? 0.76 : 0.62)))
             }
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)

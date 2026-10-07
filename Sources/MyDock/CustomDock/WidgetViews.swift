@@ -1466,7 +1466,10 @@ private struct HydrationPopoutView: View {
                                          amount: binding(\.hydrationReminderIntervalMinutes), range: 30...240, step: 15)
                     }
                     if reminderPermissionDenied {
-                        GroupedRow("Open Notification Settings", role: .button) { SystemSettingsPane.open(.notifications) }
+                        GroupedRow("Open Notification Settings", role: .button) {
+                            guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
+                            NSWorkspace.shared.open(url)
+                        }
                     }
                 }
                 GroupedSection("Tracking", footer: configuration.hydrationSaveHistory ? nil : "Turn on history to log drinks.", separatorInset: DockDesign.Grouped.rowHorizontalPadding) {

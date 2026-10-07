@@ -65,7 +65,7 @@ extension SettingsView {
                         _ = WindowAccessibilityService.requestAccessPrompt()
                     }
                 }
-        }.id("Dock items").help("Reads available Apple Dock badge labels through Accessibility; notification contents stay private.")
+        }.id("Dock items").help("Reads available macOS Dock badge labels through Accessibility; notification contents stay private.")
         GroupedSection("Interaction") {
             GroupedRow("Click focused app to minimize", isOn: Binding(get: { store.state.settings.clickFocusedAppToMinimize }, set: { value in store.updateSettings { $0.clickFocusedAppToMinimize = value } }))
                 .onChange(of: store.state.settings.clickFocusedAppToMinimize) { enabled in

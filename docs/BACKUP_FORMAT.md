@@ -26,7 +26,7 @@ Personal preset JSON contains one sanitized Custom Dock profile; imported preset
 
 ## Single-Dock packages and workspaces (PX-5, 5 October 2026)
 
-Export Dock… (Dock editor menu and Settings → General → Saved Docks) writes the same version 1 JSON archive with exactly one profile and an extra `dockPackage` object: `includesPersonalData` and a `summary` of item counts by kind. Older readers ignore the extra key, and Add Docks from Backup… still accepts the file. The export sheet shows the contents first; personal widget data is left out unless "Include personal widget data" is switched on, following the same sanitizer as layout backups. Credentials and provider readings are never included.
+Export Dock… (Dock editor menu and Settings → General → Saved Docks) writes the same version 1 JSON archive with exactly one profile and an extra `dockPackage` object: `includesPersonalData` and a `summary` of item counts by kind. Older readers ignore the extra key, and Restore… still accepts the file. The export sheet shows the contents first; personal widget data is left out unless "Include personal widget data" is switched on, following the same sanitizer as layout backups. Credentials and provider readings are never included.
 
 Import Dock… previews the Dock name, item counts, apps and files missing on this Mac (kept as missing, repairable with Locate…) and business or AI widgets that need a connection on this Mac. It always adds a new Dock with fresh profile and item identities and a unique name, never replaces or activates an existing Dock, and does not trust the package's own summary. A `formatVersion` newer than this build supports is refused with a request to update MyDock; malformed files and multi-Dock backups are refused without changes.
 
