@@ -257,8 +257,9 @@ private struct CalendarCompactWidgetView: View {
                              emptyTitle: empty.title, emptyDetail: empty.detail)
                 .frame(width: contentWidth, height: 54)
         }
-        // One structured refresh per configuration change and per coalesced EventKit, activation or wake signal.
-        .eventKitRefresh(scope: configuration) { await refreshIfAuthorized() }
+        // One structured refresh per change of what is read (not per appearance change) and per coalesced EventKit,
+        // activation or wake signal.
+        .eventKitRefresh(scope: CalendarReadScope(configuration)) { await refreshIfAuthorized() }
         .help(errorMessage ?? "Calendar")
     }
 

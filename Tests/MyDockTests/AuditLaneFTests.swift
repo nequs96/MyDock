@@ -408,7 +408,8 @@ import Testing
         #expect(try decode(#"{"stockRefreshIntervalMinutes":5000}"#).stockRefreshIntervalMinutes == 1_440)
         #expect(try decode(#"{"stockRefreshIntervalMinutes":720}"#).stockRefreshIntervalMinutes == 720)
         #expect(try decode("{}").stockRefreshIntervalMinutes == 360)
-        for minutes in [-5, 0, 59, 61, 100, 1_000, 99_999] {
+        // Extreme values from a damaged file snap like any other instead of overflowing.
+        for minutes in [Int.min, -5, 0, 59, 61, 100, 1_000, 99_999, Int.max] {
             #expect(WidgetConfiguration.stockRefreshIntervalOptions.contains(WidgetConfiguration.snappedStockRefreshInterval(minutes)))
         }
         // AI Activity offers only providers with a local activity source.

@@ -53,8 +53,9 @@ enum AlarmFacePresentation {
         return (0..<7).map { (first - 1 + $0) % 7 + 1 }
     }
 
-    /// The repeat chips: the calendar's very short symbol (distinct in every locale that has one), the full name for
-    /// VoiceOver, in the locale's week order. The stored value stays the Gregorian weekday number.
+    /// The repeat chips: the calendar's very short symbol, as Clock shows it ("S M T W T F S"; one character per day
+    /// in Chinese or Japanese, where a cut short name would repeat), the full name for VoiceOver, in the locale's
+    /// week order. The stored value stays the Gregorian weekday number.
     static func weekdayChips(calendar: Calendar = .current) -> [AlarmWeekdayChip] {
         let letters = calendar.veryShortStandaloneWeekdaySymbols
         let names = calendar.standaloneWeekdaySymbols

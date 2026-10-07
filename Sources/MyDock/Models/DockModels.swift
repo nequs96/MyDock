@@ -583,7 +583,9 @@ struct WidgetConfiguration: Codable, Hashable {
     /// The market update intervals the pickers offer; a decoded value snaps to the nearest so the picker never shows blank.
     static let stockRefreshIntervalOptions = [60, 180, 360, 720, 1_440]
     static func snappedStockRefreshInterval(_ minutes: Int) -> Int {
-        stockRefreshIntervalOptions.min { abs($0 - minutes) < abs($1 - minutes) } ?? 360
+        // Bounded first, so a corrupt extreme value cannot overflow the distance arithmetic.
+        let bounded = min(max(minutes, 0), 10_000)
+        return stockRefreshIntervalOptions.min { abs($0 - bounded) < abs($1 - bounded) } ?? 360
     }
 
     init() {

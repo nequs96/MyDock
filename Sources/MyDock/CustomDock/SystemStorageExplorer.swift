@@ -72,7 +72,9 @@ struct SystemStorageExplorerSection: View {
         scanner.scanFolder(url)
     }
 
+    /// Revealing drives Finder, so isolated validation sessions never do it.
     private func reveal(_ file: StorageScanEntry) {
+        guard AppRuntimeEnvironment.allowsNativeEffects else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: file.path)])
     }
 }

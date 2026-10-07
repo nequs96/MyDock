@@ -14,11 +14,14 @@ private struct EventKitRefreshKey<Value: Equatable>: Equatable {
 extension View {
     /// The one EventKit refresh every Calendar and Reminders view uses: on appear, whenever `scope` changes, once per
     /// coalesced EventKit, activation or wake signal, and every five minutes while visible. It ends with the view.
+    @MainActor
     func eventKitRefresh<Scope: Equatable>(scope: Scope, perform: @escaping @MainActor @Sendable () async -> Void) -> some View {
         modifier(EventKitRefreshModifier(scope: scope, perform: perform))
     }
 }
 
+/// Main-actor isolated explicitly: it reads the main-actor change monitor and refresh scheduler.
+@MainActor
 private struct EventKitRefreshModifier<Scope: Equatable>: ViewModifier {
     var scope: Scope
     var perform: @MainActor @Sendable () async -> Void
