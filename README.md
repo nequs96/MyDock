@@ -71,10 +71,10 @@ Each widget has its own layout and icon style. A popout shows the reading first,
 | Access | Used for | When it is requested |
 |---|---|---|
 | Accessibility | Window lists, minimize and restore, window previews, app badges | Only when you turn on one of those features |
-| Screen Recording | Window thumbnails and the optional desktop freeze during native Dock switches | Only when you turn on a feature that captures; without it, previews fall back to titles or icons |
+| Screen Recording | Window thumbnails and the optional desktop freeze during native Dock switches | Only when you turn on Cache window previews or the desktop freeze; hover previews never ask and show titles without it |
 | Calendar, Reminders, Location | Events, reminders and current-location weather | When the widget first needs them; city search needs no Location |
 | Automation | Music and Spotify in Now Playing; Finder for Empty Trash | When a player is queried, or after you confirm Empty Trash |
-| Network | Weather, market and business data, AI quota readers, site icons | Only for the widget or action named; nothing about your Docks is uploaded |
+| Network | Weather, market and business data, GitHub Copilot usage, site icons | Only for the widget or action named; nothing about your Docks is uploaded |
 
 Backups and Dock packages never contain credentials, and diagnostics exports are redacted. See the [permissions guide](docs/PERMISSIONS.md) and the [backup format](docs/BACKUP_FORMAT.md).
 

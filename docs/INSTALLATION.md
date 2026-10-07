@@ -1,6 +1,6 @@
 # Installing a local MyDock build
 
-MyDock currently ships as an ad-hoc signed development bundle. It is not Developer ID signed or notarized. Manual release discovery and Launch at Login are implemented; their installed/signed acceptance is pending.
+MyDock currently ships as an ad-hoc signed development bundle. It is not Developer ID signed or notarized. Manual release discovery and **Launch at login** are implemented; their installed/signed acceptance is pending.
 
 ## Build and launch
 

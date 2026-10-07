@@ -37,6 +37,13 @@ class ReadmeWidgetTableTests(unittest.TestCase):
         self.assertGreater(sum(len(names) for names in registry.values()), 30)
         self.assertEqual(readme_families(), registry)
 
+    def test_stated_family_count_matches_registry(self):
+        """A count written in the README prose (for example in Highlights) must stay true."""
+        total = sum(len(names) for names in registry_families().values())
+        text = (ROOT / "README.md").read_text()
+        for stated in re.findall(r"\b(\d+) widget families\b", text):
+            self.assertEqual(int(stated), total, "README states a stale widget family count")
+
 
 if __name__ == "__main__":
     unittest.main()

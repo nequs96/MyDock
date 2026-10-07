@@ -312,7 +312,8 @@ struct DockAuditRegressionTests {
         defer { observation.cancel() }
         // The first refresh owns the request; the second joins it while the loader is held.
         let a = Task { await coordinator.refresh(item: first, profileID: id) }
-        await gate.waitForStart()
+        let started = await gate.waitForStart()
+        #expect(started)
         let b = Task { await coordinator.refresh(item: second, profileID: id) }
         await Task.yield()
         await gate.release()

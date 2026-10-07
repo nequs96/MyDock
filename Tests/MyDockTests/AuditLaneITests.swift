@@ -3,22 +3,35 @@ import Testing
 @testable import MyDock
 
 /// Holds an injected loader until the test releases it, so a test can order concurrent work
-/// without sleeping. `waitForStart` returns once `hold` has been entered.
+/// without sleeping. Every holder is released together and a hold after `release` returns at once,
+/// so a regression that calls the loader twice fails its assertions instead of hanging the run.
 actor AuditLaneIGate {
     private var started = false
-    private var onStart: CheckedContinuation<Void, Never>?
-    private var onRelease: CheckedContinuation<Void, Never>?
     private var released = false
-    func waitForStart() async {
-        if started { return }
-        await withCheckedContinuation { onStart = $0 }
+    private var holders: [CheckedContinuation<Void, Never>] = []
+
+    /// True once `hold` has been entered; false after `timeout` if the loader never ran.
+    func waitForStart(timeout: Duration = .seconds(10)) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !started {
+            guard ContinuousClock.now < deadline else { return false }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return true
     }
+
     func hold() async {
-        started = true; onStart?.resume(); onStart = nil
+        started = true
         if released { return }
-        await withCheckedContinuation { onRelease = $0 }
+        await withCheckedContinuation { holders.append($0) }
     }
-    func release() { released = true; onRelease?.resume(); onRelease = nil }
+
+    func release() {
+        released = true
+        let waiting = holders
+        holders = []
+        for holder in waiting { holder.resume() }
+    }
 }
 
 @Suite struct AuditLaneITests {
@@ -26,7 +39,24 @@ actor AuditLaneIGate {
         let gate = AuditLaneIGate()
         await gate.release()
         await gate.hold()
-        await gate.waitForStart()
+        let started = await gate.waitForStart()
+        #expect(started)
+    }
+
+    @Test func gateReleasesEveryHolder() async {
+        let gate = AuditLaneIGate()
+        let first = Task { await gate.hold() }
+        let second = Task { await gate.hold() }
+        let started = await gate.waitForStart()
+        #expect(started)
+        await gate.release()
+        await first.value
+        await second.value
+    }
+
+    @Test func gateReportsALoaderThatNeverStarts() async {
+        let started = await AuditLaneIGate().waitForStart(timeout: .milliseconds(20))
+        #expect(!started)
     }
 }
 

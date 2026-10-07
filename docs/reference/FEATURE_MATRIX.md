@@ -1,6 +1,6 @@
 # MyDock feature matrix
 
-Current build and test evidence: see [RELEASE_AUDIT.md](../RELEASE_AUDIT.md); open acceptance is in [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md). This capability matrix retains narrower provider and OS limitations, and is the one per-feature status table. Its research baseline and row statuses date from 24–30 September 2026 unless a row says otherwise (dated, 30 Sep 2026).
+Current build and test evidence: see [RELEASE_AUDIT.md](../RELEASE_AUDIT.md); open acceptance is in [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md). This capability matrix retains narrower provider and OS limitations, and is the one per-feature status table. Its research baseline and row statuses date from 24–30 September 2026 unless a row says otherwise.
 
 
 Research baseline: Dockset's public site, manual, and changelog as published on September 24, 2026. The target snapshot is v0.2.6 (September 22, 2026). The links below identify the primary reference page; detailed widget behavior not present in the public manual is sourced from the user's master prompt and is labelled accordingly rather than presented as Dockset documentation.
