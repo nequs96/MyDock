@@ -86,12 +86,8 @@ struct AIAccountTests {
         try FileManager.default.removeItem(at: settings)
         try valid.write(to: target)
         try FileManager.default.createSymbolicLink(at: settings, withDestinationURL: target)
-        do {
-            try ClaudeLimitsSetup.enable(directory: directory)
-            Issue.record("Enable Limits wrote through a symlinked settings file")
-        } catch let error as CocoaError {
-            #expect(error.code == .fileReadCorruptFile)
-        }
+        // A linked settings file is refused with its own explanation, never written through.
+        #expect(throws: ClaudeLimitsSetupError.symlinkedSettings) { try ClaudeLimitsSetup.enable(directory: directory) }
         #expect(try Data(contentsOf: target) == valid)
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: settings.path) == target.path)
         let backups = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasPrefix("settings.before-mydock-") }
