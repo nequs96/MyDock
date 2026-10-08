@@ -97,8 +97,13 @@ struct FX03Tests {
         draft.update { $0.name = "   " }
         edits.set(draft, for: profileID)
         let undo = UndoManager()
-        #expect(throws: ProfileDraftMergeError.self) {
+        // A missing name is a plain save failure (never a merge conflict), raised before the store changes.
+        do {
             try WidgetSheetRemoval.remove(itemID: items[2].id, profileID: profileID, store: store, undoManager: undo)
+            Issue.record("A removal from a Dock without a name must not save")
+        } catch {
+            #expect(error is EditSessionSaveError)
+            #expect(error.localizedDescription == EditSessionSaveError.missingName)
         }
         #expect(!undo.canUndo)
         #expect(!WidgetSheetRemoval.hasPendingRemoval(itemID: items[2].id))
