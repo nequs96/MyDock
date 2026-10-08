@@ -8,6 +8,12 @@ struct ProfileLibraryEntry: Codable, Identifiable {
     var profile: DockProfile
 }
 
+/// One library entry, or nil when that entry alone no longer decodes, so the rest of the array still loads.
+private struct LenientProfileLibraryEntry: Decodable {
+    let entry: ProfileLibraryEntry?
+    init(from decoder: Decoder) throws { entry = try? ProfileLibraryEntry(from: decoder) }
+}
+
 @MainActor
 final class ProfileLibrary: ObservableObject {
     @Published private(set) var entries: [ProfileLibraryEntry] = []
@@ -32,9 +38,11 @@ final class ProfileLibrary: ObservableObject {
         do {
             let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
             guard size <= Self.maximumBytes else { throw ProfileValidationError.invalid("profile library is too large") }
-            let decoded = try JSONDecoder().decode([ProfileLibraryEntry].self, from: Data(contentsOf: fileURL))
+            // Decoded one entry at a time: decoding already validates widget settings, so one entry a newer validator
+            // rejects would otherwise fail the whole array and set every other snapshot aside with it.
+            let decoded = try JSONDecoder().decode([LenientProfileLibraryEntry].self, from: Data(contentsOf: fileURL))
             // An entry a newer validator rejects is dropped on its own; the rest of the library stays usable.
-            entries = decoded.filter { (try? ProfileSemanticValidator.validate([$0.profile])) != nil }
+            entries = decoded.compactMap(\.entry).filter { (try? ProfileSemanticValidator.validate([$0.profile])) != nil }
             trim()
             if entries.count != decoded.count { persist() }
         } catch {
