@@ -296,16 +296,18 @@ enum BoundedSubprocessCapture {
                                             process: processBox,
                                             deadline: deadline,
                                             cancellationState: cancellationState)
+        // Each pipe is drained on its own thread rather than a shared dispatch queue: when the shared pool is busy,
+        // a queued reader could wait behind its own caller, and the call would never return.
         let readers = DispatchGroup()
-        readers.enter()
-        DispatchQueue.global(qos: .utility).async {
-            defer { readers.leave() }
-            outputReader.drain()
-        }
-        readers.enter()
-        DispatchQueue.global(qos: .utility).async {
-            defer { readers.leave() }
-            errorReader.drain()
+        for reader in [outputReader, errorReader] {
+            readers.enter()
+            let thread = Thread {
+                reader.drain()
+                readers.leave()
+            }
+            thread.name = "app.mydock.subprocess-reader"
+            thread.qualityOfService = .utility
+            thread.start()
         }
 
         let timedOut = LockedFlag()
