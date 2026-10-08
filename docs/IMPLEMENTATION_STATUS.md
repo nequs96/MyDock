@@ -1,6 +1,12 @@
 # MyDock implementation and acceptance status
 
-## Redesign — 5 October 2026 (current)
+## Full audit — 5–8 October 2026 (current)
+
+Every file was audited; 505 of 527 findings are resolved and 22 are deferred with a plan ([report](history/FULL_AUDIT_2026-10-07.md)). CI at `d2c9500`: **1,104 tests in 119 suites** passed on arm64 and Intel, and the full Xcode Release build succeeded.
+
+**Open:** the 22 deferred findings (mostly large file splits and refactors, plus three checks that need a Mac) and the report's manual checks, together with everything under [Open acceptance](#open-acceptance).
+
+## Redesign — 5 October 2026
 
 The authorized redesign is implemented. It covers widget visuals, widget settings and customization, app settings, Dock appearance and the Add Item window:
 - RD-01–RD-11;

@@ -24,6 +24,10 @@ Recorded on **5 October 2026** after the redesign (RD-01–RD-11, fix waves FX-0
   - **System Activity detail:** optional Network and Storage sections.
   - **What's New, Help and keyboard shortcuts.**
 
+## Full audit (5–8 October 2026)
+
+A bottom-to-top audit read every source file, test, script, workflow and document and found 527 issues (3 P0, 34 P1, 215 P2, 275 P3). 505 are resolved (499 fixed, 6 already fixed); 22 are deferred with a plan. The [full audit report](history/FULL_AUDIT_2026-10-07.md) lists every finding with its outcome and commit, the CI history of the merge, and 161 manual checks the fixes need on a Mac. Integration also fixed a process-wide deadlock in subprocess capture and a library decode that discarded every entry for one invalid one.
+
 ## Current verification
 
 Evidence comes from two sources. **Native Mac evidence** comes from the orchestrator's Mac session. **CI evidence** comes from GitHub Actions `Validate MyDock` on macOS 26 runners. Work after FX-09 was done in a cloud session without a Swift toolchain, so its only compile and test evidence is CI.
@@ -38,8 +42,9 @@ Evidence comes from two sources. **Native Mac evidence** comes from the orchestr
 | Static review of `cec6394..3a0dd69` | Opus reviewer | SAFE: no compile, test or behaviour regressions found; all 37 changed files parse |
 | `Validate MyDock` at `5dfccf1` (product wave PX-1–PX-8 and review fixes) | CI, 5 Oct | **Both macOS 26 jobs green end to end, arm64 and Intel:** **829 tests in 93 suites passed**; Python tooling 11 OK; universal release build and bundle check OK; full Xcode Release build succeeded with `Metadata.appintents`. 10 distinct compiler warnings remain (5 in app code, 5 in tests), tracked by the full audit. Run `37360809236`. |
 | Opus review of the product wave (`05ff855..787b7b9`) | Opus reviewer | SAFE, with fixes applied: shared exports start without personal data; workspace start does not switch Docks unless chosen; account and store IDs never travel in packages; audio alerts keep their own device; no system-wide key listener. |
+| `Validate MyDock` at `d2c9500` (full audit, all lanes merged) | CI, 8 Oct | **Both macOS 26 jobs green end to end, arm64 and Intel:** **1,104 tests in 119 suites passed**; Python tooling 25 OK; universal release build and bundle check OK; full Xcode Release build succeeded. Run `37739188704`. |
 
-**The canonical `build/MyDock.app` predates FX-08 onward.** It must be rebuilt on the Mac, and the render matrix re-run, before this baseline counts as natively verified.
+**The canonical `build/MyDock.app` predates FX-08 onward and the full audit.** It must be rebuilt on the Mac, and the render matrix re-run, before this baseline counts as natively verified.
 
 ## Not verified
 
