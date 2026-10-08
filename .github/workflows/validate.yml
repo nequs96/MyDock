@@ -32,7 +32,25 @@ jobs:
         shell: bash
         run: |
           mkdir -p .build
-          ./TestMyDock.sh 2>&1 | tee .build/test.log
+          # A watchdog: if the tests have not finished after 25 minutes, record every thread's stack, then stop them.
+          ./TestMyDock.sh > .build/test.log 2>&1 &
+          TESTS=$!
+          tail -f .build/test.log --pid=$TESTS 2>/dev/null || tail -f .build/test.log &
+          TAIL=$!
+          for _ in $(seq 1 1500); do kill -0 $TESTS 2>/dev/null || break; sleep 1; done
+          if kill -0 $TESTS 2>/dev/null; then
+            echo "::error::Tests still running after 25 minutes; sampling the test processes."
+            for pid in $(pgrep -f 'swiftpm-testing-helper|MyDockPackageTests'); do
+              sample "$pid" 3 -file ".build/hang-$pid.txt" >/dev/null 2>&1 || true
+              echo "===== stacks of $pid"; grep -E 'Thread_|^ +[+!:| ]*[0-9]+ ' ".build/hang-$pid.txt" | grep -E 'Thread_|MyDock|Test' | head -150
+            done
+            pkill -f 'swiftpm-testing-helper|MyDockPackageTests' || true
+            kill $TESTS 2>/dev/null || true
+            kill $TAIL 2>/dev/null || true
+            exit 1
+          fi
+          kill $TAIL 2>/dev/null || true
+          wait $TESTS
       - name: Report compiler errors and crashes
         if: failure()
         shell: bash
