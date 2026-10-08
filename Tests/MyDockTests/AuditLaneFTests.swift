@@ -514,16 +514,12 @@ import Testing
 
     // MARK: Helpers
 
-    @MainActor private func waitUntil(timeout: Duration = .seconds(5), _ condition: @MainActor () -> Bool) async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while !condition() {
-            guard clock.now < deadline else {
-                Issue.record("Condition not met before the deadline")
-                return
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+    /// Polls within a `PollBudget`. These tests share the main actor with hundreds of others, so a wall-clock deadline
+    /// alone could expire while the monitor's main-actor work was still waiting for its turn.
+    @MainActor private func waitUntil(_ condition: @MainActor () -> Bool) async throws {
+        var budget = PollBudget()
+        while !condition(), try await budget.wait() {}
+        try #require(condition(), "Condition not met within the poll budget")
     }
 }
 

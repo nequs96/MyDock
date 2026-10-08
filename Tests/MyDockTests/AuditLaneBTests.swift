@@ -857,8 +857,8 @@ struct AuditLaneBShortcutTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: command.path)
         let service = ShortcutExecutionService(commandURL: command, requiresNativeEffects: false)
         try service.run("-Morning")
-        let deadline = Date().addingTimeInterval(6)
-        while service.isRunning("-Morning"), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        // A poll budget, not a wall-clock deadline: the run finishes on the shared, busy main actor.
+        try await pollUntil { !service.isRunning("-Morning") }
         #expect(service.statusByShortcut["-Morning"] == ShortcutRunMessages.completed())
     }
 
